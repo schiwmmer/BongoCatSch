@@ -540,5 +540,26 @@
         "unsupported_build": "Running at startup is unavailable in development builds"
       }
     }
+  },
+  "stats": {
+    "hud": {
+      "level": "Lv.%{level} %{title}",
+      "progress": "%{total} interactions · %{remaining} to level up",
+      "total": "%{total} interactions"
+    },
+    "level": {
+      "title": {
+        "1": "Couch Kitten",
+        "2": "Curious Cat",
+        "3": "Desk Cat",
+        "4": "Keyboard Slayer",
+        "5": "Desk Ruler",
+        "6": "Grind Cat",
+        "7": "Input Master",
+        "8": "Legendary Cat",
+        "9": "Mythic Cat",
+        "10": "Perpetual Cat"
+      }
+    }
   }
 }

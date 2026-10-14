@@ -931,6 +931,11 @@ fn run_input_worker(
         // set, the single source of truth for whether the key is down now.
         caps_lock_trigger.sync(&candidates, Instant::now());
 
+        // The stats flush carries its own 30s throttle, so calling it on
+        // every slice costs one instant read and keeps the persisted totals
+        // at most one interval behind the session.
+        crate::interaction_stats::flush_if_due();
+
         if caps_lock_trigger.take_due(Instant::now()) {
             match release_caps_lock_trigger(
                 &producer,
@@ -1002,6 +1007,9 @@ fn run_input_worker(
 
     accepting.store(false, Ordering::Release);
     workspace_observer.close_sink();
+    // The last write before the service stops: every exit path passes through
+    // this shutdown sequence, so unflushed deltas survive a normal quit.
+    crate::interaction_stats::flush_now();
     CGEvent::tap_enable(&tap, false);
     run_loop.remove_source(Some(&source), Some(mode));
     let gamepad_shutdown = gamepad.shutdown();
@@ -1384,6 +1392,19 @@ fn publish_captured(
             })?;
             match edge {
                 InputEdge::Down => {
+                    // One accepted key or mouse down is one interaction. The
+                    // candidate set is the same "is this control already
+                    // down" source the runtime's duplicate-down check uses,
+                    // so an auto-repeat stream counts once per physical
+                    // press, and gamepad buttons stay out of the keyboard and
+                    // mouse totals.
+                    if !candidates.contains_key(&control) {
+                        match control {
+                            InputControl::Key(_) => crate::interaction_stats::record_key(),
+                            InputControl::Mouse(_) => crate::interaction_stats::record_mouse(),
+                            InputControl::Gamepad(_) => {}
+                        }
+                    }
                     candidates.insert(control, system);
                     missing_confirmations.remove(&control);
                 }

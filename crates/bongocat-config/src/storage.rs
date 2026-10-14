@@ -38,6 +38,12 @@ pub struct StorageLayout {
     /// (`<id>/resources/cover.png`), so the settings page reads a cover the
     /// same way whichever origin it came from.
     pub model_overrides: PathBuf,
+    /// The lifetime interaction counters (one file, one document).
+    ///
+    /// It is deliberately not a `config.json` field: the interaction history
+    /// must survive the configuration's backup-recovery path untouched, so it
+    /// lives beside it as its own document.
+    pub interaction_stats: PathBuf,
     pub backups: PathBuf,
     pub logs: PathBuf,
     pub updates: PathBuf,
@@ -56,6 +62,7 @@ impl StorageLayout {
             window_state: root.join(WINDOW_STATE_FILE_NAME),
             models: root.join("models"),
             model_overrides: root.join("model-overrides"),
+            interaction_stats: root.join("interaction-stats.json"),
             backups: root.join("backups"),
             logs: root.join("logs"),
             updates: root.join("updates"),

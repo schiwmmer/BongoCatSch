@@ -909,6 +909,7 @@ name = "bongocat-overlay"
 version = "2.3.1"
 dependencies = [
  "block2 0.6.2",
+ "bongocat-i18n",
  "bongocat-input",
  "bongocat-model",
  "bongocat-platform",
@@ -952,6 +953,7 @@ dependencies = [
  "bongocat-config",
  "bongocat-input",
  "bongocat-runtime",
+ "bongocat-storage",
  "dispatch2",
  "gilrs",
  "global-hotkey",
@@ -967,6 +969,8 @@ dependencies = [
  "permission-flow",
  "raw-window-handle",
  "rfd",
+ "serde",
+ "serde_json",
  "sys-locale",
  "tempfile",
  "thiserror 2.0.21",

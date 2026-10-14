@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### ✨ Features
+
+- macOS interaction stats and levels: hovering the model window shows a small panel underneath with the current level and lifetime interaction count. One keyboard or mouse press is one interaction, and the level grows with the lifetime total.
+
 ## 2.3.1 - 2026-10-13
 
 ### 🐛 Bug Fixes

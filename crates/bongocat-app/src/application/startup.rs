@@ -67,6 +67,10 @@ impl Application {
         enable_rendering: bool,
         system_language: Language,
     ) -> Result<Self, ApplicationError> {
+        // The interaction counters load their persisted document before the
+        // input service can start recording: the first `init` call wins, so
+        // this is the one point the storage layout can hand the path over.
+        bongocat_platform::interaction_stats_init(layout.interaction_stats.clone());
         // Install the app-owned sink before opening user-data stores so their
         // bounded failures are observable. Historical cleanup stays deferred
         // until the persisted logging policy has been loaded.

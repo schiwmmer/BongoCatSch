@@ -540,5 +540,26 @@
         "unsupported_build": "Tính năng tự động khởi động không khả dụng trong bản dựng phát triển"
       }
     }
+  },
+  "stats": {
+    "hud": {
+      "level": "Lv.%{level} %{title}",
+      "progress": "Tổng %{total} lần · còn %{remaining} lần để lên cấp",
+      "total": "Tổng %{total} lần"
+    },
+    "level": {
+      "title": {
+        "1": "Mèo con nằm",
+        "2": "Mèo tò mò",
+        "3": "Mèo văn phòng",
+        "4": "Sát thủ bàn phím",
+        "5": "Bá chủ bàn làm việc",
+        "6": "Mèo chăm chỉ",
+        "7": "Cao thủ bàn phím",
+        "8": "Mèo huyền thoại",
+        "9": "Mèo thần thoại",
+        "10": "Mèo vĩnh cửu"
+      }
+    }
   }
 }

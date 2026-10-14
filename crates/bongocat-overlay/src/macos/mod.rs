@@ -8,6 +8,7 @@
 
 mod cover_capture;
 mod geometry;
+mod hud;
 mod pipelines;
 mod renderer;
 mod resize_monitor;
@@ -22,6 +23,7 @@ mod textures;
 // module would be the same list eight times.
 pub(crate) use cover_capture::*;
 pub(crate) use geometry::*;
+pub(crate) use hud::*;
 pub(crate) use pipelines::*;
 pub(crate) use renderer::*;
 pub(crate) use resize_monitor::*;
@@ -81,8 +83,9 @@ use objc2::{
 };
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSColor, NSEvent,
-    NSEventMask, NSNormalWindowLevel, NSPanel, NSScreen, NSStatusWindowLevel, NSView,
-    NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowLevel, NSWindowStyleMask,
+    NSEventMask, NSFont, NSNormalWindowLevel, NSPanel, NSScreen, NSStatusWindowLevel, NSTextField,
+    NSView, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowLevel,
+    NSWindowStyleMask,
 };
 use objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSPoint, NSRect, NSSize};
 use objc2_quartz_core::CAMetalLayer as ObjcMetalLayer;

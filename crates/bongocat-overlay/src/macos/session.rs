@@ -31,6 +31,11 @@ pub(crate) struct ProductOverlaySession {
     pub(crate) resize_sender: Option<SyncSender<OverlayResizeOutcome>>,
     pub(crate) right_button_monitor: Option<RightButtonMonitor>,
     pub(crate) hover: PointerHoverHide,
+    /// The hover stats panel under the cat. It shares the session's frame
+    /// tick: the same pointer hit-test that drives the hover hide decides
+    /// when the HUD shows, so the two surfaces can never disagree about
+    /// whether the pointer is on the cat.
+    pub(crate) stats_hud: Option<StatsHud>,
     /// Inactivity hide shares the session's frame tick and the hover hide's
     /// fade window: both are temporary presentation states layered on the
     /// same alpha channel, and the pointer routing treats either one as
@@ -131,6 +136,10 @@ impl ProductOverlaySession {
             context_menu_sender.clone(),
             resize_sender.clone(),
         );
+        // The HUD is presentation-only: a panel that cannot be created
+        // degrades to no HUD, and the cat, the counters and the input
+        // service keep working without it.
+        let stats_hud = StatsHud::create(mtm, &stats_hud_text()).ok();
         Ok(Self {
             application,
             overlay,
@@ -153,6 +162,7 @@ impl ProductOverlaySession {
             resize_sender,
             right_button_monitor: context_menu_monitor,
             hover: PointerHoverHide::default(),
+            stats_hud,
             idle: IdleHide::default(),
             placement: OverlayPlacementConstraint::default(),
             session_started: Instant::now(),
@@ -545,6 +555,22 @@ impl ProductOverlaySession {
             alpha,
             (options.click_through && !held) || self.hover.hidden() || self.idle.hidden(),
         );
+        // The stats HUD shares the hit test above: the pointer resting on the
+        // cat (and the session actually presenting the cat) is what raises it.
+        // The text refreshes only when a counter changed, so an idle hover
+        // costs one bounds comparison per frame. The visibility flag comes
+        // from the client's snapshot slot rather than an eighth argument.
+        let hud_allowed =
+            pointer_inside && input_running && self.runtime_client.snapshot().overlay_visible;
+        if let Some(hud) = self.stats_hud.as_mut() {
+            if hud_allowed {
+                let screens = screen_bounds_all(mtm).unwrap_or_default();
+                hud.set_text(&stats_hud_text());
+                hud.show_below(bounds, &screens);
+            } else {
+                hud.hide();
+            }
+        }
         Ok(())
     }
 

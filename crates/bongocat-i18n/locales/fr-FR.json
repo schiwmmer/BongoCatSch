@@ -540,5 +540,26 @@
         "unsupported_build": "Le lancement au démarrage n’est pas disponible dans les versions de développement"
       }
     }
+  },
+  "stats": {
+    "hud": {
+      "level": "Niv.%{level} %{title}",
+      "progress": "%{total} interactions · encore %{remaining} pour monter de niveau",
+      "total": "%{total} interactions"
+    },
+    "level": {
+      "title": {
+        "1": "Chaton couché",
+        "2": "Chat curieux",
+        "3": "Chat de bureau",
+        "4": "Tueur de clavier",
+        "5": "Maître du bureau",
+        "6": "Chat acharné",
+        "7": "Maître du clavier",
+        "8": "Chat légendaire",
+        "9": "Chat mythique",
+        "10": "Chat perpétuel"
+      }
+    }
   }
 }

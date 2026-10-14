@@ -540,5 +540,26 @@
         "unsupported_build": "A inicialização automática não está disponível em builds de desenvolvimento"
       }
     }
+  },
+  "stats": {
+    "hud": {
+      "level": "Nv.%{level} %{title}",
+      "progress": "%{total} interações · faltam %{remaining} para subir de nível",
+      "total": "%{total} interações"
+    },
+    "level": {
+      "title": {
+        "1": "Gatinho deitado",
+        "2": "Gato curioso",
+        "3": "Gato de mesa",
+        "4": "Matador de teclado",
+        "5": "Dono da mesa",
+        "6": "Gato esforçado",
+        "7": "Mestre do teclado",
+        "8": "Gato lendário",
+        "9": "Gato mítico",
+        "10": "Gato perpétuo"
+      }
+    }
   }
 }
