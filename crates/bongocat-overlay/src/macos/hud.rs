@@ -31,7 +31,7 @@ const HUD_GAP: f64 = 8.0;
 const HUD_CORNER_RADIUS: f64 = 10.0;
 /// The HUD never gets narrower than this, so a short level line still reads
 /// as a small panel rather than a sliver.
-const HUD_MINIMUM_WIDTH: f64 = 96.0;
+const HUD_MINIMUM_WIDTH: f64 = 150.0;
 /// The upgrade progress bar sits under the text: its height and the gap
 /// above it.
 const HUD_BAR_HEIGHT: f64 = 6.0;
@@ -233,34 +233,144 @@ pub(crate) fn stats_hud_status() -> (String, f64) {
     hud_status(stats_hud_locale())
 }
 
-/// The level title keys spelled out in full. The i18n catalog coverage test
+/// The stage title keys spelled out in full. The i18n catalog coverage test
 /// requires every key the source asks for to appear as a literal, and the
-/// title number is the only varying part, so the ten titles are a table
+/// stage number is the only varying part, so the hundred stages are a table
 /// rather than a `format!` composition.
-const LEVEL_TITLE_KEYS: [&str; 10] = [
-    "stats.level.title.1",
-    "stats.level.title.2",
-    "stats.level.title.3",
-    "stats.level.title.4",
-    "stats.level.title.5",
-    "stats.level.title.6",
-    "stats.level.title.7",
-    "stats.level.title.8",
-    "stats.level.title.9",
-    "stats.level.title.10",
+const STAGE_TITLE_KEYS: [&str; 100] = [
+    "stats.stage.title.1",
+    "stats.stage.title.2",
+    "stats.stage.title.3",
+    "stats.stage.title.4",
+    "stats.stage.title.5",
+    "stats.stage.title.6",
+    "stats.stage.title.7",
+    "stats.stage.title.8",
+    "stats.stage.title.9",
+    "stats.stage.title.10",
+    "stats.stage.title.11",
+    "stats.stage.title.12",
+    "stats.stage.title.13",
+    "stats.stage.title.14",
+    "stats.stage.title.15",
+    "stats.stage.title.16",
+    "stats.stage.title.17",
+    "stats.stage.title.18",
+    "stats.stage.title.19",
+    "stats.stage.title.20",
+    "stats.stage.title.21",
+    "stats.stage.title.22",
+    "stats.stage.title.23",
+    "stats.stage.title.24",
+    "stats.stage.title.25",
+    "stats.stage.title.26",
+    "stats.stage.title.27",
+    "stats.stage.title.28",
+    "stats.stage.title.29",
+    "stats.stage.title.30",
+    "stats.stage.title.31",
+    "stats.stage.title.32",
+    "stats.stage.title.33",
+    "stats.stage.title.34",
+    "stats.stage.title.35",
+    "stats.stage.title.36",
+    "stats.stage.title.37",
+    "stats.stage.title.38",
+    "stats.stage.title.39",
+    "stats.stage.title.40",
+    "stats.stage.title.41",
+    "stats.stage.title.42",
+    "stats.stage.title.43",
+    "stats.stage.title.44",
+    "stats.stage.title.45",
+    "stats.stage.title.46",
+    "stats.stage.title.47",
+    "stats.stage.title.48",
+    "stats.stage.title.49",
+    "stats.stage.title.50",
+    "stats.stage.title.51",
+    "stats.stage.title.52",
+    "stats.stage.title.53",
+    "stats.stage.title.54",
+    "stats.stage.title.55",
+    "stats.stage.title.56",
+    "stats.stage.title.57",
+    "stats.stage.title.58",
+    "stats.stage.title.59",
+    "stats.stage.title.60",
+    "stats.stage.title.61",
+    "stats.stage.title.62",
+    "stats.stage.title.63",
+    "stats.stage.title.64",
+    "stats.stage.title.65",
+    "stats.stage.title.66",
+    "stats.stage.title.67",
+    "stats.stage.title.68",
+    "stats.stage.title.69",
+    "stats.stage.title.70",
+    "stats.stage.title.71",
+    "stats.stage.title.72",
+    "stats.stage.title.73",
+    "stats.stage.title.74",
+    "stats.stage.title.75",
+    "stats.stage.title.76",
+    "stats.stage.title.77",
+    "stats.stage.title.78",
+    "stats.stage.title.79",
+    "stats.stage.title.80",
+    "stats.stage.title.81",
+    "stats.stage.title.82",
+    "stats.stage.title.83",
+    "stats.stage.title.84",
+    "stats.stage.title.85",
+    "stats.stage.title.86",
+    "stats.stage.title.87",
+    "stats.stage.title.88",
+    "stats.stage.title.89",
+    "stats.stage.title.90",
+    "stats.stage.title.91",
+    "stats.stage.title.92",
+    "stats.stage.title.93",
+    "stats.stage.title.94",
+    "stats.stage.title.95",
+    "stats.stage.title.96",
+    "stats.stage.title.97",
+    "stats.stage.title.98",
+    "stats.stage.title.99",
+    "stats.stage.title.100",
 ];
 
-/// The ten titles track the historic pacing: the first hundred levels are
-/// the original ten-level journey stretched tenfold, so a title changes
-/// every ten levels and the old cap (level 100, 200,000 interactions)
-/// reaches the last one; the endgame levels beyond it keep that title.
-fn title_key_for_level(level: u16) -> &'static str {
-    let tier = if level <= 100 {
-        usize::from(level).div_ceil(10)
-    } else {
-        LEVEL_TITLE_KEYS.len()
-    };
-    LEVEL_TITLE_KEYS[(tier - 1).min(LEVEL_TITLE_KEYS.len() - 1)]
+/// The ten tier suffixes inside a stage: one per level, so a stage's ten
+/// levels never share a name.
+const TIER_KEYS: [&str; 10] = [
+    "stats.stage.tier.1",
+    "stats.stage.tier.2",
+    "stats.stage.tier.3",
+    "stats.stage.tier.4",
+    "stats.stage.tier.5",
+    "stats.stage.tier.6",
+    "stats.stage.tier.7",
+    "stats.stage.tier.8",
+    "stats.stage.tier.9",
+    "stats.stage.tier.10",
+];
+
+/// Every level carries its own name. The thousand levels are a hundred stages
+/// of ten tiers each — level `n` is stage `(n - 1) / 10 + 1` at tier
+/// `(n - 1) % 10 + 1` — so the full table has a thousand distinct names, and
+/// the two keys are composed through the catalog's title template, which owns
+/// the separator (`·` in Chinese, a space elsewhere).
+fn title_for_level(locale: &str, level: u16) -> String {
+    let index = usize::from(level.saturating_sub(1));
+    let stage = STAGE_TITLE_KEYS[(index / 10).min(STAGE_TITLE_KEYS.len() - 1)];
+    let tier = TIER_KEYS[(index % 10).min(TIER_KEYS.len() - 1)];
+    let stage_text = bongocat_i18n::format_text(locale, stage, &[]);
+    let tier_text = bongocat_i18n::format_text(locale, tier, &[]);
+    bongocat_i18n::format_text(
+        locale,
+        "stats.hud.title",
+        &[("stage", stage_text), ("tier", tier_text)],
+    )
 }
 
 /// The HUD contents for the current totals: the level line, then either the
@@ -269,8 +379,7 @@ fn title_key_for_level(level: u16) -> &'static str {
 pub(crate) fn hud_status(locale: &str) -> (String, f64) {
     let (_key, _mouse, total) = bongocat_platform::interaction_totals();
     let level = bongocat_platform::level_for(total);
-    let title_key = title_key_for_level(level.level);
-    let title = bongocat_i18n::format_text(locale, title_key, &[]);
+    let title = title_for_level(locale, level.level);
     let mut text = bongocat_i18n::format_text(
         locale,
         "stats.hud.level",
@@ -349,17 +458,20 @@ mod tests {
         assert!((0.0..=1.0).contains(&progress));
     }
 
-    /// The first hundred levels replay the original ten-title journey a
-    /// title every ten levels; the endgame beyond the old cap keeps the
-    /// last title.
+    /// Every one of the thousand levels carries a distinct name: the stage
+    /// changes every ten levels and the tier every level inside a stage, so
+    /// the whole table is free of repeats, and both ends are pinned to the
+    /// English catalog.
     #[test]
-    fn title_tiers_follow_the_historic_pacing() {
-        assert_eq!(title_key_for_level(1), "stats.level.title.1");
-        assert_eq!(title_key_for_level(10), "stats.level.title.1");
-        assert_eq!(title_key_for_level(11), "stats.level.title.2");
-        assert_eq!(title_key_for_level(100), "stats.level.title.10");
-        assert_eq!(title_key_for_level(500), "stats.level.title.10");
-        assert_eq!(title_key_for_level(1000), "stats.level.title.10");
+    fn every_level_has_a_unique_name() {
+        let mut names = std::collections::BTreeSet::new();
+        for level in 1..=bongocat_platform::MAX_LEVEL {
+            let name = title_for_level("en-US", level);
+            assert!(names.insert(name.clone()), "level {level} repeats a name");
+        }
+        assert_eq!(names.len(), usize::from(bongocat_platform::MAX_LEVEL));
+        assert_eq!(title_for_level("en-US", 1), "Curled Up Tier 1");
+        assert_eq!(title_for_level("en-US", 1000), "Perpetual Cat Tier 10");
     }
 
     #[test]
