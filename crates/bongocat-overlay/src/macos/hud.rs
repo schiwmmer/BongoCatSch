@@ -250,11 +250,17 @@ const LEVEL_TITLE_KEYS: [&str; 10] = [
     "stats.level.title.10",
 ];
 
-/// The ten titles spread across the thousand levels: every hundred levels
-/// climbs one title, so the words still mean something at 1000 levels.
+/// The ten titles track the historic pacing: the first hundred levels are
+/// the original ten-level journey stretched tenfold, so a title changes
+/// every ten levels and the old cap (level 100, 200,000 interactions)
+/// reaches the last one; the endgame levels beyond it keep that title.
 fn title_key_for_level(level: u16) -> &'static str {
-    let tier = usize::from(level.saturating_sub(1)) / 100;
-    LEVEL_TITLE_KEYS[tier.min(LEVEL_TITLE_KEYS.len() - 1)]
+    let tier = if level <= 100 {
+        usize::from(level).div_ceil(10)
+    } else {
+        LEVEL_TITLE_KEYS.len()
+    };
+    LEVEL_TITLE_KEYS[(tier - 1).min(LEVEL_TITLE_KEYS.len() - 1)]
 }
 
 /// The HUD contents for the current totals: the level line, then either the
@@ -333,7 +339,7 @@ mod tests {
         assert!(text.contains("Lv.1"), "the level line is present: {text}");
         assert!(text.contains('\n'), "the text has two lines: {text}");
         assert!(
-            text.contains("1 to level up"),
+            text.contains("5 to level up"),
             "the progress to the next threshold is present: {text}"
         );
         assert!(
@@ -343,14 +349,16 @@ mod tests {
         assert!((0.0..=1.0).contains(&progress));
     }
 
-    /// The ten titles cover the thousand levels a hundred at a time, and the
-    /// cap clamps into the last title.
+    /// The first hundred levels replay the original ten-title journey a
+    /// title every ten levels; the endgame beyond the old cap keeps the
+    /// last title.
     #[test]
-    fn title_tiers_map_one_hundred_levels_each() {
+    fn title_tiers_follow_the_historic_pacing() {
         assert_eq!(title_key_for_level(1), "stats.level.title.1");
-        assert_eq!(title_key_for_level(100), "stats.level.title.1");
-        assert_eq!(title_key_for_level(101), "stats.level.title.2");
-        assert_eq!(title_key_for_level(500), "stats.level.title.5");
+        assert_eq!(title_key_for_level(10), "stats.level.title.1");
+        assert_eq!(title_key_for_level(11), "stats.level.title.2");
+        assert_eq!(title_key_for_level(100), "stats.level.title.10");
+        assert_eq!(title_key_for_level(500), "stats.level.title.10");
         assert_eq!(title_key_for_level(1000), "stats.level.title.10");
     }
 

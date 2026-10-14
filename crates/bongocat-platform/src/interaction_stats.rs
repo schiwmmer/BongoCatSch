@@ -46,24 +46,24 @@ pub const MAX_LEVEL: u16 = 1000;
 
 /// The anchor points of the level curve: `(level, total the level opens at)`.
 ///
-/// The original ten-level table is stretched a hundredfold: every historic
-/// level `k` becomes anchor level `100 * k` carrying the same threshold, and
-/// the levels between two anchors interpolate linearly, so the curve's shape
-/// (gentle at the start, rare at the top) is preserved exactly. The last
-/// segment extends the previous one's slope — 1,000 interactions per level —
-/// to level 1000, which opens at 300,000.
+/// The original ten-level curve keeps its own pacing: every historic level
+/// `k` becomes anchor level `10 * k` carrying the same threshold, so the
+/// journey to the old cap is exactly as long as it was — level 100 still
+/// opens at 200,000. The levels between two anchors interpolate linearly,
+/// and the final segment extends tenfold in step with the level count:
+/// level 1000 opens at 2,000,000, 2,000 interactions a level.
 const LEVEL_ANCHORS: [(u16, u64); 11] = [
     (1, 0),
-    (100, 100),
-    (200, 500),
-    (300, 2_000),
-    (400, 5_000),
-    (500, 10_000),
-    (600, 30_000),
-    (700, 60_000),
-    (800, 100_000),
-    (900, 200_000),
-    (1000, 300_000),
+    (20, 100),
+    (30, 500),
+    (40, 2_000),
+    (50, 5_000),
+    (60, 10_000),
+    (70, 30_000),
+    (80, 60_000),
+    (90, 100_000),
+    (100, 200_000),
+    (1000, 2_000_000),
 ];
 
 /// The lifetime interaction count `level` opens at. Levels outside
@@ -327,22 +327,23 @@ mod tests {
     #[test]
     fn levels_follow_the_threshold_curve_at_both_sides_of_every_anchor() {
         assert_eq!(level_for(0).level, 1);
-        assert_eq!(level_for(99).level, 99);
-        assert_eq!(level_for(100).level, 100);
+        assert_eq!(level_for(99).level, 19);
+        assert_eq!(level_for(100).level, 20);
         assert_eq!(
             level_for(499).level,
-            199,
-            "399 of 400 through the 100→200 band"
+            29,
+            "399 of 400 through the 20→30 band"
         );
-        assert_eq!(level_for(500).level, 200);
+        assert_eq!(level_for(500).level, 30);
         assert_eq!(
             level_for(1_999).level,
-            299,
-            "1,499 of 1,500 through the 200→300 band"
+            39,
+            "1,499 of 1,500 through the 30→40 band"
         );
-        assert_eq!(level_for(2_000).level, 300);
-        assert_eq!(level_for(200_000).level, 900);
-        assert_eq!(level_for(300_000).level, 1000);
+        assert_eq!(level_for(2_000).level, 40);
+        assert_eq!(level_for(200_000).level, 100);
+        assert_eq!(level_for(1_999_999).level, 999);
+        assert_eq!(level_for(2_000_000).level, 1000);
         assert_eq!(level_for(u64::MAX).level, MAX_LEVEL);
         assert_eq!(level_for(u64::MAX).next, None);
     }
@@ -350,16 +351,16 @@ mod tests {
     #[test]
     fn thresholds_interpolate_inside_the_anchor_bands() {
         assert_eq!(threshold_for(1), 0);
-        assert_eq!(threshold_for(100), 100);
+        assert_eq!(threshold_for(20), 100);
         assert_eq!(
-            threshold_for(101),
-            104,
-            "500-100 over 100 levels is 4 a level"
+            threshold_for(21),
+            140,
+            "500-100 over 10 levels is 40 a level"
         );
-        assert_eq!(threshold_for(200), 500);
-        assert_eq!(threshold_for(950), 250_000);
-        assert_eq!(threshold_for(1000), 300_000);
-        assert_eq!(threshold_for(1001), 300_000, "levels above the cap clamp");
+        assert_eq!(threshold_for(100), 200_000);
+        assert_eq!(threshold_for(550), 1_100_000);
+        assert_eq!(threshold_for(1000), 2_000_000);
+        assert_eq!(threshold_for(1001), 2_000_000, "levels above the cap clamp");
         assert_eq!(threshold_for(0), 0);
     }
 
@@ -388,14 +389,14 @@ mod tests {
         assert_eq!(level.floor, 5_000);
         assert_eq!(
             level.next,
-            Some(5_050),
-            "10,000-5,000 over 100 levels is 50 a level"
+            Some(5_500),
+            "10,000-5,000 over 10 levels is 500 a level"
         );
         let first = level_for(0);
         assert_eq!(first.floor, 0);
-        assert_eq!(first.next, Some(1));
-        let capped = level_for(300_000);
-        assert_eq!(capped.floor, 300_000);
+        assert_eq!(first.next, Some(5));
+        let capped = level_for(2_000_000);
+        assert_eq!(capped.floor, 2_000_000);
         assert_eq!(capped.next, None);
     }
 

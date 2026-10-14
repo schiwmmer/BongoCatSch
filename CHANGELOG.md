@@ -5,7 +5,7 @@
 ### ✨ Features
 
 - macOS interaction stats and levels: hovering the model window shows a small panel underneath with the current level and lifetime interaction count. One keyboard or mouse press is one interaction, and the level grows with the lifetime total.
-- Levels stretch to 1000: the original ten thresholds stay as anchors, interpolated linearly in between, and the panel gains an upgrade progress bar with the percentage.
+- Levels stretch to 1000: the original ten-level pacing stays intact across the first hundred levels (level 100 = 200,000, one title every ten levels), then scales tenfold to level 1000 = 2,000,000; the panel gains an upgrade progress bar with the percentage.
 
 ## 2.3.1 - 2026-10-13
 
