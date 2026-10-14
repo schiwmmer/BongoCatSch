@@ -544,7 +544,7 @@
   "stats": {
     "hud": {
       "level": "مستوى %{level} %{title}",
-      "progress": "%{total} تفاعلات · %{remaining} للترقية",
+      "progress": "%{total} تفاعلات · %{remaining} للترقية · %{percent}%",
       "total": "%{total} تفاعلات"
     },
     "level": {

@@ -32,11 +32,17 @@ const HUD_CORNER_RADIUS: f64 = 10.0;
 /// The HUD never gets narrower than this, so a short level line still reads
 /// as a small panel rather than a sliver.
 const HUD_MINIMUM_WIDTH: f64 = 96.0;
+/// The upgrade progress bar sits under the text: its height and the gap
+/// above it.
+const HUD_BAR_HEIGHT: f64 = 6.0;
+const HUD_BAR_GAP: f64 = 7.0;
 
 pub(crate) struct StatsHud {
     panel: Retained<NSPanel>,
     label: Retained<NSTextField>,
+    bar: Retained<NSProgressIndicator>,
     text: String,
+    progress: f64,
     origin: Option<NSPoint>,
 }
 
@@ -92,38 +98,61 @@ impl StatsHud {
         label.setFont(Some(&NSFont::systemFontOfSize(13.0)));
         content.addSubview(&label);
 
+        // The upgrade bar is the system determinate indicator: it draws the
+        // accent color itself, so the HUD stays native instead of inventing
+        // its own chrome.
+        let bar = NSProgressIndicator::new(mtm);
+        bar.setIndeterminate(false);
+        bar.setMinValue(0.0);
+        bar.setMaxValue(1.0);
+        bar.setDoubleValue(0.0);
+        content.addSubview(&bar);
+
         let mut hud = Self {
             panel,
             label,
+            bar,
             text: String::new(),
+            progress: -1.0,
             origin: None,
         };
-        hud.set_text(text);
+        hud.set_status(text, 0.0);
         Ok(hud)
     }
 
-    /// Update the text and fit the panel around it. The content size change
-    /// keeps the panel's origin, so the next [`Self::show_below`] re-anchors
-    /// it against the current overlay box.
-    pub(crate) fn set_text(&mut self, text: &str) {
-        if text == self.text {
-            return;
+    /// Update the text, the upgrade progress, and fit the panel around them.
+    /// The content size change keeps the panel's origin, so the next
+    /// [`Self::show_below`] re-anchors it against the current overlay box.
+    pub(crate) fn set_status(&mut self, text: &str, progress: f64) {
+        let progress = progress.clamp(0.0, 1.0);
+        if text != self.text {
+            self.text = text.to_owned();
+            self.label
+                .setStringValue(&objc2_foundation::NSString::from_str(text));
+            self.label.sizeToFit();
+            let label_width = self.label.frame().size.width;
+            let label_height = self.label.frame().size.height;
+            let content_width = (label_width + HUD_PADDING * 2.0).max(HUD_MINIMUM_WIDTH);
+            let content_height = label_height + HUD_BAR_GAP + HUD_BAR_HEIGHT + HUD_PADDING * 2.0;
+            self.panel
+                .setContentSize(NSSize::new(content_width, content_height));
+            // Center the label above the bar: the bar spans the padded
+            // content width, the label sits between the top padding and the
+            // bar gap.
+            let bar_width = content_width - HUD_PADDING * 2.0;
+            self.label.setFrameOrigin(NSPoint::new(
+                (content_width - label_width) / 2.0,
+                HUD_PADDING + HUD_BAR_HEIGHT + HUD_BAR_GAP,
+            ));
+            self.bar.setFrame(NSRect::new(
+                NSPoint::new(HUD_PADDING, HUD_PADDING),
+                NSSize::new(bar_width, HUD_BAR_HEIGHT),
+            ));
         }
-        self.text = text.to_owned();
-        self.label
-            .setStringValue(&objc2_foundation::NSString::from_str(text));
-        self.label.sizeToFit();
-        let label_width = self.label.frame().size.width;
-        let label_height = self.label.frame().size.height;
-        let content_width = (label_width + HUD_PADDING * 2.0).max(HUD_MINIMUM_WIDTH);
-        let content_height = label_height + HUD_PADDING * 2.0;
-        self.panel
-            .setContentSize(NSSize::new(content_width, content_height));
-        // Center the label inside the resized content view.
-        self.label.setFrameOrigin(NSPoint::new(
-            (content_width - label_width) / 2.0,
-            (content_height - label_height) / 2.0,
-        ));
+        if progress != self.progress {
+            self.progress = progress;
+            self.bar.setDoubleValue(progress);
+        }
     }
 
     /// Show the HUD centered below the overlay window's box, flipping above
@@ -198,14 +227,15 @@ pub(crate) fn stats_hud_locale() -> &'static str {
     system.resolve(system).code()
 }
 
-/// The HUD text for the system language at the current totals.
-pub(crate) fn stats_hud_text() -> String {
-    hud_text(stats_hud_locale())
+/// The HUD text and upgrade progress for the system language at the current
+/// totals.
+pub(crate) fn stats_hud_status() -> (String, f64) {
+    hud_status(stats_hud_locale())
 }
 
 /// The level title keys spelled out in full. The i18n catalog coverage test
 /// requires every key the source asks for to appear as a literal, and the
-/// level number is the only varying part, so the ten titles are a table
+/// title number is the only varying part, so the ten titles are a table
 /// rather than a `format!` composition.
 const LEVEL_TITLE_KEYS: [&str; 10] = [
     "stats.level.title.1",
@@ -220,12 +250,20 @@ const LEVEL_TITLE_KEYS: [&str; 10] = [
     "stats.level.title.10",
 ];
 
-/// The HUD text for the current totals: the level line, then either the
-/// progress to the next level or the capped total line.
-pub(crate) fn hud_text(locale: &str) -> String {
+/// The ten titles spread across the thousand levels: every hundred levels
+/// climbs one title, so the words still mean something at 1000 levels.
+fn title_key_for_level(level: u16) -> &'static str {
+    let tier = usize::from(level.saturating_sub(1)) / 100;
+    LEVEL_TITLE_KEYS[tier.min(LEVEL_TITLE_KEYS.len() - 1)]
+}
+
+/// The HUD contents for the current totals: the level line, then either the
+/// progress to the next level (with the upgrade percentage) or the capped
+/// total line, plus the progress fraction for the bar.
+pub(crate) fn hud_status(locale: &str) -> (String, f64) {
     let (_key, _mouse, total) = bongocat_platform::interaction_totals();
     let level = bongocat_platform::level_for(total);
-    let title_key = LEVEL_TITLE_KEYS[usize::from(level.level) - 1];
+    let title_key = title_key_for_level(level.level);
     let title = bongocat_i18n::format_text(locale, title_key, &[]);
     let mut text = bongocat_i18n::format_text(
         locale,
@@ -234,19 +272,30 @@ pub(crate) fn hud_text(locale: &str) -> String {
     );
     text.push('\n');
     let total_text = format_thousands(total);
-    let second_line = match level.next {
-        Some(next) => bongocat_i18n::format_text(
-            locale,
-            "stats.hud.progress",
-            &[
-                ("total", total_text),
-                ("remaining", format_thousands(next.saturating_sub(total))),
-            ],
+    let (second_line, progress) = match level.next {
+        Some(next) => {
+            let span = next.saturating_sub(level.floor).max(1);
+            let percent = (total.saturating_sub(level.floor)) * 100 / span;
+            let percent = percent.min(100);
+            let fraction = (total.saturating_sub(level.floor)) as f64 / span as f64;
+            let line = bongocat_i18n::format_text(
+                locale,
+                "stats.hud.progress",
+                &[
+                    ("total", total_text),
+                    ("remaining", format_thousands(next.saturating_sub(total))),
+                    ("percent", percent.to_string()),
+                ],
+            );
+            (line, fraction)
+        }
+        None => (
+            bongocat_i18n::format_text(locale, "stats.hud.total", &[("total", total_text)]),
+            1.0,
         ),
-        None => bongocat_i18n::format_text(locale, "stats.hud.total", &[("total", total_text)]),
     };
     text.push_str(&second_line);
-    text
+    (text, progress)
 }
 
 /// Group the integer digits in threes (`12340` → `12,340`), the only number
@@ -279,14 +328,30 @@ mod tests {
     /// The HUD text carries the level and the totals through the catalog:
     /// with the English catalog the placeholders pin the key set.
     #[test]
-    fn hud_text_contains_the_level_and_the_progress_line() {
-        let text = hud_text("en-US");
+    fn hud_status_contains_the_level_the_progress_line_and_the_percent() {
+        let (text, progress) = hud_status("en-US");
         assert!(text.contains("Lv.1"), "the level line is present: {text}");
         assert!(text.contains('\n'), "the text has two lines: {text}");
         assert!(
-            text.contains("100"),
+            text.contains("1 to level up"),
             "the progress to the next threshold is present: {text}"
         );
+        assert!(
+            text.contains("0%"),
+            "the upgrade percentage is present: {text}"
+        );
+        assert!((0.0..=1.0).contains(&progress));
+    }
+
+    /// The ten titles cover the thousand levels a hundred at a time, and the
+    /// cap clamps into the last title.
+    #[test]
+    fn title_tiers_map_one_hundred_levels_each() {
+        assert_eq!(title_key_for_level(1), "stats.level.title.1");
+        assert_eq!(title_key_for_level(100), "stats.level.title.1");
+        assert_eq!(title_key_for_level(101), "stats.level.title.2");
+        assert_eq!(title_key_for_level(500), "stats.level.title.5");
+        assert_eq!(title_key_for_level(1000), "stats.level.title.10");
     }
 
     #[test]

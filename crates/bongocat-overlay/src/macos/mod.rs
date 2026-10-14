@@ -83,9 +83,9 @@ use objc2::{
 };
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSColor, NSEvent,
-    NSEventMask, NSFont, NSNormalWindowLevel, NSPanel, NSScreen, NSStatusWindowLevel, NSTextField,
-    NSView, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowLevel,
-    NSWindowStyleMask,
+    NSEventMask, NSFont, NSNormalWindowLevel, NSPanel, NSProgressIndicator, NSScreen,
+    NSStatusWindowLevel, NSTextField, NSView, NSWindowAnimationBehavior,
+    NSWindowCollectionBehavior, NSWindowLevel, NSWindowStyleMask,
 };
 use objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSPoint, NSRect, NSSize};
 use objc2_quartz_core::CAMetalLayer as ObjcMetalLayer;

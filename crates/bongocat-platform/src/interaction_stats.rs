@@ -14,10 +14,11 @@
 //! from the build's [`bongocat_config::StorageLayout`].
 //!
 //! Level growth is a pure function of the lifetime total, so every caller —
-//! the HUD, a future settings page, the tests — reads the same thresholds from
-//! [`LEVEL_THRESHOLDS`]. A document whose `schema_version` is not the current
-//! one is refused and treated as empty, the same strict-version rule the
-//! configuration uses; the next flush overwrites it with the current version.
+//! the HUD, a future settings page, the tests — reads the same anchors from
+//! [`LEVEL_ANCHORS`] and the same interpolation from [`threshold_for`]. A
+//! document whose `schema_version` is not the current one is refused and
+//! treated as empty, the same strict-version rule the configuration uses; the
+//! next flush overwrites it with the current version.
 
 use std::{
     io,
@@ -40,41 +41,94 @@ pub const INTERACTION_STATS_SCHEMA_VERSION: u32 = 1;
 /// throttle — not the caller cadence — bounds the write frequency.
 const FLUSH_INTERVAL: Duration = Duration::from_secs(30);
 
-/// The lifetime interaction count each level opens at, indexed from level 1.
+/// The highest level the curve reaches.
+pub const MAX_LEVEL: u16 = 1000;
+
+/// The anchor points of the level curve: `(level, total the level opens at)`.
 ///
-/// Level `n` is reached when the total is at least `LEVEL_THRESHOLDS[n - 1]`.
-/// The curve is deliberately gentle at the start (a first evening of normal
-/// use reaches level 2) and widens toward the cap, so early levels feel like
-/// progress and the last ones stay rare.
-pub const LEVEL_THRESHOLDS: [u64; 10] = [
-    0, 100, 500, 2_000, 5_000, 10_000, 30_000, 60_000, 100_000, 200_000,
+/// The original ten-level table is stretched a hundredfold: every historic
+/// level `k` becomes anchor level `100 * k` carrying the same threshold, and
+/// the levels between two anchors interpolate linearly, so the curve's shape
+/// (gentle at the start, rare at the top) is preserved exactly. The last
+/// segment extends the previous one's slope — 1,000 interactions per level —
+/// to level 1000, which opens at 300,000.
+const LEVEL_ANCHORS: [(u16, u64); 11] = [
+    (1, 0),
+    (100, 100),
+    (200, 500),
+    (300, 2_000),
+    (400, 5_000),
+    (500, 10_000),
+    (600, 30_000),
+    (700, 60_000),
+    (800, 100_000),
+    (900, 200_000),
+    (1000, 300_000),
 ];
+
+/// The lifetime interaction count `level` opens at. Levels outside
+/// `1..=MAX_LEVEL` are clamped.
+pub fn threshold_for(level: u16) -> u64 {
+    let level = level.clamp(1, MAX_LEVEL);
+    for window in LEVEL_ANCHORS.windows(2) {
+        let (start_level, start_total) = window[0];
+        let (end_level, end_total) = window[1];
+        if level <= end_level {
+            let level_span = u64::from(end_level - start_level);
+            let total_span = end_total - start_total;
+            return start_total + total_span * u64::from(level - start_level) / level_span;
+        }
+    }
+    LEVEL_ANCHORS[LEVEL_ANCHORS.len() - 1].1
+}
 
 /// The level a lifetime interaction total has reached.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InteractionLevel {
-    pub level: u8,
+    pub level: u16,
     /// The total this level opens at; progress is measured from here.
     pub floor: u64,
     /// The total the next level opens at; `None` at the level cap.
     pub next: Option<u64>,
 }
 
-/// The level `total` interactions have reached. Every threshold at or below
-/// the total is passed, so the answer is the highest one.
+/// The level `total` interactions have reached. The anchors partition the
+/// curve; within the segment the anchor's band brackets, the level is the
+/// linear interpolation inverted, so the answer is the highest level whose
+/// [`threshold_for`] is at or below the total.
 pub fn level_for(total: u64) -> InteractionLevel {
-    let mut reached = 0;
-    for (index, threshold) in LEVEL_THRESHOLDS.iter().enumerate() {
-        if *threshold <= total {
-            reached = index;
+    let mut index = 0;
+    for (position, &(_, anchor_total)) in LEVEL_ANCHORS.iter().enumerate() {
+        if anchor_total <= total {
+            index = position;
         } else {
             break;
         }
     }
+    let (start_level, start_total) = LEVEL_ANCHORS[index];
+    let last = index == LEVEL_ANCHORS.len() - 1;
+    if last && total >= start_total {
+        return InteractionLevel {
+            level: start_level,
+            floor: start_total,
+            next: None,
+        };
+    }
+    let (end_level, end_total) = LEVEL_ANCHORS[index + 1];
+    let total_span = end_total - start_total;
+    let progressed = total.saturating_sub(start_total);
+    // Invert the interpolation exactly: the answer is the largest `into`
+    // whose floor threshold is at or below the total, which is the ceiling
+    // of the raw ratio minus one. Plain flooring would miss the level whose
+    // threshold rounds down (level 2 opens at 1 interaction, yet a floored
+    // inverse reports 1 for that total).
+    let level_span = u64::from(end_level - start_level);
+    let into = (level_span * progressed + level_span - 1) / total_span;
+    let level = start_level + into as u16;
     InteractionLevel {
-        level: (reached + 1) as u8,
-        floor: LEVEL_THRESHOLDS[reached],
-        next: LEVEL_THRESHOLDS.get(reached + 1).copied(),
+        level,
+        floor: threshold_for(level),
+        next: Some(threshold_for(level + 1)),
     }
 }
 
@@ -271,26 +325,78 @@ mod tests {
     use super::*;
 
     #[test]
-    fn levels_follow_the_threshold_table_at_both_sides_of_every_gate() {
+    fn levels_follow_the_threshold_curve_at_both_sides_of_every_anchor() {
         assert_eq!(level_for(0).level, 1);
-        assert_eq!(level_for(99).level, 1);
-        assert_eq!(level_for(100).level, 2);
-        assert_eq!(level_for(499).level, 2);
-        assert_eq!(level_for(500).level, 3);
-        assert_eq!(level_for(1_999).level, 3);
-        assert_eq!(level_for(2_000).level, 4);
-        assert_eq!(level_for(u64::MAX).level, LEVEL_THRESHOLDS.len() as u8);
+        assert_eq!(level_for(99).level, 99);
+        assert_eq!(level_for(100).level, 100);
+        assert_eq!(
+            level_for(499).level,
+            199,
+            "399 of 400 through the 100→200 band"
+        );
+        assert_eq!(level_for(500).level, 200);
+        assert_eq!(
+            level_for(1_999).level,
+            299,
+            "1,499 of 1,500 through the 200→300 band"
+        );
+        assert_eq!(level_for(2_000).level, 300);
+        assert_eq!(level_for(200_000).level, 900);
+        assert_eq!(level_for(300_000).level, 1000);
+        assert_eq!(level_for(u64::MAX).level, MAX_LEVEL);
         assert_eq!(level_for(u64::MAX).next, None);
+    }
+
+    #[test]
+    fn thresholds_interpolate_inside_the_anchor_bands() {
+        assert_eq!(threshold_for(1), 0);
+        assert_eq!(threshold_for(100), 100);
+        assert_eq!(
+            threshold_for(101),
+            104,
+            "500-100 over 100 levels is 4 a level"
+        );
+        assert_eq!(threshold_for(200), 500);
+        assert_eq!(threshold_for(950), 250_000);
+        assert_eq!(threshold_for(1000), 300_000);
+        assert_eq!(threshold_for(1001), 300_000, "levels above the cap clamp");
+        assert_eq!(threshold_for(0), 0);
+    }
+
+    /// The curve must be invertible and monotonically non-decreasing, or the
+    /// HUD would show a level whose floor overshoots its total.
+    #[test]
+    fn every_level_inverts_from_its_own_threshold() {
+        let mut previous = 0;
+        for level in 1..=MAX_LEVEL {
+            let threshold = threshold_for(level);
+            assert!(threshold >= previous, "threshold regressed at {level}");
+            assert_eq!(
+                level_for(threshold).level,
+                level,
+                "inversion failed at {level}"
+            );
+            let between = level_for(threshold);
+            assert!(between.floor <= threshold, "floor overshoots at {level}");
+            previous = threshold;
+        }
     }
 
     #[test]
     fn each_level_reports_the_floor_it_measures_progress_from() {
         let level = level_for(5_000);
         assert_eq!(level.floor, 5_000);
-        assert_eq!(level.next, Some(10_000));
+        assert_eq!(
+            level.next,
+            Some(5_050),
+            "10,000-5,000 over 100 levels is 50 a level"
+        );
         let first = level_for(0);
         assert_eq!(first.floor, 0);
-        assert_eq!(first.next, Some(100));
+        assert_eq!(first.next, Some(1));
+        let capped = level_for(300_000);
+        assert_eq!(capped.floor, 300_000);
+        assert_eq!(capped.next, None);
     }
 
     #[test]

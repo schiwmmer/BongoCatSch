@@ -139,7 +139,7 @@ impl ProductOverlaySession {
         // The HUD is presentation-only: a panel that cannot be created
         // degrades to no HUD, and the cat, the counters and the input
         // service keep working without it.
-        let stats_hud = StatsHud::create(mtm, &stats_hud_text()).ok();
+        let stats_hud = StatsHud::create(mtm, &stats_hud_status().0).ok();
         Ok(Self {
             application,
             overlay,
@@ -565,7 +565,8 @@ impl ProductOverlaySession {
         if let Some(hud) = self.stats_hud.as_mut() {
             if hud_allowed {
                 let screens = screen_bounds_all(mtm).unwrap_or_default();
-                hud.set_text(&stats_hud_text());
+                let (text, progress) = stats_hud_status();
+                hud.set_status(&text, progress);
                 hud.show_below(bounds, &screens);
             } else {
                 hud.hide();

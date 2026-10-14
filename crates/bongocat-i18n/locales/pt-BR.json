@@ -544,7 +544,7 @@
   "stats": {
     "hud": {
       "level": "Nv.%{level} %{title}",
-      "progress": "%{total} interações · faltam %{remaining} para subir de nível",
+      "progress": "%{total} interações · faltam %{remaining} para subir de nível · %{percent}%",
       "total": "%{total} interações"
     },
     "level": {
