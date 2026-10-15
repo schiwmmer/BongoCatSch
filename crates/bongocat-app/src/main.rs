@@ -24,6 +24,7 @@ mod binary_tests;
 mod gamepad_observer;
 mod model_cover;
 mod overlay_placement;
+mod pomodoro_surfaces;
 mod preset_root;
 mod product_icons;
 mod product_options;
@@ -44,6 +45,8 @@ use bongocat_app::{
     ApplicationLogCode, ApplicationLogContext, ApplicationLogEvent, application_shortcut_dispatcher,
 };
 use bongocat_live2d::CoreLogHandle;
+#[cfg(target_os = "macos")]
+use bongocat_overlay::OverlayPomodoroMenuRequest;
 use bongocat_overlay::{
     OverlayContextMenuRequest, OverlayInteractionSinks, OverlayResizeOutcome,
     OverlaySessionOptions, OverlayWindowBounds, ProductOverlaySession,
@@ -69,6 +72,10 @@ use gpui_kit::{
     platform::current_platform,
 };
 use gpui_kit::{AsyncApp, Context, Window};
+#[cfg(target_os = "macos")]
+use pomodoro_surfaces::{
+    command_for, play_pomodoro_complete_sound, pomodoro_menu_entries, send_pomodoro_command,
+};
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "windows")]
 use std::{cell::RefCell, rc::Rc};
@@ -201,6 +208,14 @@ struct ProductCoordinator {
     update_service: Option<bongocat_app::ApplicationUpdateService>,
     /// The open update window, if any; close destroys it.
     update_window: Option<bongocat_ui::UpdateWindowHandle>,
+    /// The open pomodoro window, if any; close destroys it.
+    ///
+    /// macOS only: the menu row that opens it is compiled out on Windows.
+    #[cfg(target_os = "macos")]
+    pomodoro_window: Option<bongocat_ui::PomodoroWindowHandle>,
+    /// A handle to the pomodoro worker.
+    #[cfg(target_os = "macos")]
+    pomodoro_client: bongocat_pomodoro::PomodoroClient,
     /// The display language a product window opens with.
     ///
     /// Seeded from the startup snapshot and refreshed by the system menu loop, which
@@ -400,6 +415,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // see `Application::restore_startup_model`.
     application.restore_startup_model()?;
     let runtime_client = application.runtime_client();
+    // The pomodoro handle is taken before the application moves into the
+    // settings worker, which is what owns the worker thread from then on. The
+    // handle is independent of that lifetime, so the menu, the overlay and the
+    // windows can all drive the timer without borrowing the thread.
+    let pomodoro_client = application.pomodoro_client();
     let (shortcut_sender, shortcut_receiver) = std::sync::mpsc::sync_channel(64);
     let (context_menu_sender, context_menu_receiver) =
         std::sync::mpsc::sync_channel::<OverlayContextMenuRequest>(1);
@@ -408,6 +428,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // second drag cannot start before the first has been released.
     let (resize_sender, resize_receiver) = std::sync::mpsc::sync_channel::<OverlayResizeOutcome>(1);
     let (status_icon_sender, status_icon_receiver) = std::sync::mpsc::sync_channel(4);
+    // A right-click on the countdown reports what it offers rather than acting:
+    // the menu is a product action, and a panel that popped its own would make
+    // two surfaces disagree about how pausing a session works.
+    #[cfg(target_os = "macos")]
+    let (pomodoro_menu_sender, pomodoro_menu_receiver) =
+        std::sync::mpsc::sync_channel::<OverlayPomodoroMenuRequest>(1);
     let status_icon = Arc::new(ProductStatusIcon {
         sender: status_icon_sender,
     });
@@ -495,6 +521,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             OverlayInteractionSinks {
                 context_menu_sender: Some(context_menu_sender),
                 resize_sender: Some(resize_sender),
+                #[cfg(target_os = "macos")]
+                pomodoro_menu_sender: Some(pomodoro_menu_sender),
             },
         ) {
             Ok(overlay) => overlay,
@@ -615,6 +643,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             settings_navigation_memory: SettingsNavigationMemory::new(),
             update_service: Some(update_service),
             update_window: None,
+            #[cfg(target_os = "macos")]
+            pomodoro_window: None,
+            #[cfg(target_os = "macos")]
+            pomodoro_client,
             product_language: initial_settings_snapshot.resolved_language,
             product_appearance_theme: initial_settings_snapshot.appearance_theme,
             #[cfg(target_os = "macos")]
@@ -1048,6 +1080,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         open_update_window_and_check(cx);
                         Ok(true)
                     }),
+                    #[cfg(target_os = "macos")]
+                    SystemMenuAction::StartPomodoro => cx.update(|cx| {
+                        // The entry opens the picker rather than starting a
+                        // session: a user who clicks it has a task in mind, and
+                        // starting the wrong one would cost them a session they
+                        // did not ask for.
+                        crate::product_windows::ensure_pomodoro_window(cx).map(|_| true)
+                    }),
+                    #[cfg(target_os = "macos")]
+                    SystemMenuAction::PausePomodoro
+                    | SystemMenuAction::ResumePomodoro
+                    | SystemMenuAction::AbandonPomodoro => {
+                        let command = command_for(action);
+                        cx.update(|cx| match command {
+                            Some(command) => {
+                                send_pomodoro_command(cx, command)?;
+                                Ok(true)
+                            }
+                            // An action with no command would be a menu row that
+                            // does nothing; saying so beats silently ignoring it.
+                            None => Err("pomodoro action has no timer command".to_owned()),
+                        })
+                    }
                     SystemMenuAction::Quit => cx.update(|cx| {
                         request_product_quit(cx);
                         Ok(false)
@@ -1164,6 +1219,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 let context_menu_requested = context_menu_receiver.try_recv().is_ok();
                 let resize_outcome = resize_receiver.try_recv().ok();
+                // The countdown's own monitor raises what a right-click offers;
+                // this asks the overlay for it and drops a stale answer rather
+                // than popping a menu the user did not ask for.
+                #[cfg(target_os = "macos")]
+                let pomodoro_menu_requested = pomodoro_menu_receiver.try_recv().ok().filter(|_| {
+                    cx.update(|cx| {
+                        cx.try_global::<ProductCoordinator>()
+                            .and_then(|coordinator| coordinator.overlay.as_ref())
+                            .and_then(ProductOverlaySession::take_pomodoro_menu_request)
+                            .is_some()
+                    })
+                });
+                // The timer is published before the tick that draws it, and the
+                // completion is published the same way: the overlay performs a
+                // session once per sequence it has not played, so handing it the
+                // sequence is what asks for the performance.
+                #[cfg(target_os = "macos")]
+                let mut pomodoro_completion_to_play: Option<u64> = None;
                 #[cfg(target_os = "macos")]
                 let (keep_running, next_retry_delay) = cx.update(|cx| {
                     if !cx.has_global::<ProductCoordinator>() {
@@ -1175,6 +1248,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if !coordinator.frame_source_running {
                             return (false, None);
                         }
+                        let pomodoro_snapshot = coordinator.pomodoro_client.snapshot();
+                        let timer = pomodoro_snapshot
+                            .timer
+                            .map(|timer| bongocat_overlay::OverlayPomodoroTimer {
+                                remaining_seconds: timer.remaining_seconds,
+                                paused: timer.state == bongocat_pomodoro::TimerState::Paused,
+                            });
+                        let completion = pomodoro_snapshot.last_completion.map(|completion| {
+                            bongocat_overlay::OverlayPomodoroCompletion {
+                                sequence: completion.sequence,
+                            }
+                        });
+                        if let Some(overlay) = coordinator.overlay.as_mut() {
+                            overlay.set_pomodoro_state(timer, completion);
+                        }
+                        // A right-click on the countdown pops the menu that
+                        // countdown's state offers. It is popped here rather than
+                        // from the monitor because presenting a menu is a product
+                        // action, and the monitor is AppKit.
+                        if let Some(request) = pomodoro_menu_requested
+                            && let Some(menu) = coordinator.system_menu.as_ref()
+                            && let Some(overlay) = coordinator.overlay.as_ref()
+                        {
+                            let locale = coordinator.product_language.catalog_locale();
+                            let rows: Vec<(&str, &str)> = pomodoro_menu_entries(request)
+                                .into_iter()
+                                .map(|row| {
+                                    (
+                                        row.id,
+                                        bongocat_i18n::text(locale, row.label_key),
+                                    )
+                                })
+                                .collect();
+                            if let Err(error) = menu.show_pomodoro_menu(overlay, &rows) {
+                                record_failure(
+                                    &coordinator.failures,
+                                    format!("pomodoro menu: {error}"),
+                                );
+                            }
+                        }
+                        pomodoro_completion_to_play = completion.map(|completion| completion.sequence);
                         let result = coordinator
                             .overlay
                             .as_mut()
@@ -1254,6 +1368,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     (keep_running, next_retry_delay)
                 });
+                // The chime is played here rather than inside the update: it is
+                // a side effect on the audio device, and playing it while the
+                // coordinator is borrowed would hold the product's own lock
+                // across an audio call.
+                #[cfg(target_os = "macos")]
+                if let Some(sequence) = pomodoro_completion_to_play {
+                    cx.update(|cx| play_pomodoro_complete_sound(cx, sequence));
+                }
                 #[cfg(target_os = "macos")]
                 {
                     retry_delay = next_retry_delay;

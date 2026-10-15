@@ -58,7 +58,12 @@
       "none": "Aucune tâche pour l'instant. Nommez-en une ci-dessus pour commencer.",
       "running_now": "En cours : {name}"
     },
-    "worker_lost": "Le minuteur Pomodoro n'a pas pu démarrer. Consultez le journal pour plus de détails."
+    "worker_lost": "Le minuteur Pomodoro n'a pas pu démarrer. Consultez le journal pour plus de détails.",
+    "timer": {
+      "abandon": "Abandonner",
+      "pause": "Pause",
+      "resume": "Reprendre"
+    }
   },
   "startup_permission": {
     "later": "Configurer plus tard",

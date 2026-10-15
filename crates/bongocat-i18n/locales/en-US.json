@@ -58,7 +58,12 @@
       "none": "No tasks yet. Name one above to get started.",
       "running_now": "Running: {name}"
     },
-    "worker_lost": "The pomodoro timer could not start. Check the log for details."
+    "worker_lost": "The pomodoro timer could not start. Check the log for details.",
+    "timer": {
+      "abandon": "Abandon",
+      "pause": "Pause",
+      "resume": "Resume"
+    }
   },
   "startup_permission": {
     "later": "Set Up Later",

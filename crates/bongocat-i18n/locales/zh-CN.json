@@ -58,7 +58,12 @@
       "none": "还没有任务。在上方命名一个即可开始。",
       "running_now": "进行中：{name}"
     },
-    "worker_lost": "番茄钟未能启动，详情见日志。"
+    "worker_lost": "番茄钟未能启动，详情见日志。",
+    "timer": {
+      "abandon": "放弃",
+      "pause": "暂停",
+      "resume": "继续"
+    }
   },
   "startup_permission": {
     "later": "稍后设置",

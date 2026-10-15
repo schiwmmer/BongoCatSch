@@ -193,6 +193,54 @@ pub(crate) fn ensure_update_window(
     Ok(window_handle)
 }
 
+/// The open pomodoro window, opening it first when there is none.
+///
+/// It is a singleton like the update window: the tray and the model-window
+/// context menu both route through here, so a second request focuses the open
+/// window instead of stacking another one.
+///
+/// macOS only. The menu row that opens it is compiled out on Windows, and a
+/// window nothing can reach would be a window nothing could close.
+#[cfg(target_os = "macos")]
+pub(crate) fn ensure_pomodoro_window(
+    cx: &mut App,
+) -> Result<bongocat_ui::PomodoroWindowHandle, String> {
+    let (existing, pomodoro_client, settings_client, language, appearance_theme) = {
+        let coordinator = cx
+            .try_global::<ProductCoordinator>()
+            .ok_or_else(|| "product coordinator is unavailable".to_owned())?;
+        let settings_client = coordinator
+            .settings_service
+            .as_ref()
+            .ok_or_else(|| "settings service is unavailable".to_owned())?
+            .client();
+        (
+            coordinator.pomodoro_window.clone(),
+            coordinator.pomodoro_client.clone(),
+            settings_client,
+            coordinator.product_language,
+            coordinator.product_appearance_theme,
+        )
+    };
+    if let Some(window_handle) = existing
+        && window_handle.activate(cx).is_ok()
+    {
+        cx.activate(true);
+        return Ok(window_handle);
+    }
+    let window_handle = open_product_window(cx, |cx| {
+        bongocat_ui::open_pomodoro_window(
+            pomodoro_client,
+            settings_client,
+            language,
+            appearance_theme,
+            cx,
+        )
+    })?;
+    cx.global_mut::<ProductCoordinator>().pomodoro_window = Some(window_handle.clone());
+    Ok(window_handle)
+}
+
 /// Open the update window and start a check in it.
 ///
 /// A window created for this request asked for the check while it was being built, so

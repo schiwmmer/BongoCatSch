@@ -58,7 +58,12 @@
       "none": "還沒有任務。在上方命名一個即可開始。",
       "running_now": "進行中：{name}"
     },
-    "worker_lost": "番茄鐘未能啟動，詳情請見記錄檔。"
+    "worker_lost": "番茄鐘未能啟動，詳情請見記錄檔。",
+    "timer": {
+      "abandon": "放棄",
+      "pause": "暫停",
+      "resume": "繼續"
+    }
   },
   "startup_permission": {
     "later": "稍後設定",
