@@ -980,6 +980,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bongocat-pomodoro"
+version = "2.3.1"
+dependencies = [
+ "bongocat-storage",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "bongocat-render"
 version = "2.3.1"
 dependencies = [

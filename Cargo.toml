@@ -16,6 +16,7 @@ members = [
     "crates/bongocat-overlay",
     "crates/bongocat-packaging",
     "crates/bongocat-platform",
+    "crates/bongocat-pomodoro",
     "crates/bongocat-render",
     "crates/bongocat-runtime",
     "crates/bongocat-storage",
@@ -82,6 +83,7 @@ bongocat-log = { path = "crates/bongocat-log" }
 bongocat-model = { path = "crates/bongocat-model" }
 bongocat-overlay = { path = "crates/bongocat-overlay" }
 bongocat-platform = { path = "crates/bongocat-platform" }
+bongocat-pomodoro = { path = "crates/bongocat-pomodoro" }
 bongocat-render = { path = "crates/bongocat-render" }
 bongocat-runtime = { path = "crates/bongocat-runtime" }
 bongocat-storage = { path = "crates/bongocat-storage" }
