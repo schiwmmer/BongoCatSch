@@ -31,8 +31,34 @@
   },
   "system_menu": {
     "title": "BongoCat",
+    "start_pomodoro": "開始番茄鐘",
     "open_settings": "設定",
     "quit": "結束 BongoCat"
+  },
+  "pomodoro": {
+    "window": {
+      "title": "番茄鐘"
+    },
+    "picker": {
+      "new_task": "新增任務",
+      "continue_last": "繼續上次未完成的任務",
+      "task_name": "任務名稱",
+      "task_name_placeholder": "你正在做什麼？",
+      "estimated_sessions": "預計番茄數",
+      "session_length": "每個番茄 {minutes} 分鐘",
+      "create": "建立",
+      "close": "關閉"
+    },
+    "task": {
+      "section": "你的任務",
+      "start": "開始",
+      "running": "進行中",
+      "paused": "已暫停",
+      "progress": "已完成 {completed} / 預計 {estimated} 個番茄",
+      "none": "還沒有任務。在上方命名一個即可開始。",
+      "running_now": "進行中：{name}"
+    },
+    "worker_lost": "番茄鐘未能啟動，詳情請見記錄檔。"
   },
   "startup_permission": {
     "later": "稍後設定",

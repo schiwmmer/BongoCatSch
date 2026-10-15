@@ -1032,6 +1032,7 @@ dependencies = [
  "bongocat-config",
  "bongocat-i18n",
  "bongocat-platform",
+ "bongocat-pomodoro",
  "bongocat-ui-protocol",
  "gpui-kit",
  "serde",

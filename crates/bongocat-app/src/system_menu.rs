@@ -21,6 +21,12 @@ pub(crate) fn system_menu_presentation(snapshot: &SettingsSnapshot) -> SystemMen
         always_on_top: text("settings.overlay.always_on_top.label"),
         hide_on_pointer_hover: text("settings.overlay.hide_on_mouse_hover.label"),
         check_for_updates: text("update.about.label"),
+        // The pomodoro row is macOS-only. The key is spelled out in full rather
+        // than composed so the catalog coverage scan recognises it as a leaf on
+        // either target; the catalog carries it in all eight languages even
+        // though only one platform shows the row.
+        #[cfg(target_os = "macos")]
+        start_pomodoro: text("system_menu.start_pomodoro"),
         quit: text("system_menu.quit"),
         overlay_visible: snapshot.overlay_visible,
         click_through_enabled: snapshot.overlay.click_through,

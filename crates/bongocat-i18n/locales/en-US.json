@@ -31,8 +31,34 @@
   },
   "system_menu": {
     "title": "BongoCat",
+    "start_pomodoro": "Start Pomodoro",
     "open_settings": "Settings",
     "quit": "Quit BongoCat"
+  },
+  "pomodoro": {
+    "window": {
+      "title": "Pomodoro"
+    },
+    "picker": {
+      "new_task": "New task",
+      "continue_last": "Pick up where you left off",
+      "task_name": "Task name",
+      "task_name_placeholder": "What are you working on?",
+      "estimated_sessions": "Expected sessions",
+      "session_length": "{minutes} minutes per session",
+      "create": "Create",
+      "close": "Close"
+    },
+    "task": {
+      "section": "Your tasks",
+      "start": "Start",
+      "running": "Running",
+      "paused": "Paused",
+      "progress": "{completed} of {estimated} sessions",
+      "none": "No tasks yet. Name one above to get started.",
+      "running_now": "Running: {name}"
+    },
+    "worker_lost": "The pomodoro timer could not start. Check the log for details."
   },
   "startup_permission": {
     "later": "Set Up Later",

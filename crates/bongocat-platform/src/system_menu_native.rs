@@ -26,6 +26,8 @@ const TOGGLE_ALWAYS_ON_TOP_ID: &str = "bongocat.toggle-always-on-top";
 const TOGGLE_HIDE_ON_POINTER_HOVER_ID: &str = "bongocat.toggle-hide-on-pointer-hover";
 const CHECK_FOR_UPDATES_ID: &str = "bongocat.check-for-updates";
 const QUIT_ID: &str = "bongocat.quit";
+#[cfg(target_os = "macos")]
+const START_POMODORO_ID: &str = "bongocat.start-pomodoro";
 
 #[cfg(target_os = "macos")]
 const STATUS_ICON_BYTES: &[u8] = include_bytes!("../../../resources/icons/tray-macos.png");
@@ -59,6 +61,8 @@ struct NativeMenuItems {
     toggle_always_on_top: CheckMenuItem,
     toggle_hide_on_pointer_hover: CheckMenuItem,
     check_for_updates: Option<MenuItem>,
+    #[cfg(target_os = "macos")]
+    start_pomodoro: MenuItem,
     quit: MenuItem,
 }
 
@@ -72,11 +76,18 @@ enum MenuEntry {
     ToggleAlwaysOnTop,
     ToggleHideOnPointerHover,
     CheckForUpdates,
+    #[cfg(target_os = "macos")]
+    StartPomodoro,
     Quit,
 }
 
 const MENU_ENTRIES: &[MenuEntry] = &[
     MenuEntry::OpenSettings,
+    // The pomodoro row is a primary action beside Settings. Placing it before the
+    // first separator means the Windows build drops the entry without touching
+    // the separator-collapsing rule below.
+    #[cfg(target_os = "macos")]
+    MenuEntry::StartPomodoro,
     MenuEntry::Separator,
     MenuEntry::ModelWindow,
     MenuEntry::Separator,
@@ -143,6 +154,13 @@ impl NativeMenuItems {
                     None,
                 )
             }),
+            #[cfg(target_os = "macos")]
+            start_pomodoro: MenuItem::with_id(
+                START_POMODORO_ID,
+                &presentation.start_pomodoro,
+                true,
+                None,
+            ),
             quit: MenuItem::with_id(QUIT_ID, &presentation.quit, true, None),
         }
     }
@@ -168,6 +186,8 @@ impl NativeMenuItems {
             check_for_updates.set_text(&presentation.check_for_updates);
             check_for_updates.set_enabled(presentation.update_check_available);
         }
+        #[cfg(target_os = "macos")]
+        self.start_pomodoro.set_text(&presentation.start_pomodoro);
         self.quit.set_text(&presentation.quit);
     }
 }
@@ -403,6 +423,8 @@ fn append_menu_entries(
                     .as_ref()
                     .ok_or(SystemMenuError::MenuCreateFailed)?,
             )?,
+            #[cfg(target_os = "macos")]
+            MenuEntry::StartPomodoro => append_item(menu, &items.start_pomodoro)?,
             MenuEntry::Quit => append_item(menu, &items.quit)?,
         }
     }
@@ -457,6 +479,8 @@ fn action_for_menu_id(id: &MenuId) -> Option<SystemMenuAction> {
         TOGGLE_ALWAYS_ON_TOP_ID => SystemMenuAction::ToggleAlwaysOnTop,
         TOGGLE_HIDE_ON_POINTER_HOVER_ID => SystemMenuAction::ToggleHideOnPointerHover,
         CHECK_FOR_UPDATES_ID => SystemMenuAction::CheckForUpdates,
+        #[cfg(target_os = "macos")]
+        START_POMODORO_ID => SystemMenuAction::StartPomodoro,
         QUIT_ID => SystemMenuAction::Quit,
         _ => return None,
     })

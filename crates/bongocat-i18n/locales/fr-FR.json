@@ -31,8 +31,34 @@
   },
   "system_menu": {
     "title": "BongoCat",
+    "start_pomodoro": "Démarrer un Pomodoro",
     "open_settings": "Paramètres",
     "quit": "Quitter BongoCat"
+  },
+  "pomodoro": {
+    "window": {
+      "title": "Pomodoro"
+    },
+    "picker": {
+      "new_task": "Nouvelle tâche",
+      "continue_last": "Reprendre la tâche inachevée",
+      "task_name": "Nom de la tâche",
+      "task_name_placeholder": "Sur quoi travaillez-vous ?",
+      "estimated_sessions": "Sessions prévues",
+      "session_length": "{minutes} minutes par session",
+      "create": "Créer",
+      "close": "Fermer"
+    },
+    "task": {
+      "section": "Vos tâches",
+      "start": "Démarrer",
+      "running": "En cours",
+      "paused": "En pause",
+      "progress": "{completed} sessions sur {estimated}",
+      "none": "Aucune tâche pour l'instant. Nommez-en une ci-dessus pour commencer.",
+      "running_now": "En cours : {name}"
+    },
+    "worker_lost": "Le minuteur Pomodoro n'a pas pu démarrer. Consultez le journal pour plus de détails."
   },
   "startup_permission": {
     "later": "Configurer plus tard",

@@ -31,8 +31,34 @@
   },
   "system_menu": {
     "title": "BongoCat",
+    "start_pomodoro": "뽀모도로 시작",
     "open_settings": "설정",
     "quit": "BongoCat 종료"
+  },
+  "pomodoro": {
+    "window": {
+      "title": "뽀모도로"
+    },
+    "picker": {
+      "new_task": "새 작업",
+      "continue_last": "끝나지 않은 작업을 이어서 하기",
+      "task_name": "작업 이름",
+      "task_name_placeholder": "무엇에 집중하고 있나요?",
+      "estimated_sessions": "예상 세션 수",
+      "session_length": "세션당 {minutes}분",
+      "create": "만들기",
+      "close": "닫기"
+    },
+    "task": {
+      "section": "내 작업",
+      "start": "시작",
+      "running": "진행 중",
+      "paused": "일시 정지",
+      "progress": "예상 {estimated}개 중 {completed}개 완료",
+      "none": "아직 작업이 없습니다. 위에서 이름을 입력해 시작하세요.",
+      "running_now": "진행 중: {name}"
+    },
+    "worker_lost": "뽀모도로 타이머를 시작하지 못했습니다. 자세한 내용은 로그를 확인하세요."
   },
   "startup_permission": {
     "later": "나중에 설정",

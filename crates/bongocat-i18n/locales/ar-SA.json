@@ -31,8 +31,34 @@
   },
   "system_menu": {
     "title": "BongoCat",
+    "start_pomodoro": "ابدأ بومودورو",
     "open_settings": "الإعدادات",
     "quit": "إنهاء BongoCat"
+  },
+  "pomodoro": {
+    "window": {
+      "title": "بومودورو"
+    },
+    "picker": {
+      "new_task": "مهمة جديدة",
+      "continue_last": "استئناف المهمة غير المكتملة",
+      "task_name": "اسم المهمة",
+      "task_name_placeholder": "ما الذي تعمل عليه؟",
+      "estimated_sessions": "الجلسات المتوقعة",
+      "session_length": "{minutes} دقيقة لكل جلسة",
+      "create": "إنشاء",
+      "close": "إغلاق"
+    },
+    "task": {
+      "section": "مهامك",
+      "start": "ابدأ",
+      "running": "قيد التشغيل",
+      "paused": "متوقفة مؤقتًا",
+      "progress": "{completed} من {estimated} جلسة",
+      "none": "لا توجد مهام بعد. سمِّ مهمة في الأعلى للبدء.",
+      "running_now": "قيد التشغيل: {name}"
+    },
+    "worker_lost": "تعذّر تشغيل مؤقّت بومودورو. راجع السجل للتفاصيل."
   },
   "startup_permission": {
     "later": "الإعداد لاحقًا",

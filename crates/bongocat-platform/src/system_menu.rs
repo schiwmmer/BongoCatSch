@@ -17,6 +17,13 @@ pub struct SystemMenuPresentation {
     pub always_on_top: String,
     pub hide_on_pointer_hover: String,
     pub check_for_updates: String,
+    /// The pomodoro entry's label.
+    ///
+    /// macOS only. The row that carries it is compiled out on Windows, so the
+    /// label is compiled out with the row rather than resolved to an empty
+    /// string the platform would render as a blank entry.
+    #[cfg(target_os = "macos")]
+    pub start_pomodoro: String,
     pub quit: String,
     pub overlay_visible: bool,
     pub click_through_enabled: bool,
@@ -40,6 +47,12 @@ pub enum SystemMenuAction {
     ToggleAlwaysOnTop,
     ToggleHideOnPointerHover,
     CheckForUpdates,
+    /// Open the pomodoro task picker.
+    ///
+    /// macOS only: the row that carries this action is compiled out on Windows,
+    /// so the variant does not exist there either.
+    #[cfg(target_os = "macos")]
+    StartPomodoro,
     Quit,
 }
 
