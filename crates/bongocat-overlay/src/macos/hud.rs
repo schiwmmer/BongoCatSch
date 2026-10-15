@@ -49,29 +49,7 @@ pub(crate) struct StatsHud {
 impl StatsHud {
     /// Create the panel with its initial text, hidden.
     pub(crate) fn create(mtm: MainThreadMarker, text: &str) -> Result<Self, OverlayError> {
-        let style = NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel;
-        let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
-            NSPanel::alloc(mtm),
-            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0)),
-            style,
-            NSBackingStoreType::Buffered,
-            false,
-        );
-        panel.setTitle(&objc2_foundation::NSString::from_str("BongoCat Stats"));
-        panel.setOpaque(false);
-        panel.setHasShadow(true);
-        panel.setAnimationBehavior(NSWindowAnimationBehavior::None);
-        // A translucent window background keeps the HUD readable over any
-        // desktop without authoring its own theme; the label color follows
-        // the same system appearance.
-        panel.setBackgroundColor(Some(
-            &NSColor::windowBackgroundColor().colorWithAlphaComponent(0.92),
-        ));
-        panel.setLevel(NSStatusWindowLevel);
-        panel.setCollectionBehavior(
-            NSWindowCollectionBehavior::CanJoinAllSpaces
-                | NSWindowCollectionBehavior::FullScreenAuxiliary,
-        );
+        let panel = stats_panel(mtm, 0.92);
         // The HUD is a mirror of the counters, not a control surface: pointer
         // events pass through, so it can never steal a click or block the
         // cat's own hover detection.
@@ -195,6 +173,138 @@ impl StatsHud {
     }
 }
 
+/// The borderless, non-activating, click-through status panel every stats
+/// surface shares: a translucent background over the desktop, no shadow
+/// flicker, and pointer events passing straight through so a surface can
+/// never steal a click or block the cat's own hover detection.
+fn stats_panel(mtm: MainThreadMarker, background_alpha: f64) -> Retained<NSPanel> {
+    let style = NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel;
+    let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
+        NSPanel::alloc(mtm),
+        NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0)),
+        style,
+        NSBackingStoreType::Buffered,
+        false,
+    );
+    panel.setTitle(&objc2_foundation::NSString::from_str("BongoCat Stats"));
+    panel.setOpaque(false);
+    panel.setHasShadow(true);
+    panel.setAnimationBehavior(NSWindowAnimationBehavior::None);
+    // A translucent window background keeps the surface readable over any
+    // desktop without authoring its own theme; the label color follows the
+    // same system appearance.
+    panel.setBackgroundColor(Some(
+        &NSColor::windowBackgroundColor().colorWithAlphaComponent(background_alpha),
+    ));
+    panel.setLevel(NSStatusWindowLevel);
+    panel.setCollectionBehavior(
+        NSWindowCollectionBehavior::CanJoinAllSpaces
+            | NSWindowCollectionBehavior::FullScreenAuxiliary,
+    );
+    panel.setIgnoresMouseEvents(true);
+    panel
+}
+
+/// The level number riding the cat's forehead: a small pill with "Lv.N"
+/// that is always on the cat while the cat is presented, and follows it
+/// through moves, resizes and model switches. Like the HUD it is AppKit
+/// work — the renderer is never asked to draw text.
+///
+/// The badge rides the same visibility gates as the window itself rather
+/// than the pointer: hover hide and idle hide fade the cat out, and a
+/// faded cat must not leave a floating number behind.
+pub(crate) struct LevelBadge {
+    panel: Retained<NSPanel>,
+    label: Retained<NSTextField>,
+    text: String,
+    origin: Option<NSPoint>,
+}
+
+/// Padding around the badge label, and the pill's corner radius.
+const BADGE_PADDING: f64 = 6.0;
+const BADGE_CORNER_RADIUS: f64 = 7.0;
+/// The badge's top edge sits this fraction of the cat window's height below
+/// the window's top: the bongo cat's forehead, just under the ears.
+const BADGE_TOP_FRACTION: f64 = 0.06;
+
+impl LevelBadge {
+    /// Create the badge panel, hidden and unsized; the first
+    /// [`Self::set_status`] sizes and places it.
+    pub(crate) fn create(mtm: MainThreadMarker) -> Result<Self, OverlayError> {
+        let panel = stats_panel(mtm, 0.85);
+
+        let content = NSView::new(mtm);
+        content.setWantsLayer(true);
+        // SAFETY: the view owns its layer, and `CALayer` answers both
+        // `setCornerRadius:` and `setMasksToBounds:` on every macOS this
+        // build targets. objc2-quartz-core's generated bindings carry
+        // neither property nor the `Message` conformance, so the selectors
+        // go through the same `AnyObject` pointer route the Metal
+        // completion handler in `renderer.rs` uses.
+        if let Some(layer) = content.layer() {
+            let layer_object: NonNull<AnyObject> = NonNull::from(&*layer).cast();
+            unsafe {
+                let (): () = msg_send![layer_object, setCornerRadius: BADGE_CORNER_RADIUS];
+                let (): () = msg_send![layer_object, setMasksToBounds: true];
+            }
+        }
+        panel.setContentView(Some(&content));
+
+        let label = NSTextField::labelWithString(&objc2_foundation::NSString::from_str(""), mtm);
+        label.setFont(Some(&NSFont::boldSystemFontOfSize(11.0)));
+        content.addSubview(&label);
+
+        Ok(Self {
+            panel,
+            label,
+            text: String::new(),
+            origin: None,
+        })
+    }
+
+    /// Update the text and pin the badge to the cat's forehead. The content
+    /// size change keeps the panel's origin, so the pin below re-anchors it
+    /// against the current overlay box every call.
+    pub(crate) fn set_status(&mut self, text: &str, cat: OverlayWindowBounds) {
+        if text != self.text {
+            self.text = text.to_owned();
+            self.label
+                .setStringValue(&objc2_foundation::NSString::from_str(text));
+            self.label.sizeToFit();
+            let label_width = self.label.frame().size.width;
+            let label_height = self.label.frame().size.height;
+            let content_width = label_width + BADGE_PADDING * 2.0;
+            let content_height = label_height + BADGE_PADDING * 2.0;
+            self.panel
+                .setContentSize(NSSize::new(content_width, content_height));
+            self.label
+                .setFrameOrigin(NSPoint::new(BADGE_PADDING, BADGE_PADDING));
+        }
+        let frame = self.panel.frame();
+        let x = f64::from(cat.x) + (f64::from(cat.width) - frame.size.width) / 2.0;
+        let y = f64::from(cat.y) + f64::from(cat.height) * (1.0 - BADGE_TOP_FRACTION)
+            - frame.size.height;
+        let origin = NSPoint::new(x, y);
+        if self.origin.is_none_or(|previous| previous != origin) {
+            self.panel.setFrameOrigin(origin);
+            self.origin = Some(origin);
+        }
+    }
+
+    pub(crate) fn show(&mut self) {
+        if !self.panel.isVisible() {
+            self.panel.orderFrontRegardless();
+        }
+    }
+
+    pub(crate) fn hide(&mut self) {
+        self.origin = None;
+        if self.panel.isVisible() {
+            self.panel.orderOut(None);
+        }
+    }
+}
+
 /// The bounding box of every screen, in the same global coordinates the
 /// overlay windows use, or `None` when no screen is readable.
 fn screens_union(screens: &[OverlayScreenBounds]) -> Option<OverlayWindowBounds> {
@@ -231,6 +341,25 @@ pub(crate) fn stats_hud_locale() -> &'static str {
 /// totals.
 pub(crate) fn stats_hud_status() -> (String, f64) {
     hud_status(stats_hud_locale())
+}
+
+/// The on-cat badge key. The i18n catalog coverage test requires every key
+/// the source asks for to appear as a literal, so it lives in one constant
+/// beside the tables above.
+const BADGE_KEY: &str = "stats.hud.badge";
+
+/// The badge text at the current totals: only the level, no title and no
+/// counters — the forehead has room for a number, not a sentence.
+pub(crate) fn level_badge_status() -> String {
+    let (_key, _mouse, total) = bongocat_platform::interaction_totals();
+    let level = bongocat_platform::level_for(total);
+    level_badge_text(stats_hud_locale(), level.level)
+}
+
+/// The badge text for one level in one catalog. The level prefix itself is
+/// localized ("Lv." / "Niv." / "Nv."), the number is not.
+fn level_badge_text(locale: &str, level: u16) -> String {
+    bongocat_i18n::format_text(locale, BADGE_KEY, &[("level", level.to_string())])
 }
 
 /// The stage title keys spelled out in full. The i18n catalog coverage test
@@ -472,6 +601,15 @@ mod tests {
         assert_eq!(names.len(), usize::from(bongocat_platform::MAX_LEVEL));
         assert_eq!(title_for_level("en-US", 1), "Curled Up Tier 1");
         assert_eq!(title_for_level("en-US", 1000), "Perpetual Cat Tier 10");
+    }
+
+    /// The forehead badge carries only the level, through the same catalog
+    /// the HUD uses: the English and French prefixes pin the key set.
+    #[test]
+    fn the_badge_shows_only_the_level() {
+        assert_eq!(level_badge_text("en-US", 1), "Lv.1");
+        assert_eq!(level_badge_text("en-US", 1000), "Lv.1000");
+        assert_eq!(level_badge_text("fr-FR", 60), "Niv.60");
     }
 
     #[test]

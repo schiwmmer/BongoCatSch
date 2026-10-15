@@ -36,6 +36,11 @@ pub(crate) struct ProductOverlaySession {
     /// when the HUD shows, so the two surfaces can never disagree about
     /// whether the pointer is on the cat.
     pub(crate) stats_hud: Option<StatsHud>,
+    /// The level pill riding the cat's forehead. It shares the session's
+    /// frame tick with the HUD but follows the window's own visibility
+    /// rather than the pointer, so the number is on the cat whenever the
+    /// cat is presented.
+    pub(crate) level_badge: Option<LevelBadge>,
     /// Inactivity hide shares the session's frame tick and the hover hide's
     /// fade window: both are temporary presentation states layered on the
     /// same alpha channel, and the pointer routing treats either one as
@@ -140,6 +145,7 @@ impl ProductOverlaySession {
         // degrades to no HUD, and the cat, the counters and the input
         // service keep working without it.
         let stats_hud = StatsHud::create(mtm, &stats_hud_status().0).ok();
+        let level_badge = LevelBadge::create(mtm).ok();
         Ok(Self {
             application,
             overlay,
@@ -163,6 +169,7 @@ impl ProductOverlaySession {
             right_button_monitor: context_menu_monitor,
             hover: PointerHoverHide::default(),
             stats_hud,
+            level_badge,
             idle: IdleHide::default(),
             placement: OverlayPlacementConstraint::default(),
             session_started: Instant::now(),
@@ -570,6 +577,22 @@ impl ProductOverlaySession {
                 hud.show_below(bounds, &screens);
             } else {
                 hud.hide();
+            }
+        }
+        // The forehead badge follows the window's own presentation, not the
+        // pointer: it is on the cat whenever the cat is actually shown, and
+        // hides with the same fade gates (hover hide, idle hide) that fade
+        // the cat out, so a vanished cat never leaves a floating number.
+        let badge_allowed = self.runtime_client.snapshot().overlay_visible
+            && !self.hover.hidden()
+            && !self.idle.hidden();
+        if let Some(badge) = self.level_badge.as_mut() {
+            if badge_allowed {
+                let text = level_badge_status();
+                badge.set_status(&text, bounds);
+                badge.show();
+            } else {
+                badge.hide();
             }
         }
         Ok(())

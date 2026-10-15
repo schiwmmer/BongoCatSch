@@ -543,6 +543,7 @@
   },
   "stats": {
     "hud": {
+      "badge": "Lv.%{level}",
       "level": "مستوى %{level} %{title}",
       "progress": "الإجمالي %{total} · %{remaining} للترقية · %{percent}%",
       "total": "الإجمالي %{total}",

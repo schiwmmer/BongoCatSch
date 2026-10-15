@@ -543,6 +543,7 @@
   },
   "stats": {
     "hud": {
+      "badge": "Nv.%{level}",
       "level": "Nv.%{level} %{title}",
       "progress": "%{total} no total · faltam %{remaining} · %{percent}%",
       "total": "Total %{total}",
