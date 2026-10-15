@@ -544,8 +544,8 @@
   "stats": {
     "hud": {
       "level": "Lv.%{level} %{title}",
-      "progress": "%{total} interactions · %{remaining} to level up · %{percent}%",
-      "total": "%{total} interactions",
+      "progress": "%{total} total · %{remaining} to go · %{percent}%",
+      "total": "Total %{total}",
       "title": "%{stage} %{tier}"
     },
     "stage": {

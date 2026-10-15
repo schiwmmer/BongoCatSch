@@ -544,8 +544,8 @@
   "stats": {
     "hud": {
       "level": "Lv.%{level} %{title}",
-      "progress": "누적 %{total}회 · 레벨업까지 %{remaining}회 · %{percent}%",
-      "total": "누적 %{total}회",
+      "progress": "%{total}회 · %{remaining}회 남음 · %{percent}%",
+      "total": "총 %{total}회",
       "title": "%{stage} %{tier}"
     },
     "stage": {

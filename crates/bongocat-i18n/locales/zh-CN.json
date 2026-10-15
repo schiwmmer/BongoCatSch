@@ -544,8 +544,8 @@
   "stats": {
     "hud": {
       "level": "Lv.%{level} %{title}",
-      "progress": "累计 %{total} 次 · 距升级还差 %{remaining} 次 · %{percent}%",
-      "total": "累计 %{total} 次",
+      "progress": "%{total} 次 · 还差 %{remaining} 次 · %{percent}%",
+      "total": "%{total} 次",
       "title": "%{stage}·%{tier}"
     },
     "stage": {

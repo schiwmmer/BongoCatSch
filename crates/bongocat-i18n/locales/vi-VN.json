@@ -544,7 +544,7 @@
   "stats": {
     "hud": {
       "level": "Lv.%{level} %{title}",
-      "progress": "Tổng %{total} lần · còn %{remaining} lần để lên cấp · %{percent}%",
+      "progress": "%{total} lần · còn %{remaining} · %{percent}%",
       "total": "Tổng %{total} lần",
       "title": "%{stage} %{tier}"
     },

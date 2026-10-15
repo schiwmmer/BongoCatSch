@@ -448,7 +448,7 @@ mod tests {
         assert!(text.contains("Lv.1"), "the level line is present: {text}");
         assert!(text.contains('\n'), "the text has two lines: {text}");
         assert!(
-            text.contains("5 to level up"),
+            text.contains("5 to go"),
             "the progress to the next threshold is present: {text}"
         );
         assert!(
