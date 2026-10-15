@@ -543,7 +543,6 @@
   },
   "stats": {
     "hud": {
-      "badge": "Lv.%{level}",
       "level": "Lv.%{level} %{title}",
       "progress": "%{total} 次 · 還差 %{remaining} 次 · %{percent}%",
       "total": "%{total} 次",

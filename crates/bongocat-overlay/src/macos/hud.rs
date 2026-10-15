@@ -205,10 +205,11 @@ fn stats_panel(mtm: MainThreadMarker, background_alpha: f64) -> Retained<NSPanel
     panel
 }
 
-/// The level number riding the cat's forehead: a small pill with "Lv.N"
-/// that is always on the cat while the cat is presented, and follows it
-/// through moves, resizes and model switches. Like the HUD it is AppKit
-/// work — the renderer is never asked to draw text.
+/// The level number riding the cat's forehead: the bare number, no chrome —
+/// no background pill, no shadow, just the label floating on the fur — that
+/// is always on the cat while the cat is presented, and follows it through
+/// moves, resizes and model switches. Like the HUD it is AppKit work — the
+/// renderer is never asked to draw text.
 ///
 /// The badge rides the same visibility gates as the window itself rather
 /// than the pointer: hover hide and idle hide fade the cat out, and a
@@ -220,38 +221,27 @@ pub(crate) struct LevelBadge {
     origin: Option<NSPoint>,
 }
 
-/// Padding around the badge label, and the pill's corner radius.
+/// Padding around the badge label. The panel is invisible, so the padding
+/// only keeps the label's own frame off the panel edges.
 const BADGE_PADDING: f64 = 6.0;
-const BADGE_CORNER_RADIUS: f64 = 7.0;
 /// The badge's top edge sits this fraction of the cat window's height below
-/// the window's top: the bongo cat's forehead, just under the ears.
-const BADGE_TOP_FRACTION: f64 = 0.06;
+/// the window's top: the middle of the bongo cat's forehead, under the ears.
+const BADGE_TOP_FRACTION: f64 = 0.12;
 
 impl LevelBadge {
     /// Create the badge panel, hidden and unsized; the first
     /// [`Self::set_status`] sizes and places it.
     pub(crate) fn create(mtm: MainThreadMarker) -> Result<Self, OverlayError> {
-        let panel = stats_panel(mtm, 0.85);
+        // A fully transparent background and no shadow: the number floats on
+        // the cat's fur with nothing behind it.
+        let panel = stats_panel(mtm, 0.0);
+        panel.setHasShadow(false);
 
         let content = NSView::new(mtm);
-        content.setWantsLayer(true);
-        // SAFETY: the view owns its layer, and `CALayer` answers both
-        // `setCornerRadius:` and `setMasksToBounds:` on every macOS this
-        // build targets. objc2-quartz-core's generated bindings carry
-        // neither property nor the `Message` conformance, so the selectors
-        // go through the same `AnyObject` pointer route the Metal
-        // completion handler in `renderer.rs` uses.
-        if let Some(layer) = content.layer() {
-            let layer_object: NonNull<AnyObject> = NonNull::from(&*layer).cast();
-            unsafe {
-                let (): () = msg_send![layer_object, setCornerRadius: BADGE_CORNER_RADIUS];
-                let (): () = msg_send![layer_object, setMasksToBounds: true];
-            }
-        }
         panel.setContentView(Some(&content));
 
         let label = NSTextField::labelWithString(&objc2_foundation::NSString::from_str(""), mtm);
-        label.setFont(Some(&NSFont::boldSystemFontOfSize(11.0)));
+        label.setFont(Some(&NSFont::boldSystemFontOfSize(10.0)));
         content.addSubview(&label);
 
         Ok(Self {
@@ -343,23 +333,16 @@ pub(crate) fn stats_hud_status() -> (String, f64) {
     hud_status(stats_hud_locale())
 }
 
-/// The on-cat badge key. The i18n catalog coverage test requires every key
-/// the source asks for to appear as a literal, so it lives in one constant
-/// beside the tables above.
-const BADGE_KEY: &str = "stats.hud.badge";
-
-/// The badge text at the current totals: only the level, no title and no
-/// counters — the forehead has room for a number, not a sentence.
+/// The badge text at the current totals: the bare level number. A number
+/// needs no localization, so the badge bypasses the catalog entirely.
 pub(crate) fn level_badge_status() -> String {
     let (_key, _mouse, total) = bongocat_platform::interaction_totals();
-    let level = bongocat_platform::level_for(total);
-    level_badge_text(stats_hud_locale(), level.level)
+    level_badge_text(bongocat_platform::level_for(total).level)
 }
 
-/// The badge text for one level in one catalog. The level prefix itself is
-/// localized ("Lv." / "Niv." / "Nv."), the number is not.
-fn level_badge_text(locale: &str, level: u16) -> String {
-    bongocat_i18n::format_text(locale, BADGE_KEY, &[("level", level.to_string())])
+/// The badge text for one level: the plain decimal number.
+fn level_badge_text(level: u16) -> String {
+    level.to_string()
 }
 
 /// The stage title keys spelled out in full. The i18n catalog coverage test
@@ -603,13 +586,12 @@ mod tests {
         assert_eq!(title_for_level("en-US", 1000), "Perpetual Cat Tier 10");
     }
 
-    /// The forehead badge carries only the level, through the same catalog
-    /// the HUD uses: the English and French prefixes pin the key set.
+    /// The forehead badge carries the bare level number: a plain integer
+    /// with no prefix and no catalog lookup.
     #[test]
-    fn the_badge_shows_only_the_level() {
-        assert_eq!(level_badge_text("en-US", 1), "Lv.1");
-        assert_eq!(level_badge_text("en-US", 1000), "Lv.1000");
-        assert_eq!(level_badge_text("fr-FR", 60), "Niv.60");
+    fn the_badge_shows_only_the_number() {
+        assert_eq!(level_badge_text(1), "1");
+        assert_eq!(level_badge_text(1000), "1000");
     }
 
     #[test]
