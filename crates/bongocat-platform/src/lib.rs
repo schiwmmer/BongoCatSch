@@ -21,6 +21,9 @@ pub use interaction_stats::{
 mod local_time;
 pub use local_time::local_utc_offset_seconds;
 
+mod pomodoro_sound;
+pub use pomodoro_sound::{POMODORO_COMPLETE_SOUND, play_pomodoro_complete_sound};
+
 mod model_source_picker;
 pub use model_source_picker::{ModelSourcePickerError, ModelSourcePickerOutcome};
 

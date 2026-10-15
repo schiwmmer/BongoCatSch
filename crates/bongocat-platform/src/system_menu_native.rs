@@ -28,6 +28,12 @@ const CHECK_FOR_UPDATES_ID: &str = "bongocat.check-for-updates";
 const QUIT_ID: &str = "bongocat.quit";
 #[cfg(target_os = "macos")]
 const START_POMODORO_ID: &str = "bongocat.start-pomodoro";
+#[cfg(target_os = "macos")]
+const PAUSE_POMODORO_ID: &str = "bongocat.pomodoro-pause";
+#[cfg(target_os = "macos")]
+const RESUME_POMODORO_ID: &str = "bongocat.pomodoro-resume";
+#[cfg(target_os = "macos")]
+const ABANDON_POMODORO_ID: &str = "bongocat.pomodoro-abandon";
 
 #[cfg(target_os = "macos")]
 const STATUS_ICON_BYTES: &[u8] = include_bytes!("../../../resources/icons/tray-macos.png");
@@ -304,6 +310,52 @@ impl SystemMenu {
         self.receiver.try_recv().ok()
     }
 
+    /// Present a small menu of timer actions at the current pointer location.
+    ///
+    /// The menu is built per request from what the caller offers rather than held
+    /// as a tree of its own: a running countdown offers a pause and a paused one
+    /// offers a resume and an abandon, so a menu kept as fixed state would have to
+    /// be rewritten on every transition anyway.
+    ///
+    /// macOS only. The countdown is a macOS surface, so there is nothing to offer
+    /// on Windows.
+    #[cfg(target_os = "macos")]
+    pub fn show_pomodoro_menu(
+        &self,
+        window: &impl HasWindowHandle,
+        entries: &[(&str, &str)],
+    ) -> Result<(), SystemMenuError> {
+        let window = window
+            .window_handle()
+            .map_err(|_| SystemMenuError::WindowHandleUnavailable)?;
+        let RawWindowHandle::AppKit(handle) = window.as_raw() else {
+            return Err(SystemMenuError::UnsupportedWindowHandle);
+        };
+        let _main_thread = MainThreadMarker::new().ok_or(SystemMenuError::WrongThread)?;
+        let menu = Menu::new();
+        for (id, label) in entries {
+            let item = MenuItem::with_id(*id, *label, true, None);
+            menu.append(&item)
+                .map_err(|_| SystemMenuError::MenuItemCreateFailed)?;
+            // The item is appended by reference and the menu retains it, so the
+            // local handle goes out of scope with the loop iteration.
+            drop(item);
+        }
+        // SAFETY: the caller's `HasWindowHandle` keeps the content NSView alive
+        // for the duration of this synchronous popup.
+        let _ = unsafe { menu.show_context_menu_for_nsview(handle.ns_view.as_ptr(), None) };
+        // `muda` routes every menu event to one process-wide receiver, which is
+        // what the tray menu is read from too. The ids below are ones no other
+        // menu carries, so an event drained here can only be this one's choice.
+        while let Ok(event) = MenuEvent::receiver().try_recv() {
+            if let Some(action) = action_for_menu_id(&event.id) {
+                let _ = self.sender.send(action);
+                break;
+            }
+        }
+        Ok(())
+    }
+
     /// Present the model-window context menu at the current pointer location.
     pub fn show_context_menu_for_window(
         &self,
@@ -481,6 +533,12 @@ fn action_for_menu_id(id: &MenuId) -> Option<SystemMenuAction> {
         CHECK_FOR_UPDATES_ID => SystemMenuAction::CheckForUpdates,
         #[cfg(target_os = "macos")]
         START_POMODORO_ID => SystemMenuAction::StartPomodoro,
+        #[cfg(target_os = "macos")]
+        PAUSE_POMODORO_ID => SystemMenuAction::PausePomodoro,
+        #[cfg(target_os = "macos")]
+        RESUME_POMODORO_ID => SystemMenuAction::ResumePomodoro,
+        #[cfg(target_os = "macos")]
+        ABANDON_POMODORO_ID => SystemMenuAction::AbandonPomodoro,
         QUIT_ID => SystemMenuAction::Quit,
         _ => return None,
     })

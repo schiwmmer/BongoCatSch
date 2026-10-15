@@ -122,7 +122,8 @@ pub use cover::{ModelCoverCaptureSession, capture_model_cover};
 pub use error::OverlayError;
 pub use preview::{run_interactive_model_preview, run_model_preview, run_model_switch_preview};
 pub use product_session::{
-    OverlayContextMenuRequest, OverlayInteractionSinks, OverlayResizeOutcome, ProductOverlaySession,
+    OverlayContextMenuRequest, OverlayInteractionSinks, OverlayPomodoroCompletion,
+    OverlayPomodoroMenuRequest, OverlayPomodoroTimer, OverlayResizeOutcome, ProductOverlaySession,
 };
 pub use report::{OverlayTickOutcome, ProductOverlayReport};
 pub use timing::{FrameTimingSummary, PreviewReport};

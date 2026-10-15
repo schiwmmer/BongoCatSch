@@ -28,7 +28,7 @@ const HUD_PADDING: f64 = 14.0;
 /// The gap between the overlay window's bottom edge (or top edge, when the
 /// HUD does not fit below) and the HUD.
 const HUD_GAP: f64 = 8.0;
-const HUD_CORNER_RADIUS: f64 = 10.0;
+pub(crate) const HUD_CORNER_RADIUS: f64 = 10.0;
 /// The HUD never gets narrower than this, so a short level line still reads
 /// as a small panel rather than a sliver.
 const HUD_MINIMUM_WIDTH: f64 = 150.0;
@@ -177,7 +177,7 @@ impl StatsHud {
 /// surface shares: a translucent background over the desktop, no shadow
 /// flicker, and pointer events passing straight through so a surface can
 /// never steal a click or block the cat's own hover detection.
-fn stats_panel(mtm: MainThreadMarker, background_alpha: f64) -> Retained<NSPanel> {
+pub(crate) fn stats_panel(mtm: MainThreadMarker, background_alpha: f64) -> Retained<NSPanel> {
     let style = NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel;
     let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
         NSPanel::alloc(mtm),

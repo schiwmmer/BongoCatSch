@@ -69,11 +69,48 @@ pub struct OverlayResizeOutcome {
     pub scale_percent: u16,
 }
 
+/// The countdown the overlay draws above the cat.
+///
+/// It mirrors the domain's read model rather than carrying it: the overlay draws
+/// a surface, it does not own the timer, and giving it the domain type would make
+/// the renderer depend on a feature the model has nothing to do with.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OverlayPomodoroTimer {
+    pub remaining_seconds: u32,
+    pub paused: bool,
+}
+
+/// A finished focus session the overlay should perform.
+///
+/// `sequence` is what makes it a *request* rather than a state: the overlay plays
+/// a performance when the sequence changes, so a session that finished while the
+/// application was not looking is still performed exactly once.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OverlayPomodoroCompletion {
+    pub sequence: u64,
+}
+
+/// What a right-click on the countdown asks for.
+///
+/// The overlay reports the request and the application owns the menu, exactly as
+/// the model window's context menu does: presenting a menu is a product action,
+/// and a panel that popped its own would make two surfaces disagree about how the
+/// product behaves.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OverlayPomodoroMenuRequest {
+    /// The countdown is running: offer to pause it.
+    OfferPause,
+    /// The countdown is paused: offer to resume or abandon it.
+    OfferResumeAndAbandon,
+}
+
 /// Optional application-owned event handoffs consumed by the native overlay.
 /// They carry no overlay state and are never used to render or mutate config.
 pub struct OverlayInteractionSinks {
     pub context_menu_sender: Option<SyncSender<OverlayContextMenuRequest>>,
     pub resize_sender: Option<SyncSender<OverlayResizeOutcome>>,
+    /// Where a right-click on the countdown is reported.
+    pub pomodoro_menu_sender: Option<SyncSender<OverlayPomodoroMenuRequest>>,
 }
 
 impl ProductOverlaySession {
@@ -95,6 +132,7 @@ impl ProductOverlaySession {
             OverlayInteractionSinks {
                 context_menu_sender: None,
                 resize_sender: None,
+                pomodoro_menu_sender: None,
             },
         )
     }
@@ -199,6 +237,32 @@ impl ProductOverlaySession {
     #[cfg(target_os = "windows")]
     pub fn taskbar_icon_is_visible(&self) -> bool {
         self.inner.taskbar_icon_is_visible()
+    }
+
+    /// Publish what the pomodoro worker last reported.
+    ///
+    /// The countdown and the completion are handed in rather than pulled from a
+    /// worker the overlay does not own: the timer has its own thread and its own
+    /// document, and the overlay draws a surface for it. `completion` is a
+    /// *request* — the overlay performs a session once per sequence it has not
+    /// played — so a session that finished while the application was busy is
+    /// still performed, exactly once.
+    ///
+    /// macOS only. The countdown and the performance are macOS surfaces, and the
+    /// Windows overlay has neither.
+    #[cfg(target_os = "macos")]
+    pub fn set_pomodoro_state(
+        &mut self,
+        timer: Option<OverlayPomodoroTimer>,
+        completion: Option<OverlayPomodoroCompletion>,
+    ) {
+        self.inner.set_pomodoro_state(timer, completion);
+    }
+
+    /// The right-click the countdown raised since the last call, taken once.
+    #[cfg(target_os = "macos")]
+    pub fn take_pomodoro_menu_request(&self) -> Option<OverlayPomodoroMenuRequest> {
+        self.inner.take_pomodoro_menu_request()
     }
 
     #[cfg(target_os = "windows")]

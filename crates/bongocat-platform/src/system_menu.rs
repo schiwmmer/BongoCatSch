@@ -53,6 +53,18 @@ pub enum SystemMenuAction {
     /// so the variant does not exist there either.
     #[cfg(target_os = "macos")]
     StartPomodoro,
+    /// Freeze the running focus session.
+    #[cfg(target_os = "macos")]
+    PausePomodoro,
+    /// Continue a paused focus session from the time it stopped at.
+    #[cfg(target_os = "macos")]
+    ResumePomodoro,
+    /// End the focus session without counting it.
+    ///
+    /// The session's work is discarded rather than recorded: an abandoned
+    /// session is a session the user chose not to finish.
+    #[cfg(target_os = "macos")]
+    AbandonPomodoro,
     Quit,
 }
 
