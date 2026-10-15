@@ -211,6 +211,41 @@ impl PomodoroClient {
         }
     }
 
+    /// A client whose commands land in a channel the caller can read.
+    ///
+    /// No worker runs behind it, so nothing advances the countdown: it is the
+    /// seam a surface's own tests use to assert what a view asked the timer to
+    /// do, rather than only what it painted. The window reports
+    /// [`PomodoroWorkerState::Ready`] because from a surface's point of view the
+    /// commands it sent are accepted, and a test that asserted otherwise would be
+    /// testing the sink rather than the surface.
+    pub fn with_sink() -> (Self, Receiver<PomodoroCommand>) {
+        let (sender, receiver) = mpsc::sync_channel(COMMAND_CAPACITY);
+        let mut inner = Inner {
+            worker_state: PomodoroWorkerState::Ready,
+            domain: PomodoroState::empty(),
+            written: Document::default(),
+            revision: 0,
+            completed_sessions: 0,
+            document_writes: 0,
+            document_write_failures: 0,
+            last_error: None,
+            snapshot: PomodoroState::empty().snapshot(0),
+        };
+        inner.snapshot.worker = PomodoroWorkerState::Ready;
+        (
+            Self {
+                sender,
+                shared: Arc::new(SharedState {
+                    inner: Mutex::new(inner),
+                    changed: Condvar::new(),
+                    shutdown_requested: AtomicBool::new(false),
+                }),
+            },
+            receiver,
+        )
+    }
+
     /// The state a surface renders.
     pub fn snapshot(&self) -> PomodoroSnapshot {
         self.shared

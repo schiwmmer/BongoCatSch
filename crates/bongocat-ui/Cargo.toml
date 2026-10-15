@@ -13,6 +13,7 @@ bongocat-config.workspace = true
 bongocat-i18n.workspace = true
 bongocat-ui-protocol.workspace = true
 bongocat-platform.workspace = true
+bongocat-pomodoro.workspace = true
 gpui-kit.workspace = true
 serde.workspace = true
 serde_json.workspace = true

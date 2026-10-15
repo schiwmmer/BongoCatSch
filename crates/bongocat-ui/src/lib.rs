@@ -14,6 +14,9 @@ pub use window::{
     open_settings_window,
 };
 
+mod pomodoro_window;
+pub use pomodoro_window::{PomodoroView, PomodoroWindowHandle, open_pomodoro_window};
+
 mod update_markdown;
 mod update_window;
 pub use update_window::{UpdateView, UpdateWindowHandle, UpdateWindowStart, open_update_window};
