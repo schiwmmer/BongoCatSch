@@ -546,6 +546,7 @@ fn the_recorder_frame_arms_the_recording_and_the_clear_control_does_not(cx: &mut
                 },
                 Rc::new(|_| {}),
                 Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
                 window,
                 cx,
             )
@@ -626,6 +627,7 @@ fn structural_editing_blocking_renders_the_recorder_inert(cx: &mut TestAppContex
                 },
                 Rc::new(|_| {}),
                 Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
                 window,
                 cx,
             )

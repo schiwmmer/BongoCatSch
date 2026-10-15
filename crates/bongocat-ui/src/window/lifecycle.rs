@@ -8,6 +8,7 @@ pub fn open_settings_window(
     navigation_memory: SettingsNavigationMemory,
     request_quit: impl Fn(&mut App) + 'static,
     request_update: impl Fn(&mut App) + 'static,
+    pomodoro: PomodoroClient,
     cx: &mut App,
 ) -> Result<SettingsWindowHandle, String> {
     let (window_bounds, display_id) = initial_window_bounds(&window_state, cx);
@@ -67,8 +68,15 @@ pub fn open_settings_window(
                         }
                     })
                     .detach();
-                    let mut view =
-                        SettingsView::new(client, seed, request_quit, request_update, window, cx);
+                    let mut view = SettingsView::new(
+                        client,
+                        seed,
+                        request_quit,
+                        request_update,
+                        pomodoro,
+                        window,
+                        cx,
+                    );
                     view.set_navigation_memory(navigation_memory.clone());
                     view.refresh(cx);
                     view

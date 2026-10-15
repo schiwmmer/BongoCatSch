@@ -27,6 +27,9 @@
     },
     "about": {
       "title": "정보"
+    },
+    "pomodoro": {
+      "title": "포모도로"
     }
   },
   "system_menu": {
@@ -63,6 +66,17 @@
       "abandon": "포기",
       "pause": "일시 정지",
       "resume": "계속"
+    },
+    "settings": {
+      "search_placeholder": "작업 검색",
+      "tab_list": "작업 목록",
+      "tab_calendar": "달력",
+      "no_tasks": "표시할 작업이 없습니다.",
+      "prev_month": "이전 달",
+      "next_month": "다음 달",
+      "weekdays": "월,화,수,목,금,토,일",
+      "month_label": "%{year}년 %{month}월",
+      "month_summary": "%{sessions}세션 · %{tasks}작업"
     }
   },
   "startup_permission": {

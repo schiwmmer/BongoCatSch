@@ -14,6 +14,7 @@
 //! cost exactly the time it was late.
 
 use std::{
+    collections::BTreeMap,
     io,
     path::{Path, PathBuf},
     sync::{
@@ -26,7 +27,8 @@ use std::{
 };
 
 use crate::{
-    COMMAND_CAPACITY, PomodoroCommand, PomodoroSnapshot, PomodoroState, Timer, TimerState,
+    COMMAND_CAPACITY, CalendarDay, CalendarDayTotal, PomodoroCommand, PomodoroSnapshot,
+    PomodoroState, Timer, TimerState,
     document::{Document, write_document},
 };
 
@@ -254,6 +256,21 @@ impl PomodoroClient {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .snapshot
             .clone()
+    }
+
+    /// The per-local-day session totals the month calendar draws.
+    ///
+    /// The worker owns the only copy of the document, so the history a calendar
+    /// shows can only be read from here. The caller passes its own UTC offset
+    /// because the day a completion lands on is a local fact, not a worker one —
+    /// the same instant buckets into a different day east or west of Greenwich.
+    pub fn day_totals(&self, utc_offset_seconds: i32) -> BTreeMap<CalendarDay, CalendarDayTotal> {
+        self.shared
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .domain
+            .day_totals(utc_offset_seconds)
     }
 
     /// The snapshot revision, without cloning the snapshot.

@@ -1,5 +1,12 @@
 use super::*;
 
+/// How often the settings window re-reads the pomodoro snapshot while it is open.
+///
+/// The client keeps a revision, so a quiet window costs nothing: the poll only
+/// `cx.notify()`s when the revision actually moved, which is what makes the
+/// calendar and the task list track a running countdown without a per-tick clone.
+const POMODORO_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+
 impl SettingsView {
     pub(super) fn set_navigation_memory(&mut self, memory: SettingsNavigationMemory) {
         self.navigation_memory = memory;
@@ -160,6 +167,7 @@ impl SettingsView {
         seed: SettingsWindowSeed,
         request_quit: Rc<dyn Fn(&mut App)>,
         request_update: SettingsWindowRequest,
+        pomodoro: PomodoroClient,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -342,6 +350,38 @@ impl SettingsView {
             )
             .detach();
         }
+        // The pomodoro search box keeps its own cursor, so it lives as an entity
+        // the page renders and reads; its text is mirrored into `pomodoro_search`
+        // on every keystroke for the task-list filter.
+        let pomodoro_search_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(bongocat_i18n::text(
+                seed.language.catalog_locale(),
+                "pomodoro.settings.search_placeholder",
+            ))
+        });
+        cx.subscribe(
+            &pomodoro_search_input,
+            |view, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    view.pomodoro_search = input.read(cx).value().to_string();
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
+        // The pomodoro snapshot advances on a worker thread, so the page re-reads
+        // it on a light timer and re-renders only when the revision moves.
+        cx.spawn(async move |this, cx| {
+            let executor = cx.background_executor().clone();
+            loop {
+                executor.timer(POMODORO_POLL_INTERVAL).await;
+                if this.update(cx, |view, cx| view.poll_pomodoro(cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+
         Self {
             #[cfg(target_os = "windows")]
             window_background_color,
@@ -350,6 +390,24 @@ impl SettingsView {
             #[cfg(target_os = "windows")]
             window_background_timer_generation: 0,
             client,
+            pomodoro,
+            // The pomodoro page opens on the task list, with no search filter and
+            // showing the month the user is in right now. The month is derived
+            // from the local UTC offset so the calendar opens on the day the
+            // user would write on a paper calendar, not on a UTC one.
+            pomodoro_search: String::new(),
+            pomodoro_view: PomodoroSettingsView::List,
+            pomodoro_display_month: {
+                let offset = bongocat_platform::local_utc_offset_seconds();
+                let now_unix = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|elapsed| elapsed.as_secs() as i64)
+                    .unwrap_or(0);
+                let today = bongocat_pomodoro::CalendarDay::from_unix(now_unix, offset).to_civil();
+                (today.year, today.month)
+            },
+            pomodoro_search_input,
+            pomodoro_observed_revision: 0,
             seed,
             snapshot: None,
             pending: None,
@@ -414,5 +472,20 @@ impl SettingsView {
             completed_model_cover_captures: BTreeSet::new(),
             syncing_component_inputs: false,
         }
+    }
+
+    /// Re-read the pomodoro snapshot revision and re-render only if it moved.
+    ///
+    /// Called from a light timer while the settings window is open. The pomodoro
+    /// worker advances the revision on another thread, so comparing against the
+    /// last seen value is what keeps the task list and calendar fresh without
+    /// cloning the snapshot on every idle tick.
+    pub(super) fn poll_pomodoro(&mut self, cx: &mut Context<Self>) {
+        let revision = self.pomodoro.revision();
+        if revision == self.pomodoro_observed_revision {
+            return;
+        }
+        self.pomodoro_observed_revision = revision;
+        cx.notify();
     }
 }

@@ -27,6 +27,9 @@
     },
     "about": {
       "title": "حول"
+    },
+    "pomodoro": {
+      "title": "بومودورو"
     }
   },
   "system_menu": {
@@ -63,6 +66,17 @@
       "abandon": "إنهاء",
       "pause": "إيقاف مؤقت",
       "resume": "استئناف"
+    },
+    "settings": {
+      "search_placeholder": "البحث في المهام",
+      "tab_list": "قائمة المهام",
+      "tab_calendar": "التقويم",
+      "no_tasks": "لا توجد مهام لعرضها.",
+      "prev_month": "الشهر السابق",
+      "next_month": "الشهر التالي",
+      "weekdays": "الاثنين,الثلاثاء,الأربعاء,الخميس,الجمعة,السبت,الأحد",
+      "month_label": "%{year}-%{month}",
+      "month_summary": "%{sessions} جلسات · %{tasks} مهام"
     }
   },
   "startup_permission": {

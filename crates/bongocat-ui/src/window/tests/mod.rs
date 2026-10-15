@@ -108,6 +108,7 @@ fn settings_view_with_endpoint(
                 },
                 Rc::new(|_| {}),
                 Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
                 window,
                 cx,
             )
@@ -195,6 +196,7 @@ fn rendered_shortcuts_scope(
                 },
                 Rc::new(|_| {}),
                 Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
                 window,
                 cx,
             )

@@ -27,6 +27,9 @@
     },
     "about": {
       "title": "Giới thiệu"
+    },
+    "pomodoro": {
+      "title": "Pomodoro"
     }
   },
   "system_menu": {
@@ -63,6 +66,17 @@
       "abandon": "Từ bỏ",
       "pause": "Tạm dừng",
       "resume": "Tiếp tục"
+    },
+    "settings": {
+      "search_placeholder": "Tìm nhiệm vụ",
+      "tab_list": "Danh sách nhiệm vụ",
+      "tab_calendar": "Lịch",
+      "no_tasks": "Không có nhiệm vụ nào.",
+      "prev_month": "Tháng trước",
+      "next_month": "Tháng sau",
+      "weekdays": "Thứ 2,Thứ 3,Thứ 4,Thứ 5,Thứ 6,Thứ 7,CN",
+      "month_label": "%{month}/%{year}",
+      "month_summary": "%{sessions} phiên · %{tasks} nhiệm vụ"
     }
   },
   "startup_permission": {

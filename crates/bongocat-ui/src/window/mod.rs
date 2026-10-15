@@ -23,6 +23,7 @@ use bongocat_platform::{
     ModelSourcePickerError, ModelSourcePickerOutcome, pick_model_cover, pick_model_folder,
     validate_model_folder,
 };
+use bongocat_pomodoro::PomodoroClient;
 use gpui_kit::component::{
     ActiveTheme, Disableable, Icon, IndexPath, Root, Theme, ThemeMode, ThemeStyled, WindowExt,
     button::{Button, ButtonVariant, ButtonVariants},
@@ -84,6 +85,7 @@ use model_import_card::ModelImportCard;
 use model_mver_dialog::build_mver_mode_dialog;
 mod models;
 mod navigation;
+mod pomodoro_settings;
 pub use navigation::SettingsNavigationMemory;
 use navigation::{SettingsNavigationPage, model_library_search_keywords};
 mod render;
@@ -214,6 +216,17 @@ pub struct SettingsWindowSeed {
     pub appearance_theme: SettingsTheme,
 }
 
+/// Which surface the pomodoro settings page is showing.
+///
+/// The page keeps both a task list and a month calendar; the toggle only swaps
+/// which one the body renders, so the task data the list reads is never lost
+/// when the user looks at the calendar and back.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PomodoroSettingsView {
+    List,
+    Calendar,
+}
+
 pub struct SettingsView {
     #[cfg(target_os = "windows")]
     pub(crate) window_background_color: Entity<gpui_kit::component::color_picker::ColorPickerState>,
@@ -222,6 +235,23 @@ pub struct SettingsView {
     #[cfg(target_os = "windows")]
     pub(crate) window_background_timer_generation: u64,
     pub(crate) client: SettingsClient,
+    /// The pomodoro timer client, so the settings page can read the task list
+    /// and toggle a task's done state without owning the worker.
+    pub(crate) pomodoro: PomodoroClient,
+    /// The free-text filter the task-list subview applies to task names.
+    pub(crate) pomodoro_search: String,
+    /// Whether the pomodoro page shows the task list or the month calendar.
+    pub(crate) pomodoro_view: PomodoroSettingsView,
+    /// The (year, month) the calendar subview is currently displaying.
+    pub(crate) pomodoro_display_month: (i32, u32),
+    /// The search box the task-list subview filters task names with. Stored as an
+    /// input entity rather than a bare string so the field keeps its own cursor
+    /// and selection across frames; the typed text is mirrored into
+    /// `pomodoro_search` on every change for filtering.
+    pub(crate) pomodoro_search_input: Entity<InputState>,
+    /// The last pomodoro revision the settings window rendered, so the background
+    /// poll can tell a real change from an idle tick and only then `cx.notify()`.
+    pub(crate) pomodoro_observed_revision: u64,
     pub(crate) seed: SettingsWindowSeed,
     pub(crate) snapshot: Option<SettingsSnapshot>,
     pub(crate) pending: Option<PendingOperation>,

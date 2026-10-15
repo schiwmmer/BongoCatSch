@@ -44,6 +44,7 @@ fn deleting_a_model_asks_the_service_only_after_the_confirmation(cx: &mut TestAp
                 },
                 Rc::new(|_| {}),
                 Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
                 window,
                 cx,
             )
@@ -132,6 +133,7 @@ fn the_model_catalog_is_visible_through_the_settings_item_wrapper(cx: &mut TestA
                 },
                 Rc::new(|_| {}),
                 Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
                 window,
                 cx,
             )
@@ -190,6 +192,7 @@ fn the_import_card_is_as_tall_as_the_model_cards_beside_it(cx: &mut TestAppConte
                 },
                 Rc::new(|_| {}),
                 Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
                 window,
                 cx,
             )
@@ -265,6 +268,7 @@ fn a_model_import_disables_the_other_cards_actions_until_it_finishes(cx: &mut Te
                 },
                 Rc::new(|_| {}),
                 Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
                 window,
                 cx,
             )

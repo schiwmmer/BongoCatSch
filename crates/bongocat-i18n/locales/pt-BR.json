@@ -27,6 +27,9 @@
     },
     "about": {
       "title": "Sobre"
+    },
+    "pomodoro": {
+      "title": "Pomodoro"
     }
   },
   "system_menu": {
@@ -63,6 +66,17 @@
       "abandon": "Abandonar",
       "pause": "Pausar",
       "resume": "Retomar"
+    },
+    "settings": {
+      "search_placeholder": "Pesquisar tarefas",
+      "tab_list": "Lista de tarefas",
+      "tab_calendar": "Calendário",
+      "no_tasks": "Nenhuma tarefa para mostrar.",
+      "prev_month": "Mês anterior",
+      "next_month": "Próximo mês",
+      "weekdays": "seg,ter,qua,qui,sex,sáb,dom",
+      "month_label": "%{month}/%{year}",
+      "month_summary": "%{sessions} sessões · %{tasks} tarefas"
     }
   },
   "startup_permission": {

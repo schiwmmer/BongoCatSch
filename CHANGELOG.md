@@ -9,6 +9,8 @@
 - All 1000 levels carry a unique name: 100 stages (one every ten levels) x 10 tiers inside each stage compose 1000 distinct titles, from "Curled Up Tier 1" to "Perpetual Cat Tier 10", with a complete table in all eight languages.
 - Tightened the stats panel copy: the progress line drops the leading labels ("Total 10,005 · 5 to go · 3%"), so the panel and its progress bar shrink with the shorter text.
 - The level number now rides the cat's forehead: a small bare number pinned to the top center of the model window, following the cat through moves and resizes and hiding whenever the cat hides.
+- A Pomodoro timer, started from the "Start Pomodoro" menu entry on macOS: name a task, set how many focus sessions it needs, and a countdown floats above the cat as the session runs. A finished session plays a short chime, and a right-click on the countdown pauses or abandons it. Tasks are kept in a separate `pomodoro-tasks.json`, and a countdown does not survive a restart.
+- A "Pomodoro" settings page with a task list and a month calendar: tick a task done as you finish it, and see each day's finished focus sessions laid out on a calendar. The whole feature is localized into all eight supported languages.
 
 ## 2.3.1 - 2026-10-13
 

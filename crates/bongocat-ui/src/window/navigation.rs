@@ -15,6 +15,11 @@ pub(super) enum SettingsNavigationPage {
     Appearance,
     ModelLibrary,
     ModelBehavior,
+    /// The pomodoro clock: its task list and the month calendar of finished
+    /// focus sessions. Sits beside model behavior because both are about what
+    /// the cat helps the user get done, and the timer is a model-independent
+    /// activity the user reaches for between sessions.
+    Pomodoro,
     ModelWindow,
     InputInteraction,
     Shortcuts,
@@ -73,18 +78,20 @@ impl SettingsNavigationPage {
             Self::Appearance => 0,
             Self::ModelLibrary => 1,
             Self::ModelBehavior => 2,
-            Self::ModelWindow => 3,
-            Self::InputInteraction => 4,
-            Self::Shortcuts => 5,
-            Self::AppSystem => 6,
-            Self::About => 7,
+            Self::Pomodoro => 3,
+            Self::ModelWindow => 4,
+            Self::InputInteraction => 5,
+            Self::Shortcuts => 6,
+            Self::AppSystem => 7,
+            Self::About => 8,
         }
     }
 
-    pub(super) const ALL: [Self; 8] = [
+    pub(super) const ALL: [Self; 9] = [
         Self::Appearance,
         Self::ModelLibrary,
         Self::ModelBehavior,
+        Self::Pomodoro,
         Self::ModelWindow,
         Self::InputInteraction,
         Self::Shortcuts,
@@ -97,6 +104,7 @@ impl SettingsNavigationPage {
             Self::Appearance => "navigation.appearance.title",
             Self::ModelLibrary => "navigation.model_library.title",
             Self::ModelBehavior => "navigation.model_behavior.title",
+            Self::Pomodoro => "navigation.pomodoro.title",
             Self::ModelWindow => "navigation.model_window.title",
             Self::InputInteraction => "navigation.input_interaction.title",
             Self::Shortcuts => "navigation.shortcuts.title",
@@ -114,6 +122,7 @@ impl SettingsNavigationPage {
             Self::Appearance => IconName::Settings,
             Self::ModelLibrary => IconName::Cat,
             Self::ModelBehavior => IconName::SlidersHorizontal,
+            Self::Pomodoro => IconName::AlarmClock,
             Self::ModelWindow => IconName::AppWindow,
             Self::InputInteraction => IconName::MousePointer2,
             Self::Shortcuts => IconName::Keyboard,
@@ -159,6 +168,14 @@ impl SettingsNavigationPage {
                 "模型管理",
                 "Display & behavior",
                 "显示与行为",
+            ],
+            Self::Pomodoro => &[
+                "Pomodoro",
+                "Tomato timer",
+                "番茄钟",
+                "番茄时钟",
+                "Focus timer",
+                "专注计时",
             ],
             Self::ModelWindow => &["Overlay"],
             Self::InputInteraction => &["Interaction", "Input", "交互", "输入"],
@@ -223,6 +240,7 @@ mod tests {
                 SettingsNavigationPage::Appearance,
                 SettingsNavigationPage::ModelLibrary,
                 SettingsNavigationPage::ModelBehavior,
+                SettingsNavigationPage::Pomodoro,
                 SettingsNavigationPage::ModelWindow,
                 SettingsNavigationPage::InputInteraction,
                 SettingsNavigationPage::Shortcuts,

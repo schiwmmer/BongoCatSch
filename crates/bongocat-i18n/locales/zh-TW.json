@@ -27,6 +27,9 @@
     },
     "about": {
       "title": "關於"
+    },
+    "pomodoro": {
+      "title": "番茄鐘"
     }
   },
   "system_menu": {
@@ -63,6 +66,17 @@
       "abandon": "放棄",
       "pause": "暫停",
       "resume": "繼續"
+    },
+    "settings": {
+      "search_placeholder": "搜尋任務",
+      "tab_list": "任務列表",
+      "tab_calendar": "日曆",
+      "no_tasks": "暫無任務。",
+      "prev_month": "上個月",
+      "next_month": "下個月",
+      "weekdays": "一,二,三,四,五,六,日",
+      "month_label": "%{year}年%{month}月",
+      "month_summary": "%{sessions} 個時段 · %{tasks} 個任務"
     }
   },
   "startup_permission": {

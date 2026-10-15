@@ -1600,6 +1600,28 @@ impl Render for SettingsView {
                 ))
                 .group(model_behavior_group);
 
+        // The pomodoro page is one custom element so the task list and the month
+        // calendar can use the full content width; the sidebar entry still sits
+        // beside model behavior because both are about what the cat helps the
+        // user get done.
+        let pomodoro_page = SettingPage::new(SettingsNavigationPage::Pomodoro.title(language))
+            .icon(SettingsNavigationPage::Pomodoro.icon())
+            .title_suffix(page_reporter(
+                SettingsNavigationPage::Pomodoro,
+                navigation_memory.clone(),
+            ))
+            .group(
+                SettingGroup::new().item(
+                    SettingItem::render({
+                        let view = view_entity.clone();
+                        move |options: &RenderOptions, window: &mut Window, cx: &mut App| {
+                            pomodoro_settings::content(view.clone(), options, window, cx)
+                        }
+                    })
+                    .keywords(pomodoro_settings::keywords(language)),
+                ),
+            );
+
         // The page's two scopes are two titled groups rather than tabs: a
         // `SettingPage` cannot host child pages, but the settings component
         // renders every titled group of a page with more than one group as a
@@ -1657,6 +1679,7 @@ impl Render for SettingsView {
                 appearance_page,
                 model_library_page,
                 model_behavior_page,
+                pomodoro_page,
                 overlay_page,
                 input_interaction_page,
                 shortcuts_page,
