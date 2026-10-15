@@ -48,7 +48,7 @@
       "task_name": "Task name",
       "task_name_placeholder": "What are you working on?",
       "estimated_sessions": "Expected sessions",
-      "session_length": "{minutes} minutes per session",
+      "session_length": "%{minutes} minutes per session",
       "create": "Create",
       "close": "Close"
     },
@@ -57,7 +57,7 @@
       "start": "Start",
       "running": "Running",
       "paused": "Paused",
-      "progress": "{completed} of {estimated} sessions",
+      "progress": "%{completed} of %{estimated} sessions",
       "none": "No tasks yet. Name one above to get started.",
       "running_now": "Running: {name}"
     },

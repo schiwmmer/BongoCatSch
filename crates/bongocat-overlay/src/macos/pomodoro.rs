@@ -68,7 +68,13 @@ impl PomodoroCountdown {
         mtm: MainThreadMarker,
         sender: Option<SyncSender<OverlayPomodoroMenuRequest>>,
     ) -> Result<Self, OverlayError> {
-        let panel = stats_panel(mtm, 0.88);
+        // A fully transparent background and no shadow: the countdown floats
+        // above the cat as bare text with no panel box behind it, the same
+        // no-chrome treatment the level badge uses. The translucent fill the
+        // stats HUD wears read as a box pasted over the model; the countdown is
+        // a readout, not a control surface, so it carries no chrome of its own.
+        let panel = stats_panel(mtm, 0.0);
+        panel.setHasShadow(false);
         // This is the one surface that does not pass the pointer through: a user
         // has to be able to reach the session they are running in order to pause
         // it. Every other status panel is a mirror and cannot be clicked.
@@ -76,18 +82,6 @@ impl PomodoroCountdown {
 
         let content = NSView::new(mtm);
         content.setWantsLayer(true);
-        // SAFETY: the view owns its layer, and `CALayer` answers both
-        // `setCornerRadius:` and `setMasksToBounds:` on every macOS this build
-        // targets. objc2-quartz-core's generated bindings carry neither property
-        // nor the `Message` conformance, so the selectors go through the same
-        // `AnyObject` pointer route the stats panel uses.
-        if let Some(layer) = content.layer() {
-            let layer_object: NonNull<AnyObject> = NonNull::from(&*layer).cast();
-            unsafe {
-                let (): () = msg_send![layer_object, setCornerRadius: HUD_CORNER_RADIUS];
-                let (): () = msg_send![layer_object, setMasksToBounds: true];
-            }
-        }
         panel.setContentView(Some(&content));
 
         // The clock is the system font's own glyph rather than a shipped image:
@@ -178,10 +172,11 @@ impl PomodoroCountdown {
         }));
         let frame = self.panel.frame();
         let x = f64::from(cat.x) + (f64::from(cat.width) - frame.size.width) / 2.0;
-        // Above the cat, clear of the forehead badge: the badge sits at 12% of the
-        // window's height and the countdown sits above that, so the two never
-        // overlap however tall the cat is drawn.
-        let y = f64::from(cat.y) + f64::from(cat.height) - frame.size.height - COUNTDOWN_GAP;
+        // Fully above the cat's top edge rather than hanging down over its head:
+        // the countdown is bare text over the desktop, so it reads as a separate
+        // readout instead of a box pasted on the model. Sitting clear of the box
+        // also keeps it off the forehead badge without the two needing to stack.
+        let y = f64::from(cat.y) + f64::from(cat.height) + COUNTDOWN_GAP;
         let origin = NSPoint::new(x, y);
         if self.origin.is_none_or(|previous| previous != origin) {
             self.panel.setFrameOrigin(origin);

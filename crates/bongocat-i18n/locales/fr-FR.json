@@ -48,7 +48,7 @@
       "task_name": "Nom de la tâche",
       "task_name_placeholder": "Sur quoi travaillez-vous ?",
       "estimated_sessions": "Sessions prévues",
-      "session_length": "{minutes} minutes par session",
+      "session_length": "%{minutes} minutes par session",
       "create": "Créer",
       "close": "Fermer"
     },
@@ -57,7 +57,7 @@
       "start": "Démarrer",
       "running": "En cours",
       "paused": "En pause",
-      "progress": "{completed} sessions sur {estimated}",
+      "progress": "%{completed} sessions sur %{estimated}",
       "none": "Aucune tâche pour l'instant. Nommez-en une ci-dessus pour commencer.",
       "running_now": "En cours : {name}"
     },

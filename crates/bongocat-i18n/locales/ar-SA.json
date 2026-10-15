@@ -48,7 +48,7 @@
       "task_name": "اسم المهمة",
       "task_name_placeholder": "ما الذي تعمل عليه؟",
       "estimated_sessions": "الجلسات المتوقعة",
-      "session_length": "{minutes} دقيقة لكل جلسة",
+      "session_length": "%{minutes} دقيقة لكل جلسة",
       "create": "إنشاء",
       "close": "إغلاق"
     },
@@ -57,7 +57,7 @@
       "start": "ابدأ",
       "running": "قيد التشغيل",
       "paused": "متوقفة مؤقتًا",
-      "progress": "{completed} من {estimated} جلسة",
+      "progress": "%{completed} من %{estimated} جلسة",
       "none": "لا توجد مهام بعد. سمِّ مهمة في الأعلى للبدء.",
       "running_now": "قيد التشغيل: {name}"
     },

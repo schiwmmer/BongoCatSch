@@ -48,7 +48,7 @@
       "task_name": "작업 이름",
       "task_name_placeholder": "무엇에 집중하고 있나요?",
       "estimated_sessions": "예상 세션 수",
-      "session_length": "세션당 {minutes}분",
+      "session_length": "세션당 %{minutes}분",
       "create": "만들기",
       "close": "닫기"
     },
@@ -57,7 +57,7 @@
       "start": "시작",
       "running": "진행 중",
       "paused": "일시 정지",
-      "progress": "예상 {estimated}개 중 {completed}개 완료",
+      "progress": "예상 %{estimated}개 중 %{completed}개 완료",
       "none": "아직 작업이 없습니다. 위에서 이름을 입력해 시작하세요.",
       "running_now": "진행 중: {name}"
     },

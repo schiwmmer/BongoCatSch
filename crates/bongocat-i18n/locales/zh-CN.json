@@ -48,7 +48,7 @@
       "task_name": "任务名称",
       "task_name_placeholder": "你正在做什么？",
       "estimated_sessions": "预计番茄数",
-      "session_length": "每个番茄 {minutes} 分钟",
+      "session_length": "每个番茄 %{minutes} 分钟",
       "create": "创建",
       "close": "关闭"
     },
@@ -57,7 +57,7 @@
       "start": "开始",
       "running": "进行中",
       "paused": "已暂停",
-      "progress": "已完成 {completed} / 预计 {estimated} 个番茄",
+      "progress": "已完成 %{completed} / 预计 %{estimated} 个番茄",
       "none": "还没有任务。在上方命名一个即可开始。",
       "running_now": "进行中：{name}"
     },

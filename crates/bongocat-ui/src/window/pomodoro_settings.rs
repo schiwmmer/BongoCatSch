@@ -290,10 +290,10 @@ fn calendar_panel(
                 .items_center()
                 .justify_between()
                 .child(
-                    div()
-                        .id("pomodoro-month-prev")
-                        .cursor_pointer()
-                        .child(text(locale, "pomodoro.settings.prev_month"))
+                    Button::new("pomodoro-month-prev")
+                        .ghost()
+                        .label("‹")
+                        .tooltip(text(locale, "pomodoro.settings.prev_month"))
                         .on_click({
                             let view = view.clone();
                             move |_event, _window, cx| {
@@ -307,10 +307,10 @@ fn calendar_panel(
                 )
                 .child(div().font_semibold().child(month_title))
                 .child(
-                    div()
-                        .id("pomodoro-month-next")
-                        .cursor_pointer()
-                        .child(text(locale, "pomodoro.settings.next_month"))
+                    Button::new("pomodoro-month-next")
+                        .ghost()
+                        .label("›")
+                        .tooltip(text(locale, "pomodoro.settings.next_month"))
                         .on_click({
                             let view = view.clone();
                             move |_event, _window, cx| {

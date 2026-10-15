@@ -48,7 +48,7 @@
       "task_name": "Tên nhiệm vụ",
       "task_name_placeholder": "Bạn đang làm việc gì?",
       "estimated_sessions": "Số phiên dự kiến",
-      "session_length": "{minutes} phút mỗi phiên",
+      "session_length": "%{minutes} phút mỗi phiên",
       "create": "Tạo",
       "close": "Đóng"
     },
@@ -57,7 +57,7 @@
       "start": "Bắt đầu",
       "running": "Đang chạy",
       "paused": "Đã tạm dừng",
-      "progress": "{completed} trên {estimated} phiên",
+      "progress": "%{completed} trên %{estimated} phiên",
       "none": "Chưa có nhiệm vụ nào. Hãy đặt tên ở trên để bắt đầu.",
       "running_now": "Đang chạy: {name}"
     },
