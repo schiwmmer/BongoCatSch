@@ -26,6 +26,7 @@ use bongocat_config::{
 use bongocat_log::LogSettings as RuntimeLogSettings;
 use bongocat_model::{ModelId, ModelPackageLimits, PresetModelCatalog};
 use bongocat_model_store::{ModelStore, PresetCoverStore};
+use bongocat_pomodoro::{PomodoroClient, PomodoroService};
 use bongocat_runtime::{RuntimeCommand, RuntimeOwner};
 use std::path::Path;
 
@@ -71,6 +72,10 @@ impl Application {
         // input service can start recording: the first `init` call wins, so
         // this is the one point the storage layout can hand the path over.
         bongocat_platform::interaction_stats_init(layout.interaction_stats.clone());
+        // The pomodoro document path is taken here for the same reason: the
+        // layout is consumed further down, and the worker cannot be started
+        // until the configuration has been read and the log installed.
+        let pomodoro_tasks_path = layout.pomodoro_tasks.clone();
         // Install the app-owned sink before opening user-data stores so their
         // bounded failures are observable. Historical cleanup stays deferred
         // until the persisted logging policy has been loaded.
@@ -243,6 +248,24 @@ impl Application {
                     (None, bongocat_audio::MotionAudioClient::unavailable())
                 }
             };
+        // The pomodoro worker follows the audio worker: both are threads the
+        // application owns, both degrade to an unavailable client instead of
+        // failing startup, and the countdown starts from a document rather than
+        // from anything the runtime holds.
+        let (pomodoro, pomodoro_client) = match PomodoroService::start(pomodoro_tasks_path) {
+            Ok(service) => {
+                let client = service.client();
+                (Some(service), client)
+            }
+            Err(_) => {
+                application_log.record(
+                    ApplicationLogEvent::new(ApplicationLogCode::ServiceDegraded)
+                        .with_context(ApplicationLogContext::Service("pomodoro"))
+                        .with_context(ApplicationLogContext::Reason("pomodoro_start_failed")),
+                );
+                (None, PomodoroClient::unavailable())
+            }
+        };
         let runtime_overlay_visible = true;
         let runtime_motion_audio_enabled = config.model.play_motion_audio;
         let (runtime, render_consumer) = if enable_rendering {
@@ -339,6 +362,8 @@ impl Application {
             recorded_expression_sequence: None,
             runtime,
             motion_audio,
+            pomodoro,
+            pomodoro_client,
             render_consumer,
             application_log,
             core_log_diagnostics: None,

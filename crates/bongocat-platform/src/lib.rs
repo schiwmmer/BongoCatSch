@@ -18,6 +18,9 @@ pub use interaction_stats::{
     totals as interaction_totals,
 };
 
+mod local_time;
+pub use local_time::local_utc_offset_seconds;
+
 mod model_source_picker;
 pub use model_source_picker::{ModelSourcePickerError, ModelSourcePickerOutcome};
 

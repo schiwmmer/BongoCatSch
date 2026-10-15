@@ -777,6 +777,7 @@ dependencies = [
  "bongocat-model-store",
  "bongocat-overlay",
  "bongocat-platform",
+ "bongocat-pomodoro",
  "bongocat-render",
  "bongocat-runtime",
  "bongocat-storage",

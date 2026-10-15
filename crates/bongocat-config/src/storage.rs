@@ -44,6 +44,13 @@ pub struct StorageLayout {
     /// must survive the configuration's backup-recovery path untouched, so it
     /// lives beside it as its own document.
     pub interaction_stats: PathBuf,
+    /// The pomodoro tasks and their completion history (one file, one document).
+    ///
+    /// It is a sibling of the interaction counters rather than a `config.json`
+    /// field for the same reason: the focus history has to survive the
+    /// configuration's backup-recovery path untouched. The running countdown is
+    /// deliberately absent from it — see ADR-0090.
+    pub pomodoro_tasks: PathBuf,
     pub backups: PathBuf,
     pub logs: PathBuf,
     pub updates: PathBuf,
@@ -63,6 +70,7 @@ impl StorageLayout {
             models: root.join("models"),
             model_overrides: root.join("model-overrides"),
             interaction_stats: root.join("interaction-stats.json"),
+            pomodoro_tasks: root.join("pomodoro-tasks.json"),
             backups: root.join("backups"),
             logs: root.join("logs"),
             updates: root.join("updates"),

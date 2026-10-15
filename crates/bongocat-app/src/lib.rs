@@ -7,6 +7,7 @@ use bongocat_audio::MotionAudioShutdownError;
 use bongocat_config::{BuildEnvironment, ConfigError, PlatformStorageError, WindowStateError};
 use bongocat_model::{CommittedModel, ModelError, ModelId};
 use bongocat_model_store::ModelStoreError;
+use bongocat_pomodoro::PomodoroShutdownError;
 use bongocat_runtime::{
     ExpressionIdError, MotionIdError, RuntimeCommandFailure, SendError, ShutdownError,
 };
@@ -203,6 +204,8 @@ pub enum ApplicationError {
     Shutdown(ShutdownError),
     #[error("motion audio shutdown failed: {0}")]
     MotionAudioShutdown(MotionAudioShutdownError),
+    #[error("pomodoro shutdown failed: {0}")]
+    PomodoroShutdown(PomodoroShutdownError),
     #[error("shutdown failed: {0}")]
     ShutdownAggregate(ApplicationShutdownError),
     #[error("application logging failed: {0}")]
@@ -237,6 +240,7 @@ impl ApplicationError {
             Self::RenderConsumerUnavailable => "render_consumer_unavailable",
             Self::Shutdown(_) => "runtime_shutdown_failed",
             Self::MotionAudioShutdown(_) => "audio_shutdown_failed",
+            Self::PomodoroShutdown(_) => "pomodoro_shutdown_failed",
             Self::ShutdownAggregate(_) => "shutdown_aggregate_failed",
             Self::ApplicationLog(_) => "application_log_failed",
             Self::WindowState(_) => "window_state_failed",
@@ -244,27 +248,91 @@ impl ApplicationError {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, thiserror::Error)]
-#[error("runtime: {runtime}; motion audio: {motion_audio}")]
-pub struct ApplicationShutdownError {
-    pub runtime: ShutdownError,
-    pub motion_audio: MotionAudioShutdownError,
+/// One service that failed to stop in time or panicked.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ShutdownFailure {
+    /// The service's stable name, as the logs and the error code use it.
+    pub service: &'static str,
+    pub message: String,
 }
 
+/// Two or more services that failed to stop, each named.
+///
+/// Shutdown never hides one failure behind another. A single failure keeps its
+/// own error variant, so a log names the cause precisely; the aggregate exists
+/// for the case where more than one service is stuck, and it is a list rather
+/// than a struct of fields so the next worker service does not change its shape.
+#[derive(Clone, Debug, Eq, PartialEq, Default, thiserror::Error)]
+#[error("{}", ShutdownFailure::joined(.failures))]
+pub struct ApplicationShutdownError {
+    pub failures: Vec<ShutdownFailure>,
+}
+
+impl ShutdownFailure {
+    fn joined(failures: &[ShutdownFailure]) -> String {
+        failures
+            .iter()
+            .map(|failure| format!("{}: {}", failure.service, failure.message))
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+}
+
+/// Combine the runtime and every worker service into one shutdown outcome.
+///
+/// The runtime's stopped snapshot is what the caller asked for, so it is
+/// returned whenever the runtime succeeded. A single service failure keeps its
+/// own error variant; two or more are reported together so neither is lost
+/// behind the other.
 fn combine_shutdown_results<T>(
     runtime_result: Result<T, ShutdownError>,
     audio_result: Result<(), MotionAudioShutdownError>,
+    pomodoro_result: Result<(), PomodoroShutdownError>,
 ) -> Result<T, ApplicationError> {
-    match (runtime_result, audio_result) {
-        (Ok(stopped), Ok(_)) => Ok(stopped),
-        (Err(runtime), Ok(_)) => Err(ApplicationError::Shutdown(runtime)),
-        (Ok(_), Err(motion_audio)) => Err(ApplicationError::MotionAudioShutdown(motion_audio)),
-        (Err(runtime), Err(motion_audio)) => Err(ApplicationError::ShutdownAggregate(
-            ApplicationShutdownError {
-                runtime,
-                motion_audio,
-            },
-        )),
+    let audio = audio_result.err();
+    let pomodoro = pomodoro_result.err();
+    let mut workers = Vec::new();
+    if let Some(error) = &audio {
+        workers.push(ShutdownFailure {
+            service: "audio",
+            message: error.to_string(),
+        });
+    }
+    if let Some(error) = &pomodoro {
+        workers.push(ShutdownFailure {
+            service: "pomodoro",
+            message: error.to_string(),
+        });
+    }
+    match runtime_result {
+        Ok(stopped) => match (workers.len(), audio, pomodoro) {
+            // Nothing failed.
+            (0, _, _) => Ok(stopped),
+            // One worker failed and the runtime stopped: report that one
+            // precisely rather than burying it in a list of one.
+            (1, Some(audio), None) => Err(ApplicationError::MotionAudioShutdown(audio)),
+            (1, None, Some(pomodoro)) => Err(ApplicationError::PomodoroShutdown(pomodoro)),
+            // Two workers, or a worker plus a runtime failure.
+            _ => Err(ApplicationError::ShutdownAggregate(
+                ApplicationShutdownError { failures: workers },
+            )),
+        },
+        Err(runtime) => {
+            if workers.is_empty() {
+                // Only the runtime failed: it keeps its own code, which is what
+                // the log has always reported for a stuck worker.
+                return Err(ApplicationError::Shutdown(runtime));
+            }
+            let mut failures = Vec::with_capacity(workers.len() + 1);
+            failures.push(ShutdownFailure {
+                service: "runtime",
+                message: runtime.to_string(),
+            });
+            failures.extend(workers);
+            Err(ApplicationError::ShutdownAggregate(
+                ApplicationShutdownError { failures },
+            ))
+        }
     }
 }
 
