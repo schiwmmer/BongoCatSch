@@ -67,6 +67,15 @@ build *args:
 verify-app:
     cargo run --locked -p bongocat-packaging -- --environment production --formats app
 
+# Reclaim the debug build cache (typically 20G+ of `target/debug`), keeping the
+# release build that `just build`/`verify-app` use. Cargo never garbage-collects
+# artifacts for dependency versions that dropped out of `Cargo.lock`, so the
+# debug cache only grows until something removes it. Run this periodically or
+# before a release; the next `cargo check`/`test` rebuilds from source, which is
+# now much lighter thanks to the `line-tables-only` dev profile.
+clean-dev:
+    cargo clean --profile dev
+
 # Generate the Minisign key pair that signs update payloads (one-time, offline).
 keygen file:
     cargo run --locked -p bongocat-packaging -- --generate-signing-key {{file}}

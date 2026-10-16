@@ -99,7 +99,12 @@ print_stderr = "deny"
 print_stdout = "deny"
 
 [profile.dev]
-debug = true
+# `line-tables-only` keeps function names + line numbers so panic backtraces
+# still point at the right spot, but drops the variable/type DWARF that inflates
+# every `.o` in `target/debug/deps` (the bulk of the ~23G debug cache). Full
+# debug info is rarely needed for third-party crates; rebuild from a clean cache
+# after this change to see the smaller object files.
+debug = "line-tables-only"
 incremental = true
 panic = "unwind"
 
