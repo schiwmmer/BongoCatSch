@@ -19,6 +19,14 @@ PLACEHOLDER = re.compile(r"%\{([A-Za-z][A-Za-z0-9_]*)\}")
 # locale-specific spelling of the same mark cannot be allowed to drift back in.
 ELLIPSIS_RUN = re.compile(r"\u2026{2,}|\.{2,}")
 
+# A placeholder that will never interpolate. `format_text` (and rust-i18n)
+# replace `%{name}`, so a lone `{name}` renders as literal text on screen. This
+# is the shape of the bug that printed `{completed}` / `{estimated}` on the
+# task list and `{minutes}` in the picker: a translator reaching for a
+# placeholder without the `%`. The negative lookbehind leaves every correct
+# `%{name}` alone, so this only fires on the single-brace mistake.
+SINGLE_BRACE = re.compile(r"(?<!%)\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
 
 def fail(path: Path, message: str) -> None:
     relative = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
@@ -71,6 +79,17 @@ def check_ellipsis(locale: str, key: str, value: str) -> None:
         )
 
 
+def check_single_brace_placeholder(locale: str, key: str, value: str) -> None:
+    match = SINGLE_BRACE.search(value)
+    if match is not None:
+        name = match.group(1)
+        raise ValueError(
+            f"{locale}: {key} has a lone '{{{name}}}' that will not interpolate; "
+            f"interpolation replaces '%{{{name}}}', so write it as '%{{{name}}}' "
+            "or the raw token shows to the user"
+        )
+
+
 def main() -> int:
     expected_files = {f"{locale}.json" for locale in EXPECTED_LOCALES}
     actual_files = {path.name for path in LOCALE_DIR.glob("*.json")}
@@ -86,6 +105,7 @@ def main() -> int:
     for locale, texts in flattened.items():
         for key, value in texts.items():
             check_ellipsis(locale, key, value)
+            check_single_brace_placeholder(locale, key, value)
 
     reference = flattened[EXPECTED_LOCALES[0]]
     for locale in EXPECTED_LOCALES[1:]:

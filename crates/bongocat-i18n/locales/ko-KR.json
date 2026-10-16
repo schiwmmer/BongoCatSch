@@ -59,7 +59,7 @@
       "paused": "일시 정지",
       "progress": "예상 %{estimated}개 중 %{completed}개 완료",
       "none": "아직 작업이 없습니다. 위에서 이름을 입력해 시작하세요.",
-      "running_now": "진행 중: {name}"
+      "running_now": "진행 중: %{name}"
     },
     "worker_lost": "뽀모도로 타이머를 시작하지 못했습니다. 자세한 내용은 로그를 확인하세요.",
     "timer": {

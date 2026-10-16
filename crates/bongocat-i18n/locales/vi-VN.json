@@ -59,7 +59,7 @@
       "paused": "Đã tạm dừng",
       "progress": "%{completed} trên %{estimated} phiên",
       "none": "Chưa có nhiệm vụ nào. Hãy đặt tên ở trên để bắt đầu.",
-      "running_now": "Đang chạy: {name}"
+      "running_now": "Đang chạy: %{name}"
     },
     "worker_lost": "Không thể khởi động bộ đếm Pomodoro. Xem nhật ký để biết chi tiết.",
     "timer": {
