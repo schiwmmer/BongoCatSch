@@ -479,8 +479,15 @@ impl SettingsView {
     /// Called from a light timer while the settings window is open. The pomodoro
     /// worker advances the revision on another thread, so comparing against the
     /// last seen value is what keeps the task list and calendar fresh without
-    /// cloning the snapshot on every idle tick.
+    /// cloning the snapshot on every idle tick. The tick is gated on the
+    /// pomodoro page actually being the visible one — the sidebar reporter
+    /// writes the active page into the process navigation memory on every
+    /// frame, so reading it back here costs one integer compare and stops the
+    /// timer from waking for a page the user cannot see.
     pub(super) fn poll_pomodoro(&mut self, cx: &mut Context<Self>) {
+        if self.navigation_memory.page_index() != SettingsNavigationPage::Pomodoro.index() {
+            return;
+        }
         let revision = self.pomodoro.revision();
         if revision == self.pomodoro_observed_revision {
             return;

@@ -73,7 +73,8 @@ impl SettingsNavigationMemory {
 }
 
 impl SettingsNavigationPage {
-    const fn index(self) -> usize {
+    /// The zero-based page index consumed by gpui-kit's `SelectIndex`.
+    pub(super) const fn index(self) -> usize {
         match self {
             Self::Appearance => 0,
             Self::ModelLibrary => 1,

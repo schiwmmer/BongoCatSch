@@ -89,6 +89,7 @@ impl PomodoroCountdown {
         // the icon set, and a countdown that reads as text is still a countdown.
         let icon = NSTextField::labelWithString(&NSString::from_str(COUNTDOWN_ICON), mtm);
         icon.setFont(Some(&NSFont::systemFontOfSize(16.0)));
+        apply_text_shadow(&icon);
         content.addSubview(&icon);
 
         let label = NSTextField::labelWithString(&NSString::from_str("25:00"), mtm);
@@ -99,6 +100,7 @@ impl PomodoroCountdown {
         // for the widest `mm:ss` it will ever show, which keeps it from moving
         // either.
         label.setFont(Some(&NSFont::systemFontOfSize(18.0)));
+        apply_text_shadow(&label);
         content.addSubview(&label);
 
         // A panel with no sink can still be shown; it simply cannot be right-clicked,
@@ -245,6 +247,32 @@ impl Drop for PomodoroCountdown {
 /// shows instead.
 const COUNTDOWN_ICON: &str = "⏱";
 const COUNTDOWN_ICON_PAUSED: &str = "⏸";
+
+/// A soft dark shadow behind the floating countdown text.
+///
+/// With the panel background gone the glyphs sit directly on whatever is behind
+/// the cat, and the system label color washes out on a light wallpaper — the
+/// text is only legible over everything if it carries a bit of its own edge.
+/// The label's layer rasterizes the string it draws, so the shadow tracks the
+/// glyph outlines rather than reading as a box behind the text.
+fn apply_text_shadow(label: &NSTextField) {
+    label.setWantsLayer(true);
+    let Some(layer) = label.layer() else {
+        return;
+    };
+    let layer_object: NonNull<AnyObject> = NonNull::from(&*layer).cast();
+    // SAFETY: the label owns its layer, and `CALayer` answers the four shadow
+    // setters on every macOS this build targets. objc2-quartz-core's generated
+    // bindings carry none of them, so the selectors go through the same
+    // `AnyObject` pointer route the stats panel's corner radius uses.
+    unsafe {
+        let shadow_color = NSColor::blackColor().colorWithAlphaComponent(0.55);
+        let (): () = msg_send![layer_object, setShadowColor: &*shadow_color];
+        let (): () = msg_send![layer_object, setShadowOpacity: 0.55f32];
+        let (): () = msg_send![layer_object, setShadowRadius: 2.0f64];
+        let (): () = msg_send![layer_object, setShadowOffset: NSSize::new(0.0, -1.0)];
+    }
+}
 
 /// Install the right-button monitor for the countdown panel.
 ///
