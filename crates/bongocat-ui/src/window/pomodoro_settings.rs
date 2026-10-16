@@ -693,7 +693,7 @@ fn trend_chart(
                 for (index, value) in series.iter().enumerate() {
                     // Each series scales against its own axis: a value at its
                     // ceiling sits on the top gridline, never above the frame.
-                    let height = (f32::from(*value) / axis_max).clamp(0.0, 1.0);
+                    let height = ((*value as f32) / axis_max).clamp(0.0, 1.0);
                     let y = top_y + (bottom_y - top_y) * (1.0 - height);
                     let point = point(point_x(index), y);
                     if index == 0 {
