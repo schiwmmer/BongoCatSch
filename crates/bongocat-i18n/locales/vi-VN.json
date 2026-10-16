@@ -82,7 +82,10 @@
       "chart_days_7": "7 ngày qua",
       "chart_days_30": "30 ngày qua",
       "chart_minutes": "Phút tập trung",
-      "chart_done": "Nhiệm vụ hoàn thành"
+      "chart_done": "Nhiệm vụ hoàn thành",
+      "month_tasks": "Nhiệm vụ trong tháng",
+      "axis_minutes": "phút",
+      "axis_tasks": "nhiệm vụ"
     }
   },
   "startup_permission": {

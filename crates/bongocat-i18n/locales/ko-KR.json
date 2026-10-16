@@ -82,7 +82,10 @@
       "chart_days_7": "최근 7일",
       "chart_days_30": "최근 30일",
       "chart_minutes": "집중 시간(분)",
-      "chart_done": "완료한 작업 수"
+      "chart_done": "완료한 작업 수",
+      "month_tasks": "이번 달 작업",
+      "axis_minutes": "분",
+      "axis_tasks": "작업"
     }
   },
   "startup_permission": {

@@ -82,7 +82,10 @@
       "chart_days_7": "آخر 7 أيام",
       "chart_days_30": "آخر 30 يومًا",
       "chart_minutes": "دقائق التركيز",
-      "chart_done": "المهام المنجزة"
+      "chart_done": "المهام المنجزة",
+      "month_tasks": "مهام هذا الشهر",
+      "axis_minutes": "دقيقة",
+      "axis_tasks": "مهام"
     }
   },
   "startup_permission": {

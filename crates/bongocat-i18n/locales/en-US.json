@@ -82,7 +82,10 @@
       "chart_days_7": "Last 7 days",
       "chart_days_30": "Last 30 days",
       "chart_minutes": "Focus minutes",
-      "chart_done": "Tasks finished"
+      "chart_done": "Tasks finished",
+      "month_tasks": "Tasks this month",
+      "axis_minutes": "min",
+      "axis_tasks": "tasks"
     }
   },
   "startup_permission": {

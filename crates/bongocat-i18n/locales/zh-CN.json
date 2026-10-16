@@ -82,7 +82,10 @@
       "chart_days_7": "近 7 天",
       "chart_days_30": "近 30 天",
       "chart_minutes": "专注时长（分钟）",
-      "chart_done": "完成任务数"
+      "chart_done": "完成任务数",
+      "month_tasks": "本月任务",
+      "axis_minutes": "分钟",
+      "axis_tasks": "个"
     }
   },
   "startup_permission": {
