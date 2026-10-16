@@ -77,7 +77,12 @@
       "next_month": "Mois suivant",
       "weekdays": "lun,mar,mer,jeu,ven,sam,dim",
       "month_label": "%{month}/%{year}",
-      "month_summary": "%{sessions} sessions · %{tasks} tâches"
+      "month_summary": "%{sessions} sessions · %{tasks} tâches",
+      "done_group": "Terminées (%{count})",
+      "chart_days_7": "7 derniers jours",
+      "chart_days_30": "30 derniers jours",
+      "chart_minutes": "Minutes de focus",
+      "chart_done": "Tâches terminées"
     }
   },
   "startup_permission": {

@@ -10,7 +10,8 @@
 use std::{collections::BTreeMap, time::Duration};
 
 use crate::{
-    CalendarDay, CalendarDayTotal, MAX_FOCUS_MINUTES, MAX_TASK_NAME_CHARS, MIN_FOCUS_MINUTES,
+    CalendarDay, CalendarDayTotal, CalendarTaskActivity, MAX_FOCUS_MINUTES, MAX_TASK_NAME_CHARS,
+    MIN_FOCUS_MINUTES,
     document::{Document, TaskRecord, read_document},
 };
 
@@ -475,6 +476,44 @@ impl PomodoroState {
             })
             .collect()
     }
+
+    /// The tasks behind each day's finished sessions, for the calendar cells
+    /// that name what a day was spent on.
+    ///
+    /// The same local-day bucketing as [`Self::day_totals`], one entry per task
+    /// per day with its session count; within a day the tasks are ordered by
+    /// sessions finished, then by name, so a cell reads the same way every time.
+    pub fn day_activities(
+        &self,
+        utc_offset_seconds: i32,
+    ) -> BTreeMap<CalendarDay, Vec<CalendarTaskActivity>> {
+        let mut days: BTreeMap<CalendarDay, BTreeMap<u64, CalendarTaskActivity>> = BTreeMap::new();
+        for task in &self.document.tasks {
+            for at_unix in &task.completion_timestamps {
+                let day = CalendarDay::from_unix(*at_unix, utc_offset_seconds);
+                let entry = days
+                    .entry(day)
+                    .or_default()
+                    .entry(task.id)
+                    .or_insert_with(|| CalendarTaskActivity {
+                        task_name: task.name.clone(),
+                        pomodoros: 0,
+                    });
+                entry.pomodoros += 1;
+            }
+        }
+        days.into_iter()
+            .map(|(day, tasks)| {
+                let mut activities: Vec<CalendarTaskActivity> = tasks.into_values().collect();
+                activities.sort_by(|a, b| {
+                    b.pomodoros
+                        .cmp(&a.pomodoros)
+                        .then_with(|| a.task_name.cmp(&b.task_name))
+                });
+                (day, activities)
+            })
+            .collect()
+    }
 }
 
 impl PomodoroState {
@@ -900,5 +939,43 @@ mod tests {
             .expect("the second day");
         assert_eq!(second.pomodoros, 1);
         assert_eq!(second.tasks, 1);
+    }
+
+    /// The calendar cells name the tasks a day was spent on, with each task's
+    /// session count for that day, busiest task first.
+    #[test]
+    fn the_day_activities_name_each_task_and_its_session_count() {
+        let mut state = PomodoroState::empty();
+        for name in ["a", "b"] {
+            state.apply(
+                PomodoroCommand::CreateTask {
+                    name: name.into(),
+                    estimated_pomodoros: 3,
+                },
+                1_000,
+            );
+        }
+        state.record_completion_for_test(1, 20_000 * 86_400);
+        state.record_completion_for_test(1, 20_000 * 86_400 + 3_600);
+        state.record_completion_for_test(2, 20_000 * 86_400 + 7_200);
+        let days = state.day_activities(0);
+        let first = days
+            .get(&CalendarDay::from_day_number(20_000))
+            .expect("the first day");
+        assert_eq!(first.len(), 2, "two tasks contributed to the day");
+        assert_eq!(
+            first[0],
+            CalendarTaskActivity {
+                task_name: "a".into(),
+                pomodoros: 2
+            },
+            "the busiest task leads"
+        );
+        assert_eq!(first[1].task_name, "b");
+        assert_eq!(first[1].pomodoros, 1);
+        assert!(
+            !days.contains_key(&CalendarDay::from_day_number(20_001)),
+            "a day without completions has no activities"
+        );
     }
 }

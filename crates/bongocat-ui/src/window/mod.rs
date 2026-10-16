@@ -244,6 +244,12 @@ pub struct SettingsView {
     pub(crate) pomodoro_view: PomodoroSettingsView,
     /// The (year, month) the calendar subview is currently displaying.
     pub(crate) pomodoro_display_month: (i32, u32),
+    /// Whether the pomodoro task list has its finished-tasks group unfolded.
+    /// Finished tasks fold by default; a search overrides the fold and shows
+    /// every match.
+    pub(crate) pomodoro_done_expanded: bool,
+    /// How many days the pomodoro trend chart spans: 7 or 30.
+    pub(crate) pomodoro_chart_days: usize,
     /// The search box the task-list subview filters task names with. Stored as an
     /// input entity rather than a bare string so the field keeps its own cursor
     /// and selection across frames; the typed text is mirrored into

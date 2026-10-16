@@ -16,6 +16,7 @@ use bongocat_i18n::{format_text, text};
 use bongocat_pomodoro::{CalendarDay, PomodoroCommand, PomodoroTaskStatus, PomodoroTaskView};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::Input;
+use gpui_kit::{PathBuilder, canvas, fill};
 
 /// Build the search keywords so the page is reachable from the settings search
 /// box even though its title lives under the `pomodoro` namespace.
@@ -137,30 +138,28 @@ fn list_panel(
         .value()
         .to_string();
     let needle = search.trim().to_lowercase();
+    let searching = !needle.is_empty();
 
-    let mut tasks: Vec<&PomodoroTaskView> = snapshot
+    // The search covers every task, finished ones included; the fold below
+    // only governs the browse view. Creation order, descending — the same
+    // stable order the picker uses, which completing a pomodoro never shuffles.
+    let mut matching: Vec<&PomodoroTaskView> = snapshot
         .tasks
         .iter()
         .filter(|task| needle.is_empty() || task.name.to_lowercase().contains(&needle))
         .collect();
-    // Keep the picker's order, but finished tasks sink to the bottom so the work
-    // in progress stays where the eye lands first.
-    tasks.sort_by_key(|task| task.status == PomodoroTaskStatus::done);
-
-    if tasks.is_empty() {
-        return div()
-            .id("pomodoro-task-list-empty")
-            .text_color(tokens.muted)
-            .child(text(locale, "pomodoro.settings.no_tasks"))
-            .into_any_element();
-    }
-
-    let search_input = view.read(cx).pomodoro_search_input.clone();
-    let rows = tasks
+    matching.sort_by_key(|task| std::cmp::Reverse(task.created_at_unix));
+    let had_matches = !matching.is_empty();
+    let (active, finished): (Vec<&PomodoroTaskView>, Vec<&PomodoroTaskView>) = matching
         .into_iter()
-        .map(|task| task_row(view, locale, tokens, task));
+        .partition(|task| task.status != PomodoroTaskStatus::done);
 
-    div()
+    // The search box is part of the frame itself, never conditional on what
+    // the list below it shows: a filter that matches nothing used to take the
+    // field away with it, leaving "no tasks" as text the user could not search
+    // their way out of.
+    let search_input = view.read(cx).pomodoro_search_input.clone();
+    let mut panel = div()
         .id("pomodoro-task-list")
         .flex()
         .flex_col()
@@ -170,9 +169,65 @@ fn list_panel(
                 .id("pomodoro-task-search")
                 .w_full()
                 .child(Input::new(&search_input).w_full()),
-        )
-        .children(rows)
-        .into_any_element()
+        );
+
+    if !had_matches {
+        return panel
+            .child(
+                div()
+                    .id("pomodoro-task-list-empty")
+                    .text_color(tokens.muted)
+                    .child(text(locale, "pomodoro.settings.no_tasks")),
+            )
+            .into_any_element();
+    }
+
+    panel = panel.children(
+        active
+            .iter()
+            .map(|task| task_row(view, locale, tokens, task)),
+    );
+
+    if !finished.is_empty() {
+        let finished_count = finished.len();
+        // A search overrides the fold: its matches are what the user asked to
+        // see, whatever group they sit in.
+        let expanded = searching || view.read(cx).pomodoro_done_expanded;
+        let arrow = if expanded { "▾" } else { "▸" };
+        panel = panel.child(
+            div()
+                .id("pomodoro-done-toggle")
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_1()
+                .cursor_pointer()
+                .child(text(locale, arrow))
+                .child(format_text(
+                    locale,
+                    "pomodoro.settings.done_group",
+                    &[("count", finished_count.to_string())],
+                ))
+                .on_click({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            view.pomodoro_done_expanded = !view.pomodoro_done_expanded;
+                            cx.notify();
+                        });
+                    }
+                }),
+        );
+        if expanded {
+            panel = panel.children(
+                finished
+                    .iter()
+                    .map(|task| task_row(view, locale, tokens, task)),
+            );
+        }
+    }
+
+    panel.into_any_element()
 }
 
 /// One task row: a done checkbox, the name, and its session progress.
@@ -248,7 +303,7 @@ fn task_row(
         )
 }
 
-/// The month calendar of finished focus sessions.
+/// The month calendar of finished focus sessions, with a trend chart under it.
 fn calendar_panel(
     view: &Entity<SettingsView>,
     locale: &str,
@@ -258,6 +313,7 @@ fn calendar_panel(
     let offset = bongocat_platform::local_utc_offset_seconds();
     let (year, month) = view.read(cx).pomodoro_display_month;
     let days = view.read(cx).pomodoro.day_totals(offset);
+    let activities = view.read(cx).pomodoro.day_activities(offset);
     let grid = bongocat_pomodoro::month_grid(year, month);
     let today = CalendarDay::from_unix(now_unix(), offset);
 
@@ -276,11 +332,10 @@ fn calendar_panel(
         .map(|label| label.trim().to_string())
         .collect();
 
-    let cells = grid
-        .cells
-        .iter()
-        .enumerate()
-        .map(|(index, day)| calendar_cell(tokens, day, index, &grid, &days, today));
+    let cells = grid.cells.iter().enumerate().map(|(index, day)| {
+        let day_activities = activities.get(day).cloned().unwrap_or_default();
+        calendar_cell(tokens, day, index, &grid, &day_activities, today)
+    });
 
     let month_title = format_text(
         locale,
@@ -363,24 +418,253 @@ fn calendar_panel(
                 .text_color(tokens.muted)
                 .child(summary),
         )
+        .child(trend_chart(view, locale, tokens, cx))
         .into_any_element()
 }
 
-/// One calendar cell, dimming days outside the displayed month and surfacing the
-/// finished-session count for days that have one.
+/// The trend chart under the calendar: a toggle for the span, then a canvas
+/// that draws one stroked polyline per series over the last N local days.
+///
+/// Two series, each normalized to its own maximum so a small count next to a
+/// large minute total still shows a shape: focus minutes (sessions x the
+/// session length) and the number of tasks marked finished that day. Days
+/// without activity are zero-height points, which is what makes a flat week
+/// read as flat instead of disappearing.
+fn trend_chart(
+    view: &Entity<SettingsView>,
+    locale: &str,
+    tokens: Tokens,
+    cx: &mut App,
+) -> gpui_kit::AnyElement {
+    let days_span = view.read(cx).pomodoro_chart_days;
+    let offset = bongocat_platform::local_utc_offset_seconds();
+    let snapshot = view.read(cx).pomodoro.snapshot();
+    let totals = view.read(cx).pomodoro.day_totals(offset);
+    let focus_minutes = snapshot.focus_minutes;
+    let today = CalendarDay::from_unix(now_unix(), offset);
+
+    // Oldest day first, so the polyline runs left to right into today. Every
+    // finished task lands on exactly one local day, matched by the same offset
+    // rule the totals use.
+    let mut minutes: Vec<u32> = Vec::with_capacity(days_span);
+    let mut finished_tasks: Vec<u32> = Vec::with_capacity(days_span);
+    let mut day_labels: Vec<String> = Vec::with_capacity(days_span);
+    for back in (0..days_span).rev() {
+        let day = CalendarDay::from_day_number(today.day_number() - back as i64);
+        let pomodoros = totals.get(&day).map(|total| total.pomodoros).unwrap_or(0);
+        minutes.push(pomodoros * focus_minutes);
+        finished_tasks.push(
+            u32::try_from(
+                snapshot
+                    .tasks
+                    .iter()
+                    .filter(|task| {
+                        task.completed_at_unix
+                            .is_some_and(|at| CalendarDay::from_unix(at, offset) == day)
+                    })
+                    .count(),
+            )
+            .unwrap_or(u32::MAX),
+        );
+        let civil = day.to_civil();
+        day_labels.push(format!("{:02}-{:02}", civil.month, civil.day));
+    }
+    let first_label = day_labels.first().cloned().unwrap_or_default();
+    let last_label = day_labels.last().cloned().unwrap_or_default();
+
+    // Normalize each series into 0..=1 heights against its own maximum, so
+    // both polylines fill the plot area.
+    let normalize = |series: &[u32]| -> Vec<f32> {
+        let max = series.iter().copied().max().unwrap_or(0).max(1) as f32;
+        series
+            .iter()
+            .map(|value| *value as f32 / max)
+            .collect::<Vec<_>>()
+    };
+    let minutes_heights = normalize(&minutes);
+    let finished_heights = normalize(&finished_tasks);
+    let count = days_span.max(1) as f32;
+
+    let chart_height = px(120.0);
+    let padding = px(10.0);
+    let minutes_color = tokens.accent;
+    let finished_color = tokens.muted;
+    let border_color = tokens.border;
+
+    let plot = canvas(
+        move |bounds, _, _| (bounds, minutes_heights, finished_heights, count),
+        move |bounds, (bounds_ready, minutes_heights, finished_heights, count), window, _| {
+            let plot_top = bounds.top() + padding;
+            let plot_height = bounds.size.height - padding * 2.0;
+            let baseline_y = bounds.bottom() - px(2.0);
+            // The axis the lines sit on.
+            window.paint_quad(fill(
+                Bounds::new(
+                    point(bounds.left(), baseline_y),
+                    size(bounds.size.width, px(1.0)),
+                ),
+                border_color,
+            ));
+            let step = bounds.size.width / count;
+            let point_x = |index: usize| bounds.left() + step * index as f32 + step / 2.0;
+            let point_y = |height: f32| plot_top + plot_height * (1.0 - height);
+            for (heights, color) in [
+                (minutes_heights, minutes_color),
+                (finished_heights, finished_color),
+            ] {
+                let mut builder = PathBuilder::stroke(px(2.0));
+                for (index, height) in heights.iter().enumerate() {
+                    let point = point(point_x(index), point_y(*height));
+                    if index == 0 {
+                        builder.move_to(point);
+                    } else {
+                        builder.line_to(point);
+                    }
+                }
+                if let Ok(path) = builder.build() {
+                    window.paint_path(path, color);
+                }
+            }
+            let _ = bounds_ready;
+        },
+    );
+
+    let toggle_chip = |label: &'static str, days: usize, id: &'static str| {
+        let active = days_span == days;
+        let view = view.clone();
+        div()
+            .id(id)
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .cursor_pointer()
+            .text_xs()
+            .when(active, |this| {
+                this.bg(tokens.accent).text_color(tokens.canvas)
+            })
+            .when(!active, |this| this.text_color(tokens.muted))
+            .child(text(locale, label))
+            .on_click(move |_, _, cx| {
+                view.update(cx, |view, cx| {
+                    view.pomodoro_chart_days = days;
+                    cx.notify();
+                });
+            })
+    };
+
+    div()
+        .id("pomodoro-trend")
+        .flex()
+        .flex_col()
+        .gap_2()
+        .pt_2()
+        .child(
+            div()
+                .id("pomodoro-trend-header")
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .gap_2()
+                        .child(toggle_chip(
+                            "pomodoro.settings.chart_days_7",
+                            7,
+                            "pomodoro-trend-7",
+                        ))
+                        .child(toggle_chip(
+                            "pomodoro.settings.chart_days_30",
+                            30,
+                            "pomodoro-trend-30",
+                        )),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .gap_2()
+                        .text_xs()
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_1()
+                                .text_color(tokens.accent)
+                                .child("▬")
+                                .text_color(tokens.muted)
+                                .child(text(locale, "pomodoro.settings.chart_minutes")),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_1()
+                                .text_color(tokens.muted)
+                                .child("▬")
+                                .child(text(locale, "pomodoro.settings.chart_done")),
+                        ),
+                ),
+        )
+        .child(
+            div()
+                .id("pomodoro-trend-plot")
+                .w_full()
+                .h(chart_height)
+                .child(plot),
+        )
+        .child(
+            div()
+                .id("pomodoro-trend-labels")
+                .flex()
+                .flex_row()
+                .justify_between()
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(div().child(first_label))
+                .child(div().child(last_label)),
+        )
+        .into_any_element()
+}
+
+/// One calendar cell: the day number, then the tasks finished on that day with
+/// their session counts — the "what was this day spent on" read — dimming days
+/// outside the displayed month and highlighting today.
 fn calendar_cell(
     tokens: Tokens,
     day: &CalendarDay,
     index: usize,
     grid: &bongocat_pomodoro::MonthGrid,
-    days: &std::collections::BTreeMap<CalendarDay, bongocat_pomodoro::CalendarDayTotal>,
+    activities: &[bongocat_pomodoro::CalendarTaskActivity],
     today: CalendarDay,
-) -> impl IntoElement {
+) -> gpui_kit::AnyElement {
     let in_month =
         index >= grid.leading_days && index < grid.leading_days + grid.days_in_month as usize;
     let civil = day.to_civil();
-    let count = days.get(day).map(|total| total.pomodoros).unwrap_or(0);
     let is_today = *day == today;
+
+    // Each contributing task reads as "name ×N"; names wrap inside the cell,
+    // which is what keeps a long task name honest instead of clipped.
+    let mut lines: Vec<gpui_kit::AnyElement> = Vec::new();
+    if in_month {
+        for activity in activities {
+            lines.push(
+                div()
+                    .text_xs()
+                    .text_color(if is_today {
+                        tokens.canvas
+                    } else {
+                        tokens.accent
+                    })
+                    .child(format!("{}×{}", activity.task_name, activity.pomodoros))
+                    .into_any_element(),
+            );
+        }
+    }
 
     div()
         .id(format!(
@@ -398,18 +682,8 @@ fn calendar_cell(
             this.bg(tokens.accent).text_color(tokens.canvas)
         })
         .child(div().text_xs().child(civil.day.to_string()))
-        .when(count > 0, |this| {
-            this.child(
-                div()
-                    .text_xs()
-                    .text_color(if is_today {
-                        tokens.canvas
-                    } else {
-                        tokens.accent
-                    })
-                    .child(count.to_string()),
-            )
-        })
+        .children(lines)
+        .into_any_element()
 }
 
 /// The current Unix second, used to mark today on the calendar.

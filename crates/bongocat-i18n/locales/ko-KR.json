@@ -77,7 +77,12 @@
       "next_month": "다음 달",
       "weekdays": "월,화,수,목,금,토,일",
       "month_label": "%{year}년 %{month}월",
-      "month_summary": "%{sessions}세션 · %{tasks}작업"
+      "month_summary": "%{sessions}세션 · %{tasks}작업",
+      "done_group": "완료 (%{count})",
+      "chart_days_7": "최근 7일",
+      "chart_days_30": "최근 30일",
+      "chart_minutes": "집중 시간(분)",
+      "chart_done": "완료한 작업 수"
     }
   },
   "startup_permission": {

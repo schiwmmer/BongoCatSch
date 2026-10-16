@@ -138,6 +138,15 @@ pub struct CalendarDayTotal {
     pub tasks: u32,
 }
 
+/// One task's finished sessions on one day, as a calendar cell names it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CalendarTaskActivity {
+    /// The task's name at the time of the read.
+    pub task_name: String,
+    /// Focus sessions of this task finished on that day.
+    pub pomodoros: u32,
+}
+
 /// The month totals a header shows: how many focus sessions were finished and
 /// how many distinct tasks they belonged to.
 ///

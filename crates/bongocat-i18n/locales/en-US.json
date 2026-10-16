@@ -77,7 +77,12 @@
       "next_month": "Next month",
       "weekdays": "Mon,Tue,Wed,Thu,Fri,Sat,Sun",
       "month_label": "%{year}-%{month}",
-      "month_summary": "%{sessions} sessions · %{tasks} tasks"
+      "month_summary": "%{sessions} sessions · %{tasks} tasks",
+      "done_group": "Finished (%{count})",
+      "chart_days_7": "Last 7 days",
+      "chart_days_30": "Last 30 days",
+      "chart_minutes": "Focus minutes",
+      "chart_done": "Tasks finished"
     }
   },
   "startup_permission": {

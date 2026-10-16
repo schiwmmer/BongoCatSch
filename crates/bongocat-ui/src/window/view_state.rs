@@ -408,6 +408,8 @@ impl SettingsView {
             },
             pomodoro_search_input,
             pomodoro_observed_revision: 0,
+            pomodoro_done_expanded: false,
+            pomodoro_chart_days: 7,
             seed,
             snapshot: None,
             pending: None,

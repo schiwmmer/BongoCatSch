@@ -42,26 +42,17 @@ pub(super) fn task_to_continue(tasks: &[PomodoroTaskView]) -> Option<&PomodoroTa
         .rfind(|task| !task.running && task.status == PomodoroTaskStatus::in_progress)
 }
 
-/// The tasks this window lists, most recently active first.
+/// The tasks this window lists, newest created first.
 ///
 /// Every task stays listed — finished ones are dimmed and lose their start
 /// button — so ticking a checkbox never makes a row vanish under the pointer.
-/// "Most recently active" is the newest of creation and completion: a task
-/// that was just created or just finished floats to the top, which is the
-/// order a "what am I working on" list reads in.
+/// The order is creation order, descending, and deliberately nothing else: the
+/// sort key has to survive a session finishing, so a completed pomodoro can
+/// never reshuffle the list the user is looking at.
 pub(super) fn listed_tasks(tasks: &[PomodoroTaskView]) -> Vec<PomodoroTaskView> {
     let mut listed: Vec<PomodoroTaskView> = tasks.to_vec();
-    listed.sort_by_key(|task| std::cmp::Reverse(last_activity(task)));
+    listed.sort_by_key(|task| std::cmp::Reverse(task.created_at_unix));
     listed
-}
-
-/// The newest moment this task was touched: its creation or the moment it was
-/// marked finished, whichever is later. Tasks carry no separate
-/// "last started" field, and between the two ends of a task's life these are
-/// the moments a user would call its activity.
-fn last_activity(task: &PomodoroTaskView) -> i64 {
-    task.created_at_unix
-        .max(task.completed_at_unix.unwrap_or(0))
 }
 
 /// A local timestamp in the `YYYY-MM-DD HH:MM` form the task rows show.
@@ -385,22 +376,23 @@ mod tests {
     }
 
     #[test]
-    fn the_list_orders_tasks_by_their_latest_activity() {
+    fn the_list_orders_tasks_by_creation_descending_and_stays_put_on_completion() {
         let mut oldest = task(1, PomodoroTaskStatus::in_progress, false);
         oldest.created_at_unix = 1_000;
-        let mut finished = task(2, PomodoroTaskStatus::done, false);
-        finished.created_at_unix = 2_000;
-        finished.completed_at_unix = Some(9_000);
-        let mut middle = task(3, PomodoroTaskStatus::in_progress, false);
+        let mut middle = task(2, PomodoroTaskStatus::in_progress, false);
         middle.created_at_unix = 5_000;
-        let tasks = vec![oldest, finished, middle];
+        let mut newest = task(3, PomodoroTaskStatus::in_progress, false);
+        newest.created_at_unix = 9_000;
+        let mut finished = task(4, PomodoroTaskStatus::done, false);
+        finished.created_at_unix = 7_000;
+        let tasks = vec![oldest, middle, newest, finished];
         assert_eq!(
             listed_tasks(&tasks)
                 .iter()
                 .map(|task| task.id)
                 .collect::<Vec<_>>(),
-            vec![2, 3, 1],
-            "the most recently created or finished task leads the list"
+            vec![3, 4, 2, 1],
+            "creation order, descending; completion is not a sort key"
         );
     }
 

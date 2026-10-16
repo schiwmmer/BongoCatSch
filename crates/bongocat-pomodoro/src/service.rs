@@ -27,8 +27,8 @@ use std::{
 };
 
 use crate::{
-    COMMAND_CAPACITY, CalendarDay, CalendarDayTotal, PomodoroCommand, PomodoroSnapshot,
-    PomodoroState, Timer, TimerState,
+    COMMAND_CAPACITY, CalendarDay, CalendarDayTotal, CalendarTaskActivity, PomodoroCommand,
+    PomodoroSnapshot, PomodoroState, Timer, TimerState,
     document::{Document, write_document},
 };
 
@@ -271,6 +271,21 @@ impl PomodoroClient {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .domain
             .day_totals(utc_offset_seconds)
+    }
+
+    /// The tasks behind each local day's finished sessions, for the calendar
+    /// cells that name what a day was spent on. Same offset rule as
+    /// [`Self::day_totals`]: the caller's UTC offset decides the bucketing.
+    pub fn day_activities(
+        &self,
+        utc_offset_seconds: i32,
+    ) -> BTreeMap<CalendarDay, Vec<CalendarTaskActivity>> {
+        self.shared
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .domain
+            .day_activities(utc_offset_seconds)
     }
 
     /// The snapshot revision, without cloning the snapshot.

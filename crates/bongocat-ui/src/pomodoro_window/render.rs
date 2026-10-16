@@ -254,8 +254,11 @@ impl PomodoroView {
                 .child(
                     Button::new("pomodoro-continue")
                         .label(continued.name.clone())
-                        .on_click(move |_, _, cx| {
+                        .on_click(move |_, window, cx| {
                             let _ = button_view.update(cx, |view, cx| view.start_task(task_id, cx));
+                            // The session is running on the cat; the picker has
+                            // done its job and gets out of the way.
+                            window.remove_window();
                         }),
                 )
                 .test_support()
@@ -382,8 +385,11 @@ impl PomodoroView {
             let task_id = task.id;
             Button::new(("pomodoro-task-start", task.id))
                 .label(text(locale, "pomodoro.task.start"))
-                .on_click(move |_, _, cx| {
+                .on_click(move |_, window, cx| {
                     let _ = view.update(cx, |view, cx| view.start_task(task_id, cx));
+                    // The session is running on the cat; the picker has
+                    // done its job and gets out of the way.
+                    window.remove_window();
                 })
                 .into_any_element()
         } else {

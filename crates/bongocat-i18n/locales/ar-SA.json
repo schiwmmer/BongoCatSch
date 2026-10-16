@@ -77,7 +77,12 @@
       "next_month": "الشهر التالي",
       "weekdays": "الاثنين,الثلاثاء,الأربعاء,الخميس,الجمعة,السبت,الأحد",
       "month_label": "%{year}-%{month}",
-      "month_summary": "%{sessions} جلسات · %{tasks} مهام"
+      "month_summary": "%{sessions} جلسات · %{tasks} مهام",
+      "done_group": "منجز (%{count})",
+      "chart_days_7": "آخر 7 أيام",
+      "chart_days_30": "آخر 30 يومًا",
+      "chart_minutes": "دقائق التركيز",
+      "chart_done": "المهام المنجزة"
     }
   },
   "startup_permission": {

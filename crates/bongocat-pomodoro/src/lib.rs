@@ -55,7 +55,10 @@ pub const MAX_TASK_NAME_CHARS: usize = 80;
 /// is driven by the clock, not by the queue.
 pub const COMMAND_CAPACITY: usize = 16;
 
-pub use calendar::{CalendarDay, CalendarDayTotal, CivilDate, MonthGrid, month_grid, month_totals};
+pub use calendar::{
+    CalendarDay, CalendarDayTotal, CalendarTaskActivity, CivilDate, MonthGrid, month_grid,
+    month_totals,
+};
 pub use document::POMODORO_TASKS_SCHEMA_VERSION;
 pub use service::{
     PomodoroClient, PomodoroDiagnostics, PomodoroErrorCode, PomodoroPublishError, PomodoroService,
