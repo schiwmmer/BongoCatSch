@@ -59,7 +59,8 @@
       "paused": "متوقفة مؤقتًا",
       "progress": "%{completed} من %{estimated} جلسة",
       "none": "لا توجد مهام بعد. سمِّ مهمة في الأعلى للبدء.",
-      "running_now": "قيد التشغيل: %{name}"
+      "running_now": "قيد التشغيل: %{name}",
+      "created_at": "أُنشئ %{time}"
     },
     "worker_lost": "تعذّر تشغيل مؤقّت بومودورو. راجع السجل للتفاصيل.",
     "timer": {

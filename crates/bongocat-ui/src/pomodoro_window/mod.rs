@@ -3,10 +3,10 @@
 //!
 //! The window answers exactly one question — "what am I working on?" — so it
 //! offers the three ways a user can answer it: name a new task, pick up the one
-//! left unfinished, or start one from the list. Task management proper — search,
-//! ticking tasks off, the monthly history — belongs in the settings window, which
-//! already owns a place for it; this window is what a user opens when they want
-//! to start working, not when they want to administer a list.
+//! left unfinished, or start one from the list. Ticking a task off happens
+//! right here too, one checkbox per row, so a finished task never needs a trip
+//! to the settings window; the list itself — search and the monthly history —
+//! still belongs to the settings window.
 //!
 //! It is a singleton like the update window: the tray and the model-window
 //! context menu both route through here, so a second request focuses the open
@@ -61,6 +61,7 @@ pub(super) const POMODORO_LOCALIZED_KEYS: &[&str] = &[
     "pomodoro.task.start",
     "pomodoro.task.running_now",
     "pomodoro.task.progress",
+    "pomodoro.task.created_at",
     "pomodoro.task.none",
     "pomodoro.task.section",
     "pomodoro.picker.session_length",
@@ -204,9 +205,16 @@ pub fn open_pomodoro_window(
         .borrow_mut()
         .take()
         .ok_or_else(|| "pomodoro view was not created".to_owned())?;
-    cx.activate(true);
-    Ok(PomodoroWindowHandle {
+    // The window is created with `show: false` so it never flashes at its
+    // unpositioned frame; activating the handle is what raises it. Without
+    // this the first open produced a window that existed but stayed hidden —
+    // the user had to trigger the menu a second time, which took the
+    // singleton's "already open" branch, to see anything at all.
+    let pomodoro_handle = PomodoroWindowHandle {
         window: handle,
         view: view.downgrade(),
-    })
+    };
+    let _ = pomodoro_handle.activate(cx);
+    cx.activate(true);
+    Ok(pomodoro_handle)
 }

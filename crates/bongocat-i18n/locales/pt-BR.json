@@ -59,7 +59,8 @@
       "paused": "Pausado",
       "progress": "%{completed} de %{estimated} sessões",
       "none": "Nenhuma tarefa ainda. Dê um nome acima para começar.",
-      "running_now": "Em andamento: %{name}"
+      "running_now": "Em andamento: %{name}",
+      "created_at": "Criado em %{time}"
     },
     "worker_lost": "O temporizador Pomodoro não pôde iniciar. Consulte o log para detalhes.",
     "timer": {

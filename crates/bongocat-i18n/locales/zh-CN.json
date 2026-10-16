@@ -59,7 +59,8 @@
       "paused": "已暂停",
       "progress": "已完成 %{completed} / 预计 %{estimated} 个番茄",
       "none": "还没有任务。在上方命名一个即可开始。",
-      "running_now": "进行中：%{name}"
+      "running_now": "进行中：%{name}",
+      "created_at": "创建于 %{time}"
     },
     "worker_lost": "番茄钟未能启动，详情见日志。",
     "timer": {

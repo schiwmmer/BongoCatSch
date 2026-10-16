@@ -226,6 +226,17 @@ fn task_row(
                 .min_w_0()
                 .child(div().child(name))
                 .child(div().text_xs().text_color(tokens.muted).child(progress))
+                .child(div().text_xs().text_color(tokens.muted).child(format_text(
+                    locale,
+                    "pomodoro.task.created_at",
+                    &[(
+                        "time",
+                        crate::pomodoro_window::view::format_local_timestamp(
+                            task.created_at_unix,
+                            bongocat_platform::local_utc_offset_seconds(),
+                        ),
+                    )],
+                )))
                 .when(running, |this| {
                     this.child(
                         div()

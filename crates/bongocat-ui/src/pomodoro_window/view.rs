@@ -15,8 +15,8 @@
 use super::*;
 use crate::SettingsLanguage;
 use bongocat_pomodoro::{
-    MAX_FOCUS_MINUTES, MIN_FOCUS_MINUTES, PomodoroClient, PomodoroCommand, PomodoroSnapshot,
-    PomodoroTaskStatus, PomodoroTaskView,
+    CalendarDay, MAX_FOCUS_MINUTES, MIN_FOCUS_MINUTES, PomodoroClient, PomodoroCommand,
+    PomodoroSnapshot, PomodoroTaskStatus, PomodoroTaskView,
 };
 use gpui_kit::component::input::InputState;
 use gpui_kit::{AppContext, Entity, FocusHandle, Focusable, Window};
@@ -32,24 +32,52 @@ pub(super) const DEFAULT_EXPECTED_SESSIONS: u32 = 4;
 ///
 /// "Unfinished" decides it: a task the user ticked off is not something to pick
 /// up for them, and a task that is already running is already the current one.
-/// Choosing by that rule means the row can never disagree with what the button
-/// says it does.
+/// Between the unfinished ones it is the *latest* that continues — "pick up
+/// where you left off" means the task the user touched last, which for an
+/// untouched list is the one they created most recently, not the first they
+/// ever made.
 pub(super) fn task_to_continue(tasks: &[PomodoroTaskView]) -> Option<&PomodoroTaskView> {
     tasks
         .iter()
-        .find(|task| !task.running && task.status == PomodoroTaskStatus::in_progress)
+        .rfind(|task| !task.running && task.status == PomodoroTaskStatus::in_progress)
 }
 
-/// The tasks this window lists.
+/// The tasks this window lists, most recently active first.
 ///
-/// Finished tasks are excluded: this window answers "what am I working on now",
-/// and a finished task is not an answer. A running task stays listed so its row
-/// can say so.
-pub(super) fn startable_tasks(tasks: &[PomodoroTaskView]) -> Vec<&PomodoroTaskView> {
-    tasks
-        .iter()
-        .filter(|task| task.status == PomodoroTaskStatus::in_progress)
-        .collect()
+/// Every task stays listed — finished ones are dimmed and lose their start
+/// button — so ticking a checkbox never makes a row vanish under the pointer.
+/// "Most recently active" is the newest of creation and completion: a task
+/// that was just created or just finished floats to the top, which is the
+/// order a "what am I working on" list reads in.
+pub(super) fn listed_tasks(tasks: &[PomodoroTaskView]) -> Vec<PomodoroTaskView> {
+    let mut listed: Vec<PomodoroTaskView> = tasks.to_vec();
+    listed.sort_by_key(|task| std::cmp::Reverse(last_activity(task)));
+    listed
+}
+
+/// The newest moment this task was touched: its creation or the moment it was
+/// marked finished, whichever is later. Tasks carry no separate
+/// "last started" field, and between the two ends of a task's life these are
+/// the moments a user would call its activity.
+fn last_activity(task: &PomodoroTaskView) -> i64 {
+    task.created_at_unix
+        .max(task.completed_at_unix.unwrap_or(0))
+}
+
+/// A local timestamp in the `YYYY-MM-DD HH:MM` form the task rows show.
+///
+/// The date comes from the domain's calendar (offset applied once, where the
+/// timestamp enters) and the clock from the remainder of the shifted day, so
+/// both halves read in the same local day the rest of the product uses.
+pub(crate) fn format_local_timestamp(at_unix: i64, utc_offset_seconds: i32) -> String {
+    let civil = CalendarDay::from_unix(at_unix, utc_offset_seconds).to_civil();
+    let seconds_of_day = (at_unix + i64::from(utc_offset_seconds)).rem_euclid(86_400);
+    let hour = seconds_of_day / 3600;
+    let minute = (seconds_of_day % 3600) / 60;
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}",
+        civil.year, civil.month, civil.day, hour, minute
+    )
 }
 
 /// The countdown, when there is one to show.
@@ -199,6 +227,18 @@ impl PomodoroView {
         cx.notify();
     }
 
+    /// Tick a task's done state from its list row.
+    ///
+    /// The checkbox publishes the same command the settings page would, so
+    /// there is one writer for that fact; the poll picks the new snapshot up
+    /// within a tick and the row restyles itself.
+    pub(super) fn set_task_done(&mut self, task_id: u64, done: bool, cx: &mut Context<Self>) {
+        let _ = self
+            .client
+            .try_publish(PomodoroCommand::SetTaskDone { task_id, done });
+        cx.notify();
+    }
+
     /// Re-read the countdown and the task list.
     ///
     /// The countdown moves every second, so the poll is short; the snapshot is
@@ -324,14 +364,14 @@ mod tests {
     }
 
     #[test]
-    fn the_continued_task_is_the_first_unfinished_one_that_is_not_already_running() {
+    fn the_continued_task_is_the_latest_unfinished_one_not_already_running() {
         let tasks = vec![
             task(1, PomodoroTaskStatus::done, false),
             task(2, PomodoroTaskStatus::in_progress, true),
             task(3, PomodoroTaskStatus::in_progress, false),
             task(4, PomodoroTaskStatus::in_progress, false),
         ];
-        assert_eq!(task_to_continue(&tasks).map(|task| task.id), Some(3));
+        assert_eq!(task_to_continue(&tasks).map(|task| task.id), Some(4));
     }
 
     #[test]
@@ -345,20 +385,32 @@ mod tests {
     }
 
     #[test]
-    fn the_picker_lists_unfinished_tasks_only() {
-        let tasks = vec![
-            task(1, PomodoroTaskStatus::done, false),
-            task(2, PomodoroTaskStatus::in_progress, true),
-            task(3, PomodoroTaskStatus::in_progress, false),
-        ];
+    fn the_list_orders_tasks_by_their_latest_activity() {
+        let mut oldest = task(1, PomodoroTaskStatus::in_progress, false);
+        oldest.created_at_unix = 1_000;
+        let mut finished = task(2, PomodoroTaskStatus::done, false);
+        finished.created_at_unix = 2_000;
+        finished.completed_at_unix = Some(9_000);
+        let mut middle = task(3, PomodoroTaskStatus::in_progress, false);
+        middle.created_at_unix = 5_000;
+        let tasks = vec![oldest, finished, middle];
         assert_eq!(
-            startable_tasks(&tasks)
+            listed_tasks(&tasks)
                 .iter()
                 .map(|task| task.id)
                 .collect::<Vec<_>>(),
-            vec![2, 3],
-            "a running task stays listed so its row can show that it is running"
+            vec![2, 3, 1],
+            "the most recently created or finished task leads the list"
         );
+    }
+
+    #[test]
+    fn finished_tasks_stay_listed_so_ticking_a_box_hides_nothing() {
+        let tasks = vec![
+            task(1, PomodoroTaskStatus::done, false),
+            task(2, PomodoroTaskStatus::in_progress, true),
+        ];
+        assert_eq!(listed_tasks(&tasks).len(), 2);
     }
 
     #[test]

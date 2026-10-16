@@ -291,9 +291,9 @@ fn the_decisions_the_frame_makes_are_the_ones_the_domain_would_make() {
         "the row the frame draws must be the row the rule picks"
     );
     assert_eq!(
-        view::startable_tasks(&tasks).len(),
-        2,
-        "the running task keeps its row so it can say it is running"
+        view::listed_tasks(&tasks).len(),
+        3,
+        "every task keeps its row: finished ones dim, the running one says so"
     );
 }
 #[gpui_kit::test]

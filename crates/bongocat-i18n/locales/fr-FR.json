@@ -59,7 +59,8 @@
       "paused": "En pause",
       "progress": "%{completed} sessions sur %{estimated}",
       "none": "Aucune tâche pour l'instant. Nommez-en une ci-dessus pour commencer.",
-      "running_now": "En cours : %{name}"
+      "running_now": "En cours : %{name}",
+      "created_at": "Créé %{time}"
     },
     "worker_lost": "Le minuteur Pomodoro n'a pas pu démarrer. Consultez le journal pour plus de détails.",
     "timer": {

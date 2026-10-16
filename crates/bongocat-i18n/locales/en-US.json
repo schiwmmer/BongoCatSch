@@ -59,7 +59,8 @@
       "paused": "Paused",
       "progress": "%{completed} of %{estimated} sessions",
       "none": "No tasks yet. Name one above to get started.",
-      "running_now": "Running: %{name}"
+      "running_now": "Running: %{name}",
+      "created_at": "Created %{time}"
     },
     "worker_lost": "The pomodoro timer could not start. Check the log for details.",
     "timer": {

@@ -10,6 +10,7 @@ use bongocat_i18n::{format_text, text};
 use bongocat_pomodoro::TimerState;
 use gpui_kit::component::Disableable as _;
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
+use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::Input;
 use gpui_kit::{IntoElement, WeakEntity, Window, div, px};
 // `test_support()` registers elements for the headless window tests; without
@@ -196,7 +197,7 @@ impl PomodoroView {
             .into_any_element()
     }
 
-    /// The tasks that can be started, each with a start button.
+    /// The tasks, most recently active first, each with a done checkbox.
     ///
     /// The "continue" row is the same list with one task promoted, not a
     /// replacement for it: a user who has four tasks open needs to see the other
@@ -213,7 +214,7 @@ impl PomodoroView {
             .text_sm()
             .text_color(tokens.muted)
             .child(text(locale, "pomodoro.task.section"));
-        let tasks = view::startable_tasks(&self.snapshot.tasks);
+        let tasks = view::listed_tasks(&self.snapshot.tasks);
         if tasks.is_empty() {
             return div()
                 .id("pomodoro-task-list")
@@ -262,7 +263,7 @@ impl PomodoroView {
         });
         let rows: Vec<gpui_kit::AnyElement> = tasks
             .into_iter()
-            .map(|task| self.render_task_row(locale, tokens, task, view))
+            .map(|task| self.render_task_row(locale, tokens, &task, view))
             .collect();
         div()
             .id("pomodoro-task-list")
@@ -324,7 +325,13 @@ impl PomodoroView {
         )
     }
 
-    /// One task: its name, its progress, and either "running" or a start button.
+    /// One task: a done checkbox, its name, when it was created, its progress,
+    /// and either "running" or a start button.
+    ///
+    /// The checkbox publishes the same done command the settings page uses, so
+    /// a task can be ticked off right where it is started. A running task's
+    /// checkbox is disabled — its done state belongs to the session, and
+    /// abandoning is the way a running task ends.
     fn render_task_row(
         &self,
         locale: &str,
@@ -332,6 +339,7 @@ impl PomodoroView {
         task: &bongocat_pomodoro::PomodoroTaskView,
         view: &WeakEntity<PomodoroView>,
     ) -> gpui_kit::AnyElement {
+        let done = task.status == bongocat_pomodoro::PomodoroTaskStatus::done;
         let progress = format_text(
             locale,
             "pomodoro.task.progress",
@@ -340,6 +348,27 @@ impl PomodoroView {
                 ("estimated", task.estimated_pomodoros.to_string()),
             ],
         );
+        let created = format_text(
+            locale,
+            "pomodoro.task.created_at",
+            &[(
+                "time",
+                view::format_local_timestamp(
+                    task.created_at_unix,
+                    bongocat_platform::local_utc_offset_seconds(),
+                ),
+            )],
+        );
+        let checkbox_view = view.clone();
+        let checkbox_task_id = task.id;
+        let checkbox = Checkbox::new(("pomodoro-task-done", task.id))
+            .checked(done)
+            .disabled(task.running)
+            .on_change(move |checked, _, cx| {
+                let _ = checkbox_view.update(cx, |view, cx| {
+                    view.set_task_done(checkbox_task_id, *checked, cx)
+                });
+            });
         let trailing: gpui_kit::AnyElement = if task.running {
             div()
                 .id(("pomodoro-task-running", task.id))
@@ -348,7 +377,7 @@ impl PomodoroView {
                 .child(text(locale, "pomodoro.task.running"))
                 .test_support()
                 .into_any_element()
-        } else {
+        } else if !done {
             let view = view.clone();
             let task_id = task.id;
             Button::new(("pomodoro-task-start", task.id))
@@ -357,6 +386,10 @@ impl PomodoroView {
                     let _ = view.update(cx, |view, cx| view.start_task(task_id, cx));
                 })
                 .into_any_element()
+        } else {
+            // A finished task carries no action: the checkbox already says its
+            // state, and starting it again is what the "continue" flow is for.
+            div().into_any_element()
         };
         div()
             .id(("pomodoro-task-row", task.id))
@@ -367,6 +400,7 @@ impl PomodoroView {
             .py_2()
             .border_b_1()
             .border_color(tokens.border)
+            .child(checkbox)
             .child(
                 div()
                     .flex()
@@ -376,7 +410,7 @@ impl PomodoroView {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(tokens.text)
+                            .text_color(if done { tokens.muted } else { tokens.text })
                             .child(task.name.clone()),
                     )
                     .child(
@@ -385,6 +419,13 @@ impl PomodoroView {
                             .text_xs()
                             .text_color(tokens.muted)
                             .child(progress),
+                    )
+                    .child(
+                        div()
+                            .id(("pomodoro-task-created", task.id))
+                            .text_xs()
+                            .text_color(tokens.muted)
+                            .child(created),
                     ),
             )
             .child(trailing)
