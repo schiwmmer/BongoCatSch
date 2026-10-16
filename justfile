@@ -54,6 +54,19 @@ check:
 build *args:
     cargo run --locked -p bongocat-packaging -- {{args}}
 
+# Build the Production app bundle for installing on this machine to verify.
+#
+# The environment is pinned on purpose: `--environment development` builds a
+# fine bundle, but the two environments keep separate data directories
+# (`com.ayangweb.bongo-cat/development|production`), and a development build
+# reads an empty one — every stored level, count, model and task disappears
+# from the surface while the production files sit untouched beside it. A
+# verification build has to read the user's real data, so it has to be a
+# production build. See the 2026-10-15 pomodoro round, where a development
+# build made a real interaction history look deleted.
+verify-app:
+    cargo run --locked -p bongocat-packaging -- --environment production --formats app
+
 # Generate the Minisign key pair that signs update payloads (one-time, offline).
 keygen file:
     cargo run --locked -p bongocat-packaging -- --generate-signing-key {{file}}
