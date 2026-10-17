@@ -22,7 +22,13 @@ mod local_time;
 pub use local_time::local_utc_offset_seconds;
 
 mod pomodoro_sound;
-pub use pomodoro_sound::{POMODORO_COMPLETE_SOUND, play_pomodoro_complete_sound};
+pub use pomodoro_sound::{
+    POMODORO_COMPLETE_SOUND, POMODORO_LEVEL_UP_SOUND, POMODORO_TASK_DONE_SOUND,
+    play_level_up_sound, play_pomodoro_complete_sound, play_task_done_sound,
+};
+
+mod bundled_resource;
+pub use bundled_resource::bundled_resource;
 
 mod model_source_picker;
 pub use model_source_picker::{ModelSourcePickerError, ModelSourcePickerOutcome};

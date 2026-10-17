@@ -25,7 +25,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Mutex, OnceLock,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -189,6 +189,39 @@ struct Shared {
 
 static STATS: OnceLock<Shared> = OnceLock::new();
 
+/// The level the last recorded interaction reached.
+///
+/// A level band spans many interactions — level 30 alone covers 400 of them —
+/// so comparing the level rather than the total is what makes the level-up
+/// fanfare fire once per crossing instead of once per key press.
+static OBSERVED_LEVEL: AtomicU16 = AtomicU16::new(0);
+
+/// The level a total has grown into, or `None` when it has not moved.
+///
+/// Pure so the crossing rule can be tested without touching the counters: a
+/// growth is a strictly higher level, never a sideways or backwards one.
+fn level_growth(previous: u16, total: u64) -> Option<u16> {
+    let level = level_for(total).level;
+    (level > previous).then_some(level)
+}
+
+/// Play the level-up fanfare when the current totals have crossed into a
+/// level above the last observed one.
+///
+/// Called from the record path, not the flush path: the flush is throttled by
+/// half a minute, and a fanfare that arrives thirty seconds late is a
+/// notification about the past.
+fn observe_level_growth() {
+    let (_, _, total) = totals();
+    let previous = OBSERVED_LEVEL.load(Ordering::Relaxed);
+    if let Some(level) = level_growth(previous, total) {
+        // Recorded before the sound is asked for, so a device that cannot
+        // play does not re-fire the fanfare on every later key press.
+        OBSERVED_LEVEL.store(level, Ordering::Relaxed);
+        crate::pomodoro_sound::play_level_up_sound();
+    }
+}
+
 /// Install the persistence path and load whatever document is already there.
 ///
 /// The first call wins; later calls are ignored so a re-started input service
@@ -198,6 +231,13 @@ static STATS: OnceLock<Shared> = OnceLock::new();
 /// configuration's recovery path ends at.
 pub fn init(path: PathBuf) {
     let persisted = read_stats(&path);
+    // The observed level starts where the persisted totals already sit, so a
+    // session that opens at level 30 does not fanfare for a level it reached
+    // before this run.
+    let persisted_total = persisted
+        .key_interactions
+        .saturating_add(persisted.mouse_interactions);
+    OBSERVED_LEVEL.store(level_for(persisted_total).level, Ordering::Relaxed);
     let _ = STATS.set(Shared {
         path,
         persisted: Mutex::new(persisted),
@@ -213,6 +253,7 @@ pub fn record_key() {
     if let Some(shared) = STATS.get() {
         shared.session_key.fetch_add(1, Ordering::Relaxed);
         shared.dirty.store(true, Ordering::Release);
+        observe_level_growth();
     }
 }
 
@@ -221,6 +262,7 @@ pub fn record_mouse() {
     if let Some(shared) = STATS.get() {
         shared.session_mouse.fetch_add(1, Ordering::Relaxed);
         shared.dirty.store(true, Ordering::Release);
+        observe_level_growth();
     }
 }
 
@@ -506,5 +548,58 @@ mod tests {
             0,
             "the failed write did not leave totals behind"
         );
+    }
+
+    /// The crossing rule behind the level-up fanfare: a growth is a strictly
+    /// higher level, and sitting inside a level's band is not one.
+    #[test]
+    fn a_level_crossing_is_the_only_growth() {
+        assert_eq!(level_growth(1, 0), None, "level 1 is where a run starts");
+        assert_eq!(level_growth(1, 1), None, "one interaction is still level 1");
+        assert_eq!(
+            level_growth(1, 5),
+            Some(2),
+            "level 2 opens at five interactions"
+        );
+        assert_eq!(
+            level_growth(2, 5),
+            None,
+            "the total that just opened level 2 is inside it"
+        );
+        assert_eq!(level_growth(19, 100), Some(20), "the 20 anchor");
+        assert_eq!(level_growth(20, 100), None, "no sideways growth");
+        assert_eq!(level_growth(30, 10), None, "never backwards");
+    }
+
+    /// A whole run from a fresh install: the fanfare fires exactly once per
+    /// level crossed, never once per key press inside a level's band.
+    #[test]
+    fn a_run_fanfares_once_per_level_not_once_per_press() {
+        let mut observed = level_for(0).level;
+        let mut fanfares: Vec<u16> = Vec::new();
+        for total in 1..=150u64 {
+            if let Some(level) = level_growth(observed, total) {
+                observed = level;
+                fanfares.push(level);
+            }
+        }
+        assert_eq!(
+            fanfares,
+            (2..=21).collect::<Vec<_>>(),
+            "150 presses from zero cross levels 2 through 21, once each"
+        );
+    }
+
+    /// The observed level survives a session that opens mid-curve: the first
+    /// record after `init` must not fanfare for a level reached before it.
+    #[test]
+    fn the_observed_level_starts_at_the_persisted_one() {
+        OBSERVED_LEVEL.store(level_for(0).level, Ordering::Relaxed);
+        assert_eq!(OBSERVED_LEVEL.load(Ordering::Relaxed), 1);
+        OBSERVED_LEVEL.store(level_for(100).level, Ordering::Relaxed);
+        assert_eq!(OBSERVED_LEVEL.load(Ordering::Relaxed), 20);
+        // Restore the process-wide default for the other tests in this
+        // binary, which share the static.
+        OBSERVED_LEVEL.store(0, Ordering::Relaxed);
     }
 }
