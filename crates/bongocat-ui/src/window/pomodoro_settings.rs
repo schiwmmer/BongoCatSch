@@ -700,8 +700,13 @@ fn trend_chart(
             // unit label, then spread three tick slots over the rest; the
             // gridlines sit at those slots' centres, which is what keeps a tick
             // label and its line at the same height.
-            let tick_top = AXIS_UNIT_HEIGHT + AXIS_UNIT_GAP;
-            let tick_area = bounds.size.height - tick_top;
+            // `bounds` and every paint call below are in WINDOW coordinates:
+            // the x side reads `bounds.left()` directly, so the y side must
+            // start from `bounds.top()` too — a bare local offset would paint
+            // the whole plot near the window's top edge, straight over the
+            // calendar above the chart.
+            let tick_top = bounds.top() + AXIS_UNIT_HEIGHT + AXIS_UNIT_GAP;
+            let tick_area = bounds.size.height - AXIS_UNIT_HEIGHT - AXIS_UNIT_GAP;
             let gridline_y = |slot: usize| tick_top + tick_area * (slot as f32 + 0.5) / 3.0;
             let top_y = gridline_y(0);
             let mid_y = gridline_y(1);
