@@ -1,20 +1,20 @@
-//! Locating files the app ships beside its own executable.
+//! Locating files the app ships in its `resources` directory.
 //!
 //! Three layouts, one answer. A macOS app bundle keeps them in
 //! `Contents/Resources`, a Windows install keeps them in a `resources`
 //! directory beside the executable, and a build-tree run keeps them in the
 //! repository's own `resources` directory. The candidates are tried in that
-//! order and the first that exists wins, so a bundle never silently falls back
-//! to the repository it was built from.
+//! order and the first that exists wins, so a bundle never silently falls
+//! back to the repository it was built from.
 //!
-//! Callers pass a repository-relative path (`pomodoro/tomato-filled.png`), the
-//! same spelling the manifest and the bundle layout use.
+//! Callers pass a path relative to `resources` (`pomodoro/tomato-filled.png`),
+//! the same spelling the repository layout and the bundle layout share.
 
 use std::path::PathBuf;
 
-/// Resolve a bundled resource by its repository-relative path.
+/// Resolve a bundled resource by its `resources`-relative path.
 ///
-/// Falls back to the repository-relative spelling when nothing exists yet —
+/// Falls back to the `resources`-relative spelling when nothing exists yet —
 /// the caller gets a path it can report rather than an empty guess.
 pub fn bundled_resource(relative: &str) -> PathBuf {
     let mut candidates: Vec<PathBuf> = Vec::new();
@@ -22,21 +22,22 @@ pub fn bundled_resource(relative: &str) -> PathBuf {
         if let Some(directory) = executable.parent() {
             // macOS app bundle: <bundle>/Contents/MacOS/<exe> -> <bundle>/Contents/Resources.
             candidates.push(directory.join("../Resources").join(relative));
-            // Windows install and any bare binary: beside the executable.
-            candidates.push(directory.join(relative));
+            // Windows install and any bare binary: a resources directory
+            // beside the executable.
+            candidates.push(directory.join("resources").join(relative));
         }
     }
-    // Build-tree run: the repository root, two levels up from this crate.
+    // Build-tree run: the repository's resources directory.
     candidates.push(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../")
+            .join("../../resources")
             .join(relative),
     );
 
     candidates
         .into_iter()
         .find(|candidate| candidate.exists())
-        .unwrap_or_else(|| PathBuf::from(relative))
+        .unwrap_or_else(|| PathBuf::from("resources").join(relative))
 }
 
 #[cfg(test)]
@@ -65,7 +66,7 @@ mod tests {
         let path = super::bundled_resource("pomodoro/does-not-exist.png");
         assert_eq!(
             path,
-            std::path::PathBuf::from("pomodoro/does-not-exist.png")
+            std::path::PathBuf::from("resources/pomodoro/does-not-exist.png")
         );
     }
 }
