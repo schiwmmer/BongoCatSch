@@ -410,6 +410,9 @@ impl SettingsView {
             pomodoro_observed_revision: 0,
             pomodoro_done_expanded: false,
             pomodoro_chart_days: 7,
+            // No day is picked when the page opens: the chart ends on today
+            // and the day-detail strip stays hidden until a cell is clicked.
+            pomodoro_selected_day: None,
             seed,
             snapshot: None,
             pending: None,

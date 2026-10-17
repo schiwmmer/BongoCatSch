@@ -84,6 +84,8 @@
       "chart_minutes": "Minutos de foco",
       "chart_done": "Tarefas concluídas",
       "month_tasks": "Tarefas deste mês",
+      "day_tasks": "Tarefas do dia",
+      "day_tasks_empty": "Nenhuma sessão de foco neste dia",
       "axis_minutes": "min",
       "axis_tasks": "tarefas"
     }

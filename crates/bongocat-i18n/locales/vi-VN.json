@@ -84,6 +84,8 @@
       "chart_minutes": "Phút tập trung",
       "chart_done": "Nhiệm vụ hoàn thành",
       "month_tasks": "Nhiệm vụ trong tháng",
+      "day_tasks": "Nhiệm vụ trong ngày",
+      "day_tasks_empty": "Không có phiên tập trung nào trong ngày",
       "axis_minutes": "phút",
       "axis_tasks": "nhiệm vụ"
     }

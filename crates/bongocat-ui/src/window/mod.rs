@@ -250,6 +250,11 @@ pub struct SettingsView {
     pub(crate) pomodoro_done_expanded: bool,
     /// How many days the pomodoro trend chart spans: 7 or 30.
     pub(crate) pomodoro_chart_days: usize,
+    /// The calendar day the user picked, or `None` while the chart ends on
+    /// today. Clicking a calendar cell selects that day (future days refuse),
+    /// the day-detail strip lists its tasks, and the trend chart rewinds its
+    /// window to end on it.
+    pub(crate) pomodoro_selected_day: Option<bongocat_pomodoro::CalendarDay>,
     /// The search box the task-list subview filters task names with. Stored as an
     /// input entity rather than a bare string so the field keeps its own cursor
     /// and selection across frames; the typed text is mirrored into

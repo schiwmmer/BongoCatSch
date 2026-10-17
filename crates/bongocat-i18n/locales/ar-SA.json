@@ -84,6 +84,8 @@
       "chart_minutes": "دقائق التركيز",
       "chart_done": "المهام المنجزة",
       "month_tasks": "مهام هذا الشهر",
+      "day_tasks": "مهام هذا اليوم",
+      "day_tasks_empty": "لا جلسات تركيز في هذا اليوم",
       "axis_minutes": "دقيقة",
       "axis_tasks": "مهام"
     }

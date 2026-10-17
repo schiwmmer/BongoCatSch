@@ -987,6 +987,15 @@ fn resources(
             target: PathBuf::from(SWIFT_RESOURCE_BUNDLE),
         });
     }
+    // The pomodoro task-row icons (the outlined and filled tomatoes) ship as
+    // plain PNGs from the working tree: there is nothing to stage or filter,
+    // unlike the model tree, and `bongocat_platform::bundled_resource` looks
+    // for exactly this `pomodoro` directory beside the other resources.
+    let pomodoro_icons = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../resources/pomodoro");
+    resources.push(Resource::Mapped {
+        src: pomodoro_icons.display().to_string(),
+        target: PathBuf::from(format!("{prefix}pomodoro")),
+    });
     resources
 }
 

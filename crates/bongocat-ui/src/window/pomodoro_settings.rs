@@ -264,6 +264,11 @@ fn task_row(
                 .on_change({
                     let view = view.clone();
                     move |checked, _window, cx| {
+                        // Turning a task done is the one direction that
+                        // celebrates; un-checking it again stays silent.
+                        if *checked {
+                            bongocat_platform::play_task_done_sound();
+                        }
                         view.update(cx, |view, cx| {
                             let _ = view.pomodoro.try_publish(PomodoroCommand::SetTaskDone {
                                 task_id,
@@ -287,7 +292,7 @@ fn task_row(
                         .flex_row()
                         .items_center()
                         .gap(px(2.0))
-                        .children((0..slots).map(|index| tomato_icon(tokens, index < filled)))
+                        .children((0..slots).map(|index| tomato_icon(index < filled)))
                         .when(overflowing, |this| {
                             this.child(div().text_xs().text_color(tokens.muted).child("…"))
                         }),
@@ -319,6 +324,11 @@ fn task_row(
 /// many the shape is gone anyway.
 const MAX_TOMATO_ICONS: usize = 6;
 
+/// The outlined tomato icon: a session the task estimates but has not finished.
+const POMODORO_OUTLINE_ICON: &str = "pomodoro/tomato-outline.png";
+/// The filled tomato icon: a session the task has finished.
+const POMODORO_FILLED_ICON: &str = "pomodoro/tomato-filled.png";
+
 /// How many icon slots a task's progress draws, and how many of them are solid.
 ///
 /// The slots cover the larger of the two counts, so finishing more than planned
@@ -332,43 +342,22 @@ fn tomato_slots(estimated: u32, completed: u32) -> (usize, usize) {
     (slots, filled)
 }
 
-/// One tomato icon: a fruit with a small calyx cap on top, solid for a finished
-/// session and a translucent wash for one that is only estimated.
+/// One tomato icon: the product's own artwork, a filled fruit for a finished
+/// session and the outlined one for a session that is only estimated.
 ///
-/// A finished slot reads as the solid fruit stacked over its pale estimate —
-/// the wash stays under the solid fill, so the two never compete for the pixel.
-fn tomato_icon(tokens: Tokens, filled: bool) -> impl IntoElement {
-    let fruit_color = if filled {
-        tokens.accent
+/// A finished slot reads as the solid fruit standing over its outlined
+/// estimate, so the two never compete for the pixel. The icons ship beside
+/// the executable (or in the repository's resources during a build-tree run),
+/// which [`bongocat_platform::bundled_resource`] resolves.
+fn tomato_icon(filled: bool) -> impl IntoElement {
+    img(bongocat_platform::bundled_resource(if filled {
+        POMODORO_FILLED_ICON
     } else {
-        tokens.accent.opacity(0.25)
-    };
-    div()
-        .relative()
-        .size(px(12.0))
-        .flex_shrink_0()
-        .child(
-            div()
-                .absolute()
-                .bottom_0()
-                .left_0()
-                .right_0()
-                .h(px(9.0))
-                .rounded_full()
-                .bg(fruit_color),
-        )
-        .child(
-            // The calyx: centred by the arithmetic of a 12px icon — a 4px cap
-            // starting 4px in leaves 4px on the other side.
-            div()
-                .absolute()
-                .top_0()
-                .left(px(4.0))
-                .w(px(4.0))
-                .h(px(3.0))
-                .rounded_sm()
-                .bg(tokens.accent.opacity(0.55)),
-        )
+        POMODORO_OUTLINE_ICON
+    }))
+    .w(px(14.0))
+    .h(px(14.0))
+    .flex_shrink_0()
 }
 
 /// The month calendar of finished focus sessions, with a trend chart under it.
@@ -384,6 +373,7 @@ fn calendar_panel(
     let activities = view.read(cx).pomodoro.day_activities(offset);
     let grid = bongocat_pomodoro::month_grid(year, month);
     let today = CalendarDay::from_unix(now_unix(), offset);
+    let selected_day = view.read(cx).pomodoro_selected_day;
 
     let totals = bongocat_pomodoro::month_totals(&days);
     let summary = format_text(
@@ -412,7 +402,16 @@ fn calendar_panel(
                 })
             })
             .unwrap_or(0);
-        calendar_cell(tokens, day, index, &grid, day_pomodoros, today)
+        calendar_cell(
+            view,
+            tokens,
+            day,
+            index,
+            &grid,
+            day_pomodoros,
+            today,
+            selected_day,
+        )
     });
 
     let month_title = format_text(
@@ -477,6 +476,59 @@ fn calendar_panel(
                             }),
                     ),
             )
+    });
+
+    // The picked day's own tasks, above the month strip: the same "name ×N"
+    // read the cells carried before the count-only pass, now answering "what
+    // did the day I clicked actually spend on". A day without sessions says
+    // so in words instead of showing an empty box, and a future day can never
+    // be picked, so an empty state here means a quiet day, not a bug.
+    let day_detail_panel = selected_day.map(|day| {
+        let day_activities = activities.get(&day);
+        let civil = day.to_civil();
+        let title = format!(
+            "{:02}-{:02} {}",
+            civil.month,
+            civil.day,
+            text(locale, "pomodoro.settings.day_tasks")
+        );
+        div()
+            .id("pomodoro-day-tasks")
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .text_xs()
+                    .font_semibold()
+                    .text_color(tokens.text)
+                    .child(title),
+            )
+            .child(
+                div()
+                    .id("pomodoro-day-task-names")
+                    .flex()
+                    .flex_row()
+                    .flex_wrap()
+                    .gap_1()
+                    .children(day_activities.into_iter().flatten().map(|activity| {
+                        div()
+                            .id(format!("pomodoro-day-task-{}", activity.task_name))
+                            .px_1()
+                            .rounded_sm()
+                            .text_xs()
+                            .text_color(tokens.muted)
+                            .child(format!("{} ×{}", activity.task_name, activity.pomodoros))
+                    })),
+            )
+            .when(day_activities.is_none_or(|list| list.is_empty()), |this| {
+                this.child(
+                    div()
+                        .text_xs()
+                        .text_color(tokens.muted)
+                        .child(text(locale, "pomodoro.settings.day_tasks_empty")),
+                )
+            })
     });
 
     div()
@@ -547,6 +599,7 @@ fn calendar_panel(
                 .gap_1()
                 .children(cells),
         )
+        .children(day_detail_panel)
         .children(month_tasks_panel)
         .child(
             div()
@@ -579,15 +632,20 @@ fn trend_chart(
     let totals = view.read(cx).pomodoro.day_totals(offset);
     let focus_minutes = snapshot.focus_minutes;
     let today = CalendarDay::from_unix(now_unix(), offset);
+    // The window ends on the picked day when one is selected and still in the
+    // past, so clicking a calendar cell rewinds the whole chart to end on it;
+    // an absent selection — or a stale pick that midnight has since passed —
+    // ends on today, which is what the page opens with.
+    let end_day = chart_end_day(view.read(cx).pomodoro_selected_day, today);
 
-    // Oldest day first, so the polyline runs left to right into today. Every
-    // finished task lands on exactly one local day, matched by the same offset
-    // rule the totals use.
+    // Oldest day first, so the polyline runs left to right into the end day.
+    // Every finished task lands on exactly one local day, matched by the same
+    // offset rule the totals use.
     let mut minutes: Vec<u32> = Vec::with_capacity(days_span);
     let mut finished_tasks: Vec<u32> = Vec::with_capacity(days_span);
     let mut day_labels: Vec<String> = Vec::with_capacity(days_span);
     for back in (0..days_span).rev() {
-        let day = CalendarDay::from_day_number(today.day_number() - back as i64);
+        let day = CalendarDay::from_day_number(end_day.day_number() - back as i64);
         let pomodoros = totals.get(&day).map(|total| total.pomodoros).unwrap_or(0);
         minutes.push(pomodoros * focus_minutes);
         finished_tasks.push(
@@ -707,7 +765,11 @@ fn trend_chart(
                 }
             }
         },
-    );
+    )
+    // The canvas owns no content size of its own, so without an explicit
+    // size it lays out at zero and every quad and path above paints into an
+    // invisible bounds — the axes (plain text) survive, the plot does not.
+    .size_full();
 
     let toggle_chip = |label: &'static str, days: usize, id: &'static str| {
         let active = days_span == days;
@@ -983,18 +1045,25 @@ fn date_tick_spans(count: usize, ticks: &[usize]) -> Vec<usize> {
 /// that day — the count, never the task names, which moved to the strip under
 /// the grid where a long name can wrap instead of crowding a cell. Days outside
 /// the displayed month are dimmed and today is highlighted.
+///
+/// A cell is a button: clicking one selects that day (a future day refuses,
+/// since nothing can have happened there yet), the selection draws a ring, and
+/// clicking the selected cell again clears it back to "chart ends today".
 fn calendar_cell(
+    view: &Entity<SettingsView>,
     tokens: Tokens,
     day: &CalendarDay,
     index: usize,
     grid: &bongocat_pomodoro::MonthGrid,
     pomodoros: u32,
     today: CalendarDay,
+    selected: Option<CalendarDay>,
 ) -> gpui_kit::AnyElement {
     let in_month =
         index >= grid.leading_days && index < grid.leading_days + grid.days_in_month as usize;
     let civil = day.to_civil();
     let is_today = *day == today;
+    let is_selected = selected == Some(*day);
 
     div()
         .id(format!(
@@ -1007,10 +1076,19 @@ fn calendar_cell(
         .flex_col()
         .items_center()
         .gap(px(2.0))
+        .cursor_pointer()
         .when(in_month, |this| this.text_color(tokens.text))
         .when(!in_month, |this| this.text_color(tokens.muted))
         .when(is_today, |this| {
             this.bg(tokens.accent).text_color(tokens.canvas)
+        })
+        // The selected ring rides on top of the today highlight, so it uses
+        // the canvas colour there to stay visible against the accent fill.
+        .when(is_selected && !is_today, |this| {
+            this.border_1().border_color(tokens.accent)
+        })
+        .when(is_selected && is_today, |this| {
+            this.border_1().border_color(tokens.canvas)
         })
         .child(div().text_xs().child(civil.day.to_string()))
         // The day's finished-session count, kept visually below the day number
@@ -1029,7 +1107,37 @@ fn calendar_cell(
                     .child(format!("×{pomodoros}")),
             )
         })
+        .on_click({
+            let view = view.clone();
+            let day = *day;
+            move |_, _, cx| {
+                // A future day cannot have sessions yet, so clicking one is a
+                // no-op rather than a selection that shows an empty strip.
+                if day > today {
+                    return;
+                }
+                view.update(cx, |view, cx| {
+                    // Clicking the selected day again clears the selection,
+                    // so the chart slides back to ending on today.
+                    view.pomodoro_selected_day = if view.pomodoro_selected_day == Some(day) {
+                        None
+                    } else {
+                        Some(day)
+                    };
+                    cx.notify();
+                });
+            }
+        })
         .into_any_element()
+}
+
+/// The day the trend chart's window ends on.
+///
+/// The picked day when it is still in the past — a click on the calendar
+/// rewinds the whole chart to end there — and today otherwise: either nothing
+/// is picked, or midnight has passed a pick that used to be today.
+fn chart_end_day(selected: Option<CalendarDay>, today: CalendarDay) -> CalendarDay {
+    selected.filter(|day| *day <= today).unwrap_or(today)
 }
 
 /// The current Unix second, used to mark today on the calendar.
@@ -1134,5 +1242,21 @@ mod tests {
         // ...but never past the cap, where the ellipsis takes over.
         assert_eq!(tomato_slots(3, 10), (MAX_TOMATO_ICONS, MAX_TOMATO_ICONS));
         assert_eq!(tomato_slots(20, 0), (MAX_TOMATO_ICONS, 0));
+    }
+
+    #[test]
+    fn the_chart_window_ends_on_the_picked_day_while_it_is_still_past() {
+        let today = CalendarDay::from_day_number(20_000);
+        let yesterday = CalendarDay::from_day_number(19_999);
+        let tomorrow = CalendarDay::from_day_number(20_001);
+        // Nothing picked: the chart ends on today, which is what the page
+        // opens with.
+        assert_eq!(chart_end_day(None, today), today);
+        // A picked past day rewinds the window to end on it.
+        assert_eq!(chart_end_day(Some(yesterday), today), yesterday);
+        // A stale pick that midnight has passed — or a future day a click
+        // refused — falls back to today rather than showing an empty window.
+        assert_eq!(chart_end_day(Some(today), today), today);
+        assert_eq!(chart_end_day(Some(tomorrow), today), today);
     }
 }

@@ -84,6 +84,8 @@
       "chart_minutes": "Minutes de focus",
       "chart_done": "Tâches terminées",
       "month_tasks": "Tâches du mois",
+      "day_tasks": "Tâches du jour",
+      "day_tasks_empty": "Aucune session de concentration ce jour",
       "axis_minutes": "min",
       "axis_tasks": "tâches"
     }

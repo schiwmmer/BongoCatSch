@@ -84,6 +84,8 @@
       "chart_minutes": "專注時長（分鐘）",
       "chart_done": "完成任務數",
       "month_tasks": "本月任務",
+      "day_tasks": "當日任務",
+      "day_tasks_empty": "當日無專注記錄",
       "axis_minutes": "分鐘",
       "axis_tasks": "個"
     }
