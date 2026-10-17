@@ -41,45 +41,37 @@ pub const POMODORO_LEVEL_UP_SOUND: &[u8] = include_bytes!("../../../resources/au
 /// of them should stop the performance or the recorded completion that
 /// accompany it.
 pub fn play_pomodoro_complete_sound() {
-    play(POMODORO_COMPLETE_SOUND, "flac");
+    play(POMODORO_COMPLETE_SOUND);
 }
 
 /// Play the confirmation for a task marked done, or do nothing.
 pub fn play_task_done_sound() {
-    play(POMODORO_TASK_DONE_SOUND, "wav");
+    play(POMODORO_TASK_DONE_SOUND);
 }
 
 /// Play the fanfare for a level-up, or do nothing.
 pub fn play_level_up_sound() {
-    play(POMODORO_LEVEL_UP_SOUND, "wav");
+    play(POMODORO_LEVEL_UP_SOUND);
 }
 
 /// Play one clip, or do nothing.
 ///
-/// `NSSound` resolves a clip by the name it is staged under, so the extension
-/// has to name the clip's real format — the session chime is FLAC and stages
-/// under that name, the two generated WAVs under theirs.
+/// The clip is handed to `NSSound` as raw data rather than a path. A first
+/// cut staged the bytes into a temporary file and resolved it with
+/// `soundNamed:`, but `soundNamed:` only looks up registered sound names —
+/// handed an absolute path it returns nil, so every clip was silently
+/// dropped. `initWithData:` takes the same bytes directly.
 #[cfg(target_os = "macos")]
-fn play(bytes: &[u8], extension: &str) {
+fn play(bytes: &[u8]) {
+    use objc2::AnyThread as _;
     use objc2_app_kit::NSSound;
+    use objc2_foundation::NSData;
 
-    // `NSSound` plays a path rather than a buffer, so the clip is staged into
-    // a temporary file. The name carries the process id so two BongoCats
-    // starting at once do not write over each other's copy.
-    let Ok(path) = stage(bytes, extension) else {
+    let data = NSData::with_bytes(bytes);
+    let Some(sound) = NSSound::initWithData(NSSound::alloc(), &data) else {
         return;
     };
-    let ns_path = objc2_foundation::NSString::from_str(&path.to_string_lossy());
-    // The sound retains what it needs from the file itself, so the file is
-    // removed immediately afterwards rather than kept alive for the clip's
-    // duration.
-    if let Some(sound) = NSSound::soundNamed(&ns_path) {
-        sound.play();
-    }
-    // The file is removed either way: a played sound has already been read,
-    // and an unplayed one was never going to play. Leaving it behind would
-    // fill the temporary directory with one file per event.
-    let _ = std::fs::remove_file(&path);
+    sound.play();
 }
 
 /// Play one clip on a platform that has no pomodoro surface.
@@ -88,22 +80,7 @@ fn play(bytes: &[u8], extension: &str) {
 /// no session that could finish here. The functions exist so the call sites
 /// do not need a platform branch.
 #[cfg(target_os = "windows")]
-fn play(_bytes: &[u8], _extension: &str) {}
-
-#[cfg(target_os = "macos")]
-fn stage(bytes: &[u8], extension: &str) -> std::io::Result<std::path::PathBuf> {
-    use std::io::Write;
-
-    let path = std::env::temp_dir().join(format!(
-        "bongocat-pomodoro-{}.{}",
-        std::process::id(),
-        extension
-    ));
-    let mut file = std::fs::File::create(&path)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    Ok(path)
-}
+fn play(_bytes: &[u8]) {}
 
 #[cfg(test)]
 mod tests {
@@ -119,7 +96,7 @@ mod tests {
         assert_eq!(
             &super::POMODORO_COMPLETE_SOUND[..4],
             b"fLaC",
-            "the chime must be a FLAC clip: the audio path decodes FLAC only"
+            "the chime must be a FLAC clip: NSSound decodes FLAC data"
         );
     }
 
@@ -133,7 +110,7 @@ mod tests {
         assert_eq!(
             &super::POMODORO_TASK_DONE_SOUND[..4],
             b"RIFF",
-            "the confirmation must be a WAV clip: NSSound resolves it by that name"
+            "the confirmation must be a WAV clip: NSSound decodes WAVE data"
         );
         assert_eq!(
             &super::POMODORO_TASK_DONE_SOUND[8..12],
