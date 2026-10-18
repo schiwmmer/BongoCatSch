@@ -88,6 +88,7 @@
       "day_tasks_empty": "Aucune session de concentration ce jour",
       "new_task": "Nouvelle tâche",
       "task_edit": "Modifier",
+      "task_duplicate": "Dupliquer",
       "task_editor_title": "Modifier la tâche",
       "task_delete": "Supprimer",
       "save": "Enregistrer",

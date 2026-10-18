@@ -232,11 +232,16 @@ pub(crate) enum PomodoroSettingsView {
 /// One editor exists at a time and it belongs to the view rather than to a
 /// row, because a row is rebuilt every frame and the draft has to survive
 /// that — the same reason the model rename keeps its draft on the view.
-/// `New` creates a task; `Existing` rewrites the one named by its id.
+/// `New` creates a task; `Existing` rewrites the one named by its id; `Duplicate`
+/// opens the editor pre-filled from an existing task but submits a fresh
+/// `CreateTask`, so the source stays put and a second copy with the same details
+/// is what lands in the list — the menu's "copy" hands the user a confirm step
+/// rather than cloning silently.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PomodoroEditorTarget {
     New,
     Existing(u64),
+    Duplicate(u64),
 }
 
 pub struct SettingsView {

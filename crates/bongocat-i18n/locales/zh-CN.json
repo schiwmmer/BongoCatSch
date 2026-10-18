@@ -88,6 +88,7 @@
       "day_tasks_empty": "当日无专注记录",
       "new_task": "新建任务",
       "task_edit": "编辑",
+      "task_duplicate": "复制",
       "task_editor_title": "编辑任务",
       "task_delete": "删除",
       "save": "保存",

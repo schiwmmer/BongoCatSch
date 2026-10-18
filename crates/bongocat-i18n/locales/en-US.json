@@ -88,6 +88,7 @@
       "day_tasks_empty": "No focus sessions this day",
       "new_task": "New Task",
       "task_edit": "Edit",
+      "task_duplicate": "Duplicate",
       "task_editor_title": "Edit Task",
       "task_delete": "Delete",
       "save": "Save",

@@ -262,13 +262,12 @@ fn task_row(
     // Past the cap the row shows an ellipsis instead of a dozen tomatoes, and
     // the slots cover the larger of the two counts, so finishing more than
     // planned still reads as extra sessions rather than a re-based estimate.
-    let overflowing = task.estimated_pomodoros.max(task.completed_pomodoros)
-        > u32::try_from(MAX_TOMATO_ICONS).unwrap_or(u32::MAX);
     let (slots, filled) = tomato_slots(task.estimated_pomodoros, task.completed_pomodoros);
     // The menu labels are resolved here rather than inside the menu builder:
     // the builder is stored for the life of the element, and the language it
     // renders in is the one the row was built with.
     let edit_label = text(locale, "pomodoro.settings.task_edit");
+    let duplicate_label = text(locale, "pomodoro.settings.task_duplicate");
     let delete_label = text(locale, "pomodoro.settings.task_delete");
 
     div()
@@ -282,6 +281,7 @@ fn task_row(
             let view = view.clone();
             move |menu, _window, _cx| {
                 let edit_view = view.clone();
+                let duplicate_view = view.clone();
                 let delete_view = view.clone();
                 menu.item(
                     PopupMenuItem::new(edit_label)
@@ -290,6 +290,23 @@ fn task_row(
                             edit_view.update(cx, |view, cx| {
                                 view.open_pomodoro_task_editor(
                                     PomodoroEditorTarget::Existing(task_id),
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(duplicate_label)
+                        .icon(Icon::new(gpui_kit::assets::IconName::Copy))
+                        .on_click(move |_, window, cx| {
+                            // Opens the new-task editor pre-filled from this
+                            // task; saving creates a separate copy rather than
+                            // touching the original, so the clone is confirmed
+                            // before it lands in the list.
+                            duplicate_view.update(cx, |view, cx| {
+                                view.open_pomodoro_task_editor(
+                                    PomodoroEditorTarget::Duplicate(task_id),
                                     window,
                                     cx,
                                 );
@@ -346,12 +363,10 @@ fn task_row(
                     div()
                         .flex()
                         .flex_row()
+                        .flex_wrap()
                         .items_center()
                         .gap(px(2.0))
-                        .children((0..slots).map(|index| tomato_icon(index < filled)))
-                        .when(overflowing, |this| {
-                            this.child(div().text_xs().text_color(tokens.muted).child("…"))
-                        }),
+                        .children((0..slots).map(|index| tomato_icon(index < filled))),
                 )
                 .child(div().text_xs().text_color(tokens.muted).child(format_text(
                     locale,
@@ -371,6 +386,27 @@ fn task_row(
                             .text_color(tokens.accent)
                             .child(text(locale, "pomodoro.task.running")),
                     )
+                }),
+        )
+        // A start button at the row's right edge: clicking it begins a pomodoro
+        // for this task on the cat, the same `StartTask` the picker window sends.
+        // It is disabled while a session is already running for the task, so the
+        // user cannot stack two.
+        .child(
+            Button::new(format!("pomodoro-task-start-{task_id}"))
+                .small()
+                .label(text(locale, "pomodoro.task.start"))
+                .disabled(task.running)
+                .on_click({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            let _ = view
+                                .pomodoro
+                                .try_publish(PomodoroCommand::StartTask { task_id });
+                            view.poll_pomodoro(cx);
+                        });
+                    }
                 }),
         )
 }
@@ -511,14 +547,15 @@ impl SettingsView {
         self.pomodoro_view = PomodoroSettingsView::List;
         let (name, sessions) = match target {
             PomodoroEditorTarget::New => (String::new(), DEFAULT_EXPECTED_SESSIONS),
-            PomodoroEditorTarget::Existing(task_id) => self
-                .pomodoro
-                .snapshot()
-                .tasks
-                .iter()
-                .find(|task| task.id == task_id)
-                .map(|task| (task.name.clone(), task.estimated_pomodoros))
-                .unwrap_or((String::new(), DEFAULT_EXPECTED_SESSIONS)),
+            PomodoroEditorTarget::Existing(task_id) | PomodoroEditorTarget::Duplicate(task_id) => {
+                self.pomodoro
+                    .snapshot()
+                    .tasks
+                    .iter()
+                    .find(|task| task.id == task_id)
+                    .map(|task| (task.name.clone(), task.estimated_pomodoros))
+                    .unwrap_or((String::new(), DEFAULT_EXPECTED_SESSIONS))
+            }
         };
         self.pomodoro_editor_name
             .update(cx, |input, cx| input.set_value(name, window, cx));
@@ -555,10 +592,12 @@ impl SettingsView {
             return;
         }
         let command = match target {
-            PomodoroEditorTarget::New => PomodoroCommand::CreateTask {
-                name,
-                estimated_pomodoros,
-            },
+            PomodoroEditorTarget::New | PomodoroEditorTarget::Duplicate(_) => {
+                PomodoroCommand::CreateTask {
+                    name,
+                    estimated_pomodoros,
+                }
+            }
             PomodoroEditorTarget::Existing(task_id) => PomodoroCommand::UpdateTask {
                 task_id,
                 name,
@@ -570,11 +609,6 @@ impl SettingsView {
     }
 }
 
-/// The most session icons one task row draws before the rest are summarised as
-/// an ellipsis: a row of tomatoes is a shape, not a bar chart, and past this
-/// many the shape is gone anyway.
-const MAX_TOMATO_ICONS: usize = 6;
-
 /// The outlined tomato icon: a session the task estimates but has not finished.
 const POMODORO_OUTLINE_ICON: &str = "pomodoro/tomato-outline.png";
 /// The filled tomato icon: a session the task has finished.
@@ -582,14 +616,14 @@ const POMODORO_FILLED_ICON: &str = "pomodoro/tomato-filled.png";
 
 /// How many icon slots a task's progress draws, and how many of them are solid.
 ///
-/// The slots cover the larger of the two counts, so finishing more than planned
-/// still shows the extra sessions rather than silently re-basing the row. The
-/// filled count never exceeds the slots, and neither exceeds
-/// [`MAX_TOMATO_ICONS`] — past that the caller shows the ellipsis instead.
+/// Every estimated or finished session gets its own icon and the row wraps to the
+/// next line when it runs out of width, so a task with many sessions shows them
+/// all rather than stopping at a cap with an ellipsis. The slots cover the larger
+/// of the two counts, and the filled count is the finished sessions, which can
+/// never exceed the slots.
 fn tomato_slots(estimated: u32, completed: u32) -> (usize, usize) {
-    let cap = u32::try_from(MAX_TOMATO_ICONS).unwrap_or(u32::MAX);
-    let slots = estimated.max(completed).min(cap) as usize;
-    let filled = completed.min(cap) as usize;
+    let slots = estimated.max(completed) as usize;
+    let filled = completed as usize;
     (slots, filled)
 }
 
@@ -1185,6 +1219,11 @@ const MINUTES_SERIES_COLOR: Hsla = gpui_kit::hsla(0.0, 0.78, 0.55, 1.0);
 /// The trend chart's finished-tasks series: blue.
 const FINISHED_SERIES_COLOR: Hsla = gpui_kit::hsla(0.60, 0.72, 0.55, 1.0);
 
+/// The calendar cell background for a day that has finished focus sessions: a
+/// pale red so an active day reads at a glance without shouting over the today
+/// highlight, which keeps its own accent fill.
+const CALENDAR_ACTIVE_DAY_BG: Hsla = gpui_kit::hsla(0.0, 0.75, 0.88, 1.0);
+
 /// Both series the trend plot paints, each with its own axis ceiling.
 ///
 /// The values travel into the paint pass unnormalized because their units
@@ -1355,6 +1394,12 @@ fn calendar_cell(
         .when(is_today, |this| {
             this.bg(tokens.accent).text_color(tokens.canvas)
         })
+        // A day with finished sessions gets a pale red wash so it stands out in
+        // the grid; today keeps its accent fill, which already reads as the
+        // current day, so the wash yields to it rather than fighting it.
+        .when(pomodoros > 0 && !is_today, |this| {
+            this.bg(CALENDAR_ACTIVE_DAY_BG)
+        })
         // The selected ring rides on top of the today highlight, so it uses
         // the canvas colour there to stay visible against the accent fill.
         .when(is_selected && !is_today, |this| {
@@ -1505,16 +1550,17 @@ mod tests {
     }
 
     #[test]
-    fn tomato_slots_cover_the_larger_count_and_cap_the_row() {
+    fn tomato_slots_cover_the_larger_count_without_a_cap() {
         // An untouched task shows its whole estimate, pale.
         assert_eq!(tomato_slots(4, 0), (4, 0));
         // A finished one shows the estimate, all solid.
         assert_eq!(tomato_slots(4, 4), (4, 4));
-        // Past the estimate the row grows to the extra sessions...
+        // Past the estimate the row grows to the extra sessions, all solid.
         assert_eq!(tomato_slots(3, 6), (6, 6));
-        // ...but never past the cap, where the ellipsis takes over.
-        assert_eq!(tomato_slots(3, 10), (MAX_TOMATO_ICONS, MAX_TOMATO_ICONS));
-        assert_eq!(tomato_slots(20, 0), (MAX_TOMATO_ICONS, 0));
+        // The finished count is what fills, and never exceeds the slots.
+        assert_eq!(tomato_slots(8, 3), (8, 3));
+        // A large estimate draws every icon; the row wraps rather than truncates.
+        assert_eq!(tomato_slots(12, 5), (12, 5));
     }
 
     #[test]

@@ -13,6 +13,8 @@
 - A "Pomodoro" settings page with a task list and a month calendar: tick a task done as you finish it, and see each day's finished focus sessions laid out on a calendar. The whole feature is localized into all eight supported languages.
 - The "Pomodoro" settings page grows a "New Task" button beside its title, so a first task can be created without hunting for the list.
 - Right-clicking a task in the Pomodoro settings opens a small menu to edit it — name and expected focus sessions — or delete it, which also drops the task's running session and history.
+- Each task row in the Pomodoro settings list now carries a "Start" button at its right edge, so a focus session begins straight from the list without opening the picker; it is disabled while a session is already running for that task.
+- The task right-click menu gains a "Duplicate" item that opens the new-task editor pre-filled with the same name and focus-session count, so a copy is confirmed before it is saved as a separate task.
 
 ### 🎨 Interface
 
