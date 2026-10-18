@@ -18,14 +18,14 @@ use std::path::PathBuf;
 /// the caller gets a path it can report rather than an empty guess.
 pub fn bundled_resource(relative: &str) -> PathBuf {
     let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(executable) = std::env::current_exe() {
-        if let Some(directory) = executable.parent() {
-            // macOS app bundle: <bundle>/Contents/MacOS/<exe> -> <bundle>/Contents/Resources.
-            candidates.push(directory.join("../Resources").join(relative));
-            // Windows install and any bare binary: a resources directory
-            // beside the executable.
-            candidates.push(directory.join("resources").join(relative));
-        }
+    if let Ok(executable) = std::env::current_exe()
+        && let Some(directory) = executable.parent()
+    {
+        // macOS app bundle: <bundle>/Contents/MacOS/<exe> -> <bundle>/Contents/Resources.
+        candidates.push(directory.join("../Resources").join(relative));
+        // Windows install and any bare binary: a resources directory
+        // beside the executable.
+        candidates.push(directory.join("resources").join(relative));
     }
     // Build-tree run: the repository's resources directory.
     candidates.push(
