@@ -207,13 +207,16 @@ pub(crate) fn stats_panel(mtm: MainThreadMarker, background_alpha: f64) -> Retai
 
 /// The level number riding the cat's forehead: the bare number, no chrome —
 /// no background pill, no shadow, just the label floating on the fur — that
-/// is always on the cat while the cat is presented, and follows it through
+/// is on the cat whenever the cat is presented, and follows it through
 /// moves, resizes and model switches. Like the HUD it is AppKit work — the
 /// renderer is never asked to draw text.
 ///
-/// The badge rides the same visibility gates as the window itself rather
-/// than the pointer: hover hide and idle hide fade the cat out, and a
-/// faded cat must not leave a floating number behind.
+/// The badge answers to its own pointer gate rather than the window's hover
+/// hide: the session hides it once the pointer has rested on the cat for two
+/// seconds and shows it again the moment the pointer leaves, so a pointer
+/// merely crossing the cat never takes the number with it. The window's own
+/// visibility still governs it: a cat the user hid must not leave a floating
+/// number behind.
 pub(crate) struct LevelBadge {
     panel: Retained<NSPanel>,
     label: Retained<NSTextField>,

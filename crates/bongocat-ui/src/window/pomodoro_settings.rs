@@ -1,22 +1,27 @@
-//! The pomodoro settings page: a read-only task list with completion toggles,
-//! and a month calendar of finished focus sessions with a two-axis trend chart
-//! under it.
+//! The pomodoro settings page: a task list with an inline editor, a month
+//! calendar of finished focus sessions, and a two-axis trend chart under it.
 //!
 //! Both surfaces read the same [`PomodoroClient`] the rest of the app uses, so a
 //! task created in the picker or finished by a countdown shows up here without
-//! this page being told. Toggling a task's done state publishes the same command
-//! the task window would, so there is a single writer for that fact and the
-//! settings list never drifts from the picker.
+//! this page being told. Toggling a task's done state, editing one, and
+//! deleting one publish the same commands the task window would, so there is a
+//! single writer for those facts and the settings list never drifts from the
+//! picker.
 //!
 //! The page is one custom [`gpui_kit::component::setting::SettingItem`] element
 //! so the list and the calendar can own the full content width instead of
 //! sharing it with a label column.
 
 use super::*;
+use crate::pomodoro_window::view::{DEFAULT_EXPECTED_SESSIONS, sessions_from_typed};
 use bongocat_i18n::{format_text, text};
-use bongocat_pomodoro::{CalendarDay, PomodoroCommand, PomodoroTaskStatus, PomodoroTaskView};
+use bongocat_pomodoro::{
+    CalendarDay, PomodoroCommand, PomodoroTaskStatus, PomodoroTaskView, sanitize_task_name,
+};
+use gpui_kit::component::Sizable as _;
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::Input;
+use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
 use gpui_kit::{PathBuilder, canvas, fill};
 
 /// Build the search keywords so the page is reachable from the settings search
@@ -172,6 +177,12 @@ fn list_panel(
                 .child(Input::new(&search_input).w_full()),
         );
 
+    // The editor sits above the rows and above the empty state both: creating
+    // the very first task is exactly when there are no rows to show.
+    if let Some(target) = view.read(cx).pomodoro_editor {
+        panel = panel.child(task_editor(view, locale, tokens, target, cx));
+    }
+
     if !had_matches {
         return panel
             .child(
@@ -234,6 +245,10 @@ fn list_panel(
 /// One task row: a done checkbox, the name, and its session progress as
 /// tomatoes — one pale icon per estimated session with a solid one stacked over
 /// each finished session, plus extra solid icons past the estimate.
+///
+/// A right-click anywhere on the row opens the task menu: edit the name and
+/// the plan, or delete the task with its history. Both publish the same
+/// commands the picker window would, so there is one writer per fact.
 fn task_row(
     view: &Entity<SettingsView>,
     locale: &str,
@@ -250,6 +265,11 @@ fn task_row(
     let overflowing = task.estimated_pomodoros.max(task.completed_pomodoros)
         > u32::try_from(MAX_TOMATO_ICONS).unwrap_or(u32::MAX);
     let (slots, filled) = tomato_slots(task.estimated_pomodoros, task.completed_pomodoros);
+    // The menu labels are resolved here rather than inside the menu builder:
+    // the builder is stored for the life of the element, and the language it
+    // renders in is the one the row was built with.
+    let edit_label = text(locale, "pomodoro.settings.task_edit");
+    let delete_label = text(locale, "pomodoro.settings.task_delete");
 
     div()
         .id(format!("pomodoro-task-row-{task_id}"))
@@ -258,6 +278,42 @@ fn task_row(
         .items_center()
         .gap_2()
         .py_1()
+        .context_menu({
+            let view = view.clone();
+            move |menu, _window, _cx| {
+                let edit_view = view.clone();
+                let delete_view = view.clone();
+                menu.item(
+                    PopupMenuItem::new(edit_label)
+                        .icon(Icon::new(gpui_kit::assets::IconName::SquarePen))
+                        .on_click(move |_, window, cx| {
+                            edit_view.update(cx, |view, cx| {
+                                view.open_pomodoro_task_editor(
+                                    PomodoroEditorTarget::Existing(task_id),
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new(delete_label)
+                        .icon(Icon::new(gpui_kit::assets::IconName::Trash))
+                        .on_click(move |_, _, cx| {
+                            delete_view.update(cx, |view, cx| {
+                                // The domain drops the task, its history and a
+                                // session running for it in one write, so the
+                                // row and the calendar lose it together.
+                                let _ = view
+                                    .pomodoro
+                                    .try_publish(PomodoroCommand::DeleteTask { task_id });
+                                view.poll_pomodoro(cx);
+                            });
+                        }),
+                )
+            }
+        })
         .child(
             Checkbox::new(format!("pomodoro-task-done-{task_id}"))
                 .checked(done)
@@ -317,6 +373,201 @@ fn task_row(
                     )
                 }),
         )
+}
+
+/// The inline task editor: the two fields a task is made of, and the buttons
+/// that store or discard them.
+///
+/// One surface serves both directions — creating a task and editing one — and
+/// the only difference is the title and where the submit publishes. The name
+/// field submits on Enter, so a task can be created without the pointer after
+/// the first click; the submit button stays disabled while the name is empty,
+/// which is the same rule the domain follows when it refuses an unnamed task.
+fn task_editor(
+    view: &Entity<SettingsView>,
+    locale: &str,
+    tokens: Tokens,
+    target: PomodoroEditorTarget,
+    cx: &mut App,
+) -> impl IntoElement {
+    let editing = matches!(target, PomodoroEditorTarget::Existing(_));
+    let title = text(
+        locale,
+        if editing {
+            "pomodoro.settings.task_editor_title"
+        } else {
+            "pomodoro.settings.new_task"
+        },
+    );
+    let submit_label = text(
+        locale,
+        if editing {
+            "pomodoro.settings.save"
+        } else {
+            "pomodoro.picker.create"
+        },
+    );
+    let name_input = view.read(cx).pomodoro_editor_name.clone();
+    let sessions_input = view.read(cx).pomodoro_editor_sessions.clone();
+    // The domain refuses an unnamed task, so the button says so before the
+    // command is ever published: the same rule creation follows, read off the
+    // same sanitiser rather than a second opinion about what a name is.
+    let can_submit = !sanitize_task_name(&name_input.read(cx).value()).is_empty();
+
+    div()
+        .id("pomodoro-task-editor")
+        .flex()
+        .flex_col()
+        .gap_2()
+        .p_2()
+        .rounded_md()
+        .border_1()
+        .border_color(tokens.border)
+        .child(div().font_semibold().child(title))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .gap_2()
+                .items_end()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(tokens.muted)
+                                .child(text(locale, "pomodoro.picker.task_name")),
+                        )
+                        .child(Input::new(&name_input).w_full()),
+                )
+                .child(
+                    div()
+                        .w(px(96.0))
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(tokens.muted)
+                                .child(text(locale, "pomodoro.picker.estimated_sessions")),
+                        )
+                        .child(Input::new(&sessions_input).w_full()),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .gap_2()
+                .justify_end()
+                .child(
+                    Button::new("pomodoro-editor-cancel")
+                        .ghost()
+                        .small()
+                        .label(text(locale, "pomodoro.settings.cancel"))
+                        .on_click({
+                            let view = view.clone();
+                            move |_, _, cx| {
+                                view.update(cx, |view, cx| view.close_pomodoro_task_editor(cx));
+                            }
+                        }),
+                )
+                .child(
+                    Button::new("pomodoro-editor-submit")
+                        .small()
+                        .label(submit_label)
+                        .disabled(!can_submit)
+                        .on_click({
+                            let view = view.clone();
+                            move |_, _, cx| {
+                                view.update(cx, |view, cx| view.submit_pomodoro_task_editor(cx));
+                            }
+                        }),
+                ),
+        )
+}
+
+impl SettingsView {
+    /// Open the task editor, seeding the fields from the task being edited or
+    /// from the defaults for a new one.
+    ///
+    /// The editor is one at a time and belongs to the view: the rows are
+    /// rebuilt every frame and the fields have to survive that — the same
+    /// reason the model rename keeps its draft on the view. Opening it also
+    /// returns the page to the list, so the fields are never open on the
+    /// calendar subview that does not render them.
+    pub(super) fn open_pomodoro_task_editor(
+        &mut self,
+        target: PomodoroEditorTarget,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pomodoro_view = PomodoroSettingsView::List;
+        let (name, sessions) = match target {
+            PomodoroEditorTarget::New => (String::new(), DEFAULT_EXPECTED_SESSIONS),
+            PomodoroEditorTarget::Existing(task_id) => self
+                .pomodoro
+                .snapshot()
+                .tasks
+                .iter()
+                .find(|task| task.id == task_id)
+                .map(|task| (task.name.clone(), task.estimated_pomodoros))
+                .unwrap_or((String::new(), DEFAULT_EXPECTED_SESSIONS)),
+        };
+        self.pomodoro_editor_name
+            .update(cx, |input, cx| input.set_value(name, window, cx));
+        self.pomodoro_editor_sessions.update(cx, |input, cx| {
+            input.set_value(sessions.to_string(), window, cx)
+        });
+        self.pomodoro_editor = Some(target);
+        cx.notify();
+    }
+
+    /// Close the editor without storing anything.
+    pub(super) fn close_pomodoro_task_editor(&mut self, cx: &mut Context<Self>) {
+        if self.pomodoro_editor.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// Store the editor's fields and close it.
+    ///
+    /// A new task publishes the same `CreateTask` the picker window does; an
+    /// edit publishes `UpdateTask`, which rewrites the name and the plan while
+    /// the finished sessions stay where they are. An empty name is refused by
+    /// the domain exactly as creation refuses it — the guard here keeps the
+    /// editor closed in that case rather than leaving a blank row behind.
+    pub(super) fn submit_pomodoro_task_editor(&mut self, cx: &mut Context<Self>) {
+        let Some(target) = self.pomodoro_editor.take() else {
+            return;
+        };
+        let name = sanitize_task_name(&self.pomodoro_editor_name.read(cx).value());
+        let estimated_pomodoros =
+            sessions_from_typed(&self.pomodoro_editor_sessions.read(cx).value());
+        if name.is_empty() {
+            cx.notify();
+            return;
+        }
+        let command = match target {
+            PomodoroEditorTarget::New => PomodoroCommand::CreateTask {
+                name,
+                estimated_pomodoros,
+            },
+            PomodoroEditorTarget::Existing(task_id) => PomodoroCommand::UpdateTask {
+                task_id,
+                name,
+                estimated_pomodoros,
+            },
+        };
+        let _ = self.pomodoro.try_publish(command);
+        self.poll_pomodoro(cx);
+    }
 }
 
 /// The most session icons one task row draws before the rest are summarised as
@@ -679,8 +930,13 @@ fn trend_chart(
     let tick_spans = date_tick_spans(count, &ticks);
 
     let chart_height = px(150.0);
-    let minutes_color = tokens.accent;
-    let finished_color = tokens.muted;
+    // The two series carry different units — focus minutes on the left axis,
+    // finished tasks on the right — so each keeps its own scale from zero up.
+    // Red for minutes and blue for tasks is what tells them apart at a
+    // glance, in the plot and in the legend under the title alike; theme
+    // tokens would read the pair as one hierarchy instead of two series.
+    let minutes_color = MINUTES_SERIES_COLOR;
+    let finished_color = FINISHED_SERIES_COLOR;
     let border_color = tokens.border;
 
     let plot = canvas(
@@ -834,15 +1090,18 @@ fn trend_chart(
                         .flex_row()
                         .gap_2()
                         .text_xs()
+                        // Each swatch carries its own series colour, the same
+                        // one the plot paints with, so the legend and the
+                        // lines can never drift apart. The swatch is wrapped
+                        // in its own div because a `text_color` set on the
+                        // row would recolour the label beside it too.
                         .child(
                             div()
                                 .flex()
                                 .flex_row()
                                 .items_center()
                                 .gap_1()
-                                .text_color(tokens.accent)
-                                .child("▬")
-                                .text_color(tokens.muted)
+                                .child(div().text_color(MINUTES_SERIES_COLOR).child("▬"))
                                 .child(text(locale, "pomodoro.settings.chart_minutes")),
                         )
                         .child(
@@ -851,8 +1110,7 @@ fn trend_chart(
                                 .flex_row()
                                 .items_center()
                                 .gap_1()
-                                .text_color(tokens.muted)
-                                .child("▬")
+                                .child(div().text_color(FINISHED_SERIES_COLOR).child("▬"))
                                 .child(text(locale, "pomodoro.settings.chart_done")),
                         ),
                 ),
@@ -917,6 +1175,15 @@ const AXIS_WIDTH: Pixels = px(30.0);
 /// The gap between an axis column and the plot. The date row's spacers use the
 /// same measure so a date centres on its point rather than on an axis.
 const AXIS_GAP: Pixels = px(4.0);
+
+/// The trend chart's focus-minutes series: red.
+///
+/// A fixed pair rather than theme tokens: "accent" and "muted" read as one
+/// hierarchy, and the chart's whole job is to keep two units apart.
+const MINUTES_SERIES_COLOR: Hsla = gpui_kit::hsla(0.0, 0.78, 0.55, 1.0);
+
+/// The trend chart's finished-tasks series: blue.
+const FINISHED_SERIES_COLOR: Hsla = gpui_kit::hsla(0.60, 0.72, 0.55, 1.0);
 
 /// Both series the trend plot paints, each with its own axis ceiling.
 ///

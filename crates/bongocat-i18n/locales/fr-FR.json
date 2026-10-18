@@ -86,6 +86,12 @@
       "month_tasks": "Tâches du mois",
       "day_tasks": "Tâches du jour",
       "day_tasks_empty": "Aucune session de concentration ce jour",
+      "new_task": "Nouvelle tâche",
+      "task_edit": "Modifier",
+      "task_editor_title": "Modifier la tâche",
+      "task_delete": "Supprimer",
+      "save": "Enregistrer",
+      "cancel": "Annuler",
       "axis_minutes": "min",
       "axis_tasks": "tâches"
     }

@@ -227,6 +227,18 @@ pub(crate) enum PomodoroSettingsView {
     Calendar,
 }
 
+/// What the pomodoro task editor is working on.
+///
+/// One editor exists at a time and it belongs to the view rather than to a
+/// row, because a row is rebuilt every frame and the draft has to survive
+/// that — the same reason the model rename keeps its draft on the view.
+/// `New` creates a task; `Existing` rewrites the one named by its id.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PomodoroEditorTarget {
+    New,
+    Existing(u64),
+}
+
 pub struct SettingsView {
     #[cfg(target_os = "windows")]
     pub(crate) window_background_color: Entity<gpui_kit::component::color_picker::ColorPickerState>,
@@ -260,6 +272,17 @@ pub struct SettingsView {
     /// and selection across frames; the typed text is mirrored into
     /// `pomodoro_search` on every change for filtering.
     pub(crate) pomodoro_search_input: Entity<InputState>,
+    /// The task editor the task-list subview is showing, or `None` while no
+    /// task is being created or edited. Opening the editor from the calendar
+    /// switches the page back to the list, so the fields are never open on a
+    /// subview that does not render them.
+    pub(crate) pomodoro_editor: Option<PomodoroEditorTarget>,
+    /// The editor's name field, kept as an entity beside the search box's for
+    /// the same reason: the field keeps its own cursor while the rows around
+    /// it are rebuilt every frame.
+    pub(crate) pomodoro_editor_name: Entity<InputState>,
+    /// The editor's expected-session-count field.
+    pub(crate) pomodoro_editor_sessions: Entity<InputState>,
     /// The last pomodoro revision the settings window rendered, so the background
     /// poll can tell a real change from an idle tick and only then `cx.notify()`.
     pub(crate) pomodoro_observed_revision: u64,

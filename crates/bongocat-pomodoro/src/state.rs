@@ -185,6 +185,16 @@ pub enum PomodoroCommand {
     SetTaskDone { task_id: u64, done: bool },
     /// Change how long one focus session lasts.
     SetFocusMinutes { minutes: u32 },
+    /// Rewrite a task's name and how many focus sessions it expects. The
+    /// sessions it has already finished are the history and never move: an
+    /// edit is about the plan, not about the work already done.
+    UpdateTask {
+        task_id: u64,
+        name: String,
+        estimated_pomodoros: u32,
+    },
+    /// Remove a task, its progress and its history.
+    DeleteTask { task_id: u64 },
 }
 
 impl PomodoroCommand {
@@ -199,6 +209,7 @@ impl PomodoroCommand {
             Self::CreateTask { .. } | Self::SetTaskDone { .. } | Self::SetFocusMinutes { .. } => {
                 true
             }
+            Self::UpdateTask { .. } | Self::DeleteTask { .. } => true,
         }
     }
 }
@@ -283,6 +294,12 @@ impl PomodoroState {
                 self.set_task_done(task_id, done, now_unix)
             }
             PomodoroCommand::SetFocusMinutes { minutes } => self.set_focus_minutes(minutes),
+            PomodoroCommand::UpdateTask {
+                task_id,
+                name,
+                estimated_pomodoros,
+            } => self.update_task(task_id, name, estimated_pomodoros),
+            PomodoroCommand::DeleteTask { task_id } => self.delete_task(task_id),
         }
     }
 
@@ -370,6 +387,44 @@ impl PomodoroState {
         let minutes = clamp_focus_minutes(minutes);
         self.document.focus_minutes = minutes;
         self.session_seconds = minutes.saturating_mul(60);
+    }
+
+    /// Rewrite a task's name and its expected session count.
+    ///
+    /// The name follows the rule creation follows: a field the user cannot
+    /// read is refused rather than stored, so an edit that ends on an empty
+    /// name leaves the row exactly as it was. The finished sessions are
+    /// history and never move — only the plan is rewritten.
+    fn update_task(&mut self, task_id: u64, name: String, estimated_pomodoros: u32) {
+        let Some(task) = self
+            .document
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+        else {
+            return;
+        };
+        let name = sanitize_task_name(&name);
+        if name.is_empty() {
+            return;
+        }
+        task.name = name;
+        task.estimated_pomodoros = estimated_pomodoros;
+    }
+
+    /// Remove a task and everything recorded against it.
+    ///
+    /// A session running for the deleted task is abandoned with it: the
+    /// timer holds only an id, and a countdown belonging to a task the
+    /// document no longer has would complete into nothing. The completion
+    /// timestamps go with the task, so the month calendar loses its
+    /// sessions in the same write rather than keeping days that name a
+    /// task nobody can find.
+    fn delete_task(&mut self, task_id: u64) {
+        if self.timer.task_id() == Some(task_id) {
+            self.timer = Timer::Idle;
+        }
+        self.document.tasks.retain(|task| task.id != task_id);
     }
 
     /// Fold elapsed time into a running countdown.

@@ -86,6 +86,12 @@
       "month_tasks": "이번 달 작업",
       "day_tasks": "당일 작업",
       "day_tasks_empty": "당일 집중 세션 없음",
+      "new_task": "새 작업",
+      "task_edit": "편집",
+      "task_editor_title": "작업 편집",
+      "task_delete": "삭제",
+      "save": "저장",
+      "cancel": "취소",
       "axis_minutes": "분",
       "axis_tasks": "작업"
     }

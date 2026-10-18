@@ -26,7 +26,7 @@ use gpui_kit::{AppContext, Entity, FocusHandle, Focusable, Window};
 /// Four is a round number that fits an ordinary piece of work and does not
 /// commit the user before they have said anything: the field is editable, so the
 /// default only has to be a starting point rather than a recommendation.
-pub(super) const DEFAULT_EXPECTED_SESSIONS: u32 = 4;
+pub(crate) const DEFAULT_EXPECTED_SESSIONS: u32 = 4;
 
 /// The task the "continue" row would pick up.
 ///
@@ -104,7 +104,7 @@ pub(super) fn focus_minutes(snapshot: &PomodoroSnapshot) -> u32 {
 /// A field left empty, or filled with something that is not a number, reads as
 /// the default rather than as zero: a session count of zero would create a task
 /// that is finished the moment it is ticked.
-pub(super) fn sessions_from_typed(typed: &str) -> u32 {
+pub(crate) fn sessions_from_typed(typed: &str) -> u32 {
     typed
         .trim()
         .parse::<u32>()

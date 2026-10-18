@@ -211,3 +211,94 @@ fn a_name_pasted_from_a_terminal_cannot_break_a_row() {
     );
     assert!(sanitize_task_name("\n\r").is_empty());
 }
+
+#[test]
+fn an_edit_rewrites_the_plan_and_keeps_the_history() {
+    let mut state = PomodoroState::empty();
+    let task_id = create(&mut state, "write notes", 4);
+    // One finished session, run to zero the way the product runs one, so the
+    // history the edit has to keep is the real thing: the counter and the
+    // calendar's timestamps both.
+    state.apply(PomodoroCommand::StartTask { task_id }, 1_000);
+    let remaining = state.timer().remaining_seconds();
+    state
+        .advance(Duration::from_secs(u64::from(remaining)), 2_000)
+        .expect("the session finished");
+
+    state.apply(
+        PomodoroCommand::UpdateTask {
+            task_id,
+            name: "write the notes".into(),
+            estimated_pomodoros: 2,
+        },
+        1_000,
+    );
+    let task = &state.snapshot(1).tasks[0];
+    assert_eq!(task.name, "write the notes");
+    assert_eq!(task.estimated_pomodoros, 2);
+    // The finished sessions are history: an edit is about the plan, never
+    // about the work already done — neither the counter nor the timestamps
+    // the month view counts.
+    assert_eq!(task.completed_pomodoros, 1);
+    let totals = state.day_totals(0);
+    assert_eq!(
+        totals.values().map(|total| total.pomodoros).sum::<u32>(),
+        1,
+        "the calendar keeps the finished day"
+    );
+
+    // A name the user cannot read is refused rather than stored, so the row
+    // keeps the name it had.
+    state.apply(
+        PomodoroCommand::UpdateTask {
+            task_id,
+            name: "   ".into(),
+            estimated_pomodoros: 9,
+        },
+        2_000,
+    );
+    let task = &state.snapshot(2).tasks[0];
+    assert_eq!(task.name, "write the notes");
+    assert_eq!(task.estimated_pomodoros, 2);
+
+    // An edit addressed at a task that is not there changes nothing.
+    let before = state.snapshot(3).tasks.len();
+    state.apply(
+        PomodoroCommand::UpdateTask {
+            task_id: 999,
+            name: "ghost".into(),
+            estimated_pomodoros: 1,
+        },
+        3_000,
+    );
+    assert_eq!(state.snapshot(4).tasks.len(), before);
+}
+
+#[test]
+fn deleting_a_task_removes_it_its_history_and_its_running_session() {
+    let mut state = PomodoroState::empty();
+    let first = create(&mut state, "first", 2);
+    let second = create(&mut state, "second", 2);
+    let day = 20_000 * 86_400;
+    state.record_completion_for_test(first, day);
+    state.record_completion_for_test(second, day + 60);
+    // A session is running for the task about to be deleted.
+    state.apply(PomodoroCommand::StartTask { task_id: first }, 1_000);
+
+    state.apply(PomodoroCommand::DeleteTask { task_id: first }, 2_000);
+
+    let snapshot = state.snapshot(1);
+    assert_eq!(snapshot.tasks.len(), 1, "the other task stays");
+    assert_eq!(snapshot.tasks[0].id, second);
+    // The countdown belonged to the deleted task, so it goes with it rather
+    // than completing into nothing.
+    assert_eq!(state.timer(), Timer::Idle);
+    // The day loses only the deleted task's session, not its neighbour's.
+    let total = state
+        .day_totals(0)
+        .get(&CalendarDay::from_day_number(20_000))
+        .copied()
+        .expect("the day");
+    assert_eq!(total.pomodoros, 1);
+    assert_eq!(total.tasks, 1);
+}

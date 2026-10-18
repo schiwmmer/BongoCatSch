@@ -86,6 +86,12 @@
       "month_tasks": "本月任務",
       "day_tasks": "當日任務",
       "day_tasks_empty": "當日無專注記錄",
+      "new_task": "新增工作",
+      "task_edit": "編輯",
+      "task_editor_title": "編輯工作",
+      "task_delete": "刪除",
+      "save": "儲存",
+      "cancel": "取消",
       "axis_minutes": "分鐘",
       "axis_tasks": "個"
     }

@@ -369,6 +369,35 @@ impl SettingsView {
             },
         )
         .detach();
+        // The task editor's two fields, seeded with the window's language the
+        // same way the search box is. Enter in the name field submits the
+        // editor, so creating a task never needs the pointer after the first
+        // click; the count field stays a plain field.
+        let pomodoro_editor_name = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(bongocat_i18n::text(
+                    seed.language.catalog_locale(),
+                    "pomodoro.picker.task_name_placeholder",
+                ))
+                .submit_on_enter(true)
+        });
+        cx.subscribe(
+            &pomodoro_editor_name,
+            |view, _input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    view.submit_pomodoro_task_editor(cx);
+                }
+            },
+        )
+        .detach();
+        let pomodoro_editor_sessions = cx.new(|cx| {
+            InputState::new(window, cx)
+                .default_value(crate::pomodoro_window::view::DEFAULT_EXPECTED_SESSIONS.to_string())
+                .placeholder(bongocat_i18n::text(
+                    seed.language.catalog_locale(),
+                    "pomodoro.picker.estimated_sessions",
+                ))
+        });
         // The pomodoro snapshot advances on a worker thread, so the page re-reads
         // it on a light timer and re-renders only when the revision moves.
         cx.spawn(async move |this, cx| {
@@ -407,6 +436,12 @@ impl SettingsView {
                 (today.year, today.month)
             },
             pomodoro_search_input,
+            // No editor is open when the window opens: the list is the thing
+            // the user came to look at, and the fields only exist while a
+            // task is being created or edited.
+            pomodoro_editor: None,
+            pomodoro_editor_name,
+            pomodoro_editor_sessions,
             pomodoro_observed_revision: 0,
             pomodoro_done_expanded: false,
             pomodoro_chart_days: 7,

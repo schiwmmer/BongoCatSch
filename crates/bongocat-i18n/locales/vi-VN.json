@@ -86,6 +86,12 @@
       "month_tasks": "Nhiệm vụ trong tháng",
       "day_tasks": "Nhiệm vụ trong ngày",
       "day_tasks_empty": "Không có phiên tập trung nào trong ngày",
+      "new_task": "Nhiệm vụ mới",
+      "task_edit": "Chỉnh sửa",
+      "task_editor_title": "Chỉnh sửa nhiệm vụ",
+      "task_delete": "Xóa",
+      "save": "Lưu",
+      "cancel": "Hủy",
       "axis_minutes": "phút",
       "axis_tasks": "nhiệm vụ"
     }

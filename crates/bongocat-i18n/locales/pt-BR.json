@@ -86,6 +86,12 @@
       "month_tasks": "Tarefas deste mês",
       "day_tasks": "Tarefas do dia",
       "day_tasks_empty": "Nenhuma sessão de foco neste dia",
+      "new_task": "Nova tarefa",
+      "task_edit": "Editar",
+      "task_editor_title": "Editar tarefa",
+      "task_delete": "Excluir",
+      "save": "Salvar",
+      "cancel": "Cancelar",
       "axis_minutes": "min",
       "axis_tasks": "tarefas"
     }

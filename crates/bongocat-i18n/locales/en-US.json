@@ -86,6 +86,12 @@
       "month_tasks": "Tasks this month",
       "day_tasks": "Tasks this day",
       "day_tasks_empty": "No focus sessions this day",
+      "new_task": "New Task",
+      "task_edit": "Edit",
+      "task_editor_title": "Edit Task",
+      "task_delete": "Delete",
+      "save": "Save",
+      "cancel": "Cancel",
       "axis_minutes": "min",
       "axis_tasks": "tasks"
     }

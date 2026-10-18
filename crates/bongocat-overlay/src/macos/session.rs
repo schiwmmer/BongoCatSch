@@ -9,6 +9,17 @@ use super::*;
 
 pub(crate) const RIGHT_ARROW: PhysicalKey = PhysicalKey::from_hid_usage(0x4f);
 
+/// How long the pointer must rest on the cat before the level badge steps
+/// aside.
+///
+/// The badge keeps its own timer rather than borrowing the window's hover
+/// hide: the fade is a window-wide presentation rule the user configures,
+/// while the badge is a read-at-a-glance number. Two seconds is long enough
+/// that a pointer crossing the cat never takes the number with it, and short
+/// enough that a pointer deliberately parked on the cat is reaching for
+/// whatever is underneath.
+pub(crate) const LEVEL_BADGE_HOVER_DELAY: Duration = Duration::from_secs(2);
+
 pub(crate) struct ProductOverlaySession {
     pub(crate) application: Retained<NSApplication>,
     pub(crate) overlay: NativeOverlay,
@@ -37,10 +48,19 @@ pub(crate) struct ProductOverlaySession {
     /// whether the pointer is on the cat.
     pub(crate) stats_hud: Option<StatsHud>,
     /// The level pill riding the cat's forehead. It shares the session's
-    /// frame tick with the HUD but follows the window's own visibility
-    /// rather than the pointer, so the number is on the cat whenever the
-    /// cat is presented.
+    /// frame tick with the HUD but keeps its own pointer gate: the number
+    /// steps aside only after the pointer has rested on the cat for
+    /// [`LEVEL_BADGE_HOVER_DELAY`], and comes straight back when the
+    /// pointer leaves.
     pub(crate) level_badge: Option<LevelBadge>,
+    /// The badge's own hover timer, kept separate from the window's hover
+    /// hide.
+    ///
+    /// The cat's fade is a window-wide rule the user configures, while the
+    /// badge is a read-at-a-glance number that has to survive a pointer
+    /// merely crossing the cat. One state machine per surface keeps the two
+    /// deadlines from ever being confused for each other.
+    pub(crate) badge_hover: PointerHoverHide,
     /// The countdown above the cat's head, and the performance a finished session
     /// plays.
     ///
@@ -191,6 +211,7 @@ impl ProductOverlaySession {
             hover: PointerHoverHide::default(),
             stats_hud,
             level_badge,
+            badge_hover: PointerHoverHide::default(),
             pomodoro,
             played_completion: 0,
             pomodoro_timer: None,
@@ -615,13 +636,22 @@ impl ProductOverlaySession {
                 hud.hide();
             }
         }
-        // The forehead badge follows the window's own presentation, not the
-        // pointer: it is on the cat whenever the cat is actually shown, and
-        // hides with the same fade gates (hover hide, idle hide) that fade
-        // the cat out, so a vanished cat never leaves a floating number.
-        let badge_allowed = self.runtime_client.snapshot().overlay_visible
-            && !self.hover.hidden()
-            && !self.idle.hidden();
+        // The forehead badge answers to its own pointer gate rather than the
+        // window's hover hide: the number is a read-at-a-glance fact about
+        // the cat, so a pointer merely crossing the cat must never take it
+        // along, while one that rests on the cat for a deliberate two
+        // seconds is reaching for whatever is underneath. Leaving brings it
+        // straight back. The window's own visibility still governs it: a cat
+        // the user hid must not leave a floating number behind.
+        let badge_allowed = {
+            self.badge_hover.observe(PointerHoverObservation {
+                enabled: input_running && !held,
+                delay: LEVEL_BADGE_HOVER_DELAY,
+                pointer_inside,
+                now,
+            });
+            self.runtime_client.snapshot().overlay_visible && !self.badge_hover.hidden()
+        };
         if let Some(badge) = self.level_badge.as_mut() {
             if badge_allowed {
                 let text = level_badge_status();
@@ -631,10 +661,11 @@ impl ProductOverlaySession {
                 badge.hide();
             }
         }
-        // The countdown shares the cat's own visibility gates for the same
-        // reason the badge does: a countdown left floating over a cat the user
-        // hid would be the one thing still on screen.
-        self.update_pomodoro(bounds, badge_allowed)?;
+        // The countdown keeps the cat's own visibility gates: it is part of
+        // the surface the user interacts with, so a countdown left floating
+        // over a cat the user hid would be the one thing still on screen.
+        let cat_shown = !self.hover.hidden() && !self.idle.hidden();
+        self.update_pomodoro(bounds, cat_shown)?;
         Ok(())
     }
 

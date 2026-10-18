@@ -86,6 +86,12 @@
       "month_tasks": "本月任务",
       "day_tasks": "当日任务",
       "day_tasks_empty": "当日无专注记录",
+      "new_task": "新建任务",
+      "task_edit": "编辑",
+      "task_editor_title": "编辑任务",
+      "task_delete": "删除",
+      "save": "保存",
+      "cancel": "取消",
       "axis_minutes": "分钟",
       "axis_tasks": "个"
     }

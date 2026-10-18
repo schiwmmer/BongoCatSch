@@ -1,4 +1,5 @@
 use super::*;
+use gpui_kit::component::Sizable as _;
 use gpui_kit::{FileDropEvent, canvas};
 
 fn with_search_keywords<I>(items: I, keywords: &[SharedString]) -> impl Iterator<Item = SettingItem>
@@ -1604,12 +1605,46 @@ impl Render for SettingsView {
         // calendar can use the full content width; the sidebar entry still sits
         // beside model behavior because both are about what the cat helps the
         // user get done.
+        let pomodoro_new_task_locale = language.catalog_locale();
         let pomodoro_page = SettingPage::new(SettingsNavigationPage::Pomodoro.title(language))
             .icon(SettingsNavigationPage::Pomodoro.icon())
-            .title_suffix(page_reporter(
-                SettingsNavigationPage::Pomodoro,
-                navigation_memory.clone(),
-            ))
+            // The page header carries the new-task button beside the title:
+            // creating a task is the one action this page exists for, and the
+            // picker window is a second surface over the same command. The
+            // navigation reporter keeps its place in front of the button.
+            .title_suffix({
+                let reporter =
+                    page_reporter(SettingsNavigationPage::Pomodoro, navigation_memory.clone());
+                let view_entity = view_entity.clone();
+                move |window, cx| {
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(reporter(window, cx))
+                        .child(
+                            Button::new("pomodoro-new-task")
+                                .small()
+                                .label(bongocat_i18n::text(
+                                    pomodoro_new_task_locale,
+                                    "pomodoro.settings.new_task",
+                                ))
+                                .on_click({
+                                    let view = view_entity.clone();
+                                    move |_, window, cx| {
+                                        view.update(cx, |view, cx| {
+                                            view.open_pomodoro_task_editor(
+                                                PomodoroEditorTarget::New,
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                }),
+                        )
+                }
+            })
             .group(
                 SettingGroup::new().item(
                     SettingItem::render({

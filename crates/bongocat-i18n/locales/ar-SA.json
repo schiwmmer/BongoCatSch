@@ -86,6 +86,12 @@
       "month_tasks": "مهام هذا الشهر",
       "day_tasks": "مهام هذا اليوم",
       "day_tasks_empty": "لا جلسات تركيز في هذا اليوم",
+      "new_task": "مهمة جديدة",
+      "task_edit": "تعديل",
+      "task_editor_title": "تعديل المهمة",
+      "task_delete": "حذف",
+      "save": "حفظ",
+      "cancel": "إلغاء",
       "axis_minutes": "دقيقة",
       "axis_tasks": "مهام"
     }

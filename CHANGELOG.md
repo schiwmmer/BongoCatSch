@@ -11,6 +11,13 @@
 - The level number now rides the cat's forehead: a small bare number pinned to the top center of the model window, following the cat through moves and resizes and hiding whenever the cat hides.
 - A Pomodoro timer, started from the "Start Pomodoro" menu entry on macOS: name a task, set how many focus sessions it needs, and a countdown floats above the cat as the session runs. A finished session plays a short chime, and a right-click on the countdown pauses or abandons it. Tasks are kept in a separate `pomodoro-tasks.json`, and a countdown does not survive a restart.
 - A "Pomodoro" settings page with a task list and a month calendar: tick a task done as you finish it, and see each day's finished focus sessions laid out on a calendar. The whole feature is localized into all eight supported languages.
+- The "Pomodoro" settings page grows a "New Task" button beside its title, so a first task can be created without hunting for the list.
+- Right-clicking a task in the Pomodoro settings opens a small menu to edit it — name and expected focus sessions — or delete it, which also drops the task's running session and history.
+
+### 🎨 Interface
+
+- The Pomodoro trend chart now draws focus minutes in red and finished tasks in blue, so the two series never share a colour.
+- The forehead level badge keeps its own pointer gate: it steps aside only after the pointer has rested on the cat for two seconds and returns the moment the pointer leaves, instead of riding the window's hover and idle hide fades.
 
 ## 2.3.1 - 2026-10-13
 
