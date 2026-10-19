@@ -286,9 +286,11 @@ impl PomodoroView {
             cx.notify();
             return;
         }
-        let Some(target) = self.editor.take() else {
-            return;
-        };
+        // `editor` is only set while the same two fields are repurposed for a
+        // task that already exists. A form that is not editing anything is
+        // creating, so `None` here is the create case — taking it as a stale
+        // click is what made the 创建 button do nothing at all.
+        let target = self.editor.take().unwrap_or(PomodoroEditorTarget::New);
         match target {
             PomodoroEditorTarget::Existing(task_id) => {
                 let _ = self.client.try_publish(PomodoroCommand::UpdateTask {

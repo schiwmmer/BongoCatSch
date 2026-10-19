@@ -16,6 +16,7 @@ use gpui_kit::{
 
 mod behavior_names;
 mod copy;
+mod cultivation_page;
 mod dropdown;
 mod external_link;
 mod hold_modifier;

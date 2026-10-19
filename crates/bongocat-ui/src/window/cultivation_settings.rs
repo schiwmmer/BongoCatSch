@@ -18,6 +18,11 @@ use bongocat_pomodoro::{
     Attribute, CultivationView, DropView, EquipSlot, ItemView, MAX_LEVEL, PomodoroCommand, Realm,
 };
 use gpui_kit::component::Sizable as _;
+use gpui_kit::component::hover_card::HoverCard;
+// `test_support()` marks the elements the headless window tests observe; without
+// `gpui-kit`'s `test-support` feature it is the identity function.
+use gpui_kit::base::TestSupportExt as _;
+use std::time::Duration;
 
 /// How wide the growth bar is drawn, and therefore how wide its filled part is.
 const GROWTH_BAR_WIDTH: f32 = 180.0;
@@ -293,10 +298,6 @@ fn attributes_panel(
 ) -> impl IntoElement {
     let free = cultivation.free_points;
     let chips = Attribute::ALL.into_iter().map(|attribute| {
-        // The name is a ghost button so it can carry the attribute's explanation
-        // on hover — `gpui-kit` only exposes tooltips on its own components, not
-        // on a bare `div`. It has no click handler; the button is the affordance
-        // the tooltip hangs from.
         let mut chip = div()
             .id(format!("cultivation-attribute-{}", attribute.index()))
             .flex()
@@ -308,12 +309,10 @@ fn attributes_panel(
             .rounded_md()
             .bg(tokens.overlay)
             .child(
-                Button::new(format!("cultivation-attribute-info-{}", attribute.index()))
-                    .ghost()
-                    .xsmall()
-                    .label(text(locale, attribute.name_key()))
-                    .tooltip(text(locale, attribute.desc_key()))
-                    .tab_stop(false),
+                div()
+                    .text_xs()
+                    .text_color(tokens.muted)
+                    .child(text(locale, attribute.name_key())),
             )
             .child(
                 div()
@@ -340,7 +339,18 @@ fn attributes_panel(
                 locale,
             ));
         }
-        chip
+        // The explanation hangs off the whole chip rather than off the name: the
+        // name is a handful of glyphs wide, and a hint that only shows when the
+        // pointer lands exactly on them reads as a hint that does not work.
+        let name = text(locale, attribute.name_key());
+        let explanation = text(locale, attribute.desc_key());
+        let hint_tokens = tokens;
+        HoverCard::new(format!("cultivation-attribute-hint-{}", attribute.index()))
+            .trigger(chip.test_support())
+            .open_delay(Duration::from_millis(120))
+            .content(move |_, _, _| {
+                attribute_hint(attribute.index(), name, explanation, hint_tokens)
+            })
     });
     let breakdown = format!(
         "{} · {} · {}",
@@ -362,6 +372,20 @@ fn attributes_panel(
             "cultivation.power_crop",
             &[("value", cultivation.crop_attributes.power().to_string())],
         ),
+    );
+    // The two schools the four attributes feed. Shown beside the totals because
+    // a lopsided build is invisible in a single power number: two cultivators at
+    // the same power can be one spellcaster and one brawler.
+    let schools = format_text(
+        locale,
+        "cultivation.power_schools",
+        &[
+            ("spell", cultivation.attributes.spell_power().to_string()),
+            (
+                "martial",
+                cultivation.attributes.martial_power().to_string(),
+            ),
+        ],
     );
 
     let panel = div()
@@ -388,7 +412,16 @@ fn attributes_panel(
                 )),
         )
     };
-    panel.child(div().text_xs().text_color(tokens.muted).child(breakdown))
+    panel
+        .child(
+            div()
+                .id("cultivation-power-schools")
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(schools)
+                .test_support(),
+        )
+        .child(div().text_xs().text_color(tokens.muted).child(breakdown))
 }
 
 /// The four slots and whatever is worn in each.
@@ -490,6 +523,34 @@ fn allocate_button(
     })
 }
 
+/// The name and the explanation an attribute's chip shows on hover.
+///
+/// The card is an element rather than a one-line tooltip string because the
+/// explanation is a sentence: it says which school the attribute feeds and which
+/// partner it is scored against, and that does not fit under a pointer.
+fn attribute_hint(
+    index: usize,
+    name: &'static str,
+    explanation: &'static str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    div()
+        .id(format!("cultivation-attribute-hint-body-{index}"))
+        .flex()
+        .flex_col()
+        .gap_1()
+        .w(px(240.0))
+        .child(div().text_xs().text_color(tokens.text).child(name))
+        .child(
+            div()
+                .text_xs()
+                .text_color(tokens.muted)
+                .whitespace_normal()
+                .child(explanation),
+        )
+        .test_support()
+}
+
 /// An item's name as a click-to-expand control, or plain text when there is no
 /// item in the slot. Clicking toggles the attribute breakdown under the row.
 fn item_label_element(
@@ -536,10 +597,17 @@ fn item_label_element(
 }
 
 /// One item's attribute breakdown, shown under its row when expanded.
+///
+/// Two lines: the four raw numbers, then what they are worth in each school. The
+/// second line is the one that answers "is this a spellcaster's piece or a
+/// brawler's", which the tier and the rarity alone do not say.
 fn item_detail(item: &ItemView, locale: &str, tokens: Tokens) -> impl IntoElement {
     let attributes = item.attributes;
     div()
         .id(format!("cultivation-item-detail-{}", item.id))
+        .flex()
+        .flex_col()
+        .gap_1()
         .text_xs()
         .text_color(tokens.muted)
         .child(format_text(
@@ -550,6 +618,14 @@ fn item_detail(item: &ItemView, locale: &str, tokens: Tokens) -> impl IntoElemen
                 ("strength", attributes.strength.to_string()),
                 ("spirit", attributes.spirit.to_string()),
                 ("agility", attributes.agility.to_string()),
+            ],
+        ))
+        .child(format_text(
+            locale,
+            "cultivation.item.schools",
+            &[
+                ("spell", attributes.spell_power().to_string()),
+                ("martial", attributes.martial_power().to_string()),
                 ("power", item.power.to_string()),
             ],
         ))

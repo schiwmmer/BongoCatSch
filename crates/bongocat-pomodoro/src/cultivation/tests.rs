@@ -190,6 +190,59 @@ fn a_penalty_never_takes_back_the_realm_already_entered() {
     assert_eq!(cultivation.realm(), Realm::Foundation);
 }
 
+/// 法术 is 根骨 plus 仙力, 武术 is 力量 plus 身法: a point in one school must never
+/// move the other, and the whole is exactly the two halves added up.
+#[test]
+fn the_two_schools_read_only_their_own_attributes() {
+    let spell = Attributes::new(10, 0, 10, 0);
+    let martial = Attributes::new(0, 10, 0, 10);
+    assert_eq!(spell.spell_power(), 45, "根骨 10 + 仙力 10 with synergy");
+    assert_eq!(spell.martial_power(), 0, "a spell set fights no melee");
+    assert_eq!(martial.spell_power(), 0, "a martial set casts nothing");
+    assert_eq!(
+        martial.martial_power(),
+        42,
+        "力量 10 + 身法 10 with synergy"
+    );
+    assert_eq!(
+        spell.plus(martial).power(),
+        87,
+        "the total is the two schools, not a fourth weighting"
+    );
+}
+
+/// Each pair pays for its shorter half, so twenty points spent evenly beat
+/// twenty poured into the heavier attribute alone.
+#[test]
+fn a_balanced_pair_out_powers_a_lopsided_one() {
+    let balanced = Attributes::new(10, 0, 10, 0);
+    let lopsided = Attributes::new(0, 0, 20, 0);
+    assert_eq!(lopsided.spell_power(), 40, "仙力 alone, no synergy");
+    assert!(
+        balanced.spell_power() > lopsided.spell_power(),
+        "根骨 and 仙力 together must beat 仙力 alone"
+    );
+    let balanced = Attributes::new(0, 10, 0, 10);
+    let lopsided = Attributes::new(0, 20, 0, 0);
+    assert_eq!(lopsided.martial_power(), 40, "力量 alone, no synergy");
+    assert!(
+        balanced.martial_power() > lopsided.martial_power(),
+        "力量 and 身法 together must beat 力量 alone"
+    );
+}
+
+/// Every school has a heavier half: 仙力 carries a spell further than 根骨 does,
+/// and 力量 lands harder than 身法.
+#[test]
+fn each_school_has_its_heavier_half() {
+    assert!(
+        Attributes::new(0, 0, 10, 0).spell_power() > Attributes::new(10, 0, 0, 0).spell_power()
+    );
+    assert!(
+        Attributes::new(0, 10, 0, 0).martial_power() > Attributes::new(0, 0, 0, 10).martial_power()
+    );
+}
+
 #[test]
 fn the_guardian_is_beyond_a_naked_cultivator_at_the_cap() {
     let naked = at_the_first_cap();

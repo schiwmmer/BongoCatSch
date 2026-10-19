@@ -7,12 +7,13 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::mpsc::Receiver;
 
 use crate::pomodoro_window::{PomodoroView, view};
 use crate::{SettingsClient, SettingsLanguage, SettingsServiceEndpoint, SettingsTheme};
 use bongocat_pomodoro::{
-    Cultivation, DEFAULT_FOCUS_MINUTES, PomodoroClient, PomodoroSnapshot, PomodoroTaskStatus,
-    PomodoroTaskView, PomodoroWorkerState, TimerState, TimerView,
+    Cultivation, DEFAULT_FOCUS_MINUTES, PomodoroClient, PomodoroCommand, PomodoroSnapshot,
+    PomodoroTaskStatus, PomodoroTaskView, PomodoroWorkerState, TimerState, TimerView,
 };
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
@@ -37,6 +38,10 @@ impl Render for Mount {
 struct Harness {
     handle: gpui_kit::WindowHandle<Mount>,
     view: Entity<PomodoroView>,
+    /// What the view asked the worker to do. Kept alive rather than dropped so
+    /// the sender stays connected, and read by the tests that assert a click
+    /// published a command instead of only painting something.
+    commands: Receiver<PomodoroCommand>,
     /// Kept alive so the window's language poll sees a live channel.
     _settings: SettingsServiceEndpoint,
 }
@@ -109,10 +114,10 @@ fn harness(cx: &mut TestAppContext) -> Harness {
         .borrow_mut()
         .take()
         .expect("the window built its pomodoro view");
-    std::mem::forget(sink);
     Harness {
         handle,
         view,
+        commands: sink,
         _settings: settings_endpoint,
     }
 }
@@ -341,4 +346,52 @@ fn every_row_of_this_window_is_localized_in_every_language() {
             );
         }
     }
+}
+
+/// The create button must create.
+///
+/// The window opens with the form in its creating shape — nothing is being
+/// edited — so the submit has to treat "no editor target" as "a new task". When
+/// it treated that as a stale click instead, the button was enabled, the name was
+/// accepted, and nothing was ever published: the task the user typed never
+/// existed.
+#[gpui_kit::test]
+fn the_create_button_publishes_a_new_task(cx: &mut TestAppContext) {
+    let harness = harness(cx);
+    cx.update_window(harness.handle.into(), |_, window, cx| {
+        harness.view.update(cx, |view, cx| {
+            assert!(
+                view.editor.is_none(),
+                "a freshly opened window is not editing anything"
+            );
+            view.name_input.update(cx, |input, cx| {
+                input.set_value("测试".to_string(), window, cx)
+            });
+            view.sessions_input
+                .update(cx, |input, cx| input.set_value("4".to_string(), window, cx));
+            view.submit_task_editor(window, cx);
+        });
+    })
+    .expect("the pomodoro window stays open");
+    match harness
+        .commands
+        .try_recv()
+        .expect("the click must reach the worker")
+    {
+        PomodoroCommand::CreateTask {
+            name,
+            estimated_pomodoros,
+        } => {
+            assert_eq!(name, "测试");
+            assert_eq!(estimated_pomodoros, 4);
+        }
+        other => panic!("expected CreateTask, got {other:?}"),
+    }
+    // The form goes back to its creating shape so the next task starts clean.
+    let (name, editor) = cx.update(|app| {
+        let view = harness.view.read(app);
+        (view.name_input.read(app).value(), view.editor)
+    });
+    assert_eq!(name, "");
+    assert!(editor.is_none());
 }

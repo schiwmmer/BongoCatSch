@@ -638,15 +638,16 @@
       "agility": "Agility",
       "add": "+1",
       "add_ten": "+10",
-      "root_desc": "Constitution: +15 power per point — the body's foundation and vitality.",
-      "strength_desc": "Strength: +20 power per point — the root of attack.",
-      "spirit_desc": "Spirit power: +20 power per point — the source of spiritual arts.",
-      "agility_desc": "Agility: +12 power per point — speed and evasion."
+      "root_desc": "Constitution: the base of the spell school, +15 spell power a point. Paired with Spirit power, the shorter half adds 10 more a point — stacking spirit alone wastes the bonus.",
+      "strength_desc": "Strength: the mainstay of the martial school, +20 martial power a point. Paired with Agility, the shorter half adds 10 more a point.",
+      "spirit_desc": "Spirit power: the mainstay of the spell school, +20 spell power a point. Paired with Constitution, the shorter half adds 10 more a point.",
+      "agility_desc": "Agility: the base of the martial school, +12 martial power a point. Paired with Strength, the shorter half adds 10 more a point — stacking strength alone wastes the bonus."
     },
     "power": "power %{power}",
     "power_level": "level %{value}",
     "power_equipment": "gear %{value}",
     "power_crop": "herbs %{value}",
+    "power_schools": "spell %{spell} · martial %{martial}",
     "equipment": "Gear",
     "slot": {
       "weapon": "Weapon",
@@ -658,7 +659,8 @@
     "item": {
       "label": "%{slot} · tier %{tier} · %{stars}",
       "label_named": "%{name} · tier %{tier} %{stars}",
-      "details": "Constitution %{root} · Strength %{strength} · Spirit %{spirit} · Agility %{agility} · Power %{power}",
+      "details": "Constitution %{root} · Strength %{strength} · Spirit %{spirit} · Agility %{agility}",
+      "schools": "spell %{spell} · martial %{martial} · power %{power}",
       "equip": "Equip",
       "unequip": "Take off"
     },

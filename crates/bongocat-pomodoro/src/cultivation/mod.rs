@@ -20,6 +20,9 @@
 //! * A realm ends at layer 100 and the next one opens only by beating its
 //!   guardian; the guardian is deliberately stronger than a naked cultivator at
 //!   that cap, so gear and herbs are the way through.
+//! * The four attributes feed two schools: 根骨 and 仙力 make the spell half,
+//!   力量 and 身法 the martial half, and each pair pays a synergy bonus on its
+//!   shorter side. See [`Attributes::power`].
 //! * Gear drops are one roll per session at [`EQUIPMENT_DROP_PERMILLE`], seeds
 //!   at [`SEED_DROP_PERMILLE`]; both are deliberately rare next to the growth
 //!   a session already pays.
@@ -102,6 +105,41 @@ pub const SEED_RETURN_PERMILLE: u64 = 150;
 /// The rest come back at the tier that was planted, so the garden drifts
 /// upwards slowly instead of ratcheting.
 const SEED_RETURN_UPGRADE_PERCENT: u64 = 30;
+
+/// What one point of 根骨 adds to the spell half of the power.
+///
+/// The channel matters, but the force matters more: 仙力 carries twice the
+/// weight of 根骨, so a spellcaster leans on spirit while root is what lets the
+/// spirit be spent at all.
+const ROOT_WEIGHT: i64 = 15;
+
+/// What one point of 仙力 adds to the spell half of the power.
+const SPIRIT_WEIGHT: i64 = 20;
+
+/// What one point of 力量 adds to the martial half of the power.
+const STRENGTH_WEIGHT: i64 = 20;
+
+/// What one point of 身法 adds to the martial half of the power.
+const AGILITY_WEIGHT: i64 = 12;
+
+/// What a balanced pair adds on top of its two weights, per point of the shorter
+/// half.
+///
+/// This is the link between the two attributes of a school: a spell needs both
+/// 根骨 and 仙力, a technique needs both 力量 and 身法, so the pair is scored by
+/// its weaker half as well as by its parts. Pouring every point into the heavier
+/// attribute of a pair therefore wastes the bonus, which is what makes the four
+/// numbers a decision instead of one number and three decorations.
+const PAIR_SYNERGY_WEIGHT: i64 = 10;
+
+/// The power scale: the weighted sum is divided by this to reach the number the
+/// surfaces show and the fights compare.
+const POWER_SCALE: i64 = 10;
+
+/// Turn a weighted sum into the power number, saturation instead of wrapping.
+fn scaled_power(weighted: i64) -> u32 {
+    u32::try_from(weighted.max(0) / POWER_SCALE).unwrap_or(u32::MAX)
+}
 
 /// Free attribute points a level pays on the way up.
 ///
@@ -318,12 +356,41 @@ impl Attributes {
     /// One scale for every comparison in this module: two fighters are compared
     /// by this number alone, so the guardian's power and the cultivator's are
     /// computed the same way and can be shown side by side.
+    ///
+    /// It is the sum of the two schools rather than one flat weighting, because
+    /// the four attributes are not four independent numbers: a spell needs a
+    /// body to channel it and a technique needs a body to land it. Splitting the
+    /// power into [`Self::spell_power`] and [`Self::martial_power`] lets a
+    /// surface show which half a piece of gear actually feeds.
     pub fn power(self) -> u32 {
-        let weighted = i64::from(self.strength) * 20
-            + i64::from(self.spirit) * 20
-            + i64::from(self.root) * 15
-            + i64::from(self.agility) * 12;
-        u32::try_from(weighted.max(0) / 10).unwrap_or(u32::MAX)
+        self.spell_power().saturating_add(self.martial_power())
+    }
+
+    /// The spell half (法术): 根骨 carries the channel, 仙力 is the force.
+    ///
+    /// The two are paired, so the weaker of them pays as well: each point of the
+    /// shorter half adds [`PAIR_SYNERGY_WEIGHT`] on top of its own weight. That
+    /// is what makes a spellcaster raise both instead of pouring everything into
+    /// the heavier attribute — a lopsided pair wastes the synergy.
+    pub fn spell_power(self) -> u32 {
+        let root = i64::from(self.root).max(0);
+        let spirit = i64::from(self.spirit).max(0);
+        let weighted =
+            root * ROOT_WEIGHT + spirit * SPIRIT_WEIGHT + root.min(spirit) * PAIR_SYNERGY_WEIGHT;
+        scaled_power(weighted)
+    }
+
+    /// The martial half (武术): 力量 is the force, 身法 is how well it lands.
+    ///
+    /// Paired on the same rule as [`Self::spell_power`], so a fighter who only
+    /// stacks strength hits softer than one who trains both.
+    pub fn martial_power(self) -> u32 {
+        let strength = i64::from(self.strength).max(0);
+        let agility = i64::from(self.agility).max(0);
+        let weighted = strength * STRENGTH_WEIGHT
+            + agility * AGILITY_WEIGHT
+            + strength.min(agility) * PAIR_SYNERGY_WEIGHT;
+        scaled_power(weighted)
     }
 
     /// The points this set holds in total, used to count what has been spent.
