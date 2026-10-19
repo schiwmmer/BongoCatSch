@@ -63,10 +63,11 @@ pub use calendar::{
 pub use cultivation::{
     ABSENCE_PENALTY, ABSENCE_PENALTY_CAP, AbsenceCharge, Attribute, Attributes, BattleReport,
     BreakthroughOutcome, CropView, Cultivation, CultivationDocument, CultivationView, Drop,
-    DropView, EQUIPMENT_DROP_PERMILLE, EquipSlot, EquipmentRecord, GROWTH_PER_SESSION,
-    GuardianView, ItemView, LAYERS_PER_STAGE, LevelProgress, MAX_LEVEL, PLOT_COUNT, PlotView,
-    Rarity, Realm, SEED_DROP_PERMILLE, SLOT_COUNT, SeedView, SessionReward, absence_penalty,
-    base_attributes, growth_for_session, level_for_growth, threshold_for,
+    DropView, EQUIPMENT_DROP_PERMILLE, EquipSlot, EquipmentRecord, FREE_POINTS_PER_LEVEL,
+    GROWTH_PER_SESSION, GuardianView, HarvestOutcome, ItemView, LAYERS_PER_STAGE, LevelProgress,
+    MAX_LEVEL, MAX_SEED_TIER, PLOT_COUNT, PlotView, Rarity, Realm, SEED_DROP_PERMILLE,
+    SEED_RETURN_PERMILLE, SLOT_COUNT, SeedView, SessionReward, absence_penalty, base_attributes,
+    growth_for_session, level_for_growth, threshold_for,
 };
 pub use document::POMODORO_TASKS_SCHEMA_VERSION;
 pub use service::{

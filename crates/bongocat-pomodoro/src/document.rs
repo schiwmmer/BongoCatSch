@@ -101,6 +101,14 @@ pub struct Document {
     /// How long one focus session lasts.
     #[serde(default)]
     pub focus_minutes: u32,
+    /// How many focus sessions have ever finished, across every task.
+    ///
+    /// A task's own counter is deleted with the task; this one is not, so the
+    /// total a surface shows counts the work actually done rather than the work
+    /// still recorded. A document written before the counter existed derives it
+    /// from the timestamps it does hold, so no history is lost on load.
+    #[serde(default)]
+    pub total_completions: u32,
     /// The cultivation ladder the sessions feed.
     ///
     /// It lives in this document rather than a file of its own so a finished
@@ -118,6 +126,7 @@ impl Default for Document {
             schema_version: POMODORO_TASKS_SCHEMA_VERSION,
             tasks: Vec::new(),
             focus_minutes: crate::DEFAULT_FOCUS_MINUTES,
+            total_completions: 0,
             cultivation: crate::CultivationDocument::default(),
         }
     }
@@ -131,6 +140,14 @@ impl Document {
         if self.focus_minutes == 0 {
             self.focus_minutes = crate::DEFAULT_FOCUS_MINUTES;
         }
+        // An earlier build kept only the per-task timestamps, so the lifetime
+        // total is recovered from them once rather than starting at zero and
+        // throwing away history the user already earned.
+        let recorded = self.tasks.iter().fold(0u32, |total, task| {
+            total
+                .saturating_add(u32::try_from(task.completion_timestamps.len()).unwrap_or(u32::MAX))
+        });
+        self.total_completions = self.total_completions.max(recorded);
         self
     }
 
@@ -234,6 +251,7 @@ mod tests {
             .push(TaskRecord::new(1, "write notes".into(), 4, 1_700_000_000));
         document.tasks[0].completed_pomodoros = 2;
         document.tasks[0].completion_timestamps = vec![1_700_000_060, 1_700_003_060];
+        document.total_completions = 2;
         write_document(&path, &document).expect("write the document");
         assert_eq!(read_document(&path), document);
     }

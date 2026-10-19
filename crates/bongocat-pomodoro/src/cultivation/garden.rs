@@ -9,23 +9,45 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::Attribute;
+use super::{Attribute, Rng, SEED_RETURN_PERMILLE, SEED_RETURN_UPGRADE_PERCENT, STAGE_COUNT};
 
 /// How many plots a cultivator has. Every plot is independent, so a user can
 /// keep four crops of different lengths growing at once.
 pub const PLOT_COUNT: usize = 4;
+
+/// The highest seed tier: one per realm, so a seed's tier names the realm that
+/// dropped it.
+pub const MAX_SEED_TIER: u8 = STAGE_COUNT as u8;
 
 /// How long a seed of this tier needs to mature, in seconds.
 ///
 /// Half an hour per tier: the first realm's seed is ready inside one session,
 /// the last one's takes five hours.
 pub fn grow_seconds(tier: u8) -> i64 {
-    1_800 * i64::from(tier.clamp(1, 10))
+    1_800 * i64::from(tier.clamp(1, MAX_SEED_TIER))
 }
 
 /// The attribute points one harvest of this tier pays.
 pub fn harvest_points(tier: u8) -> i32 {
-    5 + 3 * i32::from(tier.clamp(1, 10))
+    5 + 3 * i32::from(tier.clamp(1, MAX_SEED_TIER))
+}
+
+/// The seed one harvest gives back, if it gives one.
+///
+/// Most harvests pay only their attribute points. [`SEED_RETURN_PERMILLE`]
+/// decides whether a seed comes back at all, and
+/// [`SEED_RETURN_UPGRADE_PERCENT`] decides whether it comes back a tier higher —
+/// which is the slow way a garden becomes self-sustaining.
+pub fn seed_return(attribute: Attribute, tier: u8, rng: &mut Rng) -> Option<(Attribute, u8)> {
+    if rng.below(1_000) >= SEED_RETURN_PERMILLE {
+        return None;
+    }
+    let tier = if rng.below(100) < SEED_RETURN_UPGRADE_PERCENT {
+        tier.saturating_add(1).min(MAX_SEED_TIER)
+    } else {
+        tier.clamp(1, MAX_SEED_TIER)
+    };
+    Some((attribute, tier))
 }
 
 /// A stack of identical seeds: one attribute, one tier.
@@ -60,7 +82,7 @@ pub struct CropRecord {
 impl CropRecord {
     /// A crop planted now, maturing after its tier's growing time.
     pub fn planted(attribute: Attribute, tier: u8, now_unix: i64) -> Self {
-        let tier = tier.clamp(1, 10);
+        let tier = tier.clamp(1, MAX_SEED_TIER);
         Self {
             attribute,
             tier,

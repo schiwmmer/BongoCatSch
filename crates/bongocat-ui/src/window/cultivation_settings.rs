@@ -58,7 +58,7 @@ pub(super) fn content(
         .p_3()
         .child(realm_header(&cultivation, locale, tokens))
         .children(notices(&cultivation, locale, tokens))
-        .child(attributes_panel(&cultivation, locale, tokens))
+        .child(attributes_panel(&view, &cultivation, locale, tokens))
         .child(equipment_panel(&view, &cultivation, locale, tokens))
         .child(inventory_panel(&view, &cultivation, locale, tokens))
         .child(seed_panel(&view, &cultivation, locale, tokens))
@@ -216,6 +216,20 @@ fn notices(
             .into_any_element(),
         );
     }
+    if let Some(seed) = cultivation.last_seed_return {
+        notices.push(
+            notice(
+                "cultivation-notice-seed-return",
+                format_text(
+                    locale,
+                    "cultivation.notice.seed_return",
+                    &[("seed", seed_label(locale, seed.attribute, seed.tier))],
+                ),
+                tokens.accent,
+            )
+            .into_any_element(),
+        );
+    }
     if let Some(outcome) = cultivation.last_breakthrough {
         let line = if outcome.report.won {
             format_text(
@@ -247,17 +261,26 @@ fn notice(id: &'static str, line: String, color: Hsla) -> impl IntoElement {
     div().id(id).text_xs().text_color(color).child(line)
 }
 
-/// The four attributes and what each source contributes.
+/// The four attributes, what each source contributes, and the free points the
+/// levels have paid.
+///
+/// A level pays one point the user places by hand, so the panel is also the one
+/// place that spends them: the point is offered on the attribute itself rather
+/// than in a separate editor, because "where does this point go" is answered by
+/// looking at the four numbers it could raise.
 fn attributes_panel(
+    view: &Entity<SettingsView>,
     cultivation: &CultivationView,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
+    let free = cultivation.free_points;
     let chips = Attribute::ALL.into_iter().map(|attribute| {
-        div()
+        let mut chip = div()
             .id(format!("cultivation-attribute-{}", attribute.index()))
             .flex()
             .flex_row()
+            .items_center()
             .gap_1()
             .px_2()
             .py_1()
@@ -273,7 +296,27 @@ fn attributes_panel(
                 div()
                     .text_xs()
                     .child(attribute.of(cultivation.attributes).to_string()),
-            )
+            );
+        if free > 0 {
+            chip = chip.child(
+                Button::new(format!("cultivation-allocate-{}", attribute.index()))
+                    .ghost()
+                    .small()
+                    .label(text(locale, "cultivation.attribute.add"))
+                    .on_click({
+                        let view = view.clone();
+                        move |_, _, cx| {
+                            view.update(cx, |view, cx| {
+                                let _ = view
+                                    .pomodoro
+                                    .try_publish(PomodoroCommand::AllocateAttribute { attribute });
+                                view.poll_pomodoro(cx);
+                            });
+                        }
+                    }),
+            );
+        }
+        chip
     });
     let breakdown = format!(
         "{} · {} · {}",
@@ -297,14 +340,31 @@ fn attributes_panel(
         ),
     );
 
-    div()
+    let panel = div()
         .id("cultivation-attributes")
         .flex()
         .flex_col()
         .gap_1()
         .child(section_title(locale, "cultivation.attributes", tokens))
-        .child(div().flex().flex_row().flex_wrap().gap_2().children(chips))
-        .child(div().text_xs().text_color(tokens.muted).child(breakdown))
+        .child(div().flex().flex_row().flex_wrap().gap_2().children(chips));
+    // Only shown while a point is waiting: a line that reads "0 points" is a
+    // permanent reminder of nothing.
+    let panel = if free == 0 {
+        panel
+    } else {
+        panel.child(
+            div()
+                .id("cultivation-free-points")
+                .text_xs()
+                .text_color(tokens.accent)
+                .child(format_text(
+                    locale,
+                    "cultivation.free_points",
+                    &[("points", free.to_string())],
+                )),
+        )
+    };
+    panel.child(div().text_xs().text_color(tokens.muted).child(breakdown))
 }
 
 /// The four slots and whatever is worn in each.

@@ -66,12 +66,37 @@ SplitMix64）、`curve.rs`（成长值阶梯）、`items.rs`（装备）、`gard
 委托，仅测试与 Windows 使用。跨夜结算发生在 worker 的 tick 里：每个 tick 先结算缺勤，
 有扣分才发布新快照并落盘。
 
+### 每升一级发 1 点自由属性，按历史峰值结算
+
+等级本身已经抬升四项属性，但那是固定曲线，用户没有选择。因此每升一级额外发
+`FREE_POINTS_PER_LEVEL`（1 点）由用户手工分配：`Cultivation::allocate` 把 1 点加到某
+一项上，落进 `CultivationDocument.allocated`，再与等级/装备/仙草一起进同一条战力公式。
+
+点数按**历史最高等级**（`peak_level`）结算，不是按当前等级：缺勤扣分会把等级压下来，
+但已经赚到并花掉的点不能被收回。`normalized()` 里从成长值反推峰值并夹住已分配点数，
+所以手改文档既不能凭空多也不会有负数的点。`free_points = granted - allocated` 用饱和减法，
+多分的非法状态只会暂停发点，不会变成负余额。
+
+### 收获按低概率返种，让仙草园能自己续上
+
+`harvest` 先付作物属性点（`5 + 3 × 阶`），再掷一次 `SEED_RETURN_PERMILLE`（150‰，约七分之
+一）：中了就给同属性的种子，其中 `SEED_RETURN_UPGRADE_PERCENT`（30%）升一阶，其余同阶。
+返种概率远低于掉落（装备 60‰ + 种子 50‰），所以「种一轮只回一次种子」是常态，仙草园
+不会变成自给自足的循环经济，但也不会因为种子用完而彻底停摆。返回的种子与掉落走同一个
+`push_seed`，因此自动并进已有的种子堆。
+
 ### 展示面继续分层：overlay 不读 catalog
 
 额头徽章与悬浮 HUD 仍是 AppKit 面板，但它们只画被传进来的字符串。app 侧
-`cultivation_copy(&CultivationView, locale)` 用 `bongocat_i18n` 合成
+`cultivation_copy(&CultivationView, locale, total, remaining)` 用 `bongocat_i18n` 合成
 `OverlayCultivationText { badge, hud, hud_progress_permille }` 后交给 overlay，与番茄钟
 菜单的分工一致：读 catalog 是产品的职责，画文字是面板的职责。
+
+悬浮 HUD 两行：第一行境界·层·成长值进度，第二行累计番茄数与当前任务剩余数。这两个数
+来自 `PomodoroSnapshot` 的 `total_pomodoros` / `remaining_pomodoros`，不是修仙状态机算的
+东西——它们关于「喂养阶梯的会话」，而不是关于「阶梯」。累计数单独记在
+`Document.total_completions` 而不是把任务计数器相加：删掉一条任务不该把已经干过的活
+从历史里抹掉；剩余数在倒计时运行时答当前任务，空闲时答所有未完成任务之和。
 
 ### 删掉交互计数里的等级曲线
 
@@ -81,7 +106,7 @@ SplitMix64）、`curve.rs`（成长值阶梯）、`items.rs`（装备）、`gard
 
 ## 后果
 
-- 一千个 `stats.level.name.*` 键从八种 catalog 消失，换成 `stats.stage.name.1..10` 与
+- 一千个 `stats.level.name.*` 键从全部 catalog 消失，换成 `stats.stage.name.1..10` 与
   `cultivation.*` 一组键；`tools/validate-locales.py` 与
   `catalog_keys_are_referenced_by_source` 双向覆盖仍然强制每键都有调用点。
 - 旧用户升级后从炼气一层重新开始：交互次数不再是等级，成长值从 0 起算。这是需求的
@@ -90,14 +115,18 @@ SplitMix64）、`curve.rs`（成长值阶梯）、`items.rs`（装备）、`gard
   `PomodoroState` 持有 offset；`CalendarDay` 仍是唯一的日历换算入口。
 - 破境的失败次数被记录（`breakthrough_failures`）但暂不参与任何公式，为后续
   「连败保底」留下字段而不必再改文档形状。
-- 仙草成熟按真实时间（每阶 1 小时），页面上的剩余分钟是展示层自己的减法，领域不轮询。
+- 仙草成熟按真实时间（每阶半小时），页面上的剩余分钟是展示层自己的减法，领域不轮询。
+- 自由属性点与返种都是「多一个可以慢慢丢掉的字段」：`peak_level`、`allocated` 都有
+  `#[serde(default)]`，旧文档读进来按已有成长值补算峰值，不会凭空少点也不会凭空发点。
 
 ## 验证
 
 - `cargo test -p bongocat-pomodoro`：成长值换算可逆、满层才可破境、裸装打不过守卫、
-  装备后可破境、连续缺勤翻倍且不破境界下限、同日不重复扣、掉落概率区间、文档回读。
+  装备后可破境、连续缺勤翻倍且不破境界下限、同日不重复扣、掉落概率区间、文档回读；
+  每级发 1 点且只发一次、缺勤掉级但不掉已发的点、收获返种约七分之一且升阶约三成、
+  快照的累计/剩余数在删任务后仍然正确。
 - `cargo test -p bongocat-app`：`cultivation_copy` 的徽章/进度条/百分比三者一致，
-  以及「满层时进度条画满而不是画一个到不了的层」。
-- `cargo test -p bongocat-i18n` + `python3 tools/validate-locales.py`：八语言键集一致，
+  「满层时进度条画满而不是画一个到不了的层」，以及悬浮面板第二行只跟会话数变化。
+- `cargo test -p bongocat-i18n` + `python3 tools/validate-locales.py`：两种语言键集一致，
   且新增键在源码中都有字面量调用点。
 - `cargo fmt --all -- --check`、三组 `cargo clippy ... -D warnings`、`cargo test --workspace`。

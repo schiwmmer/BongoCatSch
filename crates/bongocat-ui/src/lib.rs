@@ -36,27 +36,8 @@ pub(crate) fn settings_language_display_name(
             locale,
             "settings.appearance.language.options.chinese_simplified",
         ),
-        SettingsLanguage::ChineseTraditional => bongocat_i18n::text(
-            locale,
-            "settings.appearance.language.options.chinese_traditional",
-        ),
         SettingsLanguage::English => {
             bongocat_i18n::text(locale, "settings.appearance.language.options.english")
-        }
-        SettingsLanguage::Arabic => {
-            bongocat_i18n::text(locale, "settings.appearance.language.options.arabic")
-        }
-        SettingsLanguage::Vietnamese => {
-            bongocat_i18n::text(locale, "settings.appearance.language.options.vietnamese")
-        }
-        SettingsLanguage::Portuguese => {
-            bongocat_i18n::text(locale, "settings.appearance.language.options.portuguese")
-        }
-        SettingsLanguage::Korean => {
-            bongocat_i18n::text(locale, "settings.appearance.language.options.korean")
-        }
-        SettingsLanguage::French => {
-            bongocat_i18n::text(locale, "settings.appearance.language.options.french")
         }
     }
 }
@@ -282,16 +263,7 @@ pub(crate) mod tests {
         // language still finds their own. "System" is not one of them — it is
         // the choice to follow the system, and it is translated like any other
         // option, so it is asserted separately below.
-        let endonyms = [
-            ("zh-CN", "简体中文"),
-            ("zh-TW", "繁體中文"),
-            ("en-US", "English"),
-            ("ar-SA", "العربية"),
-            ("vi-VN", "Tiếng Việt"),
-            ("pt-BR", "Português"),
-            ("ko-KR", "한국어"),
-            ("fr-FR", "Français"),
-        ];
+        let endonyms = [("zh-CN", "简体中文"), ("en-US", "English")];
         for (language, (code, endonym)) in SettingsLanguage::ALL
             .into_iter()
             .filter(|language| *language != SettingsLanguage::System)
@@ -321,33 +293,6 @@ pub(crate) mod tests {
                 SettingsLanguage::ChineseSimplified,
             ),
             "跟随系统"
-        );
-        assert_eq!(
-            settings_language_display_name(
-                SettingsLanguage::System,
-                SettingsLanguage::ChineseTraditional,
-            ),
-            "跟隨系統"
-        );
-        assert_eq!(
-            settings_language_display_name(SettingsLanguage::System, SettingsLanguage::Arabic),
-            "حسب النظام"
-        );
-        assert_eq!(
-            settings_language_display_name(SettingsLanguage::System, SettingsLanguage::Vietnamese),
-            "Hệ thống"
-        );
-        assert_eq!(
-            settings_language_display_name(SettingsLanguage::System, SettingsLanguage::Portuguese,),
-            "Sistema"
-        );
-        assert_eq!(
-            settings_language_display_name(SettingsLanguage::System, SettingsLanguage::Korean,),
-            "시스템"
-        );
-        assert_eq!(
-            settings_language_display_name(SettingsLanguage::System, SettingsLanguage::French),
-            "Système"
         );
         assert_eq!(
             settings_language_from_display_name("Deutsch", SettingsLanguage::English,),

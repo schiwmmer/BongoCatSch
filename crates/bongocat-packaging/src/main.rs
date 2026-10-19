@@ -118,23 +118,12 @@ const MODEL_DIRECTORY: &str = "models";
 const SWIFT_RESOURCE_BUNDLE: &str = "PermissionFlow_PermissionFlow.bundle";
 /// Repository-relative directory holding the macOS `Info.plist` overlay.
 const MACOS_INFO_PLIST: &str = "macos/Info.plist";
-/// Repository-relative NSIS translation of the installer messages `cargo-packager` ships no text for.
-const VIETNAMESE_INSTALLER_STRINGS: &str = "crates/bongocat-packaging/installer/Vietnamese.nsh";
 /// NSIS installer languages, one per application language and in the order the picker lists them.
 ///
 /// The set is the application's own language list (`bongocat-i18n` catalogs). English comes
 /// first because NSIS falls back to the first language when the system language is not listed,
 /// and `tools/tests/test_packaging_contract.py` keeps this list equal to the catalog set.
-const INSTALLER_LANGUAGES: [&str; 8] = [
-    "English",
-    "SimpChinese",
-    "TradChinese",
-    "Arabic",
-    "Vietnamese",
-    "PortugueseBR",
-    "Korean",
-    "French",
-];
+const INSTALLER_LANGUAGES: [&str; 2] = ["English", "SimpChinese"];
 /// Repository-relative build provenance generator.
 const PROVENANCE_GENERATOR: &str = "tools/record-provenance.py";
 /// Build provenance file name inside the packaged resources.
@@ -929,7 +918,7 @@ fn packaging_config(
     }
 
     if target == ReleaseTarget::WindowsX86_64 {
-        config.nsis = Some(windows_installer(workspace));
+        config.nsis = Some(windows_installer());
     }
 
     Ok(config)
@@ -939,12 +928,10 @@ fn packaging_config(
 ///
 /// The picker only changes the wizard's own text and the uninstaller reuses the stored choice;
 /// the application language still follows its own setting. NSIS preselects the system language
-/// and falls back to English. `cargo-packager` embeds every language except Vietnamese, which
-/// the repository supplies.
-fn windows_installer(workspace: &Path) -> NsisConfig {
+/// and falls back to English. `cargo-packager` embeds the strings for both shipped languages.
+fn windows_installer() -> NsisConfig {
     let mut nsis = NsisConfig::new()
         .languages(INSTALLER_LANGUAGES)
-        .custom_language_files([("Vietnamese", workspace.join(VIETNAMESE_INSTALLER_STRINGS))])
         .display_language_selector(true);
     // Per-user install: no administrator prompt, no machine-level registry keys.
     nsis.install_mode = NSISInstallerMode::CurrentUser;
@@ -2467,15 +2454,10 @@ mod tests {
         ReleaseTarget, is_packaging_junk,
     };
 
-    /// The wizard has to offer the picker, keep English first as the fallback, and carry
-    /// translated installer messages for the one language `cargo-packager` embeds none for.
+    /// The wizard has to offer the picker and keep English first as the fallback.
     #[test]
     fn the_windows_installer_offers_every_language_with_english_as_the_fallback() {
-        let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .and_then(std::path::Path::parent)
-            .expect("the packaging crate lives two levels below the workspace");
-        let nsis = super::windows_installer(workspace);
+        let nsis = super::windows_installer();
 
         assert!(nsis.display_language_selector);
         assert_eq!(nsis.install_mode, super::NSISInstallerMode::CurrentUser);
@@ -2484,11 +2466,9 @@ mod tests {
             nsis.languages.as_deref(),
             Some(INSTALLER_LANGUAGES.map(str::to_owned).as_slice())
         );
-
-        let custom = nsis.custom_language_files.expect("custom language files");
-        assert_eq!(custom.len(), 1);
-        let vietnamese = custom.get("Vietnamese").expect("Vietnamese strings");
-        assert!(vietnamese.is_file(), "{} must exist", vietnamese.display());
+        // Both shipped languages are cargo-packager's own, so the build injects
+        // no translation files of its own.
+        assert!(nsis.custom_language_files.is_none());
     }
 
     /// The repair command is shell, and nothing in the build runs it, so `bash -n`

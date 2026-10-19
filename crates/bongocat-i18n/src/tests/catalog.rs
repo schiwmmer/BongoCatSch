@@ -73,79 +73,51 @@ fn locale_source_uses_nested_snake_case_keys() {
 }
 
 #[test]
-fn missing_locale_text_falls_back_to_english() {
+fn a_shipped_language_answers_in_its_own_catalog() {
     assert_eq!(text("zh-CN", "navigation.settings.title"), "BongoCat 设置");
-    assert_eq!(text("zh-TW", "navigation.settings.title"), "BongoCat 設定");
     assert_eq!(
-        text("ar-SA", "navigation.settings.title"),
-        "إعدادات BongoCat"
-    );
-    assert_eq!(
-        text("vi-VN", "navigation.settings.title"),
-        "Cài đặt BongoCat"
-    );
-    assert_eq!(
-        text("pt-BR", "navigation.settings.title"),
-        "Configurações do BongoCat"
-    );
-    assert_eq!(text("ko-KR", "navigation.settings.title"), "BongoCat 설정");
-    assert_eq!(
-        text("fr-FR", "navigation.settings.title"),
-        "Paramètres de BongoCat"
-    );
-    assert_eq!(
-        text("system", "navigation.settings.title"),
-        "BongoCat Settings"
-    );
-    assert_eq!(
-        text("de-DE", "navigation.settings.title"),
+        text("en-US", "navigation.settings.title"),
         "BongoCat Settings"
     );
 }
 
+#[test]
+fn a_tag_without_a_catalog_falls_back_to_english() {
+    for locale in ["system", "de-DE", "ja-JP", "ru-RU", "ar-EG"] {
+        assert_eq!(
+            text(locale, "navigation.settings.title"),
+            "BongoCat Settings",
+            "{locale} is not a language this product ships"
+        );
+    }
+}
+
 /// Every region variant of a shipped language reaches that language's catalog.
 ///
-/// The catalogs are named after one primary variety each — `ar-SA`, `vi-VN`,
-/// `en-US` — so the codes a machine actually reports are almost never the
-/// shipped name itself. This is the RFC 4647 language-subtag fallback that
-/// browsers' `Intl`, CLDR and the operating system all perform, and it is what
-/// keeps an Egyptian or Saudi machine, a machine reporting a bare `ar` and a
-/// machine reporting `vi` all landing on the same catalog instead of silently
-/// dropping to English.
+/// The catalogs are named after one primary variety each — `en-US`, `zh-CN` —
+/// so the codes a machine actually reports are almost never the shipped name
+/// itself. This is the RFC 4647 language-subtag fallback that browsers' `Intl`,
+/// CLDR and the operating system all perform, and it is what keeps a British,
+/// Australian or bare-English machine and every Chinese tag on the same catalog
+/// instead of silently dropping to English.
 #[test]
 fn a_region_variant_reaches_the_catalog_that_serves_its_language() {
     for (locale, shipped) in [
-        ("ar", "ar-SA"),
-        ("ar-EG", "ar-SA"),
-        ("ar_EG", "ar-SA"),
-        ("AR-sa", "ar-SA"),
-        ("vi", "vi-VN"),
-        ("vi-VN", "vi-VN"),
-        // Brazilian Portuguese is the only Portuguese catalog, so a European
-        // machine reaches it on the primary subtag exactly as an Egyptian one
-        // reaches `ar-SA`.
-        ("pt", "pt-BR"),
-        ("pt-BR", "pt-BR"),
-        ("pt-PT", "pt-BR"),
-        ("pt_BR", "pt-BR"),
-        // Korean is the only Korean catalog, so a machine reporting a bare
-        // `ko` or a `ko-KP` region reaches it on the primary subtag exactly as
-        // an Egyptian one reaches `ar-SA`.
-        ("ko", "ko-KR"),
-        ("ko-KR", "ko-KR"),
-        ("ko-KP", "ko-KR"),
-        ("ko_KR", "ko-KR"),
-        // French is the only French catalog, so a Canadian, Belgian or Swiss
-        // machine reaches it on the primary subtag exactly as a European
-        // Portuguese one reaches `pt-BR`.
-        ("fr", "fr-FR"),
-        ("fr-FR", "fr-FR"),
-        ("fr-CA", "fr-FR"),
-        ("fr_BE", "fr-FR"),
-        ("fr-CH", "fr-FR"),
         ("en", "en-US"),
         ("en-GB", "en-US"),
         ("en_AU", "en-US"),
+        ("EN-us", "en-US"),
+        ("zh", "zh-CN"),
+        ("zh-CN", "zh-CN"),
+        ("zh_CN", "zh-CN"),
+        ("zh-Hans", "zh-CN"),
+        ("zh-Hans-CN", "zh-CN"),
+        // One Chinese catalog means a Traditional tag reads Simplified copy:
+        // the product ships one Chinese translation, not two.
+        ("zh-TW", "zh-CN"),
+        ("zh-HK", "zh-CN"),
+        ("zh-Hant", "zh-CN"),
+        ("zh_Hant_TW", "zh-CN"),
     ] {
         assert_eq!(
             locale_code(locale),
@@ -160,61 +132,11 @@ fn a_region_variant_reaches_the_catalog_that_serves_its_language() {
     }
 }
 
-/// A language the product does not ship falls back to the default catalog.
-///
-/// `locale_code` takes a free-form tag, so a language we ship no catalog for —
-/// or a typo in a `code()` arm — lands on the default. That is the intended
-/// fallback, and it is the only outcome for a tag whose primary subtag matches
-/// nothing the product ships.
+/// The product ships exactly two catalogs, and both are reachable.
 #[test]
-fn a_language_the_product_does_not_ship_falls_back_to_the_default() {
-    for locale in ["de-DE", "ja-JP", "ru-RU"] {
-        assert_eq!(
-            text(locale, "navigation.settings.title"),
-            text(DEFAULT, "navigation.settings.title"),
-            "{locale} is not a language this product ships"
-        );
+fn the_shipped_catalog_list_matches_the_files() {
+    assert_eq!(crate::SHIPPED_LOCALES, ["en-US", "zh-CN"]);
+    for locale in crate::SHIPPED_LOCALES {
+        assert_eq!(locale_code(locale), locale);
     }
-}
-
-/// Simplified and Traditional are different scripts, not regional variants.
-///
-/// The primary subtag cannot separate them — both are `zh` — so the `zh` branch
-/// decides by script subtag instead, and each form reaches its own catalog. A
-/// Traditional tag must never read the Simplified catalog: the two are different
-/// written forms, and the region subtag is the only thing a platform reports
-/// when it omits `hant`/`hans`, so both spellings have to land correctly.
-#[test]
-fn each_chinese_script_reaches_its_own_catalog() {
-    for locale in [
-        "zh-TW",
-        "zh-HK",
-        "zh-MO",
-        "zh-Hant",
-        "zh-Hant-HK",
-        "zh_Hant_TW",
-    ] {
-        assert_eq!(
-            locale_code(locale),
-            "zh-TW",
-            "{locale} is Traditional Chinese"
-        );
-        assert_eq!(
-            text(locale, "navigation.settings.title"),
-            text("zh-TW", "navigation.settings.title"),
-            "{locale} rendered different copy from zh-TW"
-        );
-    }
-    for locale in ["zh", "zh-CN", "zh-Hans", "zh-Hans-CN", "zh_CN"] {
-        assert_eq!(
-            locale_code(locale),
-            "zh-CN",
-            "{locale} is Simplified Chinese"
-        );
-    }
-    // The two scripts are different catalogs, not one catalog read two ways.
-    assert_ne!(
-        text("zh-CN", "navigation.settings.title"),
-        text("zh-TW", "navigation.settings.title")
-    );
 }

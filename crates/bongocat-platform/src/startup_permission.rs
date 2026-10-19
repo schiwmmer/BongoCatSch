@@ -318,7 +318,7 @@ mod platform {
     /// it. It is also the behaviour a language setting is expected to have: the app's other AppKit
     /// surfaces follow the same value.
     ///
-    /// `vi-VN` has no upstream catalogue and resolves to English, which ADR-0078 records.
+    /// `de-DE` has no upstream catalogue and resolves to English, which ADR-0078 records.
     fn apply_flow_language(locale: &str) {
         let languages = NSArray::from_retained_slice(&[NSString::from_str(locale)]);
         // SAFETY: `NSArray` is an Objective-C object and `AnyObject` is the top type every object

@@ -80,6 +80,39 @@ fn the_whole_task_lifecycle_a_user_walks_through() {
 }
 
 #[test]
+fn the_hover_counts_survive_a_deleted_task_and_follow_the_running_one() {
+    let mut state = PomodoroState::empty();
+    let first = create(&mut state, "write the summary", 4);
+    let second = create(&mut state, "read the paper", 3);
+
+    // Nothing has run: the two open plans are what the day still owes.
+    let snapshot = state.snapshot(1);
+    assert_eq!(snapshot.total_pomodoros, 0);
+    assert_eq!(snapshot.remaining_pomodoros, 7);
+
+    state.apply(PomodoroCommand::StartTask { task_id: first }, 1_000);
+    let remaining = state.timer().remaining_seconds();
+    state.advance(Duration::from_secs(u64::from(remaining)), 2_000);
+    let snapshot = state.snapshot(2);
+    assert_eq!(snapshot.total_pomodoros, 1, "the session is counted");
+    // With no countdown running the answer is every open task again.
+    assert_eq!(snapshot.remaining_pomodoros, 6);
+
+    // A running countdown answers for its own task, which is the number the
+    // user is working against.
+    state.apply(PomodoroCommand::StartTask { task_id: second }, 3_000);
+    assert_eq!(state.snapshot(3).remaining_pomodoros, 3);
+
+    // Deleting the plan does not delete the work: the lifetime total is not
+    // the sum of the task counters.
+    state.apply(PomodoroCommand::Abandon, 3_000);
+    state.apply(PomodoroCommand::DeleteTask { task_id: first }, 4_000);
+    let snapshot = state.snapshot(4);
+    assert_eq!(snapshot.total_pomodoros, 1);
+    assert_eq!(snapshot.remaining_pomodoros, 3);
+}
+
+#[test]
 fn a_paused_session_survives_a_long_absence() {
     let mut state = PomodoroState::empty();
     let task_id = create(&mut state, "deep work", 1);

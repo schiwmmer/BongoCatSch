@@ -20,42 +20,28 @@ pub const DEFAULT_LOCALE: &str = "en-US";
 
 /// Every catalog this crate ships, in the order the language selector shows.
 ///
-/// The names are region-qualified the way a single-catalog-per-language release
-/// is conventionally named: the subtag nominates the primary variety the copy
-/// was written in, and it does not claim a regional specialisation the catalog
-/// does not carry. `en-US` is the same kind of name — it serves `en-GB` just as
-/// `ar-SA` serves `ar-EG`.
-pub const SHIPPED_LOCALES: [&str; 8] = [
-    "en-US", "zh-CN", "zh-TW", "ar-SA", "vi-VN", "pt-BR", "ko-KR", "fr-FR",
-];
+/// The product ships two: English and Simplified Chinese. The names stay
+/// region-qualified the way a single-catalog-per-language release is
+/// conventionally named — the subtag nominates the variety the copy was written
+/// in and claims no regional specialisation the catalog does not carry.
+pub const SHIPPED_LOCALES: [&str; 2] = ["en-US", "zh-CN"];
 
 /// Resolve any locale tag onto the catalog that serves it.
 ///
 /// This is the RFC 4647 language-subtag fallback every other runtime already
 /// does — browsers' `Intl`, CLDR, and the operating system itself all truncate
-/// right-to-left until a known tag is hit, so `ar-EG` falls back to `ar` rather
-/// than to English. Matching the primary subtag against the shipped catalogs is
-/// that same rule, and it is what keeps a machine reporting `vi` or `vi-VN` or
-/// `ar` or `ar-EG` or `pt` or `pt-PT` or `ko` or `fr-CA` on one catalog instead
-/// of eight.
+/// right-to-left until a known tag is hit, so `en-GB` falls back to `en` rather
+/// than to English-by-luck. Matching the primary subtag against the shipped
+/// catalogs is that same rule, and it is what puts a machine reporting `zh`,
+/// `zh-CN`, `zh-Hans` or `zh-Hant` on the one Chinese catalog the product has.
 ///
-/// `zh` is the one case that cannot be decided by the primary subtag alone.
-/// Simplified and Traditional are different written forms rather than regional
-/// variants, and both ship their own catalog. Every `zh` tag therefore resolves
-/// from inside the `zh` branch by script subtag, which is the one thing the
-/// region subtag cannot express on its own. Letting it fall through to the
-/// subtag loop would hand Simplified-tagged machines Traditional copy, or the
-/// other way round.
+/// With a single Chinese catalog there is nothing for a script subtag to choose
+/// between, so every `zh` tag reaches `zh-CN`. A Traditional-Chinese user reads
+/// Simplified copy, which is the honest outcome of shipping one Chinese
+/// translation rather than two.
 pub fn locale_code(code: &str) -> &str {
     let normalized = code.replace('_', "-").to_ascii_lowercase();
     let language = normalized.split('-').next().unwrap_or("");
-    if language == "zh" {
-        return if is_simplified_chinese(&normalized) {
-            "zh-CN"
-        } else {
-            "zh-TW"
-        };
-    }
     SHIPPED_LOCALES
         .iter()
         .copied()
@@ -65,16 +51,6 @@ pub fn locale_code(code: &str) -> &str {
                 .is_some_and(|(shipped_language, _)| shipped_language == language)
         })
         .unwrap_or(DEFAULT_LOCALE)
-}
-
-/// Whether a `zh` tag names the Simplified script rather than the Traditional one.
-///
-/// The script subtag (`hant`/`hans`) is authoritative when it is present; the
-/// `TW`/`HK`/`MO` region subtags are the spellings platforms use when it is not.
-fn is_simplified_chinese(normalized: &str) -> bool {
-    !normalized
-        .split('-')
-        .any(|subtag| matches!(subtag, "hant" | "tw" | "hk" | "mo"))
 }
 
 /// Translate a stable key for the requested locale.

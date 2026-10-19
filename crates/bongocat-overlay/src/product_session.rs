@@ -103,7 +103,8 @@ pub struct OverlayPomodoroCompletion {
 pub struct OverlayCultivationText {
     /// The realm and layer riding the forehead: short enough for a badge.
     pub badge: String,
-    /// The two-line hover text: the realm, then the growth behind it.
+    /// The hover text: the realm and the growth behind it on the first line,
+    /// the pomodoros done and still to go on the second.
     pub hud: String,
     /// How far through the current layer the cultivator is, in parts per
     /// thousand. The HUD divides it back down for its bar.

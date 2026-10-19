@@ -431,6 +431,8 @@ mod tests {
             timer,
             focus_minutes: DEFAULT_FOCUS_MINUTES,
             last_completion: None,
+            total_pomodoros: 0,
+            remaining_pomodoros: 0,
             cultivation: Cultivation::default().view(),
         }
     }

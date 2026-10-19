@@ -212,7 +212,7 @@ fn a_planted_seed_ripens_on_the_clock_and_pays_an_attribute() {
     let harvested = cultivation
         .harvest(0, 1_000 + grow_seconds(1))
         .expect("a ripe crop");
-    assert_eq!(harvested.attribute, Attribute::Root);
+    assert_eq!(harvested.crop.attribute, Attribute::Root);
     assert_eq!(
         cultivation.crop_attributes().root,
         harvest_points(1),
@@ -315,4 +315,138 @@ fn document_seeds(cultivation: &mut Cultivation, attribute: Attribute, tier: u8,
         count,
     });
     *cultivation = Cultivation::new(document);
+}
+
+#[test]
+fn every_level_pays_one_point_the_user_places() {
+    // Level one has bought nothing yet: the ladder starts where the first
+    // point would be paid, not before it.
+    let mut cultivation = Cultivation::default();
+    assert_eq!(cultivation.level(), 1);
+    assert_eq!(cultivation.free_points(), 0);
+    assert!(
+        !cultivation.allocate(Attribute::Strength),
+        "nothing to place"
+    );
+
+    // Two default sessions reach the second layer; the first one does not.
+    cultivation.on_session_completed(1_000, day(20_000), 25);
+    assert_eq!(cultivation.level(), 1);
+    assert_eq!(cultivation.free_points(), 0);
+    cultivation.on_session_completed(2_000, day(20_000), 25);
+    assert_eq!(cultivation.level(), 2);
+    assert_eq!(cultivation.free_points(), FREE_POINTS_PER_LEVEL);
+
+    let before = cultivation.attributes().strength;
+    assert!(cultivation.allocate(Attribute::Strength));
+    assert_eq!(
+        cultivation.attributes().strength,
+        before + 1,
+        "the placed point is part of the attribute total"
+    );
+    assert_eq!(cultivation.free_points(), 0);
+    assert_eq!(cultivation.view().allocated_attributes.strength, 1);
+    assert!(!cultivation.allocate(Attribute::Root), "the point is spent");
+}
+
+#[test]
+fn an_absence_penalty_lowers_the_level_but_never_the_points_earned() {
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        growth: 1_000,
+        last_active_day: Some(20_000),
+        charged_through_day: Some(20_000),
+        ..CultivationDocument::default()
+    });
+    let granted = cultivation.granted_points();
+    let level = cultivation.level();
+    assert!(granted > 0, "level {level} has paid points");
+
+    let charge = cultivation
+        .apply_absence(day(20_010))
+        .expect("nine missed days");
+    assert!(charge.charged > 0);
+    assert!(cultivation.level() < level, "the ladder came down");
+    assert_eq!(
+        cultivation.granted_points(),
+        granted,
+        "a penalty costs growth, not the points already earned"
+    );
+}
+
+#[test]
+fn a_reached_level_is_not_paid_twice() {
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        growth: 1_000,
+        ..CultivationDocument::default()
+    });
+    for second in 1..=20i64 {
+        cultivation.on_session_completed(second * 7, day(20_000), 25);
+    }
+    assert_eq!(cultivation.level(), 100, "the cap holds the level down");
+    assert_eq!(
+        cultivation.granted_points(),
+        99 * FREE_POINTS_PER_LEVEL,
+        "the peak is the highest level, not the sum of every session"
+    );
+}
+
+#[test]
+fn a_harvest_gives_a_seed_back_about_one_time_in_seven() {
+    let mut rng = super::Rng::seeded(0x5EED_5EED);
+    let mut returns = 0u32;
+    let mut upgraded = 0u32;
+    for _ in 0..10_000 {
+        if let Some((attribute, tier)) = super::garden::seed_return(Attribute::Root, 3, &mut rng) {
+            returns += 1;
+            assert_eq!(attribute, Attribute::Root, "the seed keeps its attribute");
+            assert!(
+                (3..=4).contains(&tier),
+                "a returned seed is the same tier or one higher, not {tier}"
+            );
+            if tier == 4 {
+                upgraded += 1;
+            }
+        }
+    }
+    assert!(
+        (1_200..=1_800).contains(&returns),
+        "10,000 harvests returned {returns} seeds, which is not the ~15% the rate describes"
+    );
+    let upgrade_percent = upgraded * 100 / returns.max(1);
+    assert!(
+        (20..=40).contains(&upgrade_percent),
+        "{upgrade_percent}% of returns were a tier higher, which is not the ~30% intended"
+    );
+}
+
+#[test]
+fn a_harvest_that_gives_a_seed_back_puts_it_in_the_satchel() {
+    let mut cultivation = Cultivation::default();
+    let mut returned = None;
+    for step in 0..200i64 {
+        let planted_at = step * 10_000;
+        document_seeds(&mut cultivation, Attribute::Spirit, 2, 1);
+        assert!(cultivation.plant(Attribute::Spirit, 2, planted_at));
+        let outcome = cultivation
+            .harvest(0, planted_at + grow_seconds(2))
+            .expect("a ripe crop");
+        if let Some(seed) = outcome.seed {
+            returned = Some(seed);
+            break;
+        }
+    }
+    let (attribute, tier) = returned.expect("200 harvests at 15% return at least one seed");
+    assert_eq!(attribute, Attribute::Spirit);
+    assert_eq!(
+        cultivation.view().last_seed_return.map(|seed| seed.tier),
+        Some(tier)
+    );
+    assert!(
+        cultivation
+            .view()
+            .seeds
+            .iter()
+            .any(|stack| stack.attribute == attribute && stack.tier == tier),
+        "the returned seed is plantable"
+    );
 }

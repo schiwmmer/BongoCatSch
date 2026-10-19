@@ -15,11 +15,12 @@ use std::array;
 
 use super::{
     Attribute, Attributes, BattleReport, CultivationDocument, EQUIPMENT_DROP_PERMILLE, EquipSlot,
-    EquipmentRecord, Guardian, LAYERS_PER_STAGE, MAX_LEVEL, PLOT_COUNT, Rarity, Realm, Rng,
-    SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack, absence_penalty, base_attributes,
+    EquipmentRecord, FREE_POINTS_PER_LEVEL, Guardian, LAYERS_PER_STAGE, MAX_LEVEL, PLOT_COUNT,
+    Rarity, Realm, Rng, SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack, absence_penalty,
+    base_attributes,
     battle::{guardian_for, resolve},
     curve::{level_for_growth, stage_floor, threshold_for},
-    garden::{CropRecord, harvest_points},
+    garden::{CropRecord, harvest_points, seed_return},
     items::roll_equipment,
 };
 use crate::CalendarDay;
@@ -60,6 +61,16 @@ pub struct BreakthroughOutcome {
     pub target: Realm,
     /// The gear the win paid. A loss pays nothing and takes nothing.
     pub reward: Option<EquipmentRecord>,
+}
+
+/// What a harvest took from a plot.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HarvestOutcome {
+    /// The crop that was picked.
+    pub crop: CropRecord,
+    /// The seed the harvest gave back, if it gave one: the same attribute, the
+    /// same tier or one higher.
+    pub seed: Option<(Attribute, u8)>,
 }
 
 /// One owned item, as a surface reads it.
@@ -125,11 +136,15 @@ pub struct CultivationView {
     /// The growth the next level needs, or `None` at the realm's cap or the top
     /// of the ladder.
     pub next: Option<u32>,
-    /// Level, gear and herbs together.
+    /// Level, gear, herbs and the points the user placed together.
     pub attributes: Attributes,
     pub level_attributes: Attributes,
     pub equipment_attributes: Attributes,
     pub crop_attributes: Attributes,
+    /// The points the user placed by hand.
+    pub allocated_attributes: Attributes,
+    /// The free points still waiting to be placed.
+    pub free_points: u32,
     pub power: u32,
     pub equipped: [Option<ItemView>; SLOT_COUNT],
     pub inventory: Vec<ItemView>,
@@ -140,6 +155,8 @@ pub struct CultivationView {
     pub last_breakthrough: Option<BreakthroughOutcome>,
     pub last_absence: Option<AbsenceCharge>,
     pub last_drop: Option<DropView>,
+    /// The seed the most recent harvest gave back, if it gave one.
+    pub last_seed_return: Option<SeedView>,
 }
 
 /// The cultivation ladder of one user.
@@ -152,6 +169,7 @@ pub struct Cultivation {
     last_absence: Option<AbsenceCharge>,
     last_drop: Option<Drop>,
     last_breakthrough: Option<BreakthroughOutcome>,
+    last_seed_return: Option<SeedView>,
 }
 
 impl Default for Cultivation {
@@ -169,6 +187,7 @@ impl Cultivation {
             last_absence: None,
             last_drop: None,
             last_breakthrough: None,
+            last_seed_return: None,
         }
     }
 
@@ -217,11 +236,47 @@ impl Cultivation {
         self.document.crop_bonus
     }
 
-    /// Every attribute together: level, gear and herbs.
+    /// The points the user placed by hand.
+    pub fn allocated_attributes(&self) -> Attributes {
+        self.document.allocated
+    }
+
+    /// The points the peak level has paid so far.
+    ///
+    /// A cultivator starts at level one, so the count is one less than the
+    /// highest level ever reached: level one has bought nothing yet.
+    pub fn granted_points(&self) -> u32 {
+        u32::from(self.document.peak_level.saturating_sub(1)) * FREE_POINTS_PER_LEVEL
+    }
+
+    /// The points still waiting to be placed.
+    ///
+    /// A hand-edited document can hold more allocated points than the peak paid.
+    /// The subtraction saturates rather than paying a negative balance, and no
+    /// new point is granted until the peak catches up.
+    pub fn free_points(&self) -> u32 {
+        self.granted_points()
+            .saturating_sub(self.document.allocated.total())
+    }
+
+    /// Place one free point on an attribute.
+    ///
+    /// Returns whether anything moved: with nothing left to place the call is a
+    /// no-op, so a click on a full attribute cannot overwrite a different one.
+    pub fn allocate(&mut self, attribute: Attribute) -> bool {
+        if self.free_points() == 0 {
+            return false;
+        }
+        attribute.add_to(&mut self.document.allocated, 1);
+        true
+    }
+
+    /// Every attribute together: level, gear, herbs and placed points.
     pub fn attributes(&self) -> Attributes {
         self.level_attributes()
             .plus(self.equipment_attributes())
             .plus(self.crop_attributes())
+            .plus(self.allocated_attributes())
     }
 
     /// The combat power everything together buys.
@@ -292,6 +347,7 @@ impl Cultivation {
         self.document.last_active_day = Some(today.day_number());
         self.document.missed_streak = 0;
         self.document.charged_through_day = Some(today.day_number());
+        self.note_peak_level();
         let drop = self.roll_drop(now_unix);
         self.last_drop = drop;
         SessionReward {
@@ -299,6 +355,14 @@ impl Cultivation {
             absence,
             drop,
         }
+    }
+
+    /// Remember a new high-water mark for the level.
+    ///
+    /// The free points are paid against this rather than the live level, so a
+    /// missed week lowers the ladder but never the points already earned.
+    fn note_peak_level(&mut self) {
+        self.document.peak_level = self.document.peak_level.max(self.level());
     }
 
     /// The one roll a finished session makes: gear, or a seed, or nothing.
@@ -381,16 +445,34 @@ impl Cultivation {
     }
 
     /// Pick a ripe crop, if the plot holds one.
-    pub fn harvest(&mut self, plot: usize, now_unix: i64) -> Option<CropRecord> {
-        let plot = self.document.plots.get_mut(plot)?;
-        let crop = plot.crop?;
-        if !crop.is_ready(now_unix) {
-            return None;
-        }
-        plot.crop = None;
+    ///
+    /// The harvest pays its attribute points, and then rolls once for a seed:
+    /// the same attribute, the same tier or one higher. That roll is what keeps
+    /// a garden from running dry, and it is deliberately rare next to the
+    /// points the crop already paid.
+    pub fn harvest(&mut self, plot: usize, now_unix: i64) -> Option<HarvestOutcome> {
+        let crop = {
+            let plot = self.document.plots.get_mut(plot)?;
+            let crop = plot.crop?;
+            if !crop.is_ready(now_unix) {
+                return None;
+            }
+            plot.crop = None;
+            crop
+        };
         crop.attribute
             .add_to(&mut self.document.crop_bonus, harvest_points(crop.tier));
-        Some(crop)
+        let mut rng = self.rng(now_unix);
+        let seed = seed_return(crop.attribute, crop.tier, &mut rng);
+        if let Some((attribute, tier)) = seed {
+            self.push_seed(attribute, tier);
+        }
+        self.last_seed_return = seed.map(|(attribute, tier)| SeedView {
+            attribute,
+            tier,
+            count: 1,
+        });
+        Some(HarvestOutcome { crop, seed })
     }
 
     /// Wear one owned item in its slot, replacing what was there.
@@ -454,6 +536,9 @@ impl Cultivation {
         self.document.realm = target.index() as u8;
         self.document.growth = self.document.growth.max(stage_floor(target.index()));
         self.document.breakthrough_failures = 0;
+        // The realm lifts the level ceiling, so the layers the growth already
+        // bought become real levels — and real free points — now.
+        self.note_peak_level();
         let mut rng = self.rng(0);
         let reward = self.push_equipment(target.index() as u8 + 1, &mut rng);
         let outcome = BreakthroughOutcome {
@@ -487,9 +572,11 @@ impl Cultivation {
         let level_attributes = self.level_attributes();
         let equipment_attributes = self.equipment_attributes();
         let crop_attributes = self.crop_attributes();
+        let allocated_attributes = self.allocated_attributes();
         let attributes = level_attributes
             .plus(equipment_attributes)
-            .plus(crop_attributes);
+            .plus(crop_attributes)
+            .plus(allocated_attributes);
         let mut equipped: [Option<ItemView>; SLOT_COUNT] = array::from_fn(|_| None);
         let mut inventory = Vec::new();
         for item in &self.document.equipment {
@@ -542,6 +629,8 @@ impl Cultivation {
             level_attributes,
             equipment_attributes,
             crop_attributes,
+            allocated_attributes,
+            free_points: self.free_points(),
             power: attributes.power(),
             equipped,
             inventory,
@@ -577,6 +666,7 @@ impl Cultivation {
                 }),
                 Drop::Seed { attribute, tier } => DropView::Seed { attribute, tier },
             }),
+            last_seed_return: self.last_seed_return,
         }
     }
 }

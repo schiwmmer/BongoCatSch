@@ -393,13 +393,7 @@
         "options": {
           "system": "System",
           "chinese_simplified": "简体中文",
-          "chinese_traditional": "繁體中文",
-          "english": "English",
-          "arabic": "العربية",
-          "vietnamese": "Tiếng Việt",
-          "portuguese": "Português",
-          "korean": "한국어",
-          "french": "Français"
+          "english": "English"
         }
       }
     },
@@ -611,7 +605,8 @@
     "hud": {
       "progress": "%{value} / %{next} growth · %{percent}%",
       "total": "growth %{value}",
-      "realm": "%{stage} · layer %{layer}"
+      "realm": "%{stage} · layer %{layer}",
+      "pomodoros": "%{done} pomodoros done · %{left} to go"
     },
     "stage": {
       "name": {
@@ -634,11 +629,13 @@
     "progress": "%{value} / %{next} growth",
     "capped": "This realm is full — break through to go further",
     "attributes": "Attributes",
+    "free_points": "%{points} points to place",
     "attribute": {
       "root": "Constitution",
       "strength": "Strength",
       "spirit": "Spirit power",
-      "agility": "Agility"
+      "agility": "Agility",
+      "add": "+1"
     },
     "power": "power %{power}",
     "power_level": "level %{value}",
@@ -690,7 +687,8 @@
     "notice": {
       "absence": "%{days} days without practice — growth -%{charged}",
       "drop_equipment": "Found gear: %{item}",
-      "drop_seed": "Found a seed: %{item}"
+      "drop_seed": "Found a seed: %{item}",
+      "seed_return": "The harvest brought back %{seed}"
     }
   }
 }

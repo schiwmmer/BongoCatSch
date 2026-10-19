@@ -34,170 +34,66 @@ use bongocat_input::ModifierKey;
 
 #[test]
 fn system_locale_resolves_to_a_shipped_language() {
-    assert_eq!(
-        Language::from_system_locale("zh-Hans-CN"),
-        Language::ChineseSimplified
-    );
-    assert_eq!(
-        Language::from_system_locale("zh_Hant_HK"),
-        Language::ChineseTraditional
-    );
-    assert_eq!(Language::from_system_locale("en-GB"), Language::English);
-    assert_eq!(Language::from_system_locale("de-DE"), Language::English);
-    // One catalog serves every Arabic region, so the region subtag is
-    // deliberately not part of the match: a machine in Saudi Arabia and one in
-    // Egypt both report a locale the product reads from the same `ar-SA`
-    // catalog. This is the RFC 4647 language-subtag fallback.
-    for locale in ["ar", "ar-EG", "ar-SA", "ar_MA"] {
+    // The product ships two catalogs, so the only decision left is "Chinese or
+    // English". Every `zh` tag reaches the one Chinese catalog, whatever script
+    // or region the platform reports: a Traditional reader is served
+    // Simplified copy rather than English.
+    for locale in [
+        "zh",
+        "zh-CN",
+        "zh-Hans",
+        "zh-Hans-CN",
+        "zh_SG",
+        "zh-TW",
+        "zh-HK",
+        "zh-MO",
+        "zh-Hant",
+        "zh_Hant_HK",
+    ] {
         assert_eq!(
             Language::from_system_locale(locale),
-            Language::Arabic,
-            "{locale} is an Arabic locale"
+            Language::ChineseSimplified,
+            "{locale} is a Chinese locale"
         );
     }
-    // Vietnamese takes the same shape: `vi` and `vi-VN` both reach the one
-    // shipped catalog, as do the English variants that are not `en-US`.
-    for locale in ["vi", "vi-VN", "vi_VN"] {
-        assert_eq!(
-            Language::from_system_locale(locale),
-            Language::Vietnamese,
-            "{locale} is a Vietnamese locale"
-        );
-    }
-    for locale in ["en", "en-GB", "en_AU", "en-CA"] {
+    for locale in ["en", "en-GB", "en_AU", "en-CA", "en-US"] {
         assert_eq!(
             Language::from_system_locale(locale),
             Language::English,
             "{locale} is an English locale"
         );
     }
-    // Portuguese takes the same shape: the copy was written for Brazil, and a
-    // machine reporting plain `pt` or European `pt-PT` reaches it on the primary
-    // subtag rather than falling back to English.
-    for locale in ["pt", "pt-BR", "pt_BR", "pt-PT"] {
+    // A language the product does not ship falls back to English rather than
+    // reading a catalog it does not have.
+    for locale in [
+        "de-DE", "ja-JP", "ru-RU", "ar-EG", "vi-VN", "pt-BR", "ko-KR", "fr-CA",
+    ] {
         assert_eq!(
             Language::from_system_locale(locale),
-            Language::Portuguese,
-            "{locale} is a Portuguese locale"
+            Language::English,
+            "{locale} is not a language this product ships"
         );
     }
-    // Korean takes the same shape: the copy was written for South Korea, and a
-    // machine reporting plain `ko` reaches it on the primary subtag rather than
-    // falling back to English.
-    for locale in ["ko", "ko-KR", "ko_KR", "ko-KP"] {
-        assert_eq!(
-            Language::from_system_locale(locale),
-            Language::Korean,
-            "{locale} is a Korean locale"
-        );
-    }
-    // French takes the same shape: the copy was written for France, and a
-    // Canadian, Belgian or Swiss machine reaches it on the primary subtag rather
-    // than falling back to English.
-    for locale in ["fr", "fr-FR", "fr_FR", "fr-CA", "fr-BE", "fr-CH"] {
-        assert_eq!(
-            Language::from_system_locale(locale),
-            Language::French,
-            "{locale} is a French locale"
-        );
-    }
-    // Chinese shares the `zh` subtag across two scripts, so it is the one
-    // language the primary subtag cannot classify. The script subtag decides
-    // when the platform reports one, and the `TW`/`HK`/`MO` region subtags
-    // decide when it does not; both spellings reach the `zh-TW` catalog rather
-    // than reading `zh-CN` or dropping to English.
-    for locale in ["zh-TW", "zh-HK", "zh-MO", "zh-Hant", "zh-Hant-HK"] {
-        assert_eq!(
-            Language::from_system_locale(locale),
-            Language::ChineseTraditional,
-            "{locale} is Traditional Chinese"
-        );
-    }
-    for locale in ["zh", "zh-CN", "zh-Hans", "zh-Hans-CN", "zh_SG"] {
-        assert_eq!(
-            Language::from_system_locale(locale),
-            Language::ChineseSimplified,
-            "{locale} is Simplified Chinese"
-        );
-    }
+
     assert_eq!(
         Language::System.resolve(Language::ChineseSimplified),
         Language::ChineseSimplified
     );
     assert_eq!(
-        Language::System.resolve(Language::ChineseTraditional),
-        Language::ChineseTraditional
-    );
-    assert_eq!(Language::System.resolve(Language::Arabic), Language::Arabic);
-    assert_eq!(
-        Language::System.resolve(Language::Vietnamese),
-        Language::Vietnamese
-    );
-    assert_eq!(
-        Language::System.resolve(Language::Portuguese),
-        Language::Portuguese
-    );
-    assert_eq!(Language::System.resolve(Language::Korean), Language::Korean);
-    assert_eq!(Language::System.resolve(Language::French), Language::French);
-    assert_eq!(
         Language::System.resolve(Language::System),
         Language::English
     );
+    assert_eq!(
+        Language::System.resolve(Language::English),
+        Language::English
+    );
+    // An explicit choice never follows the system, in either direction.
     assert_eq!(
         Language::English.resolve(Language::ChineseSimplified),
         Language::English
     );
     assert_eq!(
         Language::ChineseSimplified.resolve(Language::English),
-        Language::ChineseSimplified
-    );
-    // An explicit choice never follows the system, in either direction.
-    assert_eq!(
-        Language::English.resolve(Language::Arabic),
-        Language::English
-    );
-    assert_eq!(
-        Language::Arabic.resolve(Language::ChineseSimplified),
-        Language::Arabic
-    );
-    assert_eq!(
-        Language::Vietnamese.resolve(Language::ChineseSimplified),
-        Language::Vietnamese
-    );
-    assert_eq!(
-        Language::English.resolve(Language::Vietnamese),
-        Language::English
-    );
-    assert_eq!(
-        Language::Portuguese.resolve(Language::ChineseSimplified),
-        Language::Portuguese
-    );
-    assert_eq!(
-        Language::English.resolve(Language::Portuguese),
-        Language::English
-    );
-    assert_eq!(
-        Language::Korean.resolve(Language::ChineseSimplified),
-        Language::Korean
-    );
-    assert_eq!(
-        Language::English.resolve(Language::Korean),
-        Language::English
-    );
-    assert_eq!(
-        Language::French.resolve(Language::ChineseSimplified),
-        Language::French
-    );
-    assert_eq!(
-        Language::English.resolve(Language::French),
-        Language::English
-    );
-    assert_eq!(
-        Language::ChineseTraditional.resolve(Language::ChineseSimplified),
-        Language::ChineseTraditional
-    );
-    assert_eq!(
-        Language::ChineseSimplified.resolve(Language::ChineseTraditional),
         Language::ChineseSimplified
     );
 }
@@ -219,7 +115,7 @@ fn language_codes_round_trip_and_unsupported_values_are_rejected() {
     assert!(parse_config(fixture.as_bytes()).is_err());
 }
 
-/// A document written before Arabic existed must still load and validate.
+/// A document written before a language was dropped must still load and validate.
 ///
 /// The enum only gained a variant, so every value an older build could write is
 /// still one this build accepts, and a persisted configuration is not migrated
@@ -227,7 +123,7 @@ fn language_codes_round_trip_and_unsupported_values_are_rejected() {
 /// round-tripped through `Default`, because serializing the current default
 /// would prove nothing about what the old bytes contain.
 #[test]
-fn a_configuration_written_before_arabic_existed_still_loads() {
+fn a_configuration_written_before_the_language_list_shrank_still_loads() {
     let mut document = serde_json::to_value(NativeConfig::default()).expect("serialize default");
     for language in ["system", "zh-CN", "en-US"] {
         document["appearance"]["language"] = serde_json::Value::String(language.to_owned());

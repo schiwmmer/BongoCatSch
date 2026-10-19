@@ -4,13 +4,8 @@
 
 ### ✨ Features
 
-- macOS interaction stats and levels: hovering the model window shows a small panel underneath with the current level and lifetime interaction count. One keyboard or mouse press is one interaction, and the level grows with the lifetime total.
-- Levels stretch to 1000: the original ten-level pacing stays intact across the first hundred levels (level 100 = 200,000, one title every ten levels), then scales tenfold to level 1000 = 2,000,000; the panel gains an upgrade progress bar with the percentage.
-- All 1000 levels carry a fully authored name of their own: ten stages (Kittenhood to Cat God) of a hundred levels each, every name globally distinct with no ordinal tiers, the names themselves climbing from humble beginnings to godhood. The Simplified Chinese and English tables are complete; the remaining six languages land in the next batch.
-- Tightened the stats panel copy: the progress line drops the leading labels ("Total 10,005 · 5 to go · 3%"), so the panel and its progress bar shrink with the shorter text.
-- The level number now rides the cat's forehead: a small bare number pinned to the top center of the model window, following the cat through moves and resizes and hiding whenever the cat hides.
 - A Pomodoro timer, started from the "Start Pomodoro" menu entry on macOS: name a task, set how many focus sessions it needs, and a countdown floats above the cat as the session runs. A finished session plays a short chime, and a right-click on the countdown pauses or abandons it. Tasks are kept in a separate `pomodoro-tasks.json`, and a countdown does not survive a restart.
-- A "Pomodoro" settings page with a task list and a month calendar: tick a task done as you finish it, and see each day's finished focus sessions laid out on a calendar. The whole feature is localized into all eight supported languages.
+- A "Pomodoro" settings page with a task list and a month calendar: tick a task done as you finish it, and see each day's finished focus sessions laid out on a calendar. The whole feature is localized into both supported languages.
 - The "Pomodoro" settings page grows a "New Task" button beside its title, so a first task can be created without hunting for the list.
 - Right-clicking a task in the Pomodoro settings opens a small menu to edit it — name and expected focus sessions — or delete it, which also drops the task's running session and history.
 - Each task row in the Pomodoro settings list now carries a "Start" button at its right edge, so a focus session begins straight from the list without opening the picker; it is disabled while a session is already running for that task.
@@ -18,12 +13,14 @@
 - The interaction-count ladder is replaced by a cultivation ladder: ten realms from Qi Refining to Immortal, a hundred layers each and a thousand levels in all, every layer bought with growth rather than keystrokes. A finished focus session pays ten growth, and a longer session pays proportionally more.
 - Growth buys four attributes — constitution, strength, spirit power and agility — that climb with the level and jump by a whole realm's worth at each breakthrough, plus the single power figure that sums them for every fight.
 - A cultivator carries a weapon, a robe, trousers and boots, each dropped at one of four rarities; the piece in a slot adds its attributes to the wearer's, and a better piece simply replaces the one it displaces.
-- A herb garden of four plots: plant a seed of one attribute and tier, wait one real hour per tier, and harvest a crop whose power raises that attribute for good.
+- A herb garden of four plots: plant a seed of one attribute and tier, wait half an hour per tier, and harvest a crop whose power raises that attribute for good.
 - Every finished focus session rolls a low chance of one drop — six percent a piece of gear, five percent a seed, never both at once.
 - Breaking into the next realm needs a guardian beaten in a fight the growth alone cannot win: the guardian is a fifth stronger than a bare cultivator at the same realm's cap, so gear and herbs are what carry it. A loss is recorded and leaves the realm where it was.
 - A day without a finished focus session costs growth, and consecutive missed days double the charge up to a cap of 320, so a lapse is answered without ever undoing a breakthrough.
 - A task's completion date is now the moment its last focus session finished, not the moment its checkbox was ticked; only a task finished without a single session keeps the tick time.
 - The pomodoro picker folds finished tasks behind a "Finished (N)" toggle that expands on click; every unfinished task starts a session straight from its own row; and every task — finished or running included — opens the same right-click menu as the settings page: edit, duplicate, delete.
+- Every level now pays a free attribute point: the level keeps raising all four attributes on its own, and on top of that one point per level is placed by hand, on whichever attribute the user picks, into the same power figure. Points are paid against the highest level ever reached, so an absence penalty lowers the ladder without taking back a point already earned.
+- A harvest can give a seed back: about one picking in seven returns a seed of the same attribute, and a third of those come back one tier higher. The garden still has to be fed by sessions, but it no longer runs dry.
 
 ### 🗑️ Removals
 
@@ -35,13 +32,15 @@
 - The forehead badge and the hover panel name the realm and the layer instead of a level number, and the panel's bar measures progress through the current layer rather than towards the next level.
 - The Pomodoro settings page gains a "Cultivation" tab: the realm and its growth bar, the four attributes and the power they add up to, the four gear slots beside the satchel holding the rest, the seeds and the plots they can be planted in, and the guardian with the one button that fights it.
 - Cultivation moves out of the Pomodoro page's tabs into its own sidebar entry, right beneath Pomodoro; the Pomodoro page returns to its two views, the task list and the calendar.
+- The hover panel keeps the two pomodoro counts on a line of their own: how many focus sessions have ever finished, and how many are still ahead — the running task's remainder, or every open task's when no countdown is running. Deleting a task later does not take its finished sessions out of the total.
 
 ### 🌍 Localization
 
-- All eight catalogs: the thousand level names give way to ten realm names, alongside the cultivation copy — attributes, slots, gear labels, the garden, the breakthrough and the absence notice.
+- Both catalogs: the thousand level names give way to ten realm names, alongside the cultivation copy — attributes, slots, gear labels, the garden, the breakthrough and the absence notice.
 - The forehead level badge keeps its own pointer gate: it steps aside only after the pointer has rested on the cat for two seconds and returns the moment the pointer leaves, instead of riding the window's hover and idle hide fades.
 - Task rows no longer clip the focus-session icons to a fixed count: past the old cap the icons wrap onto a second line instead of being truncated with an ellipsis, so the whole count stays visible and the row fills its width.
 - Days that carry finished focus sessions get a light red wash in the Pomodoro calendar, so an active day is recognisable at a glance.
+- The product ships Chinese and English only: the other six catalogs, their language options, the language enum values and the Windows installer languages are gone. Any Chinese tag — Traditional included — reads the Simplified catalog; every other language reads English.
 
 ## 2.3.1 - 2026-10-13
 

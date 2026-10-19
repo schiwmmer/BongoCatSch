@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     Attributes, EquipmentRecord, MAX_LEVEL, PLOT_COUNT, PlotRecord, SLOT_COUNT, STAGE_COUNT,
-    SeedStack, curve::stage_floor,
+    SeedStack,
+    curve::{level_for_growth, stage_floor},
 };
 
 /// Everything a cultivator keeps between launches.
@@ -53,6 +54,16 @@ pub struct CultivationDocument {
     /// The attribute points the harvests have paid, permanently.
     #[serde(default)]
     pub crop_bonus: Attributes,
+    /// The highest level this cultivator has ever reached.
+    ///
+    /// Free points are paid against this rather than the current level: an
+    /// absence penalty can lower the level, but it cannot take back a point the
+    /// user already earned and spent.
+    #[serde(default)]
+    pub peak_level: u16,
+    /// The free points the user has placed, by attribute.
+    #[serde(default)]
+    pub allocated: Attributes,
     /// How many attempts at the current realm's guardian have failed. Flavour
     /// only: a failure never takes anything away.
     #[serde(default)]
@@ -69,6 +80,21 @@ impl CultivationDocument {
         self.growth = self.growth.max(stage_floor(realm));
         let top_level = ((realm as u16) + 1) * super::LAYERS_PER_STAGE;
         debug_assert!(top_level <= MAX_LEVEL);
+        // A hand-edited document cannot claim a peak it never reached, and it
+        // cannot claim more points than the peak paid. Clamping here rather than
+        // in the state machine keeps the invariant on the value that is written
+        // back out.
+        let level = level_for_growth(self.growth)
+            .level
+            .min(top_level)
+            .min(MAX_LEVEL);
+        self.peak_level = self.peak_level.max(level).min(MAX_LEVEL);
+        self.allocated = Attributes::new(
+            self.allocated.root.max(0),
+            self.allocated.strength.max(0),
+            self.allocated.spirit.max(0),
+            self.allocated.agility.max(0),
+        );
         self.equipped.resize(SLOT_COUNT, None);
         self.plots.resize(PLOT_COUNT, PlotRecord::default());
         let highest = self.equipment.iter().map(|item| item.id).max().unwrap_or(0);
@@ -98,6 +124,34 @@ mod tests {
         assert_eq!(document.plots.len(), PLOT_COUNT);
         assert!(document.equipment.is_empty());
         assert_eq!(document.next_item_id, 1, "the first drop takes id one");
+        assert_eq!(document.peak_level, 1, "level one has paid nothing yet");
+        assert_eq!(document.allocated, Attributes::default());
+    }
+
+    #[test]
+    fn a_document_written_before_the_free_points_existed_pays_the_levels_it_already_has() {
+        let parsed: CultivationDocument =
+            serde_json::from_str(r#"{"growth":1000}"#).expect("the older shape loads");
+        let document = parsed.normalized();
+        assert_eq!(
+            document.peak_level, 84,
+            "the peak is the level the stored growth already reached"
+        );
+        assert_eq!(document.allocated, Attributes::default());
+    }
+
+    #[test]
+    fn a_hand_edited_allocation_never_holds_a_negative_point() {
+        let document = CultivationDocument {
+            allocated: Attributes::new(-3, 1, 0, 0),
+            ..CultivationDocument::default()
+        }
+        .normalized();
+        assert_eq!(
+            document.allocated,
+            Attributes::new(0, 1, 0, 0),
+            "a negative place would otherwise pay a point that was never earned"
+        );
     }
 
     #[test]

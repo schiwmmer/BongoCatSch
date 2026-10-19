@@ -1,11 +1,11 @@
 //! The hover stats HUD: a small read-only panel under the cat.
 //!
 //! When the pointer rests on the overlay window, a non-activating panel with
-//! the lifetime interaction count and the current level appears just below
-//! it, and disappears when the pointer leaves. The HUD is an AppKit panel
-//! with an `NSTextField`, not Metal work: the model's renderer is never
-//! asked to draw text, and a frame that shows the HUD costs nothing but a
-//! possible `setFrameOrigin`.
+//! the cultivation ladder and the pomodoro counts appears just below it, and
+//! disappears when the pointer leaves. The HUD is an AppKit panel with an
+//! `NSTextField`, not Metal work: the model's renderer is never asked to draw
+//! text, and a frame that shows the HUD costs nothing but a possible
+//! `setFrameOrigin`.
 //!
 //! The panel ignores mouse events, so resting the pointer on the HUD itself
 //! is the same as resting it on the cat — the hover-hide hit test still sees
@@ -14,12 +14,10 @@
 //! while the HUD stays up: the cat steps aside and the counters are what the
 //! pointer found.
 //!
-//! The text is localized with the system language (`system_language`)
-//! resolved onto a shipped catalog. The settings window resolves the user's
-//! chosen language from the configuration; the session has no configuration
-//! access, and the HUD is a glanceable surface, so the system catalog is the
-//! accepted trade-off rather than threading a locale through the runtime
-//! snapshot.
+//! The panel draws a string it was handed, not a catalog entry: the
+//! application composes the realm, the layer, the growth line and the pomodoro
+//! counts, and the session passes them on. The overlay owns no language and no
+//! ladder, so a HUD and a settings page cannot disagree about either.
 
 use super::*;
 

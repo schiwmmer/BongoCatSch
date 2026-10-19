@@ -21,6 +21,13 @@
 //! * Gear drops are one roll per session at [`EQUIPMENT_DROP_PERMILLE`], seeds
 //!   at [`SEED_DROP_PERMILLE`]; both are deliberately rare next to the growth
 //!   a session already pays.
+//! * Every level pays [`FREE_POINTS_PER_LEVEL`] point the user places by hand,
+//!   on top of what the level itself raises. The points are paid against the
+//!   highest level ever reached, so a penalty that lowers the ladder never
+//!   takes back a point already earned.
+//! * A harvest pays its attribute and then rolls once at
+//!   [`SEED_RETURN_PERMILLE`] for a seed of the same attribute, the same tier
+//!   or one higher, which is what lets a garden keep running.
 
 mod battle;
 mod curve;
@@ -35,11 +42,11 @@ mod tests;
 pub use battle::{BattleReport, Guardian};
 pub use curve::{LAYERS_PER_STAGE, LevelProgress, MAX_LEVEL, level_for_growth, threshold_for};
 pub use document::CultivationDocument;
-pub use garden::{PLOT_COUNT, PlotRecord, SeedStack};
+pub use garden::{MAX_SEED_TIER, PLOT_COUNT, PlotRecord, SeedStack};
 pub use items::{EquipSlot, EquipmentRecord, Rarity, SLOT_COUNT};
 pub use state::{
     AbsenceCharge, BreakthroughOutcome, CropView, Cultivation, CultivationView, Drop, DropView,
-    GuardianView, ItemView, PlotView, SeedView, SessionReward,
+    GuardianView, HarvestOutcome, ItemView, PlotView, SeedView, SessionReward,
 };
 
 use serde::{Deserialize, Serialize};
@@ -70,6 +77,25 @@ pub const EQUIPMENT_DROP_PERMILLE: u64 = 60;
 /// The chance one finished session drops a seed, in parts per thousand. The
 /// rolls are exclusive: a session drops gear, or a seed, or nothing.
 pub const SEED_DROP_PERMILLE: u64 = 50;
+
+/// The chance one harvest gives a seed back, in parts per thousand.
+///
+/// Low enough that a harvest is still a payout rather than a trade, high enough
+/// that a garden keeps running without a session having to feed it: one in
+/// seven harvests returns a seed.
+pub const SEED_RETURN_PERMILLE: u64 = 150;
+
+/// The share of returned seeds that come back one tier higher, in percent.
+///
+/// The rest come back at the tier that was planted, so the garden drifts
+/// upwards slowly instead of ratcheting.
+const SEED_RETURN_UPGRADE_PERCENT: u64 = 30;
+
+/// Free attribute points a level pays on the way up.
+///
+/// The level already raises every attribute on its own; this is the point the
+/// user spends, so climbing the ladder is a decision rather than a fixed curve.
+pub const FREE_POINTS_PER_LEVEL: u32 = 1;
 
 /// How many realms the ladder holds. Each one carries [`LAYERS_PER_STAGE`]
 /// layers, so the ladder is ten realms of a hundred levels.
@@ -274,6 +300,15 @@ impl Attributes {
             + i64::from(self.root) * 15
             + i64::from(self.agility) * 12;
         u32::try_from(weighted.max(0) / 10).unwrap_or(u32::MAX)
+    }
+
+    /// The points this set holds in total, used to count what has been spent.
+    pub fn total(self) -> u32 {
+        let sum = i64::from(self.root)
+            + i64::from(self.strength)
+            + i64::from(self.spirit)
+            + i64::from(self.agility);
+        u32::try_from(sum.max(0)).unwrap_or(u32::MAX)
     }
 }
 

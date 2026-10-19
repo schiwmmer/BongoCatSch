@@ -152,6 +152,11 @@ pub struct PomodoroSnapshot {
     pub timer: Option<TimerView>,
     pub focus_minutes: u32,
     pub last_completion: Option<PomodoroCompletion>,
+    /// How many focus sessions have ever finished, across every task.
+    pub total_pomodoros: u32,
+    /// The sessions the user still has ahead: the running task's remainder, or
+    /// the open tasks' remainder when no countdown is running.
+    pub remaining_pomodoros: u32,
     /// The cultivation ladder: the realm, the attributes, the gear, the garden
     /// and the guardian. It travels with the snapshot so a surface that draws the
     /// timer also draws what the sessions have bought.
@@ -210,6 +215,8 @@ pub enum PomodoroCommand {
     EquipItem { item_id: u64 },
     /// Take whatever is worn in a slot off.
     UnequipSlot { slot: EquipSlot },
+    /// Place one free attribute point on an attribute.
+    AllocateAttribute { attribute: crate::Attribute },
     /// Fight the guardian standing at the end of the current realm.
     Breakthrough,
 }
@@ -233,6 +240,7 @@ impl PomodoroCommand {
             | Self::HarvestPlot { .. }
             | Self::EquipItem { .. }
             | Self::UnequipSlot { .. }
+            | Self::AllocateAttribute { .. }
             | Self::Breakthrough => true,
         }
     }
@@ -357,6 +365,9 @@ impl PomodoroState {
             }
             PomodoroCommand::UnequipSlot { slot } => {
                 self.cultivation.unequip(slot);
+            }
+            PomodoroCommand::AllocateAttribute { attribute } => {
+                self.cultivation.allocate(attribute);
             }
             PomodoroCommand::Breakthrough => {
                 self.cultivation.breakthrough();
@@ -579,6 +590,9 @@ impl PomodoroState {
             }
         }
         self.timer = Timer::Idle;
+        // The lifetime total is not the sum of the task counters: deleting a
+        // task takes its counter with it, and the work still happened.
+        self.document.total_completions = self.document.total_completions.saturating_add(1);
         self.completions = self.completions.saturating_add(1);
         let completion = PomodoroCompletion {
             sequence: self.completions,
@@ -613,7 +627,40 @@ impl PomodoroState {
             timer: self.timer.view(self.session_seconds),
             focus_minutes: self.document.focus_minutes,
             last_completion: self.last_completion,
+            total_pomodoros: self.document.total_completions,
+            remaining_pomodoros: self.remaining_pomodoros(),
             cultivation: self.cultivation.view(),
+        }
+    }
+
+    /// The focus sessions still ahead of the user.
+    ///
+    /// A running or paused countdown answers for its own task, because that is
+    /// the number the user is working against. With no countdown the answer is
+    /// every open task's remainder, which is what the day still owes.
+    fn remaining_pomodoros(&self) -> u32 {
+        match self.timer.task_id() {
+            Some(task_id) => self
+                .document
+                .tasks
+                .iter()
+                .find(|task| task.id == task_id)
+                .map(|task| {
+                    task.estimated_pomodoros
+                        .saturating_sub(task.completed_pomodoros)
+                })
+                .unwrap_or(0),
+            None => self
+                .document
+                .tasks
+                .iter()
+                .filter(|task| task.status == TaskStatus::in_progress)
+                .fold(0u32, |total, task| {
+                    total.saturating_add(
+                        task.estimated_pomodoros
+                            .saturating_sub(task.completed_pomodoros),
+                    )
+                }),
         }
     }
 

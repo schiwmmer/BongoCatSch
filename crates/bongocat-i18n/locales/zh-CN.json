@@ -393,13 +393,7 @@
         "options": {
           "system": "跟随系统",
           "chinese_simplified": "简体中文",
-          "chinese_traditional": "繁體中文",
-          "english": "English",
-          "arabic": "العربية",
-          "vietnamese": "Tiếng Việt",
-          "portuguese": "Português",
-          "korean": "한국어",
-          "french": "Français"
+          "english": "English"
         }
       }
     },
@@ -611,7 +605,8 @@
     "hud": {
       "progress": "%{value} / %{next} 成长值 · %{percent}%",
       "total": "成长值 %{value}",
-      "realm": "%{stage} · 第 %{layer} 层"
+      "realm": "%{stage} · 第 %{layer} 层",
+      "pomodoros": "%{done} 个番茄 · 剩余 %{left}"
     },
     "stage": {
       "name": {
@@ -634,11 +629,13 @@
     "progress": "%{value} / %{next} 成长值",
     "capped": "本境圆满，破境方能再进",
     "attributes": "属性",
+    "free_points": "可分配 %{points} 点",
     "attribute": {
       "root": "根骨",
       "strength": "力量",
       "spirit": "仙力",
-      "agility": "身法"
+      "agility": "身法",
+      "add": "+1"
     },
     "power": "战力 %{power}",
     "power_level": "境界 %{value}",
@@ -690,7 +687,8 @@
     "notice": {
       "absence": "%{days} 天未修炼，成长值 -%{charged}",
       "drop_equipment": "获得装备 %{item}",
-      "drop_seed": "获得种子 %{item}"
+      "drop_seed": "获得种子 %{item}",
+      "seed_return": "收获返得 %{seed}"
     }
   }
 }

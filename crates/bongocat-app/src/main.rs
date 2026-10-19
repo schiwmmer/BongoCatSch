@@ -1267,6 +1267,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let cultivation_text = cultivation_copy(
                             &pomodoro_snapshot.cultivation,
                             coordinator.product_language.catalog_locale(),
+                            pomodoro_snapshot.total_pomodoros,
+                            pomodoro_snapshot.remaining_pomodoros,
                         );
                         if let Some(overlay) = coordinator.overlay.as_mut() {
                             overlay.set_pomodoro_state(timer, completion);

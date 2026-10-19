@@ -27,9 +27,6 @@ PACKAGER = ROOT / "crates" / "bongocat-packaging" / "src" / "main.rs"
 FINDER_STORE = ROOT / "crates" / "bongocat-packaging" / "src" / "finder_store.rs"
 PACKAGER_MANIFEST = ROOT / "crates" / "bongocat-packaging" / "Cargo.toml"
 I18N_LOCALES = ROOT / "crates" / "bongocat-i18n" / "locales"
-VIETNAMESE_INSTALLER_STRINGS = (
-    ROOT / "crates" / "bongocat-packaging" / "installer" / "Vietnamese.nsh"
-)
 JUSTFILE = ROOT / "justfile"
 MACOS_INFO = ROOT / "macos" / "Info.plist"
 APP_PRESET_ROOT = ROOT / "crates" / "bongocat-app" / "src" / "preset_root.rs"
@@ -97,12 +94,6 @@ class PackagingTargetTests(unittest.TestCase):
         nsis_languages = {
             "en-US": "English",
             "zh-CN": "SimpChinese",
-            "zh-TW": "TradChinese",
-            "ar-SA": "Arabic",
-            "vi-VN": "Vietnamese",
-            "pt-BR": "PortugueseBR",
-            "ko-KR": "Korean",
-            "fr-FR": "French",
         }
         catalogs = {path.stem for path in I18N_LOCALES.glob("*.json")}
         self.assertEqual(catalogs, set(nsis_languages))
@@ -110,33 +101,12 @@ class PackagingTargetTests(unittest.TestCase):
         source = read(PACKAGER)
         declared = re.search(r"const INSTALLER_LANGUAGES: \[&str; \d+\] = \[(.*?)\];", source, re.DOTALL)
         self.assertIsNotNone(declared, "the installer language list must be declared")
-        languages = re.findall(r"\"([A-Za-z]+)\"", declared.group(1))
+        languages = re.findall(r'"([A-Za-z]+)"', declared.group(1))
         self.assertEqual(sorted(languages), sorted(nsis_languages.values()))
         self.assertEqual(languages[0], "English", "English is the fallback language")
-
-        # cargo-packager embeds no strings for Vietnamese, so the repository carries the
-        # messages its installer template looks up.
-        raw = VIETNAMESE_INSTALLER_STRINGS.read_bytes()
-        self.assertTrue(raw.startswith(b"\xef\xbb\xbf"), "NSIS needs the UTF-8 BOM")
-        names = re.findall(
-            r"^LangString (\w+) \$\{LANG_VIETNAMESE\} ",
-            raw.decode("utf-8-sig"),
-            re.MULTILINE,
-        )
-        self.assertEqual(
-            sorted(names),
-            sorted(
-                [
-                    "addOrReinstall", "alreadyInstalled", "alreadyInstalledLong",
-                    "appRunning", "appRunningOkKill", "chooseMaintenanceOption",
-                    "choowHowToInstall", "createDesktop", "deleteAppData",
-                    "dontUninstall", "dontUninstallDowngrade", "failedToKillApp",
-                    "newerVersionInstalled", "older", "olderOrUnknownVersionInstalled",
-                    "silentDowngrades", "unableToUninstall", "uninstallApp",
-                    "uninstallBeforeInstalling", "unknown",
-                ]
-            ),
-        )
+        # Both catalogs use cargo-packager's own installer strings, so the build
+        # injects no custom language file.
+        self.assertNotIn("installer/Vietnamese.nsh", source)
 
     def test_windows_installer_is_published_under_the_product_release_name(self):
         # cargo-packager names the NSIS installer after the main binary and
