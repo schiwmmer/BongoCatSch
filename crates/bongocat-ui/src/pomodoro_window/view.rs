@@ -14,6 +14,7 @@
 
 use super::*;
 use crate::SettingsLanguage;
+use crate::window::PomodoroEditorTarget;
 use bongocat_pomodoro::{
     CalendarDay, MAX_FOCUS_MINUTES, MIN_FOCUS_MINUTES, PomodoroClient, PomodoroCommand,
     PomodoroSnapshot, PomodoroTaskStatus, PomodoroTaskView,
@@ -130,6 +131,14 @@ pub struct PomodoroView {
     pub(super) observed_revision: u64,
     pub(super) name_input: Entity<InputState>,
     pub(super) sessions_input: Entity<InputState>,
+    /// Whether the finished-tasks group is unfolded. Finished tasks fold by
+    /// default — the window answers "what am I working on?", and a wall of
+    /// done rows pushes that answer below the fold.
+    pub(super) done_expanded: bool,
+    /// The task editor the new-task form is currently showing, or `None` while
+    /// it is creating a task. Reusing the form's two fields keeps one input
+    /// each for name and session count; only the title and the submit change.
+    pub(super) editor: Option<PomodoroEditorTarget>,
     pub(super) primary_focus: FocusHandle,
 }
 
@@ -170,6 +179,8 @@ impl PomodoroView {
             observed_revision,
             name_input,
             sessions_input,
+            done_expanded: false,
+            editor: None,
             primary_focus: cx.focus_handle().tab_index(1).tab_stop(true),
         }
     }
@@ -186,28 +197,6 @@ impl PomodoroView {
     /// The expected-session count as it will be stored.
     pub(super) fn pending_sessions(&self, cx: &App) -> u32 {
         sessions_from_typed(&self.sessions_input.read(cx).value())
-    }
-
-    /// Whether the create button would do anything.
-    pub(super) fn can_create(&self, cx: &App) -> bool {
-        !self.pending_name(cx).is_empty() && !worker_is_lost(&self.snapshot)
-    }
-
-    /// Create the task.
-    ///
-    /// The first session is not started here: the worker has not published an id
-    /// for the task yet, and guessing one would either start nothing or start the
-    /// wrong task. The row in the list is the start button, which appears as soon
-    /// as the id is real.
-    pub(super) fn create_task(&mut self, cx: &mut Context<Self>) {
-        if !self.can_create(cx) {
-            return;
-        }
-        let _ = self.client.try_publish(PomodoroCommand::CreateTask {
-            name: self.pending_name(cx),
-            estimated_pomodoros: self.pending_sessions(cx),
-        });
-        cx.notify();
     }
 
     /// Start a task that already exists.
@@ -228,6 +217,104 @@ impl PomodoroView {
             .client
             .try_publish(PomodoroCommand::SetTaskDone { task_id, done });
         cx.notify();
+    }
+
+    /// Remove a task from the row's context menu.
+    ///
+    /// The same `DeleteTask` the settings page publishes: the worker drops the
+    /// task, its history and a session running for it in one write.
+    pub(super) fn delete_task(&mut self, task_id: u64, cx: &mut Context<Self>) {
+        let _ = self
+            .client
+            .try_publish(PomodoroCommand::DeleteTask { task_id });
+        cx.notify();
+    }
+
+    /// Open the task editor, seeding the form's fields from the task being
+    /// edited or duplicated, or from the defaults for a new one.
+    ///
+    /// The editor is the new-task form repurposed rather than a second form:
+    /// the fields are the two a task is made of either way, and one input each
+    /// for name and session count is one less thing to keep in sync.
+    pub(super) fn open_task_editor(
+        &mut self,
+        target: PomodoroEditorTarget,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (name, sessions) = match target {
+            PomodoroEditorTarget::New => (String::new(), DEFAULT_EXPECTED_SESSIONS),
+            PomodoroEditorTarget::Existing(task_id) | PomodoroEditorTarget::Duplicate(task_id) => {
+                self.snapshot
+                    .tasks
+                    .iter()
+                    .find(|task| task.id == task_id)
+                    .map(|task| (task.name.clone(), task.estimated_pomodoros))
+                    .unwrap_or((String::new(), DEFAULT_EXPECTED_SESSIONS))
+            }
+        };
+        self.name_input
+            .update(cx, |input, cx| input.set_value(name, window, cx));
+        self.sessions_input.update(cx, |input, cx| {
+            input.set_value(sessions.to_string(), window, cx)
+        });
+        self.editor = Some(target);
+        cx.notify();
+    }
+
+    /// Close the editor and put the form back to its creating shape.
+    pub(super) fn close_task_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.editor.take().is_none() {
+            return;
+        }
+        self.reset_editor_fields(window, cx);
+        cx.notify();
+    }
+
+    /// Store the editor's fields and put the form back to its creating shape.
+    ///
+    /// An edit publishes `UpdateTask`, which rewrites the name and the plan
+    /// while the finished sessions stay where they are; creating and
+    /// duplicating both publish `CreateTask`, so a duplicate is confirmed by
+    /// the same click that confirms a new task. An empty name is refused here
+    /// exactly as the domain refuses it — the editor stays open with the
+    /// fields intact rather than closing onto nothing.
+    pub(super) fn submit_task_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self.pending_name(cx);
+        let estimated_pomodoros = self.pending_sessions(cx);
+        if name.is_empty() {
+            cx.notify();
+            return;
+        }
+        let Some(target) = self.editor.take() else {
+            return;
+        };
+        match target {
+            PomodoroEditorTarget::Existing(task_id) => {
+                let _ = self.client.try_publish(PomodoroCommand::UpdateTask {
+                    task_id,
+                    name,
+                    estimated_pomodoros,
+                });
+            }
+            PomodoroEditorTarget::New | PomodoroEditorTarget::Duplicate(_) => {
+                let _ = self.client.try_publish(PomodoroCommand::CreateTask {
+                    name,
+                    estimated_pomodoros,
+                });
+            }
+        }
+        self.reset_editor_fields(window, cx);
+        cx.notify();
+    }
+
+    /// Put the two form fields back to the creating defaults.
+    fn reset_editor_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.name_input
+            .update(cx, |input, cx| input.set_value(String::new(), window, cx));
+        self.sessions_input.update(cx, |input, cx| {
+            input.set_value(DEFAULT_EXPECTED_SESSIONS.to_string(), window, cx)
+        });
     }
 
     /// Re-read the countdown and the task list.

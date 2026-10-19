@@ -267,6 +267,34 @@ fn the_choices_a_task_list_offers_follow_the_task_states(cx: &mut TestAppContext
 }
 
 #[gpui_kit::test]
+fn finished_tasks_fold_until_the_group_is_clicked(cx: &mut TestAppContext) {
+    let mut harness = harness(cx);
+    let mut snapshot = snapshot(PomodoroWorkerState::Ready);
+    let mut finished = task(9, "finished", false);
+    finished.status = PomodoroTaskStatus::done;
+    snapshot.tasks = vec![finished, task(2, "later", false)];
+    harness.set_snapshot(cx, snapshot);
+    // The toggle is always drawn; the finished row waits behind it.
+    assert!(
+        harness.paints(cx, "pomodoro-done-toggle".into()),
+        "the finished group announces itself even folded"
+    );
+    assert!(
+        !harness.paints(cx, ("pomodoro-task-row", 9u64).into()),
+        "a finished task is folded by default"
+    );
+    assert!(
+        harness.paints(cx, ("pomodoro-task-row", 2u64).into()),
+        "an unfinished task is never folded"
+    );
+    cx.update_entity(&harness.view, |view, _| view.done_expanded = true);
+    assert!(
+        harness.paints(cx, ("pomodoro-task-row", 9u64).into()),
+        "expanding the group shows the finished task"
+    );
+}
+
+#[gpui_kit::test]
 fn the_worker_lost_notice_does_not_hide_the_tasks_that_already_exist(cx: &mut TestAppContext) {
     let mut harness = harness(cx);
     let mut snapshot = snapshot(PomodoroWorkerState::Stopped);
