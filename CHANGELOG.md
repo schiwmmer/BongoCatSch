@@ -20,6 +20,8 @@
 
 - The Pomodoro trend chart now draws focus minutes in red and finished tasks in blue, so the two series never share a colour.
 - The forehead level badge keeps its own pointer gate: it steps aside only after the pointer has rested on the cat for two seconds and returns the moment the pointer leaves, instead of riding the window's hover and idle hide fades.
+- Task rows no longer clip the focus-session icons to a fixed count: past the old cap the icons wrap onto a second line instead of being truncated with an ellipsis, so the whole count stays visible and the row fills its width.
+- Days that carry finished focus sessions get a light red wash in the Pomodoro calendar, so an active day is recognisable at a glance.
 
 ## 2.3.1 - 2026-10-13
 
