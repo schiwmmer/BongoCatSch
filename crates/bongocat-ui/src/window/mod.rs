@@ -219,16 +219,14 @@ pub struct SettingsWindowSeed {
 
 /// Which surface the pomodoro settings page is showing.
 ///
-/// The page keeps a task list, a month calendar and the cultivation ladder; the
-/// toggle only swaps which one the body renders, so the task data the list reads
-/// is never lost when the user looks at the calendar and back.
+/// The page keeps a task list and a month calendar; the toggle only swaps
+/// which one the body renders, so the task data the list reads is never lost
+/// when the user looks at the calendar and back. The cultivation ladder is a
+/// settings page of its own and not one of these views.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PomodoroSettingsView {
     List,
     Calendar,
-    /// The ladder the finished sessions feed: realm, attributes, gear, garden
-    /// and the guardian at the end of the realm.
-    Cultivation,
 }
 
 /// Seconds since the Unix epoch, or zero when the clock predates it.

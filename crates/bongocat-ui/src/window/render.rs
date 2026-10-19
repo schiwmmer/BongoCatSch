@@ -1657,6 +1657,28 @@ impl Render for SettingsView {
                 ),
             );
 
+        // The cultivation ladder is a destination of its own, right under the
+        // pomodoro page whose finished sessions feed it. It is one custom
+        // element like the pomodoro body: the ladder is a column of rows, not
+        // a stack of labeled settings cards.
+        let cultivation_page = SettingPage::new(SettingsNavigationPage::Cultivation.title(language))
+            .icon(SettingsNavigationPage::Cultivation.icon())
+            .title_suffix(page_reporter(
+                SettingsNavigationPage::Cultivation,
+                navigation_memory.clone(),
+            ))
+            .group(
+                SettingGroup::new().item(
+                    SettingItem::render({
+                        let view = view_entity.clone();
+                        move |options: &RenderOptions, window: &mut Window, cx: &mut App| {
+                            cultivation_settings::content(view.clone(), options, window, cx)
+                        }
+                    })
+                    .keywords(cultivation_settings::keywords(language)),
+                ),
+            );
+
         // The page's two scopes are two titled groups rather than tabs: a
         // `SettingPage` cannot host child pages, but the settings component
         // renders every titled group of a page with more than one group as a
@@ -1715,6 +1737,7 @@ impl Render for SettingsView {
                 model_library_page,
                 model_behavior_page,
                 pomodoro_page,
+                cultivation_page,
                 overlay_page,
                 input_interaction_page,
                 shortcuts_page,

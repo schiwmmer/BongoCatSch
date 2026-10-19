@@ -30,6 +30,9 @@
     },
     "pomodoro": {
       "title": "포모도로"
+    },
+    "cultivation": {
+      "title": "수련"
     }
   },
   "system_menu": {
@@ -94,8 +97,7 @@
       "save": "저장",
       "cancel": "취소",
       "axis_minutes": "분",
-      "axis_tasks": "작업",
-      "tab_cultivation": "수련"
+      "axis_tasks": "작업"
     }
   },
   "startup_permission": {

@@ -30,6 +30,9 @@
     },
     "pomodoro": {
       "title": "Pomodoro"
+    },
+    "cultivation": {
+      "title": "Cultivation"
     }
   },
   "system_menu": {
@@ -94,8 +97,7 @@
       "save": "Save",
       "cancel": "Cancel",
       "axis_minutes": "min",
-      "axis_tasks": "tasks",
-      "tab_cultivation": "Cultivation"
+      "axis_tasks": "tasks"
     }
   },
   "startup_permission": {

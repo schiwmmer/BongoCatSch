@@ -22,6 +22,21 @@ use gpui_kit::component::Sizable as _;
 /// How wide the growth bar is drawn, and therefore how wide its filled part is.
 const GROWTH_BAR_WIDTH: f32 = 180.0;
 
+/// Build the search keywords so the page is reachable from the settings search
+/// box even though its title lives under the `navigation` namespace. The keys
+/// are leaf catalog strings — they render as the searchable nouns themselves.
+pub(super) fn keywords(language: SettingsLanguage) -> Vec<SharedString> {
+    SettingsNavigationPage::Cultivation.search_keywords(
+        language,
+        [
+            "cultivation.realm",
+            "cultivation.attributes",
+            "cultivation.equipment",
+            "cultivation.power",
+        ],
+    )
+}
+
 /// The whole cultivation body.
 pub(super) fn content(
     view: Entity<SettingsView>,

@@ -20,6 +20,11 @@ pub(super) enum SettingsNavigationPage {
     /// the cat helps the user get done, and the timer is a model-independent
     /// activity the user reaches for between sessions.
     Pomodoro,
+    /// The cultivation ladder the finished sessions feed: realm, attributes,
+    /// gear, garden and guardian. Its own destination rather than a pomodoro
+    /// tab because it is a progression the user checks on its own, not a view
+    /// over the timer.
+    Cultivation,
     ModelWindow,
     InputInteraction,
     Shortcuts,
@@ -80,19 +85,21 @@ impl SettingsNavigationPage {
             Self::ModelLibrary => 1,
             Self::ModelBehavior => 2,
             Self::Pomodoro => 3,
-            Self::ModelWindow => 4,
-            Self::InputInteraction => 5,
-            Self::Shortcuts => 6,
-            Self::AppSystem => 7,
-            Self::About => 8,
+            Self::Cultivation => 4,
+            Self::ModelWindow => 5,
+            Self::InputInteraction => 6,
+            Self::Shortcuts => 7,
+            Self::AppSystem => 8,
+            Self::About => 9,
         }
     }
 
-    pub(super) const ALL: [Self; 9] = [
+    pub(super) const ALL: [Self; 10] = [
         Self::Appearance,
         Self::ModelLibrary,
         Self::ModelBehavior,
         Self::Pomodoro,
+        Self::Cultivation,
         Self::ModelWindow,
         Self::InputInteraction,
         Self::Shortcuts,
@@ -106,6 +113,7 @@ impl SettingsNavigationPage {
             Self::ModelLibrary => "navigation.model_library.title",
             Self::ModelBehavior => "navigation.model_behavior.title",
             Self::Pomodoro => "navigation.pomodoro.title",
+            Self::Cultivation => "navigation.cultivation.title",
             Self::ModelWindow => "navigation.model_window.title",
             Self::InputInteraction => "navigation.input_interaction.title",
             Self::Shortcuts => "navigation.shortcuts.title",
@@ -124,6 +132,7 @@ impl SettingsNavigationPage {
             Self::ModelLibrary => IconName::Cat,
             Self::ModelBehavior => IconName::SlidersHorizontal,
             Self::Pomodoro => IconName::AlarmClock,
+            Self::Cultivation => IconName::Sparkles,
             Self::ModelWindow => IconName::AppWindow,
             Self::InputInteraction => IconName::MousePointer2,
             Self::Shortcuts => IconName::Keyboard,
@@ -177,6 +186,14 @@ impl SettingsNavigationPage {
                 "番茄时钟",
                 "Focus timer",
                 "专注计时",
+            ],
+            Self::Cultivation => &[
+                "Cultivation",
+                "Realm",
+                "修仙",
+                "境界",
+                "仙草",
+                "属性",
             ],
             Self::ModelWindow => &["Overlay"],
             Self::InputInteraction => &["Interaction", "Input", "交互", "输入"],
@@ -242,6 +259,7 @@ mod tests {
                 SettingsNavigationPage::ModelLibrary,
                 SettingsNavigationPage::ModelBehavior,
                 SettingsNavigationPage::Pomodoro,
+                SettingsNavigationPage::Cultivation,
                 SettingsNavigationPage::ModelWindow,
                 SettingsNavigationPage::InputInteraction,
                 SettingsNavigationPage::Shortcuts,

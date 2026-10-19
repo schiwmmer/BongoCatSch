@@ -30,6 +30,9 @@
     },
     "pomodoro": {
       "title": "بومودورو"
+    },
+    "cultivation": {
+      "title": "الترقي"
     }
   },
   "system_menu": {
@@ -94,8 +97,7 @@
       "save": "حفظ",
       "cancel": "إلغاء",
       "axis_minutes": "دقيقة",
-      "axis_tasks": "مهام",
-      "tab_cultivation": "الترقي"
+      "axis_tasks": "مهام"
     }
   },
   "startup_permission": {

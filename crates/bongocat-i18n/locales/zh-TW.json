@@ -30,6 +30,9 @@
     },
     "pomodoro": {
       "title": "番茄鐘"
+    },
+    "cultivation": {
+      "title": "修仙"
     }
   },
   "system_menu": {
@@ -94,8 +97,7 @@
       "save": "儲存",
       "cancel": "取消",
       "axis_minutes": "分鐘",
-      "axis_tasks": "個",
-      "tab_cultivation": "修仙"
+      "axis_tasks": "個"
     }
   },
   "startup_permission": {

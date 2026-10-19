@@ -526,7 +526,12 @@ impl SettingsView {
     /// frame, so reading it back here costs one integer compare and stops the
     /// timer from waking for a page the user cannot see.
     pub(super) fn poll_pomodoro(&mut self, cx: &mut Context<Self>) {
-        if self.navigation_memory.page_index() != SettingsNavigationPage::Pomodoro.index() {
+        let page = self.navigation_memory.page_index();
+        // The timer serves both pages that read the pomodoro worker: the task
+        // list and the cultivation ladder it feeds.
+        if page != SettingsNavigationPage::Pomodoro.index()
+            && page != SettingsNavigationPage::Cultivation.index()
+        {
             return;
         }
         let revision = self.pomodoro.revision();
@@ -543,10 +548,10 @@ impl SettingsView {
     /// A crop ripens on the wall clock, not on a worker change, so the revision
     /// never moves while one is in the ground. Without this the plot would keep
     /// reading "ripe in 3 min" and never turn pickable until something else
-    /// happened to repaint the page. Only the cultivation subview pays the
+    /// happened to repaint the page. Only the cultivation page pays the
     /// snapshot clone, and only once per displayed minute.
     fn poll_ripening(&mut self, cx: &mut Context<Self>) {
-        if self.pomodoro_view != PomodoroSettingsView::Cultivation {
+        if self.navigation_memory.page_index() != SettingsNavigationPage::Cultivation.index() {
             self.cultivation_minute_observed = None;
             return;
         }

@@ -30,6 +30,9 @@
     },
     "pomodoro": {
       "title": "Pomodoro"
+    },
+    "cultivation": {
+      "title": "Tu luyện"
     }
   },
   "system_menu": {
@@ -94,8 +97,7 @@
       "save": "Lưu",
       "cancel": "Hủy",
       "axis_minutes": "phút",
-      "axis_tasks": "nhiệm vụ",
-      "tab_cultivation": "Tu luyện"
+      "axis_tasks": "nhiệm vụ"
     }
   },
   "startup_permission": {

@@ -33,7 +33,6 @@ pub(super) fn keywords(language: SettingsLanguage) -> Vec<SharedString> {
             "pomodoro.settings.search_placeholder",
             "pomodoro.settings.tab_list",
             "pomodoro.settings.tab_calendar",
-            "pomodoro.settings.tab_cultivation",
             "pomodoro.settings.no_tasks",
         ],
     )
@@ -61,9 +60,6 @@ pub(super) fn content(
         .child(match active_view {
             PomodoroSettingsView::List => list_panel(&view, locale, tokens, cx),
             PomodoroSettingsView::Calendar => calendar_panel(&view, locale, tokens, cx),
-            PomodoroSettingsView::Cultivation => {
-                super::cultivation_settings::content(view.clone(), _options, _window, cx)
-            }
         })
         .into_any_element()
 }
@@ -96,14 +92,6 @@ fn toggle_row(
             active_view,
             "pomodoro.settings.tab_calendar",
         ))
-        .child(toggle_chip(
-            view,
-            locale,
-            tokens,
-            PomodoroSettingsView::Cultivation,
-            active_view,
-            "pomodoro.settings.tab_cultivation",
-        ))
 }
 
 fn toggle_chip(
@@ -118,7 +106,6 @@ fn toggle_chip(
     let id = match target {
         PomodoroSettingsView::List => "pomodoro-view-list",
         PomodoroSettingsView::Calendar => "pomodoro-view-calendar",
-        PomodoroSettingsView::Cultivation => "pomodoro-view-cultivation",
     };
     div()
         .id(id)
