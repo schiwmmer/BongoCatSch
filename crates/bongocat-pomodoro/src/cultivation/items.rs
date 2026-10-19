@@ -58,7 +58,7 @@ impl EquipSlot {
     /// four slots read differently instead of being four copies of one bonus.
     const fn split(self) -> (Attribute, u32, Attribute, u32) {
         match self {
-            Self::Weapon => (Attribute::Strength, 70, Attribute::Spirit, 30),
+            Self::Weapon => (Attribute::Strength, 70, Attribute::Mana, 30),
             Self::Clothes => (Attribute::Root, 75, Attribute::Agility, 25),
             Self::Pants => (Attribute::Agility, 55, Attribute::Root, 45),
             Self::Boots => (Attribute::Agility, 60, Attribute::Strength, 40),

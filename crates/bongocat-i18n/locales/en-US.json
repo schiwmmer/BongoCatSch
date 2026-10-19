@@ -606,7 +606,7 @@
     "hud": {
       "progress": "%{value} / %{next} growth · %{percent}%",
       "total": "growth %{value}",
-      "realm": "%{stage} · layer %{layer}",
+      "realm": "%{stage} · layer %{layer} rank %{rank}",
       "cultivation": "growth %{growth} · %{remaining} to next"
     },
     "stage": {
@@ -615,7 +615,7 @@
         "2": "Foundation",
         "3": "Golden Core",
         "4": "Nascent Soul",
-        "5": "Spirit Transformation",
+        "5": "Mana Transformation",
         "6": "Void Refinement",
         "7": "Integration",
         "8": "Mahayana",
@@ -623,10 +623,10 @@
         "10": "Immortal"
       }
     },
-    "badge": "%{stage} %{layer}"
+    "badge": "%{stage} L%{layer}R%{rank}"
   },
   "cultivation": {
-    "realm": "%{stage} · layer %{layer}",
+    "realm": "%{stage} · layer %{layer} rank %{rank}",
     "progress": "%{value} / %{next} growth",
     "capped": "This realm is full — break through to go further",
     "attributes": "Attributes",
@@ -634,15 +634,26 @@
     "attribute": {
       "root": "Constitution",
       "strength": "Strength",
-      "spirit": "Spirit power",
+      "mana": "Mana",
       "agility": "Agility",
       "add": "+1",
       "add_ten": "+10",
-      "root_desc": "Constitution: the base of the spell school, +15 spell power a point. Paired with Spirit power, the shorter half adds 10 more a point — stacking spirit alone wastes the bonus.",
-      "strength_desc": "Strength: the mainstay of the martial school, +20 martial power a point. Paired with Agility, the shorter half adds 10 more a point.",
-      "spirit_desc": "Spirit power: the mainstay of the spell school, +20 spell power a point. Paired with Constitution, the shorter half adds 10 more a point.",
-      "agility_desc": "Agility: the base of the martial school, +12 martial power a point. Paired with Strength, the shorter half adds 10 more a point — stacking strength alone wastes the bonus."
+      "root_desc": "Constitution: +8 inner force and +2 aptitude a point. Aptitude is what makes 功法 learn faster and fail less. Pairs with Mana in the spell school (+15 spell power a point, plus 10 for the shorter half).",
+      "strength_desc": "Strength: +3 attack and +20 health a point. Pairs with Agility in the martial school (+20 martial power a point, plus 10 for the shorter half).",
+      "mana_desc": "Mana: +3 spell power and +2 spell resist a point. Pairs with Constitution in the spell school (+20 spell power a point, plus 10 for the shorter half).",
+      "agility_desc": "Agility: +2 speed, +0.5% hit and +0.4% evade a point (hit caps at 95%, evade at 40%). Pairs with Strength in the martial school (+12 martial power a point, plus 10 for the shorter half)."
     },
+    "derived": "Shown",
+    "derived_hint": "Follows from the four attributes; no point can be placed here",
+    "attack": "attack %{value}",
+    "health": "health %{value}",
+    "inner": "inner force %{value}",
+    "spell": "spell power %{value}",
+    "resist": "spell resist %{value}",
+    "speed": "speed %{value}",
+    "hit": "hit %{value}%",
+    "evade": "evade %{value}%",
+    "aptitude": "aptitude %{value}",
     "power": "power %{power}",
     "power_level": "level %{value}",
     "power_equipment": "gear %{value}",
@@ -659,7 +670,7 @@
     "item": {
       "label": "%{slot} · tier %{tier} · %{stars}",
       "label_named": "%{name} · tier %{tier} %{stars}",
-      "details": "Constitution %{root} · Strength %{strength} · Spirit %{spirit} · Agility %{agility}",
+      "details": "Constitution %{root} · Strength %{strength} · Mana %{mana} · Agility %{agility}",
       "schools": "spell %{spell} · martial %{martial} · power %{power}",
       "equip": "Equip",
       "unequip": "Take off"

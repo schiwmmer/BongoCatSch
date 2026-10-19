@@ -97,7 +97,7 @@ impl CultivationDocument {
         self.allocated = Attributes::new(
             self.allocated.root.max(0),
             self.allocated.strength.max(0),
-            self.allocated.spirit.max(0),
+            self.allocated.mana.max(0),
             self.allocated.agility.max(0),
         );
         self.equipped.resize(SLOT_COUNT, None);

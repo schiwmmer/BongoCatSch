@@ -36,7 +36,11 @@ pub(crate) fn cultivation_copy(
     let badge = bongocat_i18n::format_text(
         locale,
         "stats.badge",
-        &[("stage", stage.clone()), ("layer", layer.clone())],
+        &[
+            ("stage", stage.clone()),
+            ("layer", layer.clone()),
+            ("rank", cultivation.rank.to_string()),
+        ],
     );
     // A capped realm has no next layer: the bar is full because the guardian,
     // not the growth, is what stands in the way. Reporting the fraction of the
@@ -72,7 +76,11 @@ pub(crate) fn cultivation_copy(
     let realm = bongocat_i18n::format_text(
         locale,
         "stats.hud.realm",
-        &[("stage", stage), ("layer", layer)],
+        &[
+            ("stage", stage),
+            ("layer", layer),
+            ("rank", cultivation.rank.to_string()),
+        ],
     );
     // How much growth still stands between the cultivator and the next layer. A
     // capped realm has no next layer, so it owes nothing: the line reads the

@@ -65,6 +65,7 @@ pub(super) fn content(
         .child(realm_header(&cultivation, locale, tokens))
         .children(notices(&cultivation, locale, tokens))
         .child(attributes_panel(&view, &cultivation, locale, tokens))
+        .child(derived_panel(&cultivation, locale, tokens))
         .child(equipment_panel(
             &view,
             &cultivation,
@@ -96,6 +97,7 @@ fn realm_header(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> 
                 text(locale, cultivation.realm.name_key()).to_string(),
             ),
             ("layer", cultivation.layer.to_string()),
+            ("rank", cultivation.rank.to_string()),
         ],
     );
     let power = format_text(
@@ -424,6 +426,66 @@ fn attributes_panel(
         .child(div().text_xs().text_color(tokens.muted).child(breakdown))
 }
 
+/// The seven numbers the four attributes turn into, and the two schools they
+/// fight in.
+///
+/// Shown as read-only chips rather than rows with a "+" beside them: these are
+/// what the four already bought, and a point can only be spent on the four
+/// themselves. The hint line says so, because a panel full of numbers with no
+/// button on them otherwise reads as unfinished.
+fn derived_panel(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> impl IntoElement {
+    let derived = cultivation.derived;
+    // The keys are spelled out rather than built from a name: the catalog test
+    // reads the source for the keys it checks, and a key only a `format!` could
+    // produce would look unused to it.
+    let chips = [
+        ("cultivation.attack", derived.attack),
+        ("cultivation.health", derived.health),
+        ("cultivation.inner", derived.inner),
+        ("cultivation.spell", derived.spell),
+        ("cultivation.resist", derived.resist),
+        ("cultivation.speed", derived.speed),
+        ("cultivation.hit", derived.hit_percent()),
+        ("cultivation.evade", derived.evade_percent()),
+        ("cultivation.aptitude", derived.aptitude),
+    ]
+    .into_iter()
+    .map(|(key, value)| derived_chip(locale, key, value, tokens));
+    div()
+        .id("cultivation-derived")
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(section_title(locale, "cultivation.derived", tokens))
+        .child(div().flex().flex_row().flex_wrap().gap_2().children(chips))
+        .child(
+            div()
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(text(locale, "cultivation.derived_hint")),
+        )
+}
+
+/// One derived number: its name and its value, with the explanation the four
+/// attributes were read through.
+fn derived_chip(locale: &str, key: &str, value: u32, tokens: Tokens) -> impl IntoElement {
+    div()
+        .id(format!("cultivation-derived-{key}"))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .px_2()
+        .py_1()
+        .rounded_md()
+        .bg(tokens.overlay)
+        .child(div().text_xs().text_color(tokens.muted).child(format_text(
+            locale,
+            &format!("cultivation.{key}"),
+            &[("value", value.to_string())],
+        )))
+}
+
 /// The four slots and whatever is worn in each.
 fn equipment_panel(
     view: &Entity<SettingsView>,
@@ -616,7 +678,7 @@ fn item_detail(item: &ItemView, locale: &str, tokens: Tokens) -> impl IntoElemen
             &[
                 ("root", attributes.root.to_string()),
                 ("strength", attributes.strength.to_string()),
-                ("spirit", attributes.spirit.to_string()),
+                ("mana", attributes.mana.to_string()),
                 ("agility", attributes.agility.to_string()),
             ],
         ))

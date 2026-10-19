@@ -48,7 +48,8 @@ fn a_fresh_cultivator_starts_at_the_first_layer_of_the_first_realm() {
     let view = cultivation.view();
     assert_eq!(view.level, 1);
     assert_eq!(view.realm, Realm::QiRefining);
-    assert_eq!(view.layer, 1);
+    assert_eq!(view.layer, 0, "the first layer of ten");
+    assert_eq!(view.rank, 1);
     assert_eq!(view.growth, 0);
     assert_eq!(view.next, Some(threshold_for(2)));
     assert!(view.inventory.is_empty());
@@ -243,6 +244,48 @@ fn each_school_has_its_heavier_half() {
     );
 }
 
+/// The seven shown numbers follow from the four allocated ones, in the direction
+/// the panel promises: 力量 to 攻击力 and 生命值, 法力 to 法术强度 and 法抗, 身法 to
+/// 速度/命中/闪避, 根骨 to 内力值 and 潜质.
+#[test]
+fn every_shown_number_follows_from_the_attribute_that_owns_it() {
+    let empty = Attributes::default().derived();
+    assert_eq!(empty.attack, 10);
+    assert_eq!(empty.health, 100);
+    assert_eq!(empty.inner, 50);
+    assert_eq!(empty.speed, 10);
+
+    let strong = Attributes::new(0, 10, 0, 0).derived();
+    assert_eq!(strong.attack, 40, "10 + 力量×3");
+    assert_eq!(strong.health, 300, "100 + 力量×20");
+    assert_eq!(strong.spell, 0, "力量 casts nothing");
+
+    let mana = Attributes::new(0, 0, 10, 0).derived();
+    assert_eq!(mana.spell, 30);
+    assert_eq!(mana.resist, 20);
+    assert_eq!(mana.health, 100, "法力 buys no flesh");
+
+    let swift = Attributes::new(0, 0, 0, 10).derived();
+    assert_eq!(swift.speed, 30);
+    assert_eq!(swift.hit, 800);
+    assert_eq!(swift.evade, 90);
+
+    let rooted = Attributes::new(10, 0, 0, 0).derived();
+    assert_eq!(rooted.inner, 130, "50 + 根骨×8");
+    assert_eq!(rooted.aptitude, 20);
+}
+
+/// Both chances are capped: an uncapped 闪避 would make a build untouchable, and
+/// an uncapped 命中 would make every fight a formality.
+#[test]
+fn hit_and_evade_stop_climbing() {
+    let absurd = Attributes::new(0, 0, 0, 10_000).derived();
+    assert_eq!(absurd.hit, 950);
+    assert_eq!(absurd.evade, 400);
+    assert_eq!(absurd.hit_percent(), 95);
+    assert_eq!(absurd.evade_percent(), 40);
+}
+
 #[test]
 fn the_guardian_is_beyond_a_naked_cultivator_at_the_cap() {
     let naked = at_the_first_cap();
@@ -345,11 +388,11 @@ fn a_planted_seed_ripens_on_the_clock_and_pays_an_attribute() {
 #[test]
 fn a_seed_stack_is_spent_one_planting_at_a_time() {
     let mut cultivation = Cultivation::default();
-    document_seeds(&mut cultivation, Attribute::Spirit, 1, 2);
-    assert!(cultivation.plant(Attribute::Spirit, 1, 0));
-    assert!(cultivation.plant(Attribute::Spirit, 1, 0));
+    document_seeds(&mut cultivation, Attribute::Mana, 1, 2);
+    assert!(cultivation.plant(Attribute::Mana, 1, 0));
+    assert!(cultivation.plant(Attribute::Mana, 1, 0));
     assert!(
-        !cultivation.plant(Attribute::Spirit, 1, 0),
+        !cultivation.plant(Attribute::Mana, 1, 0),
         "the stack is empty"
     );
     assert!(cultivation.view().seeds.is_empty());
@@ -569,8 +612,8 @@ fn a_harvest_that_gives_a_seed_back_puts_it_in_the_satchel() {
     let mut returned = None;
     for step in 0..200i64 {
         let planted_at = step * 10_000;
-        document_seeds(&mut cultivation, Attribute::Spirit, 2, 1);
-        assert!(cultivation.plant(Attribute::Spirit, 2, planted_at));
+        document_seeds(&mut cultivation, Attribute::Mana, 2, 1);
+        assert!(cultivation.plant(Attribute::Mana, 2, planted_at));
         let outcome = cultivation
             .harvest(0, planted_at + grow_seconds(2))
             .expect("a ripe crop");
@@ -580,7 +623,7 @@ fn a_harvest_that_gives_a_seed_back_puts_it_in_the_satchel() {
         }
     }
     let (attribute, tier) = returned.expect("200 harvests at 15% return at least one seed");
-    assert_eq!(attribute, Attribute::Spirit);
+    assert_eq!(attribute, Attribute::Mana);
     assert_eq!(
         cultivation.view().last_seed_return.map(|seed| seed.tier),
         Some(tier)

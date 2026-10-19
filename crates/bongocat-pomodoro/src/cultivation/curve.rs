@@ -15,6 +15,14 @@ use super::STAGE_COUNT;
 /// How many layers each realm holds.
 pub const LAYERS_PER_STAGE: u16 = 100;
 
+/// How many ranks a layer is split into. A realm is therefore
+/// [`LAYERS_PER_REALM`] layers of ten ranks, which is how the surfaces read a
+/// level: 89 is "8 层 9 级", not "layer 89".
+pub const RANKS_PER_LAYER: u16 = 10;
+
+/// How many layers one realm holds: ten, of ten ranks each.
+pub const LAYERS_PER_REALM: u16 = LAYERS_PER_STAGE / RANKS_PER_LAYER;
+
 /// The highest level the ladder reaches: ten realms of a hundred layers.
 pub const MAX_LEVEL: u16 = (STAGE_COUNT as u16) * LAYERS_PER_STAGE;
 
@@ -57,6 +65,28 @@ pub fn threshold_for(level: u16) -> u32 {
     stage_floor(stage) + layer * stage_step(stage)
 }
 
+/// A level read the way a cultivator says it: the layer inside its realm, and
+/// the rank inside that layer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LayerRank {
+    /// The layer, zero-based: the first ten levels of a realm are layer 0.
+    pub layer: u8,
+    /// The rank inside the layer, one-based: 1..=10.
+    pub rank: u8,
+}
+
+/// How a level is said: level 89 of a realm is "8 层 9 级".
+///
+/// The ladder itself still counts in [`LAYERS_PER_STAGE`] single levels; this is
+/// only how one of them is read out loud, so no persisted number changes shape.
+pub fn layer_rank(level: u16) -> LayerRank {
+    let within = u32::from(level.saturating_sub(1)) % u32::from(LAYERS_PER_STAGE);
+    LayerRank {
+        layer: (within / u32::from(RANKS_PER_LAYER)) as u8,
+        rank: (within % u32::from(RANKS_PER_LAYER) + 1) as u8,
+    }
+}
+
 /// Where a growth total sits on the ladder.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LevelProgress {
@@ -97,6 +127,23 @@ pub fn level_for_growth(growth: u32) -> LevelProgress {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_level_is_read_as_a_layer_of_ten_ranks() {
+        let rank = |level| layer_rank(level);
+        assert_eq!(rank(1), LayerRank { layer: 0, rank: 1 });
+        assert_eq!(
+            rank(89),
+            LayerRank { layer: 8, rank: 9 },
+            "the way the user says it: 炼气 8 层 9 级"
+        );
+        assert_eq!(rank(10), LayerRank { layer: 0, rank: 10 });
+        assert_eq!(rank(11), LayerRank { layer: 1, rank: 1 });
+        // A realm is ten layers; the hundred-and-first level starts the next one
+        // back at its first layer.
+        assert_eq!(rank(100), LayerRank { layer: 9, rank: 10 });
+        assert_eq!(rank(101), LayerRank { layer: 0, rank: 1 });
+    }
 
     #[test]
     fn the_ladder_opens_where_the_realm_table_says() {

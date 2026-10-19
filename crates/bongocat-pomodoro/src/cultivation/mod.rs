@@ -45,7 +45,10 @@ mod state;
 mod tests;
 
 pub use battle::{BattleReport, Guardian};
-pub use curve::{LAYERS_PER_STAGE, LevelProgress, MAX_LEVEL, level_for_growth, threshold_for};
+pub use curve::{
+    LAYERS_PER_REALM, LAYERS_PER_STAGE, LayerRank, LevelProgress, MAX_LEVEL, RANKS_PER_LAYER,
+    layer_rank, level_for_growth, threshold_for,
+};
 pub use document::CultivationDocument;
 pub use garden::{MAX_SEED_TIER, PLOT_COUNT, PlotRecord, SeedStack};
 pub use items::{EquipSlot, EquipmentRecord, Rarity, SLOT_COUNT};
@@ -109,12 +112,12 @@ const SEED_RETURN_UPGRADE_PERCENT: u64 = 30;
 /// What one point of 根骨 adds to the spell half of the power.
 ///
 /// The channel matters, but the force matters more: 仙力 carries twice the
-/// weight of 根骨, so a spellcaster leans on spirit while root is what lets the
-/// spirit be spent at all.
+/// weight of 根骨, so a spellcaster leans on mana while root is what lets the
+/// mana be spent at all.
 const ROOT_WEIGHT: i64 = 15;
 
 /// What one point of 仙力 adds to the spell half of the power.
-const SPIRIT_WEIGHT: i64 = 20;
+const MANA_WEIGHT: i64 = 20;
 
 /// What one point of 力量 adds to the martial half of the power.
 const STRENGTH_WEIGHT: i64 = 20;
@@ -161,7 +164,7 @@ pub enum Realm {
     Foundation,
     GoldenCore,
     NascentSoul,
-    SpiritTransformation,
+    ManaTransformation,
     VoidRefinement,
     Integration,
     Mahayana,
@@ -176,7 +179,7 @@ impl Realm {
         Self::Foundation,
         Self::GoldenCore,
         Self::NascentSoul,
-        Self::SpiritTransformation,
+        Self::ManaTransformation,
         Self::VoidRefinement,
         Self::Integration,
         Self::Mahayana,
@@ -191,7 +194,7 @@ impl Realm {
             Self::Foundation => 1,
             Self::GoldenCore => 2,
             Self::NascentSoul => 3,
-            Self::SpiritTransformation => 4,
+            Self::ManaTransformation => 4,
             Self::VoidRefinement => 5,
             Self::Integration => 6,
             Self::Mahayana => 7,
@@ -218,7 +221,7 @@ impl Realm {
             Self::Foundation => "stats.stage.name.2",
             Self::GoldenCore => "stats.stage.name.3",
             Self::NascentSoul => "stats.stage.name.4",
-            Self::SpiritTransformation => "stats.stage.name.5",
+            Self::ManaTransformation => "stats.stage.name.5",
             Self::VoidRefinement => "stats.stage.name.6",
             Self::Integration => "stats.stage.name.7",
             Self::Mahayana => "stats.stage.name.8",
@@ -247,20 +250,20 @@ impl Realm {
 pub enum Attribute {
     Root,
     Strength,
-    Spirit,
+    Mana,
     Agility,
 }
 
 impl Attribute {
     /// Every attribute, in display order.
-    pub const ALL: [Self; 4] = [Self::Root, Self::Strength, Self::Spirit, Self::Agility];
+    pub const ALL: [Self; 4] = [Self::Root, Self::Strength, Self::Mana, Self::Agility];
 
     /// The attribute's position in [`Self::ALL`].
     pub const fn index(self) -> usize {
         match self {
             Self::Root => 0,
             Self::Strength => 1,
-            Self::Spirit => 2,
+            Self::Mana => 2,
             Self::Agility => 3,
         }
     }
@@ -270,7 +273,7 @@ impl Attribute {
         match self {
             Self::Root => "cultivation.attribute.root",
             Self::Strength => "cultivation.attribute.strength",
-            Self::Spirit => "cultivation.attribute.spirit",
+            Self::Mana => "cultivation.attribute.mana",
             Self::Agility => "cultivation.attribute.agility",
         }
     }
@@ -282,7 +285,7 @@ impl Attribute {
         match self {
             Self::Root => "cultivation.attribute.root_desc",
             Self::Strength => "cultivation.attribute.strength_desc",
-            Self::Spirit => "cultivation.attribute.spirit_desc",
+            Self::Mana => "cultivation.attribute.mana_desc",
             Self::Agility => "cultivation.attribute.agility_desc",
         }
     }
@@ -292,7 +295,7 @@ impl Attribute {
         match self {
             Self::Root => attributes.root,
             Self::Strength => attributes.strength,
-            Self::Spirit => attributes.spirit,
+            Self::Mana => attributes.mana,
             Self::Agility => attributes.agility,
         }
     }
@@ -302,7 +305,7 @@ impl Attribute {
         let slot = match self {
             Self::Root => &mut attributes.root,
             Self::Strength => &mut attributes.strength,
-            Self::Spirit => &mut attributes.spirit,
+            Self::Mana => &mut attributes.mana,
             Self::Agility => &mut attributes.agility,
         };
         *slot = slot.saturating_add(amount);
@@ -324,19 +327,21 @@ pub struct Attributes {
     pub root: i32,
     #[serde(default)]
     pub strength: i32,
-    #[serde(default)]
-    pub spirit: i32,
+    /// Spell force. Renamed from `spirit`; the alias keeps an older document —
+    /// one written before 法力 was the word for it — reading its own number.
+    #[serde(default, alias = "spirit")]
+    pub mana: i32,
     #[serde(default)]
     pub agility: i32,
 }
 
 impl Attributes {
     /// An explicit set.
-    pub const fn new(root: i32, strength: i32, spirit: i32, agility: i32) -> Self {
+    pub const fn new(root: i32, strength: i32, mana: i32, agility: i32) -> Self {
         Self {
             root,
             strength,
-            spirit,
+            mana,
             agility,
         }
     }
@@ -346,7 +351,7 @@ impl Attributes {
         Self {
             root: self.root.saturating_add(other.root),
             strength: self.strength.saturating_add(other.strength),
-            spirit: self.spirit.saturating_add(other.spirit),
+            mana: self.mana.saturating_add(other.mana),
             agility: self.agility.saturating_add(other.agility),
         }
     }
@@ -374,9 +379,9 @@ impl Attributes {
     /// the heavier attribute — a lopsided pair wastes the synergy.
     pub fn spell_power(self) -> u32 {
         let root = i64::from(self.root).max(0);
-        let spirit = i64::from(self.spirit).max(0);
+        let mana = i64::from(self.mana).max(0);
         let weighted =
-            root * ROOT_WEIGHT + spirit * SPIRIT_WEIGHT + root.min(spirit) * PAIR_SYNERGY_WEIGHT;
+            root * ROOT_WEIGHT + mana * MANA_WEIGHT + root.min(mana) * PAIR_SYNERGY_WEIGHT;
         scaled_power(weighted)
     }
 
@@ -397,9 +402,112 @@ impl Attributes {
     pub fn total(self) -> u32 {
         let sum = i64::from(self.root)
             + i64::from(self.strength)
-            + i64::from(self.spirit)
+            + i64::from(self.mana)
             + i64::from(self.agility);
         u32::try_from(sum.max(0)).unwrap_or(u32::MAX)
+    }
+}
+
+/// What the four attributes are worth once they are read as a fighter.
+///
+/// These are shown and fought with, never allocated: a point can only go into
+/// one of the four above, and everything here follows from those four. That is
+/// what keeps the panel honest — the numbers the user compares are the numbers
+/// the fight uses, and there is no second pool of points that can make a build
+/// look stronger than it fights.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct Derived {
+    /// 攻击力: what a bare hand and every 外功 scale from.
+    pub attack: u32,
+    /// 生命值: how much damage can be taken before the fight is lost.
+    pub health: u32,
+    /// 内力值: the pool a 外功 spends. Empty, the cultivator falls back on 攻击力.
+    pub inner: u32,
+    /// 法术强度: what a spell scales from.
+    pub spell: u32,
+    /// 法抗: subtracted from incoming 法术强度.
+    pub resist: u32,
+    /// 速度: how often the cultivator acts.
+    pub speed: u32,
+    /// 命中: chance to land a blow, in parts per thousand.
+    pub hit: u32,
+    /// 闪避: chance to avoid one, in parts per thousand.
+    pub evade: u32,
+    /// 潜质: how fast 功法 are learned and how rarely the attempt fails.
+    pub aptitude: u32,
+}
+
+impl Derived {
+    /// 命中 as a percentage the surfaces can print.
+    pub fn hit_percent(self) -> u32 {
+        self.hit / 10
+    }
+
+    /// 闪避 as a percentage the surfaces can print.
+    pub fn evade_percent(self) -> u32 {
+        self.evade / 10
+    }
+}
+
+/// The floor every 攻击力 starts from, and what one point of 力量 adds.
+const BASE_ATTACK: i64 = 10;
+const ATTACK_PER_STRENGTH: i64 = 3;
+/// The floor every 生命值 starts from, and what one point of 力量 adds.
+const BASE_HEALTH: i64 = 100;
+const HEALTH_PER_STRENGTH: i64 = 20;
+/// The floor every 内力值 starts from, and what one point of 根骨 adds.
+const BASE_INNER: i64 = 50;
+const INNER_PER_ROOT: i64 = 8;
+/// What one point of 法力 is worth to 法术强度 and to 法抗.
+const SPELL_PER_MANA: i64 = 3;
+const RESIST_PER_MANA: i64 = 2;
+/// The floor every 速度 starts from, and what one point of 身法 adds.
+const BASE_SPEED: i64 = 10;
+const SPEED_PER_AGILITY: i64 = 2;
+/// 命中 and 闪避 start here and climb with 身法, in parts per thousand. Both are
+/// capped: an uncapped 闪避 makes a build untouchable and an uncapped 命中 makes
+/// the cap the only number that matters.
+const BASE_HIT_PERMILLE: i64 = 750;
+const HIT_PERMILLE_PER_AGILITY: i64 = 5;
+const HIT_PERMILLE_CAP: i64 = 950;
+const BASE_EVADE_PERMILLE: i64 = 50;
+const EVADE_PERMILLE_PER_AGILITY: i64 = 4;
+const EVADE_PERMILLE_CAP: i64 = 400;
+/// What one point of 根骨 is worth to 潜质.
+const APTITUDE_PER_ROOT: i64 = 2;
+
+/// Turn a weighted sum into a whole non-negative number.
+fn scaled(value: i64) -> u32 {
+    u32::try_from(value.max(0)).unwrap_or(u32::MAX)
+}
+
+impl Attributes {
+    /// The fighter these four attributes make.
+    ///
+    /// Every line is one attribute read through one constant, so the panel can
+    /// say exactly where a number came from and a change to a constant moves the
+    /// panel and the fight together.
+    pub fn derived(self) -> Derived {
+        let strength = i64::from(self.strength);
+        let mana = i64::from(self.mana);
+        let agility = i64::from(self.agility);
+        let root = i64::from(self.root);
+        Derived {
+            attack: scaled(BASE_ATTACK + strength * ATTACK_PER_STRENGTH),
+            health: scaled(BASE_HEALTH + strength * HEALTH_PER_STRENGTH),
+            inner: scaled(BASE_INNER + root * INNER_PER_ROOT),
+            spell: scaled(mana * SPELL_PER_MANA),
+            resist: scaled(mana * RESIST_PER_MANA),
+            speed: scaled(BASE_SPEED + agility * SPEED_PER_AGILITY),
+            hit: scaled(
+                (BASE_HIT_PERMILLE + agility * HIT_PERMILLE_PER_AGILITY).min(HIT_PERMILLE_CAP),
+            ),
+            evade: scaled(
+                (BASE_EVADE_PERMILLE + agility * EVADE_PERMILLE_PER_AGILITY)
+                    .min(EVADE_PERMILLE_CAP),
+            ),
+            aptitude: scaled(root * APTITUDE_PER_ROOT),
+        }
     }
 }
 
@@ -414,7 +522,7 @@ pub fn base_attributes(level: u16) -> Attributes {
     Attributes {
         root: 10 + level * 2 + stage * 60,
         strength: 8 + level * 2 + stage * 60,
-        spirit: 8 + level * 2 + stage * 60,
+        mana: 8 + level * 2 + stage * 60,
         agility: 6 + level + stage * 40,
     }
 }

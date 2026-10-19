@@ -606,7 +606,7 @@
     "hud": {
       "progress": "%{value} / %{next} 成长值 · %{percent}%",
       "total": "成长值 %{value}",
-      "realm": "%{stage} · 第 %{layer} 层",
+      "realm": "%{stage} · %{layer} 层 %{rank} 级",
       "cultivation": "累计成长值 %{growth} · 距下一级还需 %{remaining}"
     },
     "stage": {
@@ -623,10 +623,10 @@
         "10": "仙人"
       }
     },
-    "badge": "%{stage} %{layer}"
+    "badge": "%{stage} %{layer}层%{rank}级"
   },
   "cultivation": {
-    "realm": "%{stage} · 第 %{layer} 层",
+    "realm": "%{stage} · %{layer} 层 %{rank} 级",
     "progress": "%{value} / %{next} 成长值",
     "capped": "本境圆满，破境方能再进",
     "attributes": "属性",
@@ -634,15 +634,26 @@
     "attribute": {
       "root": "根骨",
       "strength": "力量",
-      "spirit": "仙力",
+      "mana": "法力",
       "agility": "身法",
       "add": "+1",
       "add_ten": "+10",
-      "root_desc": "根骨：法术一脉的根基，每点 +15 法术战力。与仙力配对，取两者较低者每点再加 10 点默契，故只堆仙力会白费加成。",
-      "strength_desc": "力量：武术一脉的主力，每点 +20 武术战力。与身法配对，取两者较低者每点再加 10 点默契。",
-      "spirit_desc": "仙力：法术一脉的主力，每点 +20 法术战力。与根骨配对，取两者较低者每点再加 10 点默契。",
-      "agility_desc": "身法：武术一脉的根基，每点 +12 武术战力。与力量配对，取两者较低者每点再加 10 点默契，故只堆力量会白费加成。"
+      "root_desc": "根骨：每点 +8 内力值、+2 潜质。潜质越高，学功法越快、也越不容易失败。与法力同为法术一脉（每点 +15 法术战力，配对再计 10 点默契）。",
+      "strength_desc": "力量：每点 +3 攻击力、+20 生命值。与身法同为武术一脉（每点 +20 武术战力，配对再计 10 点默契）。",
+      "mana_desc": "法力：每点 +3 法术强度、+2 法抗。与根骨同为法术一脉（每点 +20 法术战力，配对再计 10 点默契）。",
+      "agility_desc": "身法：每点 +2 速度、命中 +0.5%、闪避 +0.4%（命中上限 95%、闪避 40%）。与力量同为武术一脉（每点 +12 武术战力，配对再计 10 点默契）。"
     },
+    "derived": "外显属性",
+    "derived_hint": "由四维算出，不可加点",
+    "attack": "攻击力 %{value}",
+    "health": "生命值 %{value}",
+    "inner": "内力值 %{value}",
+    "spell": "法术强度 %{value}",
+    "resist": "法抗 %{value}",
+    "speed": "速度 %{value}",
+    "hit": "命中 %{value}%",
+    "evade": "闪避 %{value}%",
+    "aptitude": "潜质 %{value}",
     "power": "战力 %{power}",
     "power_level": "境界 %{value}",
     "power_equipment": "装备 %{value}",
@@ -659,7 +670,7 @@
     "item": {
       "label": "%{slot} · %{tier} 阶 · %{stars}",
       "label_named": "%{name} · %{tier} 阶 %{stars}",
-      "details": "根骨 %{root} · 力量 %{strength} · 仙力 %{spirit} · 身法 %{agility}",
+      "details": "根骨 %{root} · 力量 %{strength} · 法力 %{mana} · 身法 %{agility}",
       "schools": "法术 %{spell} · 武术 %{martial} · 战力 %{power}",
       "equip": "装备",
       "unequip": "卸下"

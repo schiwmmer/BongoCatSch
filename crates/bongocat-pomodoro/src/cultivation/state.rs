@@ -14,12 +14,11 @@
 use std::array;
 
 use super::{
-    Attribute, Attributes, BattleReport, CultivationDocument, EQUIPMENT_DROP_PERMILLE, EquipSlot,
-    EquipmentRecord, FREE_POINTS_PER_LEVEL, Guardian, LAYERS_PER_STAGE, MAX_LEVEL, PLOT_COUNT,
-    Rarity, Realm, Rng, SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack, absence_penalty,
-    base_attributes,
+    Attribute, Attributes, BattleReport, CultivationDocument, Derived, EQUIPMENT_DROP_PERMILLE,
+    EquipSlot, EquipmentRecord, FREE_POINTS_PER_LEVEL, Guardian, MAX_LEVEL, PLOT_COUNT, Rarity,
+    Realm, Rng, SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack, absence_penalty, base_attributes,
     battle::{guardian_for, resolve},
-    curve::{level_for_growth, stage_floor, threshold_for},
+    curve::{layer_rank, level_for_growth, stage_floor, threshold_for},
     garden::{CropRecord, harvest_points, seed_name, seed_return},
     items::roll_equipment,
 };
@@ -132,8 +131,11 @@ pub enum DropView {
 pub struct CultivationView {
     pub level: u16,
     pub realm: Realm,
-    /// The layer inside the realm, one-based.
-    pub layer: u16,
+    /// The layer inside the realm, as [`LayerRank`] says it: ten layers of ten
+    /// ranks, so 89 is layer 8 rank 9.
+    pub layer: u8,
+    /// The rank inside that layer, one-based.
+    pub rank: u8,
     pub growth: u32,
     /// The growth the current level opened at.
     pub floor: u32,
@@ -142,6 +144,8 @@ pub struct CultivationView {
     pub next: Option<u32>,
     /// Level, gear, herbs and the points the user placed together.
     pub attributes: Attributes,
+    /// What those four are worth once read as a fighter.
+    pub derived: Derived,
     pub level_attributes: Attributes,
     pub equipment_attributes: Attributes,
     pub crop_attributes: Attributes,
@@ -596,7 +600,7 @@ impl Cultivation {
     pub fn view(&self) -> CultivationView {
         let realm = self.realm();
         let level = self.level();
-        let layer = level - realm.index() as u16 * LAYERS_PER_STAGE;
+        let said = layer_rank(level);
         let floor = threshold_for(level);
         let next = (level < realm.cap_level()).then(|| threshold_for(level + 1));
         let level_attributes = self.level_attributes();
@@ -653,11 +657,13 @@ impl Cultivation {
         CultivationView {
             level,
             realm,
-            layer,
+            layer: said.layer,
+            rank: said.rank,
             growth: self.document.growth,
             floor,
             next,
             attributes,
+            derived: attributes.derived(),
             level_attributes,
             equipment_attributes,
             crop_attributes,
