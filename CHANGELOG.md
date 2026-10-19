@@ -22,6 +22,8 @@
 - Every finished focus session rolls a low chance of one drop — six percent a piece of gear, five percent a seed, never both at once.
 - Breaking into the next realm needs a guardian beaten in a fight the growth alone cannot win: the guardian is a fifth stronger than a bare cultivator at the same realm's cap, so gear and herbs are what carry it. A loss is recorded and leaves the realm where it was.
 - A day without a finished focus session costs growth, and consecutive missed days double the charge up to a cap of 320, so a lapse is answered without ever undoing a breakthrough.
+- A task's completion date is now the moment its last focus session finished, not the moment its checkbox was ticked; only a task finished without a single session keeps the tick time.
+- The pomodoro picker folds finished tasks behind a "Finished (N)" toggle that expands on click; every unfinished task starts a session straight from its own row; and every task — finished or running included — opens the same right-click menu as the settings page: edit, duplicate, delete.
 
 ### 🗑️ Removals
 
@@ -32,6 +34,7 @@
 - The Pomodoro trend chart now draws focus minutes in red and finished tasks in blue, so the two series never share a colour.
 - The forehead badge and the hover panel name the realm and the layer instead of a level number, and the panel's bar measures progress through the current layer rather than towards the next level.
 - The Pomodoro settings page gains a "Cultivation" tab: the realm and its growth bar, the four attributes and the power they add up to, the four gear slots beside the satchel holding the rest, the seeds and the plots they can be planted in, and the guardian with the one button that fights it.
+- Cultivation moves out of the Pomodoro page's tabs into its own sidebar entry, right beneath Pomodoro; the Pomodoro page returns to its two views, the task list and the calendar.
 
 ### 🌍 Localization
 
