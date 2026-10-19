@@ -10,8 +10,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Attributes, EquipmentRecord, MAX_LEVEL, PLOT_COUNT, PlotRecord, SLOT_COUNT, STAGE_COUNT,
-    SeedStack,
+    ART_COUNT, Attributes, EquipmentRecord, MAX_LEVEL, OwnedArt, PLOT_COUNT, PlotRecord,
+    SLOT_COUNT, STAGE_COUNT, SeedStack, blueprint,
     curve::{level_for_growth, stage_floor},
 };
 
@@ -73,6 +73,16 @@ pub struct CultivationDocument {
     /// only: a failure never takes anything away.
     #[serde(default)]
     pub breakthrough_failures: u32,
+    /// The 功法 owned, named by the id of the one it is out of the five hundred.
+    ///
+    /// Only the id, the 阶 and the banked progress are stored: everything else
+    /// about a 功法 is rebuilt from its id, so a save cannot drift from the
+    /// catalog and a 功法 the user has never met costs nothing.
+    #[serde(default)]
+    pub arts: Vec<OwnedArt>,
+    /// The 功法 the next finished pomodoro trains, if one is chosen.
+    #[serde(default)]
+    pub selected_art: Option<u64>,
 }
 
 impl CultivationDocument {
@@ -111,6 +121,30 @@ impl CultivationDocument {
             if slot.is_some_and(|id| !self.equipment.iter().any(|item| item.id == id)) {
                 *slot = None;
             }
+        }
+        // A 功法 out of range, or one kept twice, cannot be read: the first
+        // entry for an id wins and the 阶 is clamped to the grade that id
+        // carries. A selection naming an art that is not owned reads as none.
+        let mut seen: Vec<u64> = Vec::with_capacity(self.arts.len());
+        self.arts.retain(|art| {
+            if art.art_id < 1 || art.art_id > ART_COUNT || seen.contains(&art.art_id) {
+                return false;
+            }
+            seen.push(art.art_id);
+            true
+        });
+        for art in &mut self.arts {
+            let max_rank = blueprint(art.art_id).grade.ranks();
+            art.rank = art.rank.clamp(1, max_rank);
+            if art.rank >= max_rank {
+                art.progress = 0;
+            }
+        }
+        if self
+            .selected_art
+            .is_some_and(|id| !self.arts.iter().any(|art| art.art_id == id))
+        {
+            self.selected_art = None;
         }
         self
     }

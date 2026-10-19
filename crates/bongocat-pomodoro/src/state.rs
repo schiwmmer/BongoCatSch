@@ -224,6 +224,9 @@ pub enum PomodoroCommand {
     },
     /// Fight the guardian standing at the end of the current realm.
     Breakthrough,
+    /// Choose which 功法 the next finished pomodoro trains. `None` stops
+    /// training: a session then pays growth alone.
+    SelectArt { art_id: Option<u64> },
     /// Credit growth for raw keyboard or mouse activity. `count` is how many
     /// interactions happened since the last credit, batched by the caller so a
     /// fast typist does not publish one command per keystroke.
@@ -251,6 +254,7 @@ impl PomodoroCommand {
             | Self::UnequipSlot { .. }
             | Self::AllocateAttribute { .. }
             | Self::Breakthrough
+            | Self::SelectArt { .. }
             | Self::RecordInput { .. } => true,
         }
     }
@@ -385,6 +389,9 @@ impl PomodoroState {
             }
             PomodoroCommand::Breakthrough => {
                 self.cultivation.breakthrough();
+            }
+            PomodoroCommand::SelectArt { art_id } => {
+                self.cultivation.select_art(art_id);
             }
             PomodoroCommand::RecordInput { count } => {
                 for _ in 0..count {

@@ -637,3 +637,71 @@ fn a_harvest_that_gives_a_seed_back_puts_it_in_the_satchel() {
         "the returned seed is plantable"
     );
 }
+
+/// A 功法 is learned by finishing pomodoros, not by pressing a button: the
+/// selected art takes the session and nothing else does.
+#[test]
+fn a_finished_session_trains_the_selected_art() {
+    let mut cultivation = Cultivation::default();
+    let granted = cultivation
+        .grant_art(ArtGrade::Yellow, 1_000)
+        .expect("a 黄阶 art");
+    assert_eq!(
+        cultivation.view().selected_art,
+        Some(granted.id),
+        "the first 功法 learned is the one being trained"
+    );
+    // Ninety-odd sessions is more than any 黄阶 art needs, so the ladder ends
+    // the same way whatever the rolls were: mastered, with progress cleared.
+    for offset in 0..40_i64 {
+        cultivation.on_session_completed(1_000 + offset, day(30_000 + offset), 25);
+    }
+    let view = cultivation.view();
+    let art = view
+        .arts
+        .iter()
+        .find(|art| art.id == granted.id)
+        .expect("the art is still owned");
+    assert_eq!(art.rank, art.max_rank, "enough sessions master a 黄阶 art");
+    assert_eq!(art.progress, 0);
+    assert!(
+        view.last_training.is_some(),
+        "the panel says what the session did"
+    );
+}
+
+/// An 内功 that has been trained pays attributes, and it pays through the same
+/// total every other source feeds.
+#[test]
+fn a_trained_internal_art_feeds_the_attribute_total() {
+    let mut cultivation = Cultivation::default();
+    let before = cultivation.attributes().total();
+    let granted = cultivation
+        .grant_art(ArtGrade::Yellow, 7)
+        .expect("a 黄阶 art");
+    if blueprint(granted.id).kind != ArtKind::Internal {
+        return;
+    }
+    for offset in 0..20_i64 {
+        cultivation.on_session_completed(2_000 + offset, day(40_000 + offset), 25);
+    }
+    let paid = cultivation.art_attributes().total();
+    assert!(paid > 0, "a trained 内功 pays something");
+    assert_eq!(
+        cultivation.attributes().total(),
+        before + paid,
+        "the 功法 total is part of the whole"
+    );
+}
+
+/// Training can be stopped, and an art that is not owned cannot be trained.
+#[test]
+fn only_an_owned_art_can_be_selected() {
+    let mut cultivation = Cultivation::default();
+    assert!(!cultivation.select_art(Some(1)), "nothing is owned yet");
+    let granted = cultivation.grant_art(ArtGrade::Yellow, 3).expect("an art");
+    assert!(cultivation.select_art(Some(granted.id)));
+    assert_eq!(cultivation.view().selected_art, Some(granted.id));
+    assert!(cultivation.select_art(None));
+    assert_eq!(cultivation.view().selected_art, None);
+}

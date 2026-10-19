@@ -14,9 +14,12 @@
 use std::array;
 
 use super::{
-    Attribute, Attributes, BattleReport, CultivationDocument, Derived, EQUIPMENT_DROP_PERMILLE,
-    EquipSlot, EquipmentRecord, FREE_POINTS_PER_LEVEL, Guardian, MAX_LEVEL, PLOT_COUNT, Rarity,
-    Realm, Rng, SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack, absence_penalty, base_attributes,
+    ART_COUNT, ArtGrade, ArtOutcome, ArtView, Attribute, Attributes, BattleReport,
+    CultivationDocument, Derived, EQUIPMENT_DROP_PERMILLE, EquipSlot, EquipmentRecord,
+    FREE_POINTS_PER_LEVEL, Guardian, MAX_LEVEL, OwnedArt, PLOT_COUNT, Rarity, Realm, Rng,
+    SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack, absence_penalty, art_attributes, art_view,
+    arts::{blueprint, train},
+    base_attributes,
     battle::{guardian_for, resolve},
     curve::{layer_rank, level_for_growth, stage_floor, threshold_for},
     garden::{CropRecord, harvest_points, seed_name, seed_return},
@@ -96,6 +99,16 @@ pub struct SeedView {
     pub name: Option<String>,
 }
 
+/// What the last finished session did to the 功法 being trained.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrainingView {
+    pub art_id: u64,
+    pub name: String,
+    pub outcome: ArtOutcome,
+    /// The 阶 the art stands at now.
+    pub rank: u8,
+}
+
 /// One crop in a plot.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CropView {
@@ -165,6 +178,14 @@ pub struct CultivationView {
     pub last_drop: Option<DropView>,
     /// The seed the most recent harvest gave back, if it gave one.
     pub last_seed_return: Option<SeedView>,
+    /// Every 功法 owned, with the blueprint folded in.
+    pub arts: Vec<ArtView>,
+    /// What the trained 内功 have paid in total.
+    pub art_attributes: Attributes,
+    /// The 功法 the next finished pomodoro trains.
+    pub selected_art: Option<u64>,
+    /// What the last finished session did to the 功法 being trained.
+    pub last_training: Option<TrainingView>,
 }
 
 /// The cultivation ladder of one user.
@@ -178,6 +199,8 @@ pub struct Cultivation {
     last_drop: Option<Drop>,
     last_breakthrough: Option<BreakthroughOutcome>,
     last_seed_return: Option<SeedView>,
+    /// What the last finished session did to the 功法 being trained.
+    last_training: Option<TrainingView>,
 }
 
 impl Default for Cultivation {
@@ -196,6 +219,7 @@ impl Cultivation {
             last_drop: None,
             last_breakthrough: None,
             last_seed_return: None,
+            last_training: None,
         }
     }
 
@@ -249,6 +273,11 @@ impl Cultivation {
         self.document.allocated
     }
 
+    /// The attributes every trained 内功 has paid.
+    pub fn art_attributes(&self) -> Attributes {
+        art_attributes(&self.document.arts)
+    }
+
     /// The points the peak level has paid so far.
     ///
     /// A cultivator starts at level one, so the count is one less than the
@@ -290,12 +319,14 @@ impl Cultivation {
         self.note_peak_level();
     }
 
-    /// Every attribute together: level, gear, herbs and placed points.
+    /// Every attribute together: level, gear, herbs, trained 内功 and the points
+    /// the user placed.
     pub fn attributes(&self) -> Attributes {
         self.level_attributes()
             .plus(self.equipment_attributes())
             .plus(self.crop_attributes())
             .plus(self.allocated_attributes())
+            .plus(self.art_attributes())
     }
 
     /// The combat power everything together buys.
@@ -379,6 +410,10 @@ impl Cultivation {
         self.document.missed_streak = 0;
         self.document.charged_through_day = Some(today_number);
         self.note_peak_level();
+        // The session also trains whatever 功法 is selected: the pomodoro is the
+        // only honest measure of time spent training, so learning rides the same
+        // event that pays the growth.
+        self.train_selected(now_unix);
         let drop = self.roll_drop(now_unix);
         self.last_drop = drop.clone();
         SessionReward {
@@ -386,6 +421,81 @@ impl Cultivation {
             absence,
             drop,
         }
+    }
+
+    /// Put the finished session into the selected 功法, if there is one.
+    ///
+    /// 潜质 is what decides how often the attempt lands, so a 根骨 build learns
+    /// faster — the same knob the panel promises when it shows 潜质.
+    fn train_selected(&mut self, now_unix: i64) {
+        let Some(art_id) = self.document.selected_art else {
+            return;
+        };
+        let aptitude = self.attributes().derived().aptitude;
+        let mut rng = self.rng(now_unix);
+        let Some(art) = self
+            .document
+            .arts
+            .iter_mut()
+            .find(|art| art.art_id == art_id)
+        else {
+            return;
+        };
+        let outcome = train(art, aptitude, &mut rng);
+        let rank = art.rank;
+        self.last_training = Some(TrainingView {
+            art_id,
+            name: blueprint(art_id).name,
+            outcome,
+            rank,
+        });
+    }
+
+    /// Which 功法 the next finished pomodoro trains, or none.
+    pub fn select_art(&mut self, art_id: Option<u64>) -> bool {
+        if let Some(art_id) = art_id
+            && !self.document.arts.iter().any(|art| art.art_id == art_id)
+        {
+            return false;
+        }
+        self.document.selected_art = art_id;
+        true
+    }
+
+    /// Learn a 功法 the cultivator does not own yet.
+    ///
+    /// Returns whether anything was gained: every 功法 of the asked-for grade is
+    /// already owned, the next grade down is tried, and only a cultivator who
+    /// owns all five hundred walks away with nothing.
+    pub fn grant_art(&mut self, grade: ArtGrade, now_unix: i64) -> Option<ArtView> {
+        let mut rng = self.rng(now_unix);
+        for grade in ArtGrade::ALL.iter().rev().skip_while(|g| **g != grade) {
+            let unowned: Vec<u64> = (1..=ART_COUNT)
+                .filter(|id| {
+                    blueprint(*id).grade == *grade
+                        && !self.document.arts.iter().any(|art| art.art_id == *id)
+                })
+                .collect();
+            if unowned.is_empty() {
+                continue;
+            }
+            let art_id = unowned[rng.below(unowned.len() as u64) as usize];
+            self.document.arts.push(OwnedArt {
+                art_id,
+                rank: 1,
+                progress: 0,
+                outcome: None,
+            });
+            if self.document.selected_art.is_none() {
+                self.document.selected_art = Some(art_id);
+            }
+            return Some(art_view(
+                self.document.arts.last()?,
+                self.attributes().derived().aptitude,
+                true,
+            ));
+        }
+        None
     }
 
     /// Remember a new high-water mark for the level.
@@ -607,10 +717,25 @@ impl Cultivation {
         let equipment_attributes = self.equipment_attributes();
         let crop_attributes = self.crop_attributes();
         let allocated_attributes = self.allocated_attributes();
+        let art_attributes = self.art_attributes();
         let attributes = level_attributes
             .plus(equipment_attributes)
             .plus(crop_attributes)
-            .plus(allocated_attributes);
+            .plus(allocated_attributes)
+            .plus(art_attributes);
+        let aptitude = attributes.derived().aptitude;
+        let arts: Vec<ArtView> = self
+            .document
+            .arts
+            .iter()
+            .map(|art| {
+                art_view(
+                    art,
+                    aptitude,
+                    self.document.selected_art == Some(art.art_id),
+                )
+            })
+            .collect();
         let mut equipped: [Option<ItemView>; SLOT_COUNT] = array::from_fn(|_| None);
         let mut inventory = Vec::new();
         for item in &self.document.equipment {
@@ -668,6 +793,7 @@ impl Cultivation {
             equipment_attributes,
             crop_attributes,
             allocated_attributes,
+            art_attributes,
             free_points: self.free_points(),
             power: attributes.power(),
             equipped,
@@ -706,6 +832,9 @@ impl Cultivation {
                 Drop::Seed { attribute, tier } => DropView::Seed { attribute, tier },
             }),
             last_seed_return: self.last_seed_return.clone(),
+            arts,
+            selected_art: self.document.selected_art,
+            last_training: self.last_training.clone(),
         }
     }
 }

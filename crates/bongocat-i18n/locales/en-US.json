@@ -643,6 +643,32 @@
       "mana_desc": "Mana: +3 spell power and +2 spell resist a point. Pairs with Constitution in the spell school (+20 spell power a point, plus 10 for the shorter half).",
       "agility_desc": "Agility: +2 speed, +0.5% hit and +0.4% evade a point (hit caps at 95%, evade at 40%). Pairs with Strength in the martial school (+12 martial power a point, plus 10 for the shorter half)."
     },
+    "arts": {
+      "title": "Arts",
+      "empty": "No arts yet. Winning a realm fight always grants one; exploring may."
+    },
+    "art": {
+      "kind": {
+        "internal": "Internal",
+        "external": "External"
+      },
+      "grade": {
+        "yellow": "Yellow",
+        "profound": "Profound",
+        "earth": "Earth",
+        "heaven": "Heaven",
+        "divine": "Divine"
+      },
+      "rank": "rank %{rank}/%{max}",
+      "progress": "%{have}/%{need} pomodoros",
+      "failure": "%{value}% to fail",
+      "gain": "%{attribute} +%{value}",
+      "cost": "costs %{value} inner",
+      "multiplier": "%{value}% power",
+      "select": "Train",
+      "selected": "Training",
+      "mastered": "Mastered"
+    },
     "derived": "Shown",
     "derived_hint": "Follows from the four attributes; no point can be placed here",
     "attack": "attack %{value}",
@@ -707,6 +733,9 @@
       "max": "The immortal realm is complete."
     },
     "notice": {
+      "art_failed": "Training in %{name} did not take; the progress is still there.",
+      "art_ranked": "%{name} reaches rank %{rank}!",
+      "art_mastered": "%{name} is mastered!",
       "absence": "%{days} days without practice — growth -%{charged}",
       "drop_equipment": "Found gear: %{item}",
       "drop_seed": "Found a seed: %{item}",

@@ -643,6 +643,32 @@
       "mana_desc": "法力：每点 +3 法术强度、+2 法抗。与根骨同为法术一脉（每点 +20 法术战力，配对再计 10 点默契）。",
       "agility_desc": "身法：每点 +2 速度、命中 +0.5%、闪避 +0.4%（命中上限 95%、闪避 40%）。与力量同为武术一脉（每点 +12 武术战力，配对再计 10 点默契）。"
     },
+    "arts": {
+      "title": "功法",
+      "empty": "还没有功法。闯关成功必得，探索亦有几率。"
+    },
+    "art": {
+      "kind": {
+        "internal": "内功",
+        "external": "外功"
+      },
+      "grade": {
+        "yellow": "黄阶",
+        "profound": "玄阶",
+        "earth": "地阶",
+        "heaven": "天阶",
+        "divine": "神阶"
+      },
+      "rank": "%{rank}/%{max} 阶",
+      "progress": "%{have}/%{need} 番茄",
+      "failure": "失败 %{value}%",
+      "gain": "%{attribute} +%{value}",
+      "cost": "耗内力 %{value}",
+      "multiplier": "威力 %{value}%",
+      "select": "修习",
+      "selected": "修习中",
+      "mastered": "圆满"
+    },
     "derived": "外显属性",
     "derived_hint": "由四维算出，不可加点",
     "attack": "攻击力 %{value}",
@@ -707,6 +733,9 @@
       "max": "已至仙人境圆满。"
     },
     "notice": {
+      "art_failed": "修习《%{name}》未成，进度仍在。",
+      "art_ranked": "《%{name}》进阶至第 %{rank} 阶！",
+      "art_mastered": "《%{name}》已至圆满！",
       "absence": "%{days} 天未修炼，成长值 -%{charged}",
       "drop_equipment": "获得装备 %{item}",
       "drop_seed": "获得种子 %{item}",

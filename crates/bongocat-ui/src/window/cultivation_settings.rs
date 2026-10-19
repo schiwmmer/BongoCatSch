@@ -15,7 +15,8 @@
 use super::*;
 use bongocat_i18n::{format_text, text};
 use bongocat_pomodoro::{
-    Attribute, CultivationView, DropView, EquipSlot, ItemView, MAX_LEVEL, PomodoroCommand, Realm,
+    ArtKind, ArtOutcome, ArtView, Attribute, CultivationView, DropView, EquipSlot, ItemView,
+    MAX_LEVEL, PomodoroCommand, Realm,
 };
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::hover_card::HoverCard;
@@ -80,6 +81,7 @@ pub(super) fn content(
             tokens,
             open_item,
         ))
+        .child(arts_panel(&view, &cultivation, locale, tokens))
         .child(seed_panel(&view, &cultivation, locale, tokens))
         .child(garden_panel(&view, &cultivation, locale, tokens))
         .child(breakthrough_panel(&view, &cultivation, locale, tokens))
@@ -253,6 +255,22 @@ fn notices(
             )
             .into_any_element(),
         );
+    }
+    if let Some(training) = &cultivation.last_training {
+        let (key, color) = match training.outcome {
+            ArtOutcome::Failed => ("cultivation.notice.art_failed", tokens.muted),
+            ArtOutcome::Mastered => ("cultivation.notice.art_mastered", tokens.accent),
+            _ => ("cultivation.notice.art_ranked", tokens.accent),
+        };
+        let line = format_text(
+            locale,
+            key,
+            &[
+                ("name", training.name.clone()),
+                ("rank", training.rank.to_string()),
+            ],
+        );
+        notices.push(notice("cultivation-notice-art", line, color).into_any_element());
     }
     if let Some(outcome) = &cultivation.last_breakthrough {
         let line = if outcome.report.won {
@@ -484,6 +502,168 @@ fn derived_chip(locale: &str, key: &str, value: u32, tokens: Tokens) -> impl Int
             &format!("cultivation.{key}"),
             &[("value", value.to_string())],
         )))
+}
+
+/// The 功法 the cultivator owns, and which one the next pomodoro trains.
+///
+/// Selecting is the whole interaction: the training itself happens when a
+/// session finishes, so the row says how far along it is and what the next 阶
+/// asks for rather than offering a button that does the learning.
+fn arts_panel(
+    view: &Entity<SettingsView>,
+    cultivation: &CultivationView,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    let mut panel = div()
+        .id("cultivation-arts")
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(section_title(locale, "cultivation.arts.title", tokens));
+    if cultivation.arts.is_empty() {
+        return panel.child(
+            div()
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(text(locale, "cultivation.arts.empty")),
+        );
+    }
+    panel = panel.children(
+        cultivation
+            .arts
+            .iter()
+            .map(|art| art_row(view, art, locale, tokens)),
+    );
+    panel
+}
+
+/// One 功法: what it is, how far it has been trained, and the select button.
+fn art_row(
+    view: &Entity<SettingsView>,
+    art: &ArtView,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    let mastered = art.rank >= art.max_rank;
+    let grade = text(locale, art.grade.name_key());
+    let kind = text(locale, art.kind.name_key());
+    let head = format!("{} · {} · {}", art.name, kind, grade);
+    let rank = format_text(
+        locale,
+        "cultivation.art.rank",
+        &[
+            ("rank", art.rank.to_string()),
+            ("max", art.max_rank.to_string()),
+        ],
+    );
+    let detail = if mastered {
+        text(locale, "cultivation.art.mastered").to_string()
+    } else {
+        format!(
+            "{} · {}",
+            format_text(
+                locale,
+                "cultivation.art.progress",
+                &[
+                    ("have", art.progress.to_string()),
+                    ("need", art.required.to_string()),
+                ],
+            ),
+            format_text(
+                locale,
+                "cultivation.art.failure",
+                &[("value", (art.failure_permille / 10).to_string())],
+            ),
+        )
+    };
+    let payoff = art_payoff(art, locale);
+    let art_id = art.id;
+    div()
+        .id(format!("cultivation-art-{}", art.id))
+        .flex()
+        .flex_col()
+        .gap_1()
+        .py_1()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(div().flex_1().min_w_0().truncate().text_xs().child(head))
+                .child(
+                    Button::new(format!("cultivation-art-select-{}", art.id))
+                        .ghost()
+                        .small()
+                        .label(text(
+                            locale,
+                            if art.selected {
+                                "cultivation.art.selected"
+                            } else {
+                                "cultivation.art.select"
+                            },
+                        ))
+                        .disabled(art.selected)
+                        .on_click({
+                            let view = view.clone();
+                            move |_, _, cx| {
+                                view.update(cx, |view, cx| {
+                                    let _ = view.pomodoro.try_publish(PomodoroCommand::SelectArt {
+                                        art_id: Some(art_id),
+                                    });
+                                    view.poll_pomodoro(cx);
+                                });
+                            }
+                        }),
+                ),
+        )
+        .child(
+            div()
+                .id(format!("cultivation-art-detail-{}", art.id))
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(format!("{rank} · {detail}")),
+        )
+        .child(div().text_xs().text_color(tokens.muted).child(payoff))
+}
+
+/// What training this 功法 actually pays: attributes for an 内功, damage and a
+/// cost for an 外功.
+fn art_payoff(art: &ArtView, locale: &str) -> String {
+    match art.kind {
+        ArtKind::Internal => {
+            let mut parts = Vec::new();
+            for attribute in Attribute::ALL {
+                let value = attribute.of(art.gain);
+                if value > 0 {
+                    parts.push(format_text(
+                        locale,
+                        "cultivation.art.gain",
+                        &[
+                            ("attribute", text(locale, attribute.name_key()).to_string()),
+                            ("value", value.to_string()),
+                        ],
+                    ));
+                }
+            }
+            parts.push(text(locale, "cultivation.derived_hint").to_string());
+            parts.join(" · ")
+        }
+        ArtKind::External => format!(
+            "{} · {}",
+            format_text(
+                locale,
+                "cultivation.art.multiplier",
+                &[("value", (art.multiplier_permille / 10).to_string())],
+            ),
+            format_text(
+                locale,
+                "cultivation.art.cost",
+                &[("value", art.cost.to_string())],
+            ),
+        ),
+    }
 }
 
 /// The four slots and whatever is worn in each.
