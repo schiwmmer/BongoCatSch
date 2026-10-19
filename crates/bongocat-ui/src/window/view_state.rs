@@ -443,6 +443,7 @@ impl SettingsView {
             pomodoro_editor_name,
             pomodoro_editor_sessions,
             pomodoro_observed_revision: 0,
+            cultivation_minute_observed: None,
             pomodoro_done_expanded: false,
             pomodoro_chart_days: 7,
             // No day is picked when the page opens: the chart ends on today
@@ -530,9 +531,86 @@ impl SettingsView {
         }
         let revision = self.pomodoro.revision();
         if revision == self.pomodoro_observed_revision {
+            self.poll_ripening(cx);
             return;
         }
         self.pomodoro_observed_revision = revision;
         cx.notify();
+    }
+
+    /// Wake the cultivation page when a growing crop crosses a minute.
+    ///
+    /// A crop ripens on the wall clock, not on a worker change, so the revision
+    /// never moves while one is in the ground. Without this the plot would keep
+    /// reading "ripe in 3 min" and never turn pickable until something else
+    /// happened to repaint the page. Only the cultivation subview pays the
+    /// snapshot clone, and only once per displayed minute.
+    fn poll_ripening(&mut self, cx: &mut Context<Self>) {
+        if self.pomodoro_view != PomodoroSettingsView::Cultivation {
+            self.cultivation_minute_observed = None;
+            return;
+        }
+        let now = now_unix();
+        let snapshot = self.pomodoro.snapshot();
+        let key = ripening_minute(&snapshot.cultivation.plots, now);
+        if key == self.cultivation_minute_observed {
+            return;
+        }
+        self.cultivation_minute_observed = key;
+        cx.notify();
+    }
+}
+
+/// The whole minutes left on the soonest crop, or `None` when nothing is in the
+/// ground.
+///
+/// This is the value whose change means the garden's labels changed: a ripe crop
+/// reads as zero rather than counting backwards past its instant, so the tick
+/// stops repainting once everything is pickable.
+fn ripening_minute(plots: &[bongocat_pomodoro::PlotView], now_unix: i64) -> Option<i64> {
+    let soonest = plots
+        .iter()
+        .filter_map(|plot| plot.crop.as_ref().map(|crop| crop.ready_at_unix))
+        .min()?;
+    Some((soonest - now_unix).max(0) / 60)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ripening_minute;
+    use bongocat_pomodoro::{Attribute, CropView, PlotView};
+
+    fn plot(ready_at_unix: i64) -> PlotView {
+        PlotView {
+            crop: Some(CropView {
+                attribute: Attribute::Root,
+                tier: 1,
+                ready_at_unix,
+            }),
+        }
+    }
+
+    #[test]
+    fn an_empty_garden_has_no_countdown_to_draw() {
+        assert_eq!(ripening_minute(&[PlotView { crop: None }], 1_000), None);
+    }
+
+    #[test]
+    fn the_soonest_crop_is_the_one_the_page_counts_down() {
+        let plots = [plot(2_000), plot(1_000), PlotView { crop: None }];
+        assert_eq!(
+            ripening_minute(&plots, 700),
+            Some(5),
+            "300s left rounds down"
+        );
+    }
+
+    #[test]
+    fn a_ripe_crop_reads_as_zero_and_stays_there() {
+        let plots = [plot(1_000)];
+        assert_eq!(ripening_minute(&plots, 1_000), Some(0));
+        // Past the instant the key must not keep changing, or the tick would
+        // repaint the page every half second for as long as a crop sits unread.
+        assert_eq!(ripening_minute(&plots, 9_999), Some(0));
     }
 }

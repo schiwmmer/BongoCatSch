@@ -90,6 +90,15 @@ pub struct Document {
     /// How long one focus session lasts.
     #[serde(default)]
     pub focus_minutes: u32,
+    /// The cultivation ladder the sessions feed.
+    ///
+    /// It lives in this document rather than a file of its own so a finished
+    /// session and the growth it paid are written by the same atomic replace: a
+    /// crash between two files could otherwise count the session and drop its
+    /// reward. A document written before the ladder existed reads as a
+    /// cultivator who has just started.
+    #[serde(default)]
+    pub cultivation: crate::CultivationDocument,
 }
 
 impl Default for Document {
@@ -98,6 +107,7 @@ impl Default for Document {
             schema_version: POMODORO_TASKS_SCHEMA_VERSION,
             tasks: Vec::new(),
             focus_minutes: crate::DEFAULT_FOCUS_MINUTES,
+            cultivation: crate::CultivationDocument::default(),
         }
     }
 }

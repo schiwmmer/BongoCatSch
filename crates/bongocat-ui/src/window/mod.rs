@@ -56,6 +56,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod cultivation_settings;
 mod presentation;
 use presentation::*;
 mod about;
@@ -218,13 +219,28 @@ pub struct SettingsWindowSeed {
 
 /// Which surface the pomodoro settings page is showing.
 ///
-/// The page keeps both a task list and a month calendar; the toggle only swaps
-/// which one the body renders, so the task data the list reads is never lost
-/// when the user looks at the calendar and back.
+/// The page keeps a task list, a month calendar and the cultivation ladder; the
+/// toggle only swaps which one the body renders, so the task data the list reads
+/// is never lost when the user looks at the calendar and back.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PomodoroSettingsView {
     List,
     Calendar,
+    /// The ladder the finished sessions feed: realm, attributes, gear, garden
+    /// and the guardian at the end of the realm.
+    Cultivation,
+}
+
+/// Seconds since the Unix epoch, or zero when the clock predates it.
+///
+/// The pomodoro surfaces use it to mark today on the calendar and to draw how
+/// long a crop has left; both are display-only subtractions, so a clock that
+/// cannot answer reads as "ripe" rather than failing the page.
+pub(super) fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 /// What the pomodoro task editor is working on.
@@ -291,6 +307,11 @@ pub struct SettingsView {
     /// The last pomodoro revision the settings window rendered, so the background
     /// poll can tell a real change from an idle tick and only then `cx.notify()`.
     pub(crate) pomodoro_observed_revision: u64,
+    /// The whole minutes left on the soonest crop the cultivation page last
+    /// drew. A crop ripens on the wall clock rather than on a worker change, so
+    /// this is what lets the poll repaint the garden when a plot turns pickable
+    /// without cloning the snapshot on every idle tick.
+    pub(crate) cultivation_minute_observed: Option<i64>,
     pub(crate) seed: SettingsWindowSeed,
     pub(crate) snapshot: Option<SettingsSnapshot>,
     pub(crate) pending: Option<PendingOperation>,

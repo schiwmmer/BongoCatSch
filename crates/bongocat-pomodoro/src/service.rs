@@ -385,8 +385,17 @@ pub struct PomodoroService {
 impl PomodoroService {
     /// Start the worker and load the document from `path`.
     pub fn start(path: PathBuf) -> Result<Self, PomodoroStartError> {
+        Self::start_at(path, 0)
+    }
+
+    /// Start the worker for a caller that knows its UTC offset.
+    ///
+    /// The offset decides which local day a finished session lands on, and
+    /// therefore which days count as missed: a completion at half past midnight
+    /// in Shanghai belongs to the day that just started, not to yesterday in UTC.
+    pub fn start_at(path: PathBuf, utc_offset_seconds: i32) -> Result<Self, PomodoroStartError> {
         let (sender, receiver) = mpsc::sync_channel(COMMAND_CAPACITY);
-        let domain = PomodoroState::load(&path);
+        let domain = PomodoroState::load_at(&path, utc_offset_seconds);
         let snapshot = domain.snapshot(0);
         let shared = Arc::new(SharedState {
             inner: Mutex::new(Inner {
@@ -556,10 +565,21 @@ fn tick(shared: &Arc<SharedState>, path: &Path, elapsed: Duration) {
         .inner
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let now = now_unix();
+    // The absence charge is evaluated on every tick, not only when a session
+    // finishes: a machine left running overnight has to charge the day that
+    // ended while nobody was looking, and a machine launched after a week away
+    // charges it on the first tick after loading.
+    if inner.domain.apply_absence(now) {
+        inner.publish();
+        inner.write_document(path);
+    }
     if inner.domain.timer().state() != TimerState::Running {
+        drop(inner);
+        shared.changed.notify_all();
         return;
     }
-    let completed = inner.domain.advance(elapsed, now_unix()).is_some();
+    let completed = inner.domain.advance(elapsed, now).is_some();
     if completed {
         inner.completed_sessions = inner.completed_sessions.saturating_add(1);
     }

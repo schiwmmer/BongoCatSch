@@ -319,7 +319,9 @@ impl PomodoroView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bongocat_pomodoro::{DEFAULT_FOCUS_MINUTES, PomodoroWorkerState, TimerState, TimerView};
+    use bongocat_pomodoro::{
+        Cultivation, DEFAULT_FOCUS_MINUTES, PomodoroWorkerState, TimerState, TimerView,
+    };
 
     fn task(id: u64, status: PomodoroTaskStatus, running: bool) -> PomodoroTaskView {
         PomodoroTaskView {
@@ -342,6 +344,7 @@ mod tests {
             timer,
             focus_minutes: DEFAULT_FOCUS_MINUTES,
             last_completion: None,
+            cultivation: Cultivation::default().view(),
         }
     }
 

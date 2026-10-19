@@ -74,7 +74,8 @@ use gpui_kit::{
 use gpui_kit::{AsyncApp, Context, Window};
 #[cfg(target_os = "macos")]
 use pomodoro_surfaces::{
-    command_for, play_pomodoro_complete_sound, pomodoro_menu_entries, send_pomodoro_command,
+    command_for, cultivation_copy, play_pomodoro_complete_sound, pomodoro_menu_entries,
+    send_pomodoro_command,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "windows")]
@@ -1260,8 +1261,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 sequence: completion.sequence,
                             }
                         });
+                        // Composed before the overlay is borrowed: the copy reads
+                        // the catalog, and the overlay owns the panel that draws
+                        // it.
+                        let cultivation_text = cultivation_copy(
+                            &pomodoro_snapshot.cultivation,
+                            coordinator.product_language.catalog_locale(),
+                        );
                         if let Some(overlay) = coordinator.overlay.as_mut() {
                             overlay.set_pomodoro_state(timer, completion);
+                            // The forehead badge and the hover HUD both draw the
+                            // same ladder, so both are handed the same copy from
+                            // the same snapshot.
+                            overlay.set_cultivation_text(Some(cultivation_text));
                         }
                         // A right-click on the countdown pops the menu that
                         // countdown's state offers. It is popped here rather than

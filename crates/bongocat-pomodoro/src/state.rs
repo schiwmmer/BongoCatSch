@@ -10,8 +10,8 @@
 use std::{collections::BTreeMap, time::Duration};
 
 use crate::{
-    CalendarDay, CalendarDayTotal, CalendarTaskActivity, MAX_FOCUS_MINUTES, MAX_TASK_NAME_CHARS,
-    MIN_FOCUS_MINUTES,
+    CalendarDay, CalendarDayTotal, CalendarTaskActivity, Cultivation, CultivationView, EquipSlot,
+    MAX_FOCUS_MINUTES, MAX_TASK_NAME_CHARS, MIN_FOCUS_MINUTES,
     document::{Document, TaskRecord, read_document},
 };
 
@@ -152,6 +152,10 @@ pub struct PomodoroSnapshot {
     pub timer: Option<TimerView>,
     pub focus_minutes: u32,
     pub last_completion: Option<PomodoroCompletion>,
+    /// The cultivation ladder: the realm, the attributes, the gear, the garden
+    /// and the guardian. It travels with the snapshot so a surface that draws the
+    /// timer also draws what the sessions have bought.
+    pub cultivation: CultivationView,
 }
 
 /// One finished session, and the identity a surface uses to react once.
@@ -195,6 +199,19 @@ pub enum PomodoroCommand {
     },
     /// Remove a task, its progress and its history.
     DeleteTask { task_id: u64 },
+    /// Plant one owned seed in the first empty plot.
+    PlantSeed {
+        attribute: crate::Attribute,
+        tier: u8,
+    },
+    /// Pick a ripe crop out of a plot.
+    HarvestPlot { plot: usize },
+    /// Wear one owned item in its slot.
+    EquipItem { item_id: u64 },
+    /// Take whatever is worn in a slot off.
+    UnequipSlot { slot: EquipSlot },
+    /// Fight the guardian standing at the end of the current realm.
+    Breakthrough,
 }
 
 impl PomodoroCommand {
@@ -210,6 +227,13 @@ impl PomodoroCommand {
                 true
             }
             Self::UpdateTask { .. } | Self::DeleteTask { .. } => true,
+            // Every cultivation command is a durable move: a planted seed, a
+            // harvest, a worn item and a breakthrough all outlive the session.
+            Self::PlantSeed { .. }
+            | Self::HarvestPlot { .. }
+            | Self::EquipItem { .. }
+            | Self::UnequipSlot { .. }
+            | Self::Breakthrough => true,
         }
     }
 }
@@ -225,12 +249,25 @@ pub struct PomodoroState {
     /// The count of sessions that have finished since this state was loaded.
     completions: u64,
     last_completion: Option<PomodoroCompletion>,
+    /// The ladder the sessions feed, kept beside the document in the shape it
+    /// normalizes to. [`PomodoroState::document`] mirrors it back, so the one
+    /// atomic write carries both halves.
+    cultivation: Cultivation,
+    /// The UTC offset that decides which local day a completion lands on. It is
+    /// the caller's offset, because reading the machine's needs a platform call
+    /// this crate does not make.
+    utc_offset_seconds: i32,
 }
 
 impl PomodoroState {
     /// An empty state, as a fresh install sees it.
     pub fn empty() -> Self {
-        Self::from_document(Document::default())
+        Self::empty_at(0)
+    }
+
+    /// An empty state for a caller with a UTC offset.
+    pub fn empty_at(utc_offset_seconds: i32) -> Self {
+        Self::from_document(Document::default(), utc_offset_seconds)
     }
 
     /// The state a stored document produces.
@@ -239,20 +276,29 @@ impl PomodoroState {
     /// cannot hold one: a countdown restored on a later launch would be a
     /// deadline that passed while the application was not running.
     pub fn load(path: &std::path::Path) -> Self {
-        Self::from_document(read_document(path))
+        Self::load_at(path, 0)
     }
 
-    fn from_document(document: Document) -> Self {
+    /// The state a stored document produces, for a caller that knows its offset.
+    pub fn load_at(path: &std::path::Path, utc_offset_seconds: i32) -> Self {
+        Self::from_document(read_document(path), utc_offset_seconds)
+    }
+
+    fn from_document(document: Document, utc_offset_seconds: i32) -> Self {
         let focus_minutes = clamp_focus_minutes(document.focus_minutes);
+        let cultivation = Cultivation::new(document.cultivation.clone());
         Self {
             session_seconds: focus_minutes * 60,
             document: Document {
                 focus_minutes,
+                cultivation: cultivation.document().clone(),
                 ..document
             },
             timer: Timer::Idle,
             completions: 0,
             last_completion: None,
+            cultivation,
+            utc_offset_seconds,
         }
     }
 
@@ -300,7 +346,51 @@ impl PomodoroState {
                 estimated_pomodoros,
             } => self.update_task(task_id, name, estimated_pomodoros),
             PomodoroCommand::DeleteTask { task_id } => self.delete_task(task_id),
+            PomodoroCommand::PlantSeed { attribute, tier } => {
+                self.cultivation.plant(attribute, tier, now_unix);
+            }
+            PomodoroCommand::HarvestPlot { plot } => {
+                self.cultivation.harvest(plot, now_unix);
+            }
+            PomodoroCommand::EquipItem { item_id } => {
+                self.cultivation.equip(item_id);
+            }
+            PomodoroCommand::UnequipSlot { slot } => {
+                self.cultivation.unequip(slot);
+            }
+            PomodoroCommand::Breakthrough => {
+                self.cultivation.breakthrough();
+            }
         }
+        self.sync_cultivation();
+    }
+
+    /// Mirror the ladder back into the document, so the one write that follows
+    /// a command covers it.
+    fn sync_cultivation(&mut self) {
+        if &self.document.cultivation != self.cultivation.document() {
+            self.document.cultivation = self.cultivation.document().clone();
+        }
+    }
+
+    /// The cultivation ladder, for a caller that wants it without the snapshot.
+    pub fn cultivation(&self) -> &Cultivation {
+        &self.cultivation
+    }
+
+    /// Charge every whole local day without a session that has not been charged
+    /// yet. Returns whether anything was taken.
+    ///
+    /// The worker calls this on every tick so a machine left running for a week
+    /// charges the missed days as they end, and a machine launched after a week
+    /// away charges them on the first tick after loading.
+    pub fn apply_absence(&mut self, now_unix: i64) -> bool {
+        let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
+        if self.cultivation.apply_absence(today).is_none() {
+            return false;
+        }
+        self.sync_cultivation();
+        true
     }
 
     /// Whether the command would write anything to the document.
@@ -450,7 +540,20 @@ impl PomodoroState {
             };
             return None;
         }
-        self.complete(task_id, now_unix)
+        let completion = self.complete(task_id, now_unix);
+        if completion.is_some() {
+            self.record_cultivation_session(now_unix);
+        }
+        completion
+    }
+
+    /// Pay the ladder for one finished session: its growth, whatever absence was
+    /// owed before it, and the one roll a session makes.
+    fn record_cultivation_session(&mut self, now_unix: i64) {
+        let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
+        self.cultivation
+            .on_session_completed(now_unix, today, self.document.focus_minutes);
+        self.sync_cultivation();
     }
 
     /// The session length in seconds.
@@ -504,6 +607,7 @@ impl PomodoroState {
             timer: self.timer.view(self.session_seconds),
             focus_minutes: self.document.focus_minutes,
             last_completion: self.last_completion,
+            cultivation: self.cultivation.view(),
         }
     }
 

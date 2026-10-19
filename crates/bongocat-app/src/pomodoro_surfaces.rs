@@ -8,7 +8,76 @@
 
 use super::*;
 
+#[cfg(target_os = "macos")]
+use bongocat_pomodoro::CultivationView;
 use bongocat_pomodoro::PomodoroCommand;
+
+/// The copy the forehead badge and the hover HUD draw, composed here.
+///
+/// The overlay is a renderer of text, not a catalog reader: it draws whatever
+/// string it was handed. Composing that string is the application's job for the
+/// same reason the pomodoro menu is — the catalog, the language and the ladder
+/// all belong to the product, and a panel that read them itself would give two
+/// surfaces two chances to disagree about which realm the user is in.
+///
+/// The badge gets the realm and layer alone, because it rides the forehead and
+/// has room for nothing else. The HUD gets the same line followed by the growth
+/// behind it: the layers are bought with growth, so a cultivator looking at the
+/// bar needs to know how much of the layer is left, not the absolute total.
+#[cfg(target_os = "macos")]
+pub(crate) fn cultivation_copy(
+    cultivation: &CultivationView,
+    locale: &str,
+) -> bongocat_overlay::OverlayCultivationText {
+    let stage = bongocat_i18n::text(locale, cultivation.realm.name_key()).to_owned();
+    let layer = cultivation.layer.to_string();
+    let badge = bongocat_i18n::format_text(
+        locale,
+        "stats.badge",
+        &[("stage", stage.clone()), ("layer", layer.clone())],
+    );
+    // A capped realm has no next layer: the bar is full because the guardian,
+    // not the growth, is what stands in the way. Reporting the fraction of the
+    // cap here would draw a bar that can never fill.
+    let (progress, permille) = match cultivation.next {
+        Some(next) => {
+            let span = next.saturating_sub(cultivation.floor).max(1);
+            let into = cultivation
+                .growth
+                .saturating_sub(cultivation.floor)
+                .min(span);
+            let permille = (into.saturating_mul(1_000) / span).min(1_000);
+            let progress = bongocat_i18n::format_text(
+                locale,
+                "stats.hud.progress",
+                &[
+                    ("value", cultivation.growth.to_string()),
+                    ("next", next.to_string()),
+                    ("percent", (permille / 10).to_string()),
+                ],
+            );
+            (progress, permille as u16)
+        }
+        None => {
+            let progress = bongocat_i18n::format_text(
+                locale,
+                "stats.hud.total",
+                &[("value", cultivation.growth.to_string())],
+            );
+            (progress, 1_000)
+        }
+    };
+    let realm = bongocat_i18n::format_text(
+        locale,
+        "stats.hud.realm",
+        &[("stage", stage), ("layer", layer)],
+    );
+    bongocat_overlay::OverlayCultivationText {
+        badge,
+        hud: format!("{realm} · {progress}"),
+        hud_progress_permille: permille,
+    }
+}
 
 /// The sequence of the completion whose chime has already been played.
 ///
@@ -187,5 +256,56 @@ mod tests {
             running.iter().all(|row| !paused.contains(row)),
             "a running countdown must not offer what only a paused one does"
         );
+    }
+
+    #[test]
+    fn a_fresh_cultivator_is_named_at_the_first_layer_of_the_first_realm() {
+        let view = bongocat_pomodoro::Cultivation::default().view();
+        let copy = cultivation_copy(&view, "zh-CN");
+        let stage = bongocat_i18n::text("zh-CN", view.realm.name_key());
+        assert!(
+            copy.badge.starts_with(stage) && copy.badge.contains('1'),
+            "badge {:?} does not name {stage} at layer 1",
+            copy.badge
+        );
+        // Nothing has been grown yet, so the bar is empty and the HUD still has
+        // a next layer to promise.
+        assert_eq!(copy.hud_progress_permille, 0);
+        assert!(
+            copy.hud.contains(stage),
+            "hud {:?} does not name the realm",
+            copy.hud
+        );
+    }
+
+    #[test]
+    fn half_a_layer_reports_half_the_bar_and_says_so() {
+        let mut view = bongocat_pomodoro::Cultivation::default().view();
+        let next = view.next.expect("a fresh cultivator has a next layer");
+        let span = next - view.floor;
+        view.growth = view.floor + span / 2;
+        let copy = cultivation_copy(&view, "zh-CN");
+        // Integer halves of an odd span may round down by one part per thousand.
+        assert!(
+            (499..=500).contains(&copy.hud_progress_permille),
+            "half a layer drew {} permille",
+            copy.hud_progress_permille
+        );
+        // The number in the text is the bar's own fraction, not a second
+        // computation that could disagree with it.
+        let percent = format!("{}%", copy.hud_progress_permille / 10);
+        assert!(
+            copy.hud.contains(&percent),
+            "hud {:?} does not report the {percent} the bar draws",
+            copy.hud
+        );
+    }
+
+    #[test]
+    fn a_capped_realm_fills_the_bar_rather_than_drawing_an_unreachable_layer() {
+        let mut view = bongocat_pomodoro::Cultivation::default().view();
+        view.next = None;
+        let copy = cultivation_copy(&view, "zh-CN");
+        assert_eq!(copy.hud_progress_permille, 1_000);
     }
 }

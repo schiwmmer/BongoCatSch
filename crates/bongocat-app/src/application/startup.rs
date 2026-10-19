@@ -251,21 +251,25 @@ impl Application {
         // The pomodoro worker follows the audio worker: both are threads the
         // application owns, both degrade to an unavailable client instead of
         // failing startup, and the countdown starts from a document rather than
-        // from anything the runtime holds.
-        let (pomodoro, pomodoro_client) = match PomodoroService::start(pomodoro_tasks_path) {
-            Ok(service) => {
-                let client = service.client();
-                (Some(service), client)
-            }
-            Err(_) => {
-                application_log.record(
-                    ApplicationLogEvent::new(ApplicationLogCode::ServiceDegraded)
-                        .with_context(ApplicationLogContext::Service("pomodoro"))
-                        .with_context(ApplicationLogContext::Reason("pomodoro_start_failed")),
-                );
-                (None, PomodoroClient::unavailable())
-            }
-        };
+        // from anything the runtime holds. The offset is passed in so the
+        // cultivation ladder charges an absence against the user's own calendar
+        // day instead of UTC.
+        let pomodoro_offset = bongocat_platform::local_utc_offset_seconds();
+        let (pomodoro, pomodoro_client) =
+            match PomodoroService::start_at(pomodoro_tasks_path, pomodoro_offset) {
+                Ok(service) => {
+                    let client = service.client();
+                    (Some(service), client)
+                }
+                Err(_) => {
+                    application_log.record(
+                        ApplicationLogEvent::new(ApplicationLogCode::ServiceDegraded)
+                            .with_context(ApplicationLogContext::Service("pomodoro"))
+                            .with_context(ApplicationLogContext::Reason("pomodoro_start_failed")),
+                    );
+                    (None, PomodoroClient::unavailable())
+                }
+            };
         let runtime_overlay_visible = true;
         let runtime_motion_audio_enabled = config.model.play_motion_audio;
         let (runtime, render_consumer) = if enable_rendering {

@@ -78,6 +78,10 @@ pub(crate) struct ProductOverlaySession {
     pub(crate) pomodoro_timer: Option<crate::OverlayPomodoroTimer>,
     /// The completion the application last published, if any.
     pub(crate) pomodoro_completion: Option<crate::OverlayPomodoroCompletion>,
+    /// The cultivation copy the HUD and the badge draw, composed by the
+    /// application: the overlay has no locale of its own, and the copy is the
+    /// application's business.
+    pub(crate) cultivation: Option<crate::OverlayCultivationText>,
     /// Inactivity hide shares the session's frame tick and the hover hide's
     /// fade window: both are temporary presentation states layered on the
     /// same alpha channel, and the pointer routing treats either one as
@@ -182,7 +186,7 @@ impl ProductOverlaySession {
         // The HUD is presentation-only: a panel that cannot be created
         // degrades to no HUD, and the cat, the counters and the input
         // service keep working without it.
-        let stats_hud = StatsHud::create(mtm, &stats_hud_status().0).ok();
+        let stats_hud = StatsHud::create(mtm, "").ok();
         let level_badge = LevelBadge::create(mtm).ok();
         let pomodoro = PomodoroSurfaces::create(mtm, pomodoro_menu_sender).ok();
         // A pomodoro surface set that came up empty is not worth reporting: the
@@ -216,6 +220,7 @@ impl ProductOverlaySession {
             played_completion: 0,
             pomodoro_timer: None,
             pomodoro_completion: None,
+            cultivation: None,
             idle: IdleHide::default(),
             placement: OverlayPlacementConstraint::default(),
             session_started: Instant::now(),
@@ -627,13 +632,16 @@ impl ProductOverlaySession {
         let hud_allowed =
             pointer_inside && input_running && self.runtime_client.snapshot().overlay_visible;
         if let Some(hud) = self.stats_hud.as_mut() {
-            if hud_allowed {
-                let screens = screen_bounds_all(mtm).unwrap_or_default();
-                let (text, progress) = stats_hud_status();
-                hud.set_status(&text, progress);
-                hud.show_below(bounds, &screens);
-            } else {
-                hud.hide();
+            match (hud_allowed, self.cultivation.as_ref()) {
+                (true, Some(copy)) => {
+                    let screens = screen_bounds_all(mtm).unwrap_or_default();
+                    hud.set_status(
+                        &copy.hud,
+                        f64::from(copy.hud_progress_permille.min(1_000)) / 1_000.0,
+                    );
+                    hud.show_below(bounds, &screens);
+                }
+                _ => hud.hide(),
             }
         }
         // The forehead badge answers to its own pointer gate rather than the
@@ -653,12 +661,12 @@ impl ProductOverlaySession {
             self.runtime_client.snapshot().overlay_visible && !self.badge_hover.hidden()
         };
         if let Some(badge) = self.level_badge.as_mut() {
-            if badge_allowed {
-                let text = level_badge_status();
-                badge.set_status(&text, bounds);
-                badge.show();
-            } else {
-                badge.hide();
+            match (badge_allowed, self.cultivation.as_ref()) {
+                (true, Some(copy)) => {
+                    badge.set_status(&copy.badge, bounds);
+                    badge.show();
+                }
+                _ => badge.hide(),
             }
         }
         // The countdown keeps the cat's own visibility gates: it is part of
@@ -730,6 +738,14 @@ impl ProductOverlaySession {
     ) {
         self.pomodoro_timer = timer;
         self.pomodoro_completion = completion;
+    }
+
+    /// Take the cultivation copy the application composed.
+    ///
+    /// Passing `None` hides both surfaces: a client with no worker has no
+    /// realm to show, and a stale realm would be worse than none.
+    pub(crate) fn set_cultivation_text(&mut self, copy: Option<crate::OverlayCultivationText>) {
+        self.cultivation = copy;
     }
 
     /// Create a native window that already carries the current hover fade.

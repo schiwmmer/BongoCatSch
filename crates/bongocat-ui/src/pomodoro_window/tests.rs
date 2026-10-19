@@ -11,8 +11,8 @@ use std::rc::Rc;
 use crate::pomodoro_window::{PomodoroView, view};
 use crate::{SettingsClient, SettingsLanguage, SettingsServiceEndpoint, SettingsTheme};
 use bongocat_pomodoro::{
-    DEFAULT_FOCUS_MINUTES, PomodoroClient, PomodoroSnapshot, PomodoroTaskStatus, PomodoroTaskView,
-    PomodoroWorkerState, TimerState, TimerView,
+    Cultivation, DEFAULT_FOCUS_MINUTES, PomodoroClient, PomodoroSnapshot, PomodoroTaskStatus,
+    PomodoroTaskView, PomodoroWorkerState, TimerState, TimerView,
 };
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
@@ -64,6 +64,7 @@ fn snapshot(worker: PomodoroWorkerState) -> PomodoroSnapshot {
         timer: None,
         focus_minutes: DEFAULT_FOCUS_MINUTES,
         last_completion: None,
+        cultivation: Cultivation::default().view(),
     }
 }
 

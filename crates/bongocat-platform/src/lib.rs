@@ -13,9 +13,8 @@ pub use installation::InstallationLayout;
 
 mod interaction_stats;
 pub use interaction_stats::{
-    InteractionLevel, MAX_LEVEL, PersistedStats, flush_if_due, flush_now,
-    init as interaction_stats_init, level_for, record_key, record_mouse, threshold_for,
-    totals as interaction_totals,
+    PersistedStats, flush_if_due, flush_now, init as interaction_stats_init, record_key,
+    record_mouse, totals as interaction_totals,
 };
 
 mod local_time;

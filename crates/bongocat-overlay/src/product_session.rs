@@ -90,6 +90,26 @@ pub struct OverlayPomodoroCompletion {
     pub sequence: u64,
 }
 
+/// The cultivation copy the overlay draws, composed by the application.
+///
+/// The copy arrives already translated: the overlay has no locale of its own,
+/// and it is the application that owns the language the user chose. The overlay
+/// is a renderer of text here, not a catalog reader.
+///
+/// The progress is in parts per thousand rather than a fraction so the value
+/// stays comparable — a surface compares what it was handed to decide whether to
+/// redraw at all.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct OverlayCultivationText {
+    /// The realm and layer riding the forehead: short enough for a badge.
+    pub badge: String,
+    /// The two-line hover text: the realm, then the growth behind it.
+    pub hud: String,
+    /// How far through the current layer the cultivator is, in parts per
+    /// thousand. The HUD divides it back down for its bar.
+    pub hud_progress_permille: u16,
+}
+
 /// What a right-click on the countdown asks for.
 ///
 /// The overlay reports the request and the application owns the menu, exactly as
@@ -257,6 +277,15 @@ impl ProductOverlaySession {
         completion: Option<OverlayPomodoroCompletion>,
     ) {
         self.inner.set_pomodoro_state(timer, completion);
+    }
+
+    /// Publish the cultivation copy the forehead badge and the hover HUD draw.
+    ///
+    /// macOS only: both surfaces are AppKit panels, and the Windows overlay has
+    /// neither.
+    #[cfg(target_os = "macos")]
+    pub fn set_cultivation_text(&mut self, copy: Option<OverlayCultivationText>) {
+        self.inner.set_cultivation_text(copy);
     }
 
     /// The right-click the countdown raised since the last call, taken once.
