@@ -178,6 +178,36 @@ def changelog_entries(path):
     return entries
 
 
+def section_entry_counts(path):
+    """Each documented version and how many entries each of its sections carries.
+
+    The release joins the two changelogs' entries into one document, so an entry
+    authored in one language only leaves the other language's section saying less
+    than the one beside it. The versions and the section headings are already
+    pinned, but neither pin catches a bullet that was never translated, which is
+    exactly how the two files drifted apart before this count was checked.
+    """
+    counted = []
+    for version, body in changelog_entries(path):
+        sections = []
+        fence = None
+        for line in body.splitlines():
+            marker = fence_marker(line)
+            if marker is not None:
+                fence = None if fence == marker else (marker if fence is None else fence)
+                continue
+            if fence is not None:
+                continue
+            stripped = line.lstrip(" ")
+            if stripped.startswith("### "):
+                emoji, _, _ = stripped[4:].strip().partition(" ")
+                sections.append([without_variation_selector(emoji), 0])
+            elif stripped.startswith("- ") and sections:
+                sections[-1][1] += 1
+        counted.append((version, [(emoji, count) for emoji, count in sections]))
+    return counted
+
+
 class ReleaseNotesContractTests(unittest.TestCase):
     def test_the_notes_come_from_the_changelogs_and_not_from_github(self):
         workflow = read(WORKFLOW)
@@ -270,6 +300,25 @@ class ReleaseNotesContractTests(unittest.TestCase):
             "a release whose entry was written in one language only would publish notes "
             "that describe it once in a language the reader may not have",
         )
+
+    def test_the_bilingual_changelogs_carry_the_same_entries_per_section(self):
+        english = section_entry_counts(CHANGELOG)
+        chinese = section_entry_counts(CHANGELOG_ZH)
+
+        self.assertEqual(
+            [version for version, _ in english],
+            [version for version, _ in chinese],
+            "the two changelogs document different releases",
+        )
+        for (version, english_sections), (_, chinese_sections) in zip(english, chinese):
+            with self.subTest(version=version):
+                self.assertEqual(
+                    english_sections,
+                    chinese_sections,
+                    f"{version} documents a different number of entries in one of its "
+                    "sections per language, and the release publishes the two entries "
+                    "side by side: the shorter language reads as a translation miss",
+                )
 
     def test_every_documented_release_has_notes(self):
         for path in (CHANGELOG, CHANGELOG_ZH):

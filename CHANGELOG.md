@@ -55,7 +55,7 @@
 
 ### 🌍 Localization
 
-Added French.
+- Added French.
 
 ## 2.2.0 - 2026-10-07
 
@@ -101,7 +101,7 @@ Added French.
 
 ### 🌍 Localization
 
-Added Korean.
+- Added Korean.
 
 ## 2.0.1 - 2026-09-29
 
