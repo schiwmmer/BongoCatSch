@@ -12,7 +12,7 @@ use std::{collections::BTreeMap, time::Duration};
 use crate::{
     CalendarDay, CalendarDayTotal, CalendarTaskActivity, Cultivation, CultivationView, EquipSlot,
     MAX_FOCUS_MINUTES, MAX_TASK_NAME_CHARS, MIN_FOCUS_MINUTES,
-    document::{Document, TaskRecord, read_document},
+    document::{Document, TaskRecord, TaskStatus, read_document},
 };
 
 /// Whether a task is still being worked on or has been finished.
@@ -571,6 +571,12 @@ impl PomodoroState {
         {
             task.completed_pomodoros = task.completed_pomodoros.saturating_add(1);
             task.completion_timestamps.push(now_unix);
+            // The task's completion date follows its last session: a task
+            // ticked off before one more session ran on it is dated by that
+            // session, the same rule the checkbox path follows.
+            if task.status == TaskStatus::done {
+                task.completed_at_unix = Some(now_unix);
+            }
         }
         self.timer = Timer::Idle;
         self.completions = self.completions.saturating_add(1);
@@ -977,6 +983,64 @@ mod tests {
         assert_eq!(reopened.tasks[0].completed_at_unix, None);
         // Unfinishing a task does not erase the sessions it completed.
         assert_eq!(reopened.tasks[0].completed_pomodoros, 0);
+    }
+
+    #[test]
+    fn checking_a_task_off_dates_it_to_its_last_session_not_the_click() {
+        let mut state = PomodoroState::empty();
+        state.apply(
+            PomodoroCommand::CreateTask {
+                name: "focus".into(),
+                estimated_pomodoros: 2,
+            },
+            1_000,
+        );
+        // One session finishes at 2_000; the user only confirms the task is
+        // finished much later, at 9_000.
+        state.apply(PomodoroCommand::StartTask { task_id: 1 }, 1_500);
+        state
+            .advance(Duration::from_secs(25 * 60), 2_000)
+            .expect("the session finished");
+        state.apply(
+            PomodoroCommand::SetTaskDone {
+                task_id: 1,
+                done: true,
+            },
+            9_000,
+        );
+        let finished = state.snapshot(2);
+        assert_eq!(finished.tasks[0].status, PomodoroTaskStatus::done);
+        assert_eq!(
+            finished.tasks[0].completed_at_unix,
+            Some(2_000),
+            "the completion date is the day the work happened, not the day the box was ticked"
+        );
+    }
+
+    #[test]
+    fn a_session_finishing_on_a_done_task_moves_its_completion_date() {
+        let mut state = PomodoroState::empty();
+        state.apply(
+            PomodoroCommand::CreateTask {
+                name: "focus".into(),
+                estimated_pomodoros: 3,
+            },
+            1_000,
+        );
+        state.apply(
+            PomodoroCommand::SetTaskDone {
+                task_id: 1,
+                done: true,
+            },
+            1_200,
+        );
+        // One more session runs against the finished task; its completion date
+        // follows the session rather than staying at the checkbox click.
+        state.apply(PomodoroCommand::StartTask { task_id: 1 }, 1_500);
+        state
+            .advance(Duration::from_secs(25 * 60), 4_000)
+            .expect("the session finished");
+        assert_eq!(state.snapshot(1).tasks[0].completed_at_unix, Some(4_000));
     }
 
     #[test]

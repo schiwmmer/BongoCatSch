@@ -71,13 +71,24 @@ impl TaskRecord {
     /// Both directions clear or set the completion timestamp together with the
     /// status, so the task list and the calendar never disagree about whether
     /// a task is done.
+    ///
+    /// The completion time is the moment the task's *last focus session*
+    /// finished, not the moment the checkbox was clicked: ticking the box is a
+    /// confirmation that may happen minutes or days after the work did. A task
+    /// finished without ever completing a session falls back to the click, so
+    /// the field is still always set when the status says done.
     pub(crate) fn set_done(&mut self, done: bool, now_unix: i64) {
         self.status = if done {
             TaskStatus::done
         } else {
             TaskStatus::in_progress
         };
-        self.completed_at_unix = done.then_some(now_unix);
+        self.completed_at_unix = done.then(|| {
+            self.completion_timestamps
+                .last()
+                .copied()
+                .unwrap_or(now_unix)
+        });
     }
 }
 
@@ -244,5 +255,19 @@ mod tests {
         task.set_done(false, 99);
         assert_eq!(task.status, TaskStatus::in_progress);
         assert_eq!(task.completed_at_unix, None);
+    }
+
+    #[test]
+    fn finishing_a_task_dates_it_to_its_last_session_not_the_click() {
+        let mut task = TaskRecord::new(1, "done".into(), 3, 0);
+        task.completion_timestamps = vec![500, 900, 1_400];
+        // The checkbox is clicked long after the work happened.
+        task.set_done(true, 9_000);
+        assert_eq!(task.completed_at_unix, Some(1_400));
+
+        // A task finished without any session keeps the click as its date.
+        let mut untouched = TaskRecord::new(2, "instant".into(), 1, 0);
+        untouched.set_done(true, 9_000);
+        assert_eq!(untouched.completed_at_unix, Some(9_000));
     }
 }
