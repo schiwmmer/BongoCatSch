@@ -606,7 +606,7 @@
       "progress": "%{value} / %{next} growth · %{percent}%",
       "total": "growth %{value}",
       "realm": "%{stage} · layer %{layer}",
-      "pomodoros": "%{done} pomodoros done · %{left} to go"
+      "cultivation": "growth %{growth} · %{remaining} to next"
     },
     "stage": {
       "name": {
@@ -651,6 +651,7 @@
     },
     "item": {
       "label": "%{slot} · tier %{tier} · %{stars}",
+      "label_named": "%{name} · tier %{tier} %{stars}",
       "equip": "Equip",
       "unequip": "Take off"
     },
@@ -660,6 +661,7 @@
     },
     "seed": {
       "label": "%{attribute} seed · tier %{tier}",
+      "label_named": "%{name} · tier %{tier}",
       "plant": "Plant"
     },
     "seeds": {

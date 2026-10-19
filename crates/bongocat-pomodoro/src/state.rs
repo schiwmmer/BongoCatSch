@@ -219,6 +219,10 @@ pub enum PomodoroCommand {
     AllocateAttribute { attribute: crate::Attribute },
     /// Fight the guardian standing at the end of the current realm.
     Breakthrough,
+    /// Credit growth for raw keyboard or mouse activity. `count` is how many
+    /// interactions happened since the last credit, batched by the caller so a
+    /// fast typist does not publish one command per keystroke.
+    RecordInput { count: u32 },
 }
 
 impl PomodoroCommand {
@@ -241,7 +245,8 @@ impl PomodoroCommand {
             | Self::EquipItem { .. }
             | Self::UnequipSlot { .. }
             | Self::AllocateAttribute { .. }
-            | Self::Breakthrough => true,
+            | Self::Breakthrough
+            | Self::RecordInput { .. } => true,
         }
     }
 }
@@ -371,6 +376,11 @@ impl PomodoroState {
             }
             PomodoroCommand::Breakthrough => {
                 self.cultivation.breakthrough();
+            }
+            PomodoroCommand::RecordInput { count } => {
+                for _ in 0..count {
+                    self.cultivation.on_input();
+                }
             }
         }
         self.sync_cultivation();

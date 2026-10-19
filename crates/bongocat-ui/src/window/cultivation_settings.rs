@@ -196,7 +196,8 @@ fn notices(
             .into_any_element(),
         );
     }
-    if let Some(drop) = cultivation.last_drop {
+    if let Some(drop) = &cultivation.last_drop {
+        let drop = drop.clone();
         let (key, item) = match drop {
             DropView::Equipment(item) => (
                 "cultivation.notice.drop_equipment",
@@ -204,7 +205,7 @@ fn notices(
             ),
             DropView::Seed { attribute, tier } => (
                 "cultivation.notice.drop_seed",
-                seed_label(locale, attribute, tier),
+                seed_label(locale, attribute, tier, None),
             ),
         };
         notices.push(
@@ -216,21 +217,24 @@ fn notices(
             .into_any_element(),
         );
     }
-    if let Some(seed) = cultivation.last_seed_return {
+    if let Some(seed) = &cultivation.last_seed_return {
         notices.push(
             notice(
                 "cultivation-notice-seed-return",
                 format_text(
                     locale,
                     "cultivation.notice.seed_return",
-                    &[("seed", seed_label(locale, seed.attribute, seed.tier))],
+                    &[(
+                        "seed",
+                        seed_label(locale, seed.attribute, seed.tier, seed.name.as_deref()),
+                    )],
                 ),
                 tokens.accent,
             )
             .into_any_element(),
         );
     }
-    if let Some(outcome) = cultivation.last_breakthrough {
+    if let Some(outcome) = &cultivation.last_breakthrough {
         let line = if outcome.report.won {
             format_text(
                 locale,
@@ -375,10 +379,10 @@ fn equipment_panel(
     tokens: Tokens,
 ) -> impl IntoElement {
     let rows = EquipSlot::ALL.into_iter().map(|slot| {
-        let worn = cultivation.equipped[slot.index()];
-        let label = worn.map_or_else(
+        let worn = cultivation.equipped[slot.index()].clone();
+        let label = worn.as_ref().map_or_else(
             || text(locale, "cultivation.slot.empty").to_string(),
-            |item| item_label(locale, &item),
+            |item| item_label(locale, item),
         );
         let mut row = div()
             .id(format!("cultivation-slot-{}", slot.index()))
@@ -514,7 +518,7 @@ fn seed_panel(
     let rows = cultivation.seeds.iter().take(8).map(|seed| {
         let label = format!(
             "{} ×{}",
-            seed_label(locale, seed.attribute, seed.tier),
+            seed_label(locale, seed.attribute, seed.tier, seed.name.as_deref()),
             seed.count
         );
         let mut button = Button::new(format!(
@@ -593,7 +597,7 @@ fn garden_panel(
                 );
             }
             Some(crop) => {
-                let label = seed_label(locale, crop.attribute, crop.tier);
+                let label = seed_label(locale, crop.attribute, crop.tier, None);
                 let remaining = crop.ready_at_unix.saturating_sub(now).max(0);
                 row = row.child(div().flex_1().min_w_0().truncate().text_xs().child(label));
                 if remaining == 0 {
@@ -723,27 +727,51 @@ fn section_title(locale: &str, key: &'static str, tokens: Tokens) -> impl IntoEl
         .child(text(locale, key))
 }
 
-/// An item's display line: the slot, the tier, and the grade as stars.
+/// An item's display line: its xianxia name when it has one, else the slot, and
+/// in both cases the tier and the grade as stars. The name is what tells two
+/// same-slot, same-tier drops apart, so it leads the line when present.
 fn item_label(locale: &str, item: &ItemView) -> String {
-    format_text(
-        locale,
-        "cultivation.item.label",
-        &[
-            ("slot", text(locale, item.slot.name_key()).to_string()),
-            ("tier", item.tier.to_string()),
-            ("stars", "★".repeat(item.rarity.stars())),
-        ],
-    )
+    let stars = "★".repeat(item.rarity.stars());
+    let slot = text(locale, item.slot.name_key()).to_string();
+    match item.name.as_deref() {
+        Some(name) => format_text(
+            locale,
+            "cultivation.item.label_named",
+            &[
+                ("name", name.to_owned()),
+                ("slot", slot),
+                ("tier", item.tier.to_string()),
+                ("stars", stars),
+            ],
+        ),
+        None => format_text(
+            locale,
+            "cultivation.item.label",
+            &[
+                ("slot", slot),
+                ("tier", item.tier.to_string()),
+                ("stars", stars),
+            ],
+        ),
+    }
 }
 
-/// A seed's or a crop's display line: the attribute it raises and its tier.
-fn seed_label(locale: &str, attribute: Attribute, tier: u8) -> String {
-    format_text(
-        locale,
-        "cultivation.seed.label",
-        &[
-            ("attribute", text(locale, attribute.name_key()).to_string()),
-            ("tier", tier.to_string()),
-        ],
-    )
+/// A seed's or a crop's display line: its xianxia name when the stack carries
+/// one, else the attribute it raises, and in both cases its tier.
+fn seed_label(locale: &str, attribute: Attribute, tier: u8, name: Option<&str>) -> String {
+    match name {
+        Some(name) => format_text(
+            locale,
+            "cultivation.seed.label_named",
+            &[("name", name.to_owned()), ("tier", tier.to_string())],
+        ),
+        None => format_text(
+            locale,
+            "cultivation.seed.label",
+            &[
+                ("attribute", text(locale, attribute.name_key()).to_string()),
+                ("tier", tier.to_string()),
+            ],
+        ),
+    }
 }

@@ -606,7 +606,7 @@
       "progress": "%{value} / %{next} 成长值 · %{percent}%",
       "total": "成长值 %{value}",
       "realm": "%{stage} · 第 %{layer} 层",
-      "pomodoros": "%{done} 个番茄 · 剩余 %{left}"
+      "cultivation": "累计成长值 %{growth} · 距下一级还需 %{remaining}"
     },
     "stage": {
       "name": {
@@ -651,6 +651,7 @@
     },
     "item": {
       "label": "%{slot} · %{tier} 阶 · %{stars}",
+      "label_named": "%{name} · %{tier} 阶 %{stars}",
       "equip": "装备",
       "unequip": "卸下"
     },
@@ -660,6 +661,7 @@
     },
     "seed": {
       "label": "%{attribute}种子 · %{tier} 阶",
+      "label_named": "%{name} · %{tier} 阶",
       "plant": "种植"
     },
     "seeds": {

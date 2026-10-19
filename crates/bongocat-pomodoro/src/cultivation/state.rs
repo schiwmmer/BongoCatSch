@@ -20,7 +20,7 @@ use super::{
     base_attributes,
     battle::{guardian_for, resolve},
     curve::{level_for_growth, stage_floor, threshold_for},
-    garden::{CropRecord, harvest_points, seed_return},
+    garden::{CropRecord, harvest_points, seed_name, seed_return},
     items::roll_equipment,
 };
 use crate::CalendarDay;
@@ -37,14 +37,14 @@ pub struct AbsenceCharge {
 }
 
 /// What one finished session produced beyond its growth.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Drop {
     Equipment(EquipmentRecord),
     Seed { attribute: Attribute, tier: u8 },
 }
 
 /// Everything one finished session changed.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SessionReward {
     /// The growth the session itself paid.
     pub growth: u32,
@@ -54,7 +54,7 @@ pub struct SessionReward {
 }
 
 /// What a breakthrough attempt came to.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BreakthroughOutcome {
     pub report: BattleReport,
     /// The realm a win opens, or the one that was defended on a loss.
@@ -74,7 +74,7 @@ pub struct HarvestOutcome {
 }
 
 /// One owned item, as a surface reads it.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ItemView {
     pub id: u64,
     pub slot: EquipSlot,
@@ -83,14 +83,18 @@ pub struct ItemView {
     pub attributes: Attributes,
     pub power: u32,
     pub equipped: bool,
+    /// The xianxia-given name the drop carried, if any.
+    pub name: Option<String>,
 }
 
 /// One seed stack, as a surface reads it.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SeedView {
     pub attribute: Attribute,
     pub tier: u8,
     pub count: u32,
+    /// The herb's xianxia-given name, if the stack carries one.
+    pub name: Option<String>,
 }
 
 /// One crop in a plot.
@@ -117,7 +121,7 @@ pub struct GuardianView {
 }
 
 /// The drop a surface announces.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DropView {
     Equipment(ItemView),
     Seed { attribute: Attribute, tier: u8 },
@@ -271,6 +275,17 @@ impl Cultivation {
         true
     }
 
+    /// Count one keyboard or mouse interaction as a point of growth.
+    ///
+    /// A finished session is the ladder's main fuel; a key or a click is a
+    /// trickle that keeps the cultivator's total moving between sessions. The
+    /// point is added straight to the lifetime growth, above the realm floor, so
+    /// an idle day can never take back growth a keystroke already paid.
+    pub fn on_input(&mut self) {
+        self.document.growth = self.document.growth.saturating_add(1);
+        self.note_peak_level();
+    }
+
     /// Every attribute together: level, gear, herbs and placed points.
     pub fn attributes(&self) -> Attributes {
         self.level_attributes()
@@ -299,7 +314,7 @@ impl Cultivation {
             .equipment
             .iter()
             .find(|item| item.id == id)
-            .copied()
+            .cloned()
     }
 
     /// Charge every whole local day without a session that has not been charged
@@ -318,8 +333,9 @@ impl Cultivation {
         }
         let mut days = 0u32;
         let mut asked = 0u32;
+        let stage = self.realm().index() as u32 + 1;
         for _ in first..=last {
-            asked = asked.saturating_add(absence_penalty(self.document.missed_streak));
+            asked = asked.saturating_add(absence_penalty(self.document.missed_streak, stage));
             self.document.missed_streak = self.document.missed_streak.saturating_add(1);
             days = days.saturating_add(1);
         }
@@ -339,17 +355,28 @@ impl Cultivation {
         &mut self,
         now_unix: i64,
         today: CalendarDay,
-        focus_minutes: u32,
+        _focus_minutes: u32,
     ) -> SessionReward {
         let absence = self.apply_absence(today);
-        let growth = super::growth_for_session(focus_minutes);
+        let today_number = today.day_number();
+        // The session number resets on a new local day, which `last_active_day`
+        // already records: the first sit-down of the day is number one, every
+        // further one the same day escalates. The count is the realm's stage
+        // aware, so the growth formula rewards climbing as well as repeating.
+        if self.document.last_active_day != Some(today_number) {
+            self.document.session_count_today = 0;
+        }
+        let session_number = self.document.session_count_today.saturating_add(1);
+        self.document.session_count_today = session_number;
+        let stage = self.realm().index() as u32 + 1;
+        let growth = super::session_growth(session_number, stage);
         self.document.growth = self.document.growth.saturating_add(growth);
-        self.document.last_active_day = Some(today.day_number());
+        self.document.last_active_day = Some(today_number);
         self.document.missed_streak = 0;
-        self.document.charged_through_day = Some(today.day_number());
+        self.document.charged_through_day = Some(today_number);
         self.note_peak_level();
         let drop = self.roll_drop(now_unix);
-        self.last_drop = drop;
+        self.last_drop = drop.clone();
         SessionReward {
             growth,
             absence,
@@ -376,7 +403,7 @@ impl Cultivation {
         }
         if roll < EQUIPMENT_DROP_PERMILLE + SEED_DROP_PERMILLE {
             let attribute = Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
-            self.push_seed(attribute, tier);
+            self.push_seed(attribute, tier, &mut rng);
             return Some(Drop::Seed { attribute, tier });
         }
         None
@@ -405,12 +432,12 @@ impl Cultivation {
     fn push_equipment(&mut self, tier: u8, rng: &mut Rng) -> EquipmentRecord {
         let id = self.next_id();
         let item = roll_equipment(id, tier, rng);
-        self.document.equipment.push(item);
+        self.document.equipment.push(item.clone());
         item
     }
 
     /// Own one seed, folded into an existing stack when there is one.
-    fn push_seed(&mut self, attribute: Attribute, tier: u8) {
+    fn push_seed(&mut self, attribute: Attribute, tier: u8, rng: &mut Rng) {
         if let Some(stack) = self
             .document
             .seeds
@@ -420,7 +447,9 @@ impl Cultivation {
             stack.count = stack.count.saturating_add(1);
             return;
         }
-        self.document.seeds.push(SeedStack::single(attribute, tier));
+        let mut stack = SeedStack::single(attribute, tier);
+        stack.name = Some(seed_name(rng));
+        self.document.seeds.push(stack);
     }
 
     /// Plant one seed in the first empty plot.
@@ -465,12 +494,13 @@ impl Cultivation {
         let mut rng = self.rng(now_unix);
         let seed = seed_return(crop.attribute, crop.tier, &mut rng);
         if let Some((attribute, tier)) = seed {
-            self.push_seed(attribute, tier);
+            self.push_seed(attribute, tier, &mut rng);
         }
         self.last_seed_return = seed.map(|(attribute, tier)| SeedView {
             attribute,
             tier,
             count: 1,
+            name: None,
         });
         Some(HarvestOutcome { crop, seed })
     }
@@ -519,11 +549,11 @@ impl Cultivation {
                 target: guardian.target,
                 reward: None,
             };
-            self.last_breakthrough = Some(outcome);
+            self.last_breakthrough = Some(outcome.clone());
             return Some(outcome);
         }
         self.enter_realm(guardian);
-        self.last_breakthrough
+        self.last_breakthrough.clone()
     }
 
     /// Open the realm the guardian defended and pay its trophy.
@@ -594,6 +624,7 @@ impl Cultivation {
                     .copied()
                     .flatten()
                     == Some(item.id),
+                name: item.name.clone(),
             };
             if view.equipped {
                 equipped[item.slot.index()] = Some(view);
@@ -610,6 +641,7 @@ impl Cultivation {
                 attribute: stack.attribute,
                 tier: stack.tier,
                 count: stack.count,
+                name: stack.name.clone(),
             })
             .collect();
         seeds.sort_by(|left, right| {
@@ -652,9 +684,9 @@ impl Cultivation {
                 target: guardian.target,
                 power: guardian.power,
             }),
-            last_breakthrough: self.last_breakthrough,
+            last_breakthrough: self.last_breakthrough.clone(),
             last_absence: self.last_absence,
-            last_drop: self.last_drop.map(|drop| match drop {
+            last_drop: self.last_drop.clone().map(|drop| match drop {
                 Drop::Equipment(item) => DropView::Equipment(ItemView {
                     id: item.id,
                     slot: item.slot,
@@ -663,10 +695,11 @@ impl Cultivation {
                     attributes: item.attributes(),
                     power: item.power(),
                     equipped: false,
+                    name: item.name.clone(),
                 }),
                 Drop::Seed { attribute, tier } => DropView::Seed { attribute, tier },
             }),
-            last_seed_return: self.last_seed_return,
+            last_seed_return: self.last_seed_return.clone(),
         }
     }
 }

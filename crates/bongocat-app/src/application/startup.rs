@@ -270,6 +270,52 @@ impl Application {
                     (None, PomodoroClient::unavailable())
                 }
             };
+        // Credit raw keyboard and mouse activity as cultivation growth. The
+        // per-input hook only counts interactions; the flush hook (run on the
+        // same input worker on every stats flush, and on shutdown) drains the
+        // count into one batched command. Batching matters because
+        // `process_command` writes the document on every command, so publishing
+        // one command per keystroke would thrash the disk during a typing burst.
+        {
+            use std::sync::Arc;
+            use std::sync::atomic::{AtomicU64, Ordering};
+
+            const INPUT_BATCH: u64 = 16;
+            let pending = Arc::new(AtomicU64::new(0));
+
+            let record_client = pomodoro_client.clone();
+            let record_pending = pending.clone();
+            bongocat_platform::set_input_hook(Box::new(move || {
+                let seen = record_pending.fetch_add(1, Ordering::Relaxed) + 1;
+                if seen >= INPUT_BATCH {
+                    let count = record_pending.swap(0, Ordering::Relaxed);
+                    if count > 0
+                        && record_client
+                            .try_publish(bongocat_pomodoro::PomodoroCommand::RecordInput {
+                                count: count.min(u32::MAX as u64) as u32,
+                            })
+                            .is_err()
+                    {
+                        record_pending.fetch_add(count, Ordering::Relaxed);
+                    }
+                }
+            }));
+
+            let flush_client = pomodoro_client.clone();
+            bongocat_platform::set_input_flush_hook(Box::new(move || {
+                let count = pending.swap(0, Ordering::Relaxed);
+                if count > 0
+                    && flush_client
+                        .try_publish(bongocat_pomodoro::PomodoroCommand::RecordInput {
+                            count: count.min(u32::MAX as u64) as u32,
+                        })
+                        .is_err()
+                {
+                    pending.fetch_add(count, Ordering::Relaxed);
+                }
+            }));
+        }
+
         let runtime_overlay_visible = true;
         let runtime_motion_audio_enabled = config.model.play_motion_audio;
         let (runtime, render_consumer) = if enable_rendering {

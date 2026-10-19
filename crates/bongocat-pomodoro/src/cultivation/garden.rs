@@ -51,11 +51,14 @@ pub fn seed_return(attribute: Attribute, tier: u8, rng: &mut Rng) -> Option<(Att
 }
 
 /// A stack of identical seeds: one attribute, one tier.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SeedStack {
     pub attribute: Attribute,
     pub tier: u8,
     pub count: u32,
+    /// The herb's xianxia-given name, if the stack carries one.
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 impl SeedStack {
@@ -65,8 +68,32 @@ impl SeedStack {
             attribute,
             tier,
             count: 1,
+            name: None,
         }
     }
+}
+
+/// The epithets a herb may carry.
+const SEED_PREFIXES: &[&str] = &[
+    "青", "翠", "灵", "仙", "玉", "玄", "碧", "紫", "朱", "赤", "白", "金", "幽", "寒", "月", "星",
+    "云", "露", "霜", "雪", "龙", "凤", "麒麟", "朱雀", "玄武", "青龙", "白虎", "太", "九", "昊",
+    "幻", "虚", "梦", "瑶", "璇", "苍",
+];
+
+/// The herbs a garden grows.
+const SEED_NOUNS: &[&str] = &[
+    "草", "花", "莲", "芝", "参", "果", "叶", "根", "藤", "兰", "菊", "梅", "桃", "苓", "蕈", "荷",
+    "蓉", "蕊", "蔓", "芷", "蔻",
+];
+
+/// A xianxia name for one dropped seed.
+///
+/// The prefix and the noun are rolled independently, so the pool holds hundreds of
+/// distinct herb names — well over five hundred — for a garden to draw from.
+pub(crate) fn seed_name(rng: &mut Rng) -> String {
+    let prefix = SEED_PREFIXES[rng.below(SEED_PREFIXES.len() as u64) as usize];
+    let noun = SEED_NOUNS[rng.below(SEED_NOUNS.len() as u64) as usize];
+    format!("{prefix}{noun}")
 }
 
 /// A crop growing in a plot, or one ready to be picked.

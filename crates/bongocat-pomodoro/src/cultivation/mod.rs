@@ -11,8 +11,10 @@
 //! The rules, in one place:
 //!
 //! * Growth is the experience: a finished focus session adds
-//!   [`growth_for_session`], and every whole local day without one charges
-//!   [`ABSENCE_PENALTY`] doubled once per consecutive missed day.
+//!   [`session_growth`] — [`SESSION_BASE_GROWTH`] for the first of the day, then
+//!   scaled by the session number and the realm — and every whole local day
+//!   without one charges [`absence_penalty`], which grows with the run of missed
+//!   days and the realm the cultivator has reached.
 //! * Growth never falls below the floor of the realm already entered, so a
 //!   penalty costs progress but never a breakthrough.
 //! * A realm ends at layer 100 and the next one opens only by beating its
@@ -51,25 +53,35 @@ pub use state::{
 
 use serde::{Deserialize, Serialize};
 
-/// Growth one twenty-five minute session pays.
+/// Growth the first finished focus session of a local day pays.
 ///
-/// Shorter sessions pay proportionally less, which is what keeps a one-minute
-/// session from being the cheapest way up the ladder.
-pub const GROWTH_PER_SESSION: u32 = 10;
+/// Every further session the same day is worth more: see [`session_growth`]. A
+/// single flat base keeps the first sit-down of the day honest, and the growth it
+/// pays is deliberately large so one finished pomodoro is felt on the ladder.
+pub const SESSION_BASE_GROWTH: u32 = 500;
 
-/// The minutes a session is measured against when it pays growth: the default
-/// session length, and the unit [`GROWTH_PER_SESSION`] is quoted in.
-pub const GROWTH_SESSION_MINUTES: u32 = 25;
+/// How much each extra session the same day multiplies the base growth by, per
+/// step past the first.
+///
+/// The second session of the day is `BASE * STEP`, the third `BASE * STEP^2`, and
+/// so on; the escalation rewards a day of repeated focus without letting a single
+/// long session out-earn several short ones.
+const SESSION_GROWTH_STEP: f64 = 1.1;
 
-/// Growth a single missed day costs before the doubling starts.
-pub const ABSENCE_PENALTY: u32 = 10;
+/// Growth the first missed day costs.
+///
+/// Every further consecutive missed day costs more: see [`absence_penalty`]. The
+/// base is deliberately harsh so a day with no session is felt, but it is a fixed
+/// amount rather than a multiple of the base growth, which keeps a lapse from
+/// wiping out a single session's worth of progress in one stroke.
+pub const ABSENCE_BASE_PENALTY: u32 = 800;
 
-/// The ceiling one missed day can reach once the doubling has run.
-pub const ABSENCE_PENALTY_CAP: u32 = 320;
-
-/// How many consecutive missed days the doubling follows before it stays at the
-/// ceiling. Six steps turn 10 into 640, which the cap then holds at 320.
-const ABSENCE_DOUBLINGS: u32 = 5;
+/// How much each extra consecutive missed day multiplies the base penalty by, per
+/// step past the first.
+///
+/// The second missed day is `BASE * STEP`, the third `BASE * STEP^2`, and so on,
+/// so a run of empty days stings proportionally more the longer it goes.
+const ABSENCE_PENALTY_STEP: f64 = 1.2;
 
 /// The chance one finished session drops a piece of gear, in parts per thousand.
 pub const EQUIPMENT_DROP_PERMILLE: u64 = 60;
@@ -328,26 +340,42 @@ pub fn base_attributes(level: u16) -> Attributes {
     }
 }
 
-/// The growth one finished session pays.
+/// The growth one finished session pays, given which number it is in the local
+/// day (one-based) and the cultivator's realm (one-based stage).
 ///
-/// Proportional to the session length against [`GROWTH_SESSION_MINUTES`], with
-/// a floor of one so a session of any length still moves the ladder.
-pub fn growth_for_session(focus_minutes: u32) -> u32 {
-    let minutes = focus_minutes.clamp(1, 240);
-    (GROWTH_PER_SESSION * minutes)
-        .div_ceil(GROWTH_SESSION_MINUTES)
-        .max(1)
+/// The first session of the day is a flat [`SESSION_BASE_GROWTH`]. Every further
+/// one is the base grown by [`SESSION_GROWTH_STEP`] for each step past the first
+/// and by the realm's stage, so sitting down again the same day — or climbing the
+/// ladder — is rewarded harder. The realm factor means a missed day hurts more
+/// the higher a cultivator has climbed, the same way a longer fall lands harder.
+pub fn session_growth(session_number: u32, stage: u32) -> u32 {
+    if session_number <= 1 {
+        return SESSION_BASE_GROWTH;
+    }
+    let exponent = f64::from(session_number - 1);
+    let value = f64::from(SESSION_BASE_GROWTH)
+        * SESSION_GROWTH_STEP.powf(exponent)
+        * f64::from(stage.max(1));
+    // Growth is an unsigned whole number; the float product saturates rather than
+    // wrapping if a long run of same-day sessions somehow overflowed it.
+    value as u32
 }
 
-/// Growth a missed day costs after `missed_streak` consecutive missed days.
+/// Growth a missed day costs after `missed_streak` consecutive missed days, at a
+/// cultivator in realm `stage` (one-based).
 ///
-/// The first missed day costs [`ABSENCE_PENALTY`], each following one doubles,
-/// and [`ABSENCE_PENALTY_CAP`] holds the ceiling.
-pub fn absence_penalty(missed_streak: u32) -> u32 {
-    let doublings = missed_streak.min(ABSENCE_DOUBLINGS);
-    ABSENCE_PENALTY
-        .saturating_mul(1u32 << doublings)
-        .min(ABSENCE_PENALTY_CAP)
+/// A missed day costs [`ABSENCE_BASE_PENALTY`], scaled by [`ABSENCE_PENALTY_STEP`]
+/// for every step past the first (the `missed_streak` is zero-based, so the first
+/// missed day is the base) and by the realm's stage. The stage factor ties the
+/// cost to how far the cultivator has climbed, so a lapse at the top of the
+/// ladder is far dearer than one at the bottom — and at the starting realm
+/// (stage one) the first missed day is exactly [`ABSENCE_BASE_PENALTY`].
+pub fn absence_penalty(missed_streak: u32, stage: u32) -> u32 {
+    let exponent = f64::from(missed_streak);
+    let value = f64::from(ABSENCE_BASE_PENALTY)
+        * ABSENCE_PENALTY_STEP.powf(exponent)
+        * f64::from(stage.max(1));
+    value as u32
 }
 
 /// A small deterministic random source.

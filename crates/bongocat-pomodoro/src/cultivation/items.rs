@@ -112,7 +112,7 @@ impl Rarity {
 }
 
 /// One owned piece of gear.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct EquipmentRecord {
     pub id: u64,
     pub slot: EquipSlot,
@@ -121,21 +121,99 @@ pub struct EquipmentRecord {
     pub rarity: Rarity,
     #[serde(default)]
     pub attributes: Attributes,
+    /// The xianxia-given name the drop carried. Absent on documents written
+    /// before names existed, and on items the user has always owned unnamed.
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// The epithets a blade, robe or boot may carry: one of these prefixes a noun to
+/// make a name. There are enough of them that every slot below offers well over
+/// five hundred distinct names, so the ladder reads like a cultivation arsenal
+/// rather than a table of bonuses.
+const EQUIPMENT_PREFIXES: &[&str] = &[
+    "玄", "太", "九", "赤", "青", "紫", "苍", "白", "黑", "金", "玉", "寒", "幽", "天", "乾", "坤",
+    "混", "无", "破", "斩", "御", "龙", "凤", "麒麟", "朱雀", "玄武", "青龙", "白虎", "昊", "凌",
+    "霄", "星", "月", "雷", "风", "云", "霜", "血", "魔", "仙", "灵", "圣", "道", "虚", "焚", "寂",
+    "太虚", "混沌", "碧落", "黄泉",
+];
+
+/// The nouns each slot draws from. Kept separate so a weapon never reads like a
+/// robe and a boot never reads like a blade.
+const WEAPON_NOUNS: &[&str] = &[
+    "剑", "刀", "枪", "戟", "锤", "斧", "弓", "鞭", "锏", "戈", "矛", "棍", "棒", "钩", "钺", "槊",
+    "飞剑", "神剑", "魔刃", "仙剑",
+];
+const CLOTHES_NOUNS: &[&str] = &[
+    "袍", "衣", "甲", "衫", "裳", "袂", "氅", "铠", "道袍", "法衣", "仙衣", "战袍", "圣衣", "云衣",
+    "霓裳", "羽衣",
+];
+const PANTS_NOUNS: &[&str] = &[
+    "裤",
+    "裙",
+    "胫甲",
+    "护腿",
+    "战袴",
+    "灵裤",
+    "云裙",
+    "玄裤",
+    "鳞裤",
+    "缚腿",
+    "武裤",
+    "风行裤",
+    "流云裤",
+    "踏风裤",
+];
+const BOOTS_NOUNS: &[&str] = &[
+    "靴",
+    "履",
+    "战靴",
+    "飞靴",
+    "云履",
+    "风靴",
+    "灵靴",
+    "踏云靴",
+    "追风靴",
+    "龙鳞靴",
+    "虎纹靴",
+    "五行靴",
+    "流光靴",
+    "破空靴",
+    "御风靴",
+    "星陨靴",
+];
+
+/// A xianxia name for one dropped piece of gear.
+///
+/// The slot picks the noun pool and the roll picks the epithet, so the same
+/// prefix and noun can never collide across slots and every slot alone offers
+/// hundreds of names. The draw is deterministic in the roll, which keeps a drop
+/// reproducible from its seed.
+pub(crate) fn equipment_name(slot: EquipSlot, rng: &mut Rng) -> String {
+    let nouns = match slot {
+        EquipSlot::Weapon => WEAPON_NOUNS,
+        EquipSlot::Clothes => CLOTHES_NOUNS,
+        EquipSlot::Pants => PANTS_NOUNS,
+        EquipSlot::Boots => BOOTS_NOUNS,
+    };
+    let prefix = EQUIPMENT_PREFIXES[rng.below(EQUIPMENT_PREFIXES.len() as u64) as usize];
+    let noun = nouns[rng.below(nouns.len() as u64) as usize];
+    format!("{prefix}{noun}")
 }
 
 impl EquipmentRecord {
     /// The attributes this item grants.
-    pub const fn attributes(self) -> Attributes {
+    pub const fn attributes(&self) -> Attributes {
         self.attributes
     }
 
     /// The combat power this item alone buys.
-    pub fn power(self) -> u32 {
+    pub fn power(&self) -> u32 {
         self.attributes.power()
     }
 
     /// How many stars the item shows.
-    pub const fn stars(self) -> usize {
+    pub const fn stars(&self) -> usize {
         self.rarity.stars()
     }
 }
@@ -176,6 +254,7 @@ pub fn roll_equipment(id: u64, tier: u8, rng: &mut Rng) -> EquipmentRecord {
         tier: tier.clamp(1, 10),
         rarity,
         attributes,
+        name: Some(equipment_name(slot, rng)),
     }
 }
 

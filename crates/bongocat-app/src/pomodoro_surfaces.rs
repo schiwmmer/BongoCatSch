@@ -22,16 +22,14 @@ use bongocat_pomodoro::PomodoroCommand;
 ///
 /// The badge gets the realm and layer alone, because it rides the forehead and
 /// has room for nothing else. The HUD gets the same line followed by the growth
-/// behind it, and under that the two pomodoro counts: the layers are bought with
-/// growth, so a cultivator looking at the bar needs to know how much of the
-/// layer is left, and the sessions are what buys the growth, so the running
-/// total and the work still ahead belong on the same panel.
+/// behind it, and under that the cultivation line: the lifetime growth the
+/// cultivator has banked and the growth still owed before the next layer opens.
+/// A right-click on the model is meant to answer "how far have I climbed and how
+/// far to the next step", so the pomodoro counts are deliberately left out.
 #[cfg(target_os = "macos")]
 pub(crate) fn cultivation_copy(
     cultivation: &CultivationView,
     locale: &str,
-    total_pomodoros: u32,
-    remaining_pomodoros: u32,
 ) -> bongocat_overlay::OverlayCultivationText {
     let stage = bongocat_i18n::text(locale, cultivation.realm.name_key()).to_owned();
     let layer = cultivation.layer.to_string();
@@ -76,20 +74,23 @@ pub(crate) fn cultivation_copy(
         "stats.hud.realm",
         &[("stage", stage), ("layer", layer)],
     );
-    // Two lines rather than one: the ladder line already carries three numbers,
-    // and the counts are about the sessions that buy the growth rather than
-    // about the layer the bar draws.
-    let counts = bongocat_i18n::format_text(
+    // How much growth still stands between the cultivator and the next layer. A
+    // capped realm has no next layer, so it owes nothing: the line reads the
+    // lifetime total alone.
+    let remaining = cultivation
+        .next
+        .map_or(0, |next| next.saturating_sub(cultivation.growth));
+    let cultivation_line = bongocat_i18n::format_text(
         locale,
-        "stats.hud.pomodoros",
+        "stats.hud.cultivation",
         &[
-            ("done", total_pomodoros.to_string()),
-            ("left", remaining_pomodoros.to_string()),
+            ("growth", cultivation.growth.to_string()),
+            ("remaining", remaining.to_string()),
         ],
     );
     bongocat_overlay::OverlayCultivationText {
         badge,
-        hud: format!("{realm} · {progress}\n{counts}"),
+        hud: format!("{realm} · {progress}\n{cultivation_line}"),
         hud_progress_permille: permille,
     }
 }
@@ -276,7 +277,7 @@ mod tests {
     #[test]
     fn a_fresh_cultivator_is_named_at_the_first_layer_of_the_first_realm() {
         let view = bongocat_pomodoro::Cultivation::default().view();
-        let copy = cultivation_copy(&view, "zh-CN", 0, 0);
+        let copy = cultivation_copy(&view, "zh-CN");
         let stage = bongocat_i18n::text("zh-CN", view.realm.name_key());
         assert!(
             copy.badge.starts_with(stage) && copy.badge.contains('1'),
@@ -299,7 +300,7 @@ mod tests {
         let next = view.next.expect("a fresh cultivator has a next layer");
         let span = next - view.floor;
         view.growth = view.floor + span / 2;
-        let copy = cultivation_copy(&view, "zh-CN", 0, 0);
+        let copy = cultivation_copy(&view, "zh-CN");
         // Integer halves of an odd span may round down by one part per thousand.
         assert!(
             (499..=500).contains(&copy.hud_progress_permille),
@@ -320,29 +321,43 @@ mod tests {
     fn a_capped_realm_fills_the_bar_rather_than_drawing_an_unreachable_layer() {
         let mut view = bongocat_pomodoro::Cultivation::default().view();
         view.next = None;
-        let copy = cultivation_copy(&view, "zh-CN", 0, 0);
+        let copy = cultivation_copy(&view, "zh-CN");
         assert_eq!(copy.hud_progress_permille, 1_000);
     }
 
-    /// The hover panel carries the running total and the work still ahead, on a
-    /// line of its own: the layer line already holds three numbers, and these
-    /// two are about the sessions rather than about the bar.
+    /// The hover panel carries the lifetime growth and the growth still owed,
+    /// on a line of its own: the realm line already holds the ladder numbers,
+    /// and the cultivation line answers "how far climbed, how far to the next
+    /// step" without ever surfacing the session counts.
     #[test]
-    fn the_hover_panel_reports_the_sessions_done_and_the_ones_still_ahead() {
-        let view = bongocat_pomodoro::Cultivation::default().view();
-        let copy = cultivation_copy(&view, "zh-CN", 12, 3);
-        let (_layer_line, counts) = copy
+    fn the_hover_panel_reports_the_growth_banked_and_the_growth_to_go() {
+        let mut view = bongocat_pomodoro::Cultivation::default().view();
+        let next = view.next.expect("a fresh cultivator has a next layer");
+        view.growth = view.floor + 10;
+        let copy = cultivation_copy(&view, "zh-CN");
+        let (_realm_line, cultivation) = copy
             .hud
             .split_once('\n')
-            .expect("the counts are a line of their own");
+            .expect("the cultivation line is its own line");
+        let remaining = next - view.growth;
         assert!(
-            counts.contains("12") && counts.contains('3'),
-            "counts {counts:?} do not report 12 done and 3 to go"
+            cultivation.contains(&view.growth.to_string()),
+            "cultivation line {cultivation:?} does not report grown {}",
+            view.growth
         );
-        // Both numbers come from the snapshot rather than from the ladder: two
-        // cultivators at the same level still read their own session counts.
-        let other = cultivation_copy(&view, "zh-CN", 4, 9);
-        assert_ne!(copy.hud, other.hud);
-        assert_eq!(copy.badge, other.badge, "the badge names the realm only");
+        assert!(
+            cultivation.contains(&remaining.to_string()),
+            "cultivation line {cultivation:?} does not report remaining {remaining}"
+        );
+        // Two cultivators at the same realm but with different growth read their
+        // own line, while the badge still names the realm only.
+        let mut other = view.clone();
+        other.growth = view.floor + 40;
+        let other_copy = cultivation_copy(&other, "zh-CN");
+        assert_ne!(copy.hud, other_copy.hud);
+        assert_eq!(
+            copy.badge, other_copy.badge,
+            "the badge names the realm only"
+        );
     }
 }

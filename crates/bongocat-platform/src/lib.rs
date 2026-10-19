@@ -14,7 +14,7 @@ pub use installation::InstallationLayout;
 mod interaction_stats;
 pub use interaction_stats::{
     PersistedStats, flush_if_due, flush_now, init as interaction_stats_init, record_key,
-    record_mouse, totals as interaction_totals,
+    record_mouse, set_input_flush_hook, set_input_hook, totals as interaction_totals,
 };
 
 mod local_time;

@@ -6,10 +6,13 @@
 //! them onto the persisted totals with a time-based throttle, and a surface that
 //! wants the lifetime count reads the totals.
 //!
-//! The counters no longer buy levels. The ladder these surfaces show is the
-//! cultivation one the pomodoro crate owns, grown by finished focus sessions
-//! rather than by keystrokes; counting input stays here as its own record, and a
-//! `record_key` no longer has a side effect on anything the user can see.
+//! The counters persist here as their own record, and they also feed the
+//! cultivation ladder: the app registers an [`set_input_hook`] that batches raw
+//! interactions into growth, so a keystroke or click creeps the ladder up by one
+//! while a burst is folded into a single durable command instead of one document
+//! write per key. The platform crate counts; what counts are worth is the
+//! pomodoro layer's decision, which is why the hook exists rather than a hard
+//! dependency.
 //!
 //! The persisted document is its own file (`interaction-stats.json`) rather
 //! than a field of `config.json`, so the interaction history cannot be reset
@@ -99,6 +102,33 @@ struct Shared {
 
 static STATS: OnceLock<Shared> = OnceLock::new();
 
+/// A closure run on every recorded keyboard or mouse interaction. The app
+/// registers it to forward raw activity into the cultivation growth, which is a
+/// pomodoro-layer concern the platform crate must not name directly. The hook
+/// fires on the input worker, so it has to be `Send + Sync`.
+static INPUT_HOOK: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
+
+/// A closure run whenever the interaction counters are flushed, so a consumer can
+/// drain its own per-input counters at the same cadence. Without it, activity
+/// credited in [`INPUT_HOOK`] but not yet batched would be stranded when input
+/// stops; the flush drains whatever remains.
+static INPUT_FLUSH_HOOK: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
+
+/// Register the closure invoked on every keyboard or mouse interaction.
+///
+/// The first call wins; later calls are ignored. Intended to be called once at
+/// startup, before any input arrives.
+pub fn set_input_hook(hook: Box<dyn Fn() + Send + Sync>) {
+    let _ = INPUT_HOOK.set(hook);
+}
+
+/// Register the closure invoked when the interaction counters flush.
+///
+/// The first call wins; later calls are ignored.
+pub fn set_input_flush_hook(hook: Box<dyn Fn() + Send + Sync>) {
+    let _ = INPUT_FLUSH_HOOK.set(hook);
+}
+
 /// Install the persistence path and load whatever document is already there.
 ///
 /// The first call wins; later calls are ignored so a re-started input service
@@ -124,6 +154,9 @@ pub fn record_key() {
         shared.session_key.fetch_add(1, Ordering::Relaxed);
         shared.dirty.store(true, Ordering::Release);
     }
+    if let Some(hook) = INPUT_HOOK.get() {
+        hook();
+    }
 }
 
 /// Record one mouse interaction (one mouse button down).
@@ -131,6 +164,9 @@ pub fn record_mouse() {
     if let Some(shared) = STATS.get() {
         shared.session_mouse.fetch_add(1, Ordering::Relaxed);
         shared.dirty.store(true, Ordering::Release);
+    }
+    if let Some(hook) = INPUT_HOOK.get() {
+        hook();
     }
 }
 
@@ -200,6 +236,9 @@ fn flush(shared: &Shared) -> io::Result<()> {
 /// worker's run-loop slice; a failed write is reported to the caller but the
 /// deltas stay queued, so the next due attempt carries them.
 pub fn flush_if_due() {
+    if let Some(hook) = INPUT_FLUSH_HOOK.get() {
+        hook();
+    }
     let Some(shared) = STATS.get() else {
         return;
     };
@@ -222,6 +261,9 @@ pub fn flush_if_due() {
 /// service stops, which is the shutdown-order point every exit path passes
 /// through.
 pub fn flush_now() {
+    if let Some(hook) = INPUT_FLUSH_HOOK.get() {
+        hook();
+    }
     let Some(shared) = STATS.get() else {
         return;
     };

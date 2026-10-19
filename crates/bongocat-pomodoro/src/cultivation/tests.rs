@@ -32,8 +32,9 @@ fn geared(mut cultivation: Cultivation) -> Cultivation {
             tier: 1,
             rarity: Rarity::Rare,
             attributes: Attributes::new(5, 40, 0, 5),
+            name: None,
         };
-        document.equipment.push(item);
+        document.equipment.push(item.clone());
         document.equipped[slot.index()] = Some(item.id);
     }
     document.next_item_id = 5;
@@ -57,35 +58,73 @@ fn a_fresh_cultivator_starts_at_the_first_layer_of_the_first_realm() {
 
 #[test]
 fn a_session_pays_growth_in_proportion_to_its_length() {
-    assert_eq!(growth_for_session(25), GROWTH_PER_SESSION);
-    assert_eq!(growth_for_session(50), GROWTH_PER_SESSION * 2);
-    assert_eq!(growth_for_session(1), 1, "a short session still pays");
+    // The first session of a day is the flat base, whatever its length.
     let mut cultivation = Cultivation::default();
     let reward = cultivation.on_session_completed(1_000, day(20_000), 25);
-    assert_eq!(reward.growth, GROWTH_PER_SESSION);
-    assert_eq!(cultivation.document().growth, GROWTH_PER_SESSION);
+    assert_eq!(reward.growth, SESSION_BASE_GROWTH);
+    assert_eq!(cultivation.document().growth, SESSION_BASE_GROWTH);
     assert_eq!(cultivation.document().last_active_day, Some(20_000));
+    // A second session the same day is worth more, and counts as number two.
+    let second = cultivation.on_session_completed(2_000, day(20_000), 25);
+    assert_eq!(second.growth, session_growth(2, 1));
+    assert!(second.growth > SESSION_BASE_GROWTH);
+    // The session counter resets on a new local day.
+    let third = cultivation.on_session_completed(3_000, day(20_001), 25);
+    assert_eq!(third.growth, SESSION_BASE_GROWTH, "a new day starts at one");
 }
 
 #[test]
-fn a_missed_day_costs_growth_and_every_following_one_doubles() {
+fn session_growth_scales_with_the_day_and_the_realm() {
+    assert_eq!(session_growth(1, 1), 500);
+    assert_eq!(session_growth(2, 1), 550, "500 * 1.1, truncated");
+    assert_eq!(
+        session_growth(1, 5),
+        500,
+        "the realm does not touch the first session"
+    );
+    // 500 * 1.1^2 * 2 = 1210.
+    assert_eq!(session_growth(3, 2), 1210);
+}
+
+#[test]
+fn each_interaction_pays_one_growth() {
+    let mut cultivation = Cultivation::default();
+    assert_eq!(
+        cultivation.document().growth,
+        0,
+        "a fresh ladder owes nothing"
+    );
+    cultivation.on_input();
+    cultivation.on_input();
+    cultivation.on_input();
+    assert_eq!(
+        cultivation.document().growth,
+        3,
+        "every keyboard or mouse interaction pays exactly one growth"
+    );
+}
+
+#[test]
+fn a_missed_day_costs_growth_and_every_following_one_escalates() {
     let mut cultivation = Cultivation::new(CultivationDocument {
-        growth: 1_000,
+        growth: 100_000,
         last_active_day: Some(20_000),
         charged_through_day: Some(20_000),
         ..CultivationDocument::default()
     });
-    // The first day without a session: 20_001 has ended.
+    // The first day without a session costs the base penalty (stage one).
     let first = cultivation.apply_absence(day(20_002)).expect("a charge");
     assert_eq!(first.days, 1);
-    assert_eq!(first.charged, ABSENCE_PENALTY);
-    // Two days later, both days missed: the second one doubles.
+    assert_eq!(first.charged, ABSENCE_BASE_PENALTY);
+    // Two more missed days each escalate by the step, at stage one.
     let second = cultivation.apply_absence(day(20_004)).expect("a charge");
+    let day_two = (ABSENCE_BASE_PENALTY as f64 * 1.2_f64.powi(1)) as u32;
+    let day_three = (ABSENCE_BASE_PENALTY as f64 * 1.2_f64.powi(2)) as u32;
     assert_eq!(second.days, 2);
-    assert_eq!(second.charged, ABSENCE_PENALTY * 2 + ABSENCE_PENALTY * 4);
+    assert_eq!(second.charged, day_two + day_three);
     assert_eq!(
         cultivation.document().growth,
-        1_000 - ABSENCE_PENALTY - (ABSENCE_PENALTY * 2 + ABSENCE_PENALTY * 4)
+        100_000 - ABSENCE_BASE_PENALTY - (day_two + day_three)
     );
 }
 
@@ -102,7 +141,32 @@ fn the_same_day_is_never_charged_twice() {
         cultivation.apply_absence(day(20_002)).is_none(),
         "a re-launch on the same day charges nothing"
     );
-    assert_eq!(cultivation.document().growth, 990);
+    assert_eq!(cultivation.document().growth, 1_000 - ABSENCE_BASE_PENALTY);
+}
+
+#[test]
+fn a_deeper_realm_pays_a_deeper_penalty() {
+    let mut shallow = Cultivation::new(CultivationDocument {
+        growth: 1_000_000,
+        realm: 0,
+        last_active_day: Some(20_000),
+        charged_through_day: Some(20_000),
+        ..CultivationDocument::default()
+    });
+    let shallow_charge = shallow
+        .apply_absence(day(20_002))
+        .expect("a charge")
+        .charged;
+    let mut deep = Cultivation::new(CultivationDocument {
+        growth: 1_000_000,
+        realm: 4,
+        last_active_day: Some(20_000),
+        charged_through_day: Some(20_000),
+        ..CultivationDocument::default()
+    });
+    let deep_charge = deep.apply_absence(day(20_002)).expect("a charge").charged;
+    // Stage five (realm index four) multiplies the base by five.
+    assert_eq!(deep_charge, shallow_charge * 5);
 }
 
 #[test]
@@ -249,16 +313,20 @@ fn equipping_replaces_what_was_worn_and_unequipping_keeps_the_item() {
             tier: 1,
             rarity: Rarity::Common,
             attributes: Attributes::new(0, 10 * id as i32, 0, 0),
+            name: None,
         };
         document.equipment.push(item);
     }
     document.next_item_id = 3;
     cultivation = Cultivation::new(document);
     assert!(cultivation.equip(1));
-    assert_eq!(cultivation.view().equipped[0].map(|item| item.id), Some(1));
+    assert_eq!(
+        cultivation.view().equipped[0].clone().map(|item| item.id),
+        Some(1)
+    );
     assert!(cultivation.equip(2));
     assert_eq!(
-        cultivation.view().equipped[0].map(|item| item.id),
+        cultivation.view().equipped[0].clone().map(|item| item.id),
         Some(2),
         "the second weapon takes the slot"
     );
@@ -313,6 +381,7 @@ fn document_seeds(cultivation: &mut Cultivation, attribute: Attribute, tier: u8,
         attribute,
         tier,
         count,
+        name: None,
     });
     *cultivation = Cultivation::new(document);
 }
@@ -329,13 +398,15 @@ fn every_level_pays_one_point_the_user_places() {
         "nothing to place"
     );
 
-    // Two default sessions reach the second layer; the first one does not.
+    // One session already jumps several layers; the points scale with the level
+    // reached rather than being one per session.
     cultivation.on_session_completed(1_000, day(20_000), 25);
-    assert_eq!(cultivation.level(), 1);
-    assert_eq!(cultivation.free_points(), 0);
-    cultivation.on_session_completed(2_000, day(20_000), 25);
-    assert_eq!(cultivation.level(), 2);
-    assert_eq!(cultivation.free_points(), FREE_POINTS_PER_LEVEL);
+    let level = cultivation.level();
+    assert!(level > 1, "a session moved the ladder");
+    assert_eq!(
+        cultivation.free_points(),
+        (level.saturating_sub(1)) as u32 * FREE_POINTS_PER_LEVEL
+    );
 
     let before = cultivation.attributes().strength;
     assert!(cultivation.allocate(Attribute::Strength));
@@ -344,9 +415,21 @@ fn every_level_pays_one_point_the_user_places() {
         before + 1,
         "the placed point is part of the attribute total"
     );
-    assert_eq!(cultivation.free_points(), 0);
+    assert_eq!(
+        cultivation.free_points(),
+        (level.saturating_sub(1) as u32).saturating_sub(1) * FREE_POINTS_PER_LEVEL
+    );
     assert_eq!(cultivation.view().allocated_attributes.strength, 1);
-    assert!(!cultivation.allocate(Attribute::Root), "the point is spent");
+    // The per-level grant leaves `free_points` points to place. Spending one leaves
+    // the rest, so a second attribute can still take a point when any remain, and
+    // only runs dry once they are all placed.
+    let rest = cultivation.free_points();
+    let spent = cultivation.allocate(Attribute::Root);
+    assert_eq!(spent, rest > 0, "a point is placeable iff one remains");
+    if spent {
+        assert_eq!(cultivation.view().allocated_attributes.root, 1);
+        assert_eq!(cultivation.free_points(), rest.saturating_sub(1));
+    }
 }
 
 #[test]
@@ -382,11 +465,19 @@ fn a_reached_level_is_not_paid_twice() {
     for second in 1..=20i64 {
         cultivation.on_session_completed(second * 7, day(20_000), 25);
     }
-    assert_eq!(cultivation.level(), 100, "the cap holds the level down");
+    // Twenty sessions in one day compound the growth, but the free points are paid
+    // once against the highest level reached, never once per session.
+    let level = cultivation.level();
+    assert!(level > 1, "the day of sessions moved the ladder");
     assert_eq!(
         cultivation.granted_points(),
-        99 * FREE_POINTS_PER_LEVEL,
-        "the peak is the highest level, not the sum of every session"
+        (level.saturating_sub(1)) as u32 * FREE_POINTS_PER_LEVEL,
+        "the points track the peak level, not the session count"
+    );
+    assert_eq!(
+        cultivation.granted_points(),
+        (cultivation.document().peak_level.saturating_sub(1)) as u32 * FREE_POINTS_PER_LEVEL,
+        "the peak is the level reached"
     );
 }
 

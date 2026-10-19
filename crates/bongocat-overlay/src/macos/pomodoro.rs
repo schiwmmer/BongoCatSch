@@ -21,12 +21,15 @@ use objc2_app_kit::NSEventType;
 use objc2_foundation::NSString;
 use std::time::Duration;
 
-/// The gap between the countdown and the cat's own top edge.
+/// How far the countdown's bottom edge overlaps the top of the cat window.
 ///
-/// The countdown and the level badge both ride the cat's forehead, so they are
-/// stacked rather than overlaid: the countdown sits above the badge, and this
-/// gap is what keeps them from reading as one line of text.
-const COUNTDOWN_GAP: f64 = 6.0;
+/// The countdown and the level badge both sit over the cat's head, so they must
+/// not collide: the badge's top is [`BADGE_TOP_FRACTION`] below the window top,
+/// so this overlap stays smaller than that and keeps the timer clear of the
+/// badge. A previous build floated the countdown a fixed gap *above* the cat's
+/// top edge, which read as detached from the model; overlapping the top sliver
+/// instead hugs the head the way a desktop-pet readout should.
+const COUNTDOWN_OVERLAP_FRACTION: f64 = 0.08;
 
 /// Padding inside the countdown panel.
 const COUNTDOWN_PADDING: f64 = 12.0;
@@ -174,11 +177,11 @@ impl PomodoroCountdown {
         }));
         let frame = self.panel.frame();
         let x = f64::from(cat.x) + (f64::from(cat.width) - frame.size.width) / 2.0;
-        // Fully above the cat's top edge rather than hanging down over its head:
-        // the countdown is bare text over the desktop, so it reads as a separate
-        // readout instead of a box pasted on the model. Sitting clear of the box
-        // also keeps it off the forehead badge without the two needing to stack.
-        let y = f64::from(cat.y) + f64::from(cat.height) + COUNTDOWN_GAP;
+        // Hug the head: the countdown's bottom edge overlaps the top sliver of the
+        // cat window rather than floating clear of it. The overlap is a fraction of
+        // the window height and stays below the forehead badge, so the timer reads
+        // as part of the model without covering the realm badge.
+        let y = f64::from(cat.y) + f64::from(cat.height) * (1.0 - COUNTDOWN_OVERLAP_FRACTION);
         let origin = NSPoint::new(x, y);
         if self.origin.is_none_or(|previous| previous != origin) {
             self.panel.setFrameOrigin(origin);

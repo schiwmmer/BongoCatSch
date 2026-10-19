@@ -31,6 +31,11 @@ pub struct CultivationDocument {
     /// This is the doubling exponent, not a count of all missed days.
     #[serde(default)]
     pub missed_streak: u32,
+    /// How many sessions have been completed on `last_active_day`, so the growth
+    /// of the next one knows which number it is. Reset to zero whenever a session
+    /// lands on a new local day, which is decided against `last_active_day`.
+    #[serde(default)]
+    pub session_count_today: u32,
     /// The last local day whose absence has been charged, so a re-launch on the
     /// same day cannot charge the same day twice.
     #[serde(default)]
