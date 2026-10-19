@@ -38,6 +38,7 @@
   "system_menu": {
     "title": "BongoCat",
     "start_pomodoro": "Start Pomodoro",
+    "start_cultivation": "Cultivation",
     "open_settings": "Settings",
     "quit": "Quit BongoCat"
   },
@@ -635,7 +636,12 @@
       "strength": "Strength",
       "spirit": "Spirit power",
       "agility": "Agility",
-      "add": "+1"
+      "add": "+1",
+      "add_ten": "+10",
+      "root_desc": "Constitution: +15 power per point — the body's foundation and vitality.",
+      "strength_desc": "Strength: +20 power per point — the root of attack.",
+      "spirit_desc": "Spirit power: +20 power per point — the source of spiritual arts.",
+      "agility_desc": "Agility: +12 power per point — speed and evasion."
     },
     "power": "power %{power}",
     "power_level": "level %{value}",
@@ -652,6 +658,7 @@
     "item": {
       "label": "%{slot} · tier %{tier} · %{stars}",
       "label_named": "%{name} · tier %{tier} %{stars}",
+      "details": "Constitution %{root} · Strength %{strength} · Spirit %{spirit} · Agility %{agility} · Power %{power}",
       "equip": "Equip",
       "unequip": "Take off"
     },

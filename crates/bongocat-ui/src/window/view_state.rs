@@ -444,6 +444,7 @@ impl SettingsView {
             pomodoro_editor_sessions,
             pomodoro_observed_revision: 0,
             cultivation_minute_observed: None,
+            cultivation_open_item: None,
             pomodoro_done_expanded: false,
             pomodoro_chart_days: 7,
             // No day is picked when the page opens: the chart ends on today

@@ -75,6 +75,15 @@ impl SettingsNavigationMemory {
     pub(super) fn select(&self, page: SettingsNavigationPage) {
         self.page.set(page);
     }
+
+    /// Point the next settings window at the cultivation page.
+    ///
+    /// The context menu opens the settings window on a specific destination; the
+    /// page order stays private to this module, so the caller says "cultivation"
+    /// rather than restating the numeric index.
+    pub fn open_cultivation(&self) {
+        self.select(SettingsNavigationPage::Cultivation);
+    }
 }
 
 impl SettingsNavigationPage {

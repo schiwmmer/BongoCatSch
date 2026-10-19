@@ -38,6 +38,7 @@
   "system_menu": {
     "title": "BongoCat",
     "start_pomodoro": "开始番茄钟",
+    "start_cultivation": "修仙",
     "open_settings": "设置",
     "quit": "退出 BongoCat"
   },
@@ -635,7 +636,12 @@
       "strength": "力量",
       "spirit": "仙力",
       "agility": "身法",
-      "add": "+1"
+      "add": "+1",
+      "add_ten": "+10",
+      "root_desc": "根骨：每点提升 15 点战力，乃筋骨根基、气血之厚。",
+      "strength_desc": "力量：每点提升 20 点战力，攻伐之本。",
+      "spirit_desc": "仙力：每点提升 20 点战力，真元法术之源。",
+      "agility_desc": "身法：每点提升 12 点战力，主速度与闪避。"
     },
     "power": "战力 %{power}",
     "power_level": "境界 %{value}",
@@ -652,6 +658,7 @@
     "item": {
       "label": "%{slot} · %{tier} 阶 · %{stars}",
       "label_named": "%{name} · %{tier} 阶 %{stars}",
+      "details": "根骨 %{root} · 力量 %{strength} · 仙力 %{spirit} · 身法 %{agility} · 战力 %{power}",
       "equip": "装备",
       "unequip": "卸下"
     },

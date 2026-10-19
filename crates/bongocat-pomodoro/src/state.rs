@@ -215,8 +215,13 @@ pub enum PomodoroCommand {
     EquipItem { item_id: u64 },
     /// Take whatever is worn in a slot off.
     UnequipSlot { slot: EquipSlot },
-    /// Place one free attribute point on an attribute.
-    AllocateAttribute { attribute: crate::Attribute },
+    /// Place free attribute points on an attribute. `points` is how many to
+    /// spend at once, so a user banked past ten can place ten with one click;
+    /// the state stops early when the free points run out.
+    AllocateAttribute {
+        attribute: crate::Attribute,
+        points: u32,
+    },
     /// Fight the guardian standing at the end of the current realm.
     Breakthrough,
     /// Credit growth for raw keyboard or mouse activity. `count` is how many
@@ -371,8 +376,12 @@ impl PomodoroState {
             PomodoroCommand::UnequipSlot { slot } => {
                 self.cultivation.unequip(slot);
             }
-            PomodoroCommand::AllocateAttribute { attribute } => {
-                self.cultivation.allocate(attribute);
+            PomodoroCommand::AllocateAttribute { attribute, points } => {
+                for _ in 0..points {
+                    if !self.cultivation.allocate(attribute) {
+                        break;
+                    }
+                }
             }
             PomodoroCommand::Breakthrough => {
                 self.cultivation.breakthrough();

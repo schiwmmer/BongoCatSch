@@ -310,6 +310,10 @@ pub struct SettingsView {
     /// this is what lets the poll repaint the garden when a plot turns pickable
     /// without cloning the snapshot on every idle tick.
     pub(crate) cultivation_minute_observed: Option<i64>,
+    /// Which item's attribute breakdown the cultivation page has open, if any.
+    /// Clicking an item's name toggles it; only one stays open at a time so a
+    /// long satchel stays scannable.
+    pub(crate) cultivation_open_item: Option<u64>,
     pub(crate) seed: SettingsWindowSeed,
     pub(crate) snapshot: Option<SettingsSnapshot>,
     pub(crate) pending: Option<PendingOperation>,

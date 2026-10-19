@@ -49,6 +49,7 @@ pub(super) fn content(
     let tokens = Tokens::from_theme(cx);
     let snapshot = view.read(cx).pomodoro.snapshot();
     let cultivation = snapshot.cultivation.clone();
+    let open_item = view.read(cx).cultivation_open_item;
 
     div()
         .id("cultivation-settings")
@@ -59,8 +60,20 @@ pub(super) fn content(
         .child(realm_header(&cultivation, locale, tokens))
         .children(notices(&cultivation, locale, tokens))
         .child(attributes_panel(&view, &cultivation, locale, tokens))
-        .child(equipment_panel(&view, &cultivation, locale, tokens))
-        .child(inventory_panel(&view, &cultivation, locale, tokens))
+        .child(equipment_panel(
+            &view,
+            &cultivation,
+            locale,
+            tokens,
+            open_item,
+        ))
+        .child(inventory_panel(
+            &view,
+            &cultivation,
+            locale,
+            tokens,
+            open_item,
+        ))
         .child(seed_panel(&view, &cultivation, locale, tokens))
         .child(garden_panel(&view, &cultivation, locale, tokens))
         .child(breakthrough_panel(&view, &cultivation, locale, tokens))
@@ -280,6 +293,10 @@ fn attributes_panel(
 ) -> impl IntoElement {
     let free = cultivation.free_points;
     let chips = Attribute::ALL.into_iter().map(|attribute| {
+        // The name is a ghost button so it can carry the attribute's explanation
+        // on hover — `gpui-kit` only exposes tooltips on its own components, not
+        // on a bare `div`. It has no click handler; the button is the affordance
+        // the tooltip hangs from.
         let mut chip = div()
             .id(format!("cultivation-attribute-{}", attribute.index()))
             .flex()
@@ -291,10 +308,12 @@ fn attributes_panel(
             .rounded_md()
             .bg(tokens.overlay)
             .child(
-                div()
-                    .text_xs()
-                    .text_color(tokens.muted)
-                    .child(text(locale, attribute.name_key())),
+                Button::new(format!("cultivation-attribute-info-{}", attribute.index()))
+                    .ghost()
+                    .xsmall()
+                    .label(text(locale, attribute.name_key()))
+                    .tooltip(text(locale, attribute.desc_key()))
+                    .tab_stop(false),
             )
             .child(
                 div()
@@ -302,23 +321,24 @@ fn attributes_panel(
                     .child(attribute.of(cultivation.attributes).to_string()),
             );
         if free > 0 {
-            chip = chip.child(
-                Button::new(format!("cultivation-allocate-{}", attribute.index()))
-                    .ghost()
-                    .small()
-                    .label(text(locale, "cultivation.attribute.add"))
-                    .on_click({
-                        let view = view.clone();
-                        move |_, _, cx| {
-                            view.update(cx, |view, cx| {
-                                let _ = view
-                                    .pomodoro
-                                    .try_publish(PomodoroCommand::AllocateAttribute { attribute });
-                                view.poll_pomodoro(cx);
-                            });
-                        }
-                    }),
-            );
+            chip = chip.child(allocate_button(
+                view,
+                attribute,
+                1,
+                "cultivation.attribute.add",
+                locale,
+            ));
+        }
+        // Once ten or more points are banked, offer a ten-at-a-time button beside
+        // the single one so the user is not forced to click ten times.
+        if free >= 10 {
+            chip = chip.child(allocate_button(
+                view,
+                attribute,
+                10,
+                "cultivation.attribute.add_ten",
+                locale,
+            ));
         }
         chip
     });
@@ -377,6 +397,7 @@ fn equipment_panel(
     cultivation: &CultivationView,
     locale: &str,
     tokens: Tokens,
+    open_item: Option<u64>,
 ) -> impl IntoElement {
     let rows = EquipSlot::ALL.into_iter().map(|slot| {
         let worn = cultivation.equipped[slot.index()].clone();
@@ -384,8 +405,7 @@ fn equipment_panel(
             || text(locale, "cultivation.slot.empty").to_string(),
             |item| item_label(locale, item),
         );
-        let mut row = div()
-            .id(format!("cultivation-slot-{}", slot.index()))
+        let mut line = div()
             .flex()
             .flex_row()
             .items_center()
@@ -399,9 +419,9 @@ fn equipment_panel(
                     .text_color(tokens.muted)
                     .child(text(locale, slot.name_key())),
             )
-            .child(div().flex_1().min_w_0().truncate().text_xs().child(label));
+            .child(item_label_element(view, worn.as_ref(), label, tokens));
         if worn.is_some() {
-            row = row.child(
+            line = line.child(
                 Button::new(format!("cultivation-unequip-{}", slot.index()))
                     .ghost()
                     .small()
@@ -419,6 +439,17 @@ fn equipment_panel(
                     }),
             );
         }
+        let mut row = div()
+            .id(format!("cultivation-slot-{}", slot.index()))
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(line);
+        if let Some(item) = worn.as_ref()
+            && open_item == Some(item.id)
+        {
+            row = row.child(item_detail(item, locale, tokens));
+        }
         row
     });
 
@@ -431,12 +462,106 @@ fn equipment_panel(
         .children(rows)
 }
 
+/// A "+1" / "+10" allocation button for one attribute.
+fn allocate_button(
+    view: &Entity<SettingsView>,
+    attribute: Attribute,
+    points: u32,
+    label_key: &'static str,
+    locale: &str,
+) -> impl IntoElement {
+    Button::new(format!(
+        "cultivation-allocate-{}-{points}",
+        attribute.index()
+    ))
+    .ghost()
+    .small()
+    .label(text(locale, label_key))
+    .on_click({
+        let view = view.clone();
+        move |_, _, cx| {
+            view.update(cx, |view, cx| {
+                let _ = view
+                    .pomodoro
+                    .try_publish(PomodoroCommand::AllocateAttribute { attribute, points });
+                view.poll_pomodoro(cx);
+            });
+        }
+    })
+}
+
+/// An item's name as a click-to-expand control, or plain text when there is no
+/// item in the slot. Clicking toggles the attribute breakdown under the row.
+fn item_label_element(
+    view: &Entity<SettingsView>,
+    item: Option<&ItemView>,
+    label: String,
+    tokens: Tokens,
+) -> gpui_kit::AnyElement {
+    match item {
+        Some(item) => {
+            let id = item.id;
+            div()
+                .id(format!("cultivation-item-toggle-{id}"))
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_xs()
+                .text_color(tokens.text)
+                .child(label)
+                .on_click({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            view.cultivation_open_item = if view.cultivation_open_item == Some(id) {
+                                None
+                            } else {
+                                Some(id)
+                            };
+                            cx.notify();
+                        });
+                    }
+                })
+                .into_any_element()
+        }
+        None => div()
+            .flex_1()
+            .min_w_0()
+            .truncate()
+            .text_xs()
+            .text_color(tokens.muted)
+            .child(label)
+            .into_any_element(),
+    }
+}
+
+/// One item's attribute breakdown, shown under its row when expanded.
+fn item_detail(item: &ItemView, locale: &str, tokens: Tokens) -> impl IntoElement {
+    let attributes = item.attributes;
+    div()
+        .id(format!("cultivation-item-detail-{}", item.id))
+        .text_xs()
+        .text_color(tokens.muted)
+        .child(format_text(
+            locale,
+            "cultivation.item.details",
+            &[
+                ("root", attributes.root.to_string()),
+                ("strength", attributes.strength.to_string()),
+                ("spirit", attributes.spirit.to_string()),
+                ("agility", attributes.agility.to_string()),
+                ("power", item.power.to_string()),
+            ],
+        ))
+}
+
 /// The satchel: everything owned and not worn.
 fn inventory_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
     locale: &str,
     tokens: Tokens,
+    open_item: Option<u64>,
 ) -> impl IntoElement {
     let mut panel = div()
         .id("cultivation-inventory")
@@ -455,21 +580,18 @@ fn inventory_panel(
     // Newest first: a fresh drop is the one the user is looking for, and the
     // list is bounded so a long-lived save cannot push the garden off the page.
     let rows = cultivation.inventory.iter().take(8).map(|item| {
-        div()
-            .id(format!("cultivation-inventory-{}", item.id))
+        let line = div()
             .flex()
             .flex_row()
             .items_center()
             .gap_2()
             .py_1()
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_xs()
-                    .child(item_label(locale, item)),
-            )
+            .child(item_label_element(
+                view,
+                Some(item),
+                item_label(locale, item),
+                tokens,
+            ))
             .child(
                 Button::new(format!("cultivation-equip-{}", item.id))
                     .ghost()
@@ -487,7 +609,17 @@ fn inventory_panel(
                             });
                         }
                     }),
-            )
+            );
+        let mut row = div()
+            .id(format!("cultivation-inventory-{}", item.id))
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(line);
+        if open_item == Some(item.id) {
+            row = row.child(item_detail(item, locale, tokens));
+        }
+        row
     });
     panel = panel.children(rows);
     panel

@@ -24,6 +24,10 @@ pub struct SystemMenuPresentation {
     /// string the platform would render as a blank entry.
     #[cfg(target_os = "macos")]
     pub start_pomodoro: String,
+    /// The cultivation entry's label, macOS only for the same reason as
+    /// [`Self::start_pomodoro`].
+    #[cfg(target_os = "macos")]
+    pub start_cultivation: String,
     pub quit: String,
     pub overlay_visible: bool,
     pub click_through_enabled: bool,
@@ -53,6 +57,12 @@ pub enum SystemMenuAction {
     /// so the variant does not exist there either.
     #[cfg(target_os = "macos")]
     StartPomodoro,
+    /// Open the settings window on the cultivation page.
+    ///
+    /// macOS only, mirroring [`Self::StartPomodoro`]: the model-window context
+    /// menu that carries it exists only there.
+    #[cfg(target_os = "macos")]
+    StartCultivation,
     /// Freeze the running focus session.
     #[cfg(target_os = "macos")]
     PausePomodoro,

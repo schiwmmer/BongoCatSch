@@ -237,6 +237,18 @@ impl Attribute {
         }
     }
 
+    /// The catalog key that explains what this attribute does. Kept beside
+    /// [`Self::name_key`] so a surface can put the explanation on a tooltip
+    /// without a second attribute-to-key table drifting from this one.
+    pub const fn desc_key(self) -> &'static str {
+        match self {
+            Self::Root => "cultivation.attribute.root_desc",
+            Self::Strength => "cultivation.attribute.strength_desc",
+            Self::Spirit => "cultivation.attribute.spirit_desc",
+            Self::Agility => "cultivation.attribute.agility_desc",
+        }
+    }
+
     /// This attribute's value in a set.
     pub const fn of(self, attributes: Attributes) -> i32 {
         match self {

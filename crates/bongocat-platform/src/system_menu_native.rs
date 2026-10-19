@@ -29,6 +29,8 @@ const QUIT_ID: &str = "bongocat.quit";
 #[cfg(target_os = "macos")]
 const START_POMODORO_ID: &str = "bongocat.start-pomodoro";
 #[cfg(target_os = "macos")]
+const START_CULTIVATION_ID: &str = "bongocat.start-cultivation";
+#[cfg(target_os = "macos")]
 const PAUSE_POMODORO_ID: &str = "bongocat.pomodoro-pause";
 #[cfg(target_os = "macos")]
 const RESUME_POMODORO_ID: &str = "bongocat.pomodoro-resume";
@@ -69,6 +71,8 @@ struct NativeMenuItems {
     check_for_updates: Option<MenuItem>,
     #[cfg(target_os = "macos")]
     start_pomodoro: MenuItem,
+    #[cfg(target_os = "macos")]
+    start_cultivation: MenuItem,
     quit: MenuItem,
 }
 
@@ -84,6 +88,8 @@ enum MenuEntry {
     CheckForUpdates,
     #[cfg(target_os = "macos")]
     StartPomodoro,
+    #[cfg(target_os = "macos")]
+    StartCultivation,
     Quit,
 }
 
@@ -94,6 +100,8 @@ const MENU_ENTRIES: &[MenuEntry] = &[
     // the separator-collapsing rule below.
     #[cfg(target_os = "macos")]
     MenuEntry::StartPomodoro,
+    #[cfg(target_os = "macos")]
+    MenuEntry::StartCultivation,
     MenuEntry::Separator,
     MenuEntry::ModelWindow,
     MenuEntry::Separator,
@@ -167,6 +175,13 @@ impl NativeMenuItems {
                 true,
                 None,
             ),
+            #[cfg(target_os = "macos")]
+            start_cultivation: MenuItem::with_id(
+                START_CULTIVATION_ID,
+                &presentation.start_cultivation,
+                true,
+                None,
+            ),
             quit: MenuItem::with_id(QUIT_ID, &presentation.quit, true, None),
         }
     }
@@ -194,6 +209,9 @@ impl NativeMenuItems {
         }
         #[cfg(target_os = "macos")]
         self.start_pomodoro.set_text(&presentation.start_pomodoro);
+        #[cfg(target_os = "macos")]
+        self.start_cultivation
+            .set_text(&presentation.start_cultivation);
         self.quit.set_text(&presentation.quit);
     }
 }
@@ -477,6 +495,8 @@ fn append_menu_entries(
             )?,
             #[cfg(target_os = "macos")]
             MenuEntry::StartPomodoro => append_item(menu, &items.start_pomodoro)?,
+            #[cfg(target_os = "macos")]
+            MenuEntry::StartCultivation => append_item(menu, &items.start_cultivation)?,
             MenuEntry::Quit => append_item(menu, &items.quit)?,
         }
     }
@@ -533,6 +553,8 @@ fn action_for_menu_id(id: &MenuId) -> Option<SystemMenuAction> {
         CHECK_FOR_UPDATES_ID => SystemMenuAction::CheckForUpdates,
         #[cfg(target_os = "macos")]
         START_POMODORO_ID => SystemMenuAction::StartPomodoro,
+        #[cfg(target_os = "macos")]
+        START_CULTIVATION_ID => SystemMenuAction::StartCultivation,
         #[cfg(target_os = "macos")]
         PAUSE_POMODORO_ID => SystemMenuAction::PausePomodoro,
         #[cfg(target_os = "macos")]
@@ -611,6 +633,11 @@ mod tests {
         assert_eq!(
             action_for_menu_id(&MenuId::new("bongocat.quit")),
             Some(SystemMenuAction::Quit)
+        );
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            action_for_menu_id(&MenuId::new("bongocat.start-cultivation")),
+            Some(SystemMenuAction::StartCultivation)
         );
 
         for removed in [

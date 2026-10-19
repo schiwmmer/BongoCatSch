@@ -27,6 +27,8 @@ pub(crate) fn system_menu_presentation(snapshot: &SettingsSnapshot) -> SystemMen
         // though only one platform shows the row.
         #[cfg(target_os = "macos")]
         start_pomodoro: text("system_menu.start_pomodoro"),
+        #[cfg(target_os = "macos")]
+        start_cultivation: text("system_menu.start_cultivation"),
         quit: text("system_menu.quit"),
         overlay_visible: snapshot.overlay_visible,
         click_through_enabled: snapshot.overlay.click_through,

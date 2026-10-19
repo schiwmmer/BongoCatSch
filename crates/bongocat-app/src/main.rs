@@ -1090,6 +1090,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         crate::product_windows::ensure_pomodoro_window(cx).map(|_| true)
                     }),
                     #[cfg(target_os = "macos")]
+                    SystemMenuAction::StartCultivation => cx.update(|cx| {
+                        // Land on the ladder page rather than the settings home:
+                        // a user who picks "Cultivation" wants the realm, not the
+                        // sidebar. The page index stays private to the ui crate.
+                        cx.global::<ProductCoordinator>()
+                            .settings_navigation_memory
+                            .open_cultivation();
+                        ensure_settings_window(cx).map(|_| true)
+                    }),
+                    #[cfg(target_os = "macos")]
                     SystemMenuAction::PausePomodoro
                     | SystemMenuAction::ResumePomodoro
                     | SystemMenuAction::AbandonPomodoro => {
