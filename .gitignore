@@ -17,3 +17,6 @@ target
 
 # Freebuff 本地项目数据（项目级会话状态），不属于构建产物
 .freebuff/
+
+# 本地任务状态目录（每阶段任务的 task/progress/verification 记录），不属于构建产物
+.task/
