@@ -28,6 +28,7 @@ use super::{
     explore::{breakthrough_ready, exploration_ready, roll_victory, roll_walk},
     garden::{CropRecord, harvest_points, seed_name, seed_return},
     items::roll_equipment,
+    mastery_permille,
 };
 use crate::CalendarDay;
 
@@ -811,10 +812,21 @@ impl Cultivation {
                     .map(|(art_id, _)| *art_id)
             })?;
         let art = blueprint(pick);
+        let rank = arts
+            .iter()
+            .find(|(art_id, _)| *art_id == pick)
+            .map_or(1, |(_, rank)| *rank);
         Some(ArtStrike {
             name: art.name,
             multiplier_permille: art.multiplier_permille,
             cost: art.cost,
+            // A completed 外功 spends its mastery share on every blow it lands;
+            // an art one 阶 short of its last pays only its multiplier.
+            mastery_permille: if rank >= art.grade.ranks() {
+                mastery_permille(art.grade)
+            } else {
+                0
+            },
         })
     }
 

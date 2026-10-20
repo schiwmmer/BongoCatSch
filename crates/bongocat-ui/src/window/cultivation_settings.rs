@@ -15,8 +15,8 @@
 use super::*;
 use bongocat_i18n::{format_text, text};
 use bongocat_pomodoro::{
-    ArtKind, ArtOutcome, ArtView, Attribute, CultivationView, DropView, EquipSlot,
-    ExplorationFindView, ExplorationOutcome, ItemView, MAX_LEVEL, PomodoroCommand, Realm,
+    ArtKind, ArtOutcome, ArtView, Attribute, CultivationView, Derived, DropView, EquipSlot,
+    ExplorationFindView, ExplorationOutcome, Fighter, ItemView, MAX_LEVEL, PomodoroCommand, Realm,
 };
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::hover_card::HoverCard;
@@ -507,23 +507,22 @@ fn attributes_panel(
 /// themselves. The hint line says so, because a panel full of numbers with no
 /// button on them otherwise reads as unfinished.
 fn derived_panel(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> impl IntoElement {
-    let derived = cultivation.derived;
-    // The keys are spelled out rather than built from a name: the catalog test
-    // reads the source for the keys it checks, and a key only a `format!` could
-    // produce would look unused to it.
-    let chips = [
-        ("cultivation.attack", derived.attack),
-        ("cultivation.health", derived.health),
-        ("cultivation.inner", derived.inner),
-        ("cultivation.spell", derived.spell),
-        ("cultivation.resist", derived.resist),
-        ("cultivation.speed", derived.speed),
-        ("cultivation.hit", derived.hit_percent()),
-        ("cultivation.evade", derived.evade_percent()),
-        ("cultivation.aptitude", derived.aptitude),
-    ]
-    .into_iter()
-    .map(|(key, value)| derived_chip(locale, key, value, tokens));
+    let stats = CombatStats::of_derived(cultivation.derived);
+    let mut rows = derived_rows(&stats, locale);
+    // 潜质 rides along: it is shown with the rest, and it is the one number
+    // here a fight does not use — which is why it is appended rather than
+    // folded into the eight.
+    rows.push((
+        "cultivation.aptitude",
+        format_text(
+            locale,
+            "cultivation.aptitude",
+            &[("value", cultivation.derived.aptitude.to_string())],
+        ),
+    ));
+    let chips = rows
+        .into_iter()
+        .map(|(key, line)| derived_chip(key, line, tokens));
     div()
         .id("cultivation-derived")
         .flex()
@@ -539,11 +538,93 @@ fn derived_panel(cultivation: &CultivationView, locale: &str, tokens: Tokens) ->
         )
 }
 
-/// One derived number: its name and its value, with the explanation the four
-/// attributes were read through.
-fn derived_chip(locale: &str, key: &str, value: u32, tokens: Tokens) -> impl IntoElement {
+/// The eight shown numbers a fighter walks in with.
+///
+/// The page reads them off a [`Derived`], the fight report off a [`Fighter`],
+/// and the two have to agree number for number: the popup shows what the fight
+/// actually used, so both read the same eight through the same rows rather than
+/// through a second table that could drift from the page's.
+pub(super) struct CombatStats {
+    pub attack: u32,
+    pub health: u32,
+    pub inner: u32,
+    pub spell: u32,
+    pub resist: u32,
+    pub speed: u32,
+    /// 命中, in parts per thousand.
+    pub hit: u32,
+    /// 闪避, in parts per thousand.
+    pub evade: u32,
+}
+
+impl CombatStats {
+    /// The eight numbers a set of attributes is worth.
+    pub(super) fn of_derived(derived: Derived) -> Self {
+        Self {
+            attack: derived.attack,
+            health: derived.health,
+            inner: derived.inner,
+            spell: derived.spell,
+            resist: derived.resist,
+            speed: derived.speed,
+            hit: derived.hit,
+            evade: derived.evade,
+        }
+    }
+
+    /// The eight numbers a fighter stood up with.
+    pub(super) fn of_fighter(fighter: &Fighter) -> Self {
+        Self {
+            attack: fighter.attack,
+            health: fighter.health,
+            inner: fighter.inner,
+            spell: fighter.spell,
+            resist: fighter.resist,
+            speed: fighter.speed,
+            hit: fighter.hit,
+            evade: fighter.evade,
+        }
+    }
+}
+
+/// The eight numbers as the page says them, each with the catalog key it is
+/// read through.
+///
+/// The keys are spelled out rather than built from a name: the catalog test
+/// reads the source for the keys it checks, and a key only a `format!` could
+/// produce would look unused to it. 命中 and 闪避 are held in parts per
+/// thousand and printed as percentages, the way the fight reads them.
+pub(super) fn derived_rows(stats: &CombatStats, locale: &str) -> Vec<(&'static str, String)> {
+    [
+        ("cultivation.attack", stats.attack),
+        ("cultivation.health", stats.health),
+        ("cultivation.inner", stats.inner),
+        ("cultivation.spell", stats.spell),
+        ("cultivation.resist", stats.resist),
+        ("cultivation.speed", stats.speed),
+        ("cultivation.hit", stats.hit / 10),
+        ("cultivation.evade", stats.evade / 10),
+    ]
+    .into_iter()
+    .map(|(key, value)| {
+        (
+            key,
+            format_text(locale, key, &[("value", value.to_string())]),
+        )
+    })
+    .collect()
+}
+
+/// One derived number: its name and its value together, as the catalog line
+/// spells them.
+fn derived_chip(key: &'static str, line: String, tokens: Tokens) -> impl IntoElement {
     div()
-        .id(format!("cultivation-derived-{key}"))
+        // The key carries its own `cultivation.` prefix; the element id drops
+        // it so the tree reads `cultivation-derived-attack`.
+        .id(format!(
+            "cultivation-derived-{}",
+            key.trim_start_matches("cultivation.")
+        ))
         .flex()
         .flex_row()
         .items_center()
@@ -552,11 +633,7 @@ fn derived_chip(locale: &str, key: &str, value: u32, tokens: Tokens) -> impl Int
         .py_1()
         .rounded_md()
         .bg(tokens.overlay)
-        .child(div().text_xs().text_color(tokens.muted).child(format_text(
-            locale,
-            &format!("cultivation.{key}"),
-            &[("value", value.to_string())],
-        )))
+        .child(div().text_xs().text_color(tokens.text).child(line))
 }
 
 /// The 功法 the cultivator owns, and which one the next pomodoro trains.
@@ -684,9 +761,9 @@ fn art_row(
 }
 
 /// What training this 功法 actually pays: attributes for an 内功, damage and a
-/// cost for an 外功.
+/// cost for an 外功 — and, once every 阶 is in, the mastery bonus on top.
 fn art_payoff(art: &ArtView, locale: &str) -> String {
-    match art.kind {
+    let mut parts = match art.kind {
         ArtKind::Internal => {
             let mut parts = Vec::new();
             for attribute in Attribute::ALL {
@@ -703,10 +780,9 @@ fn art_payoff(art: &ArtView, locale: &str) -> String {
                 }
             }
             parts.push(text(locale, "cultivation.derived_hint").to_string());
-            parts.join(" · ")
+            parts
         }
-        ArtKind::External => format!(
-            "{} · {}",
+        ArtKind::External => vec![
             format_text(
                 locale,
                 "cultivation.art.multiplier",
@@ -717,8 +793,23 @@ fn art_payoff(art: &ArtView, locale: &str) -> String {
                 "cultivation.art.cost",
                 &[("value", art.cost.to_string())],
             ),
-        ),
+        ],
+    };
+    // A completed 功法 pays its mastery bonus on top of what its 阶 already
+    // bought, and the row says so: "圆满" beside the same numbers as an
+    // unfinished art reads as a label rather than as a reward.
+    if art.mastery_permille > 0 {
+        let key = match art.kind {
+            ArtKind::Internal => "cultivation.art.mastery_attribute",
+            ArtKind::External => "cultivation.art.mastery_damage",
+        };
+        parts.push(format_text(
+            locale,
+            key,
+            &[("value", (art.mastery_permille / 10).to_string())],
+        ));
     }
+    parts.join(" · ")
 }
 
 /// The four slots and whatever is worn in each.
@@ -1392,5 +1483,64 @@ pub(super) fn seed_label(
                 ("tier", tier.to_string()),
             ],
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bongocat_pomodoro::PLAYER_NAME;
+
+    /// The bug this guards: the chip keys already carry their `cultivation.`
+    /// prefix, and prefixing them a second time made the lookup miss and every
+    /// chip render its own key — a panel reading `cultivation.cultivation.attack`.
+    #[test]
+    fn a_derived_chip_says_the_number_rather_than_the_key() {
+        let stats = CombatStats::of_derived(Derived {
+            attack: 1_234,
+            ..Derived::default()
+        });
+        let rows = derived_rows(&stats, "zh-CN");
+        let (key, line) = &rows[0];
+        assert_eq!(*key, "cultivation.attack");
+        assert!(line.contains("1234"), "the chip carries the number: {line}");
+        assert!(
+            !line.contains("cultivation."),
+            "and never the key it was read through: {line}"
+        );
+    }
+
+    /// The popup reads a fighter through the same rows the page reads its
+    /// derived numbers through, so the two cannot drift apart.
+    #[test]
+    fn a_fighter_reads_the_same_eight_numbers() {
+        let fighter = Fighter {
+            name: PLAYER_NAME.to_owned(),
+            health: 900,
+            attack: 300,
+            inner: 120,
+            spell: 240,
+            resist: 160,
+            speed: 40,
+            hit: 800,
+            evade: 100,
+            art: None,
+        };
+        let stats = CombatStats::of_fighter(&fighter);
+        assert_eq!(stats.health, 900);
+        let rows = derived_rows(&stats, "zh-CN");
+        assert_eq!(rows.len(), 8, "the eight the fight uses");
+        assert!(rows[1].1.contains("900"), "生命值 reads its number");
+        // 命中 and 闪避 are held in parts per thousand and printed as percent.
+        assert!(
+            rows[6].1.contains("80"),
+            "命中 reads as percent: {}",
+            rows[6].1
+        );
+        assert!(
+            rows[7].1.contains("10"),
+            "闪避 reads as percent: {}",
+            rows[7].1
+        );
     }
 }

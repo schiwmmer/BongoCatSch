@@ -667,7 +667,9 @@
       "multiplier": "威力 %{value}%",
       "select": "修习",
       "selected": "修习中",
-      "mastered": "圆满"
+      "mastered": "圆满",
+      "mastery_attribute": "大成 · 每阶属性 +%{value}%",
+      "mastery_damage": "大成 · 附加 %{value}% 攻击力"
     },
     "derived": "外显属性",
     "derived_hint": "由四维算出，不可加点",
@@ -740,6 +742,7 @@
       "dodge": "%{attacker} 一击被 %{target} 闪避",
       "guardian": "镇守",
       "hit": "%{attacker} 以 %{art} 击中 %{target}，造成 %{damage} 点伤害（%{target} 剩余 %{health}）",
+      "hp": "%{health} / %{max}",
       "lose": "败北",
       "lost_gear": "丢失装备：%{name}",
       "playing": "战斗回放中……点击日志可跳过",
@@ -747,6 +750,8 @@
       "replay": "重播",
       "reward_art": "获得功法：%{name}",
       "reward_gear": "获得装备：%{name}",
+      "side_foe": "敌方",
+      "side_you": "我方",
       "title_breakthrough": "破境之战",
       "title_exploration": "遭遇战",
       "wanderer": "游荡者",

@@ -45,6 +45,10 @@ pub struct ArtStrike {
     pub name: String,
     pub multiplier_permille: u32,
     pub cost: u32,
+    /// What a completed 功法 adds to every blow, in parts per thousand of the
+    /// wielder's 攻击力. Zero for an 外功 whose last 阶 is still owed.
+    #[serde(default)]
+    pub mastery_permille: u32,
 }
 
 /// One side of a fight.
@@ -112,12 +116,47 @@ pub struct DuelRound {
 }
 
 /// How a fight came out, and every blow in it.
+///
+/// The two sides travel whole — every number they walked in with — because the
+/// replay is not only a log: the popup shows what each side brought, and a
+/// report that carried only the final health could not say what the fight was
+/// between. `health` here is the health they started with; where a side stands
+/// mid-replay is [`Self::health_after`].
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct DuelReport {
     pub rounds: Vec<DuelRound>,
     pub won: bool,
-    pub player_health: u32,
-    pub guardian_health: u32,
+    /// The cultivator as they stood at the first blow.
+    pub player: Fighter,
+    /// Whoever they were fighting, on the same terms.
+    pub opponent: Fighter,
+}
+
+impl DuelReport {
+    /// The health each side has left once `revealed` blows have been shown.
+    ///
+    /// The bars start from the health the sides walked in with and take the
+    /// damage the shown blows did, so a replay half-way through reads as a
+    /// fight half-fought rather than as two full bars and a spoilered ending.
+    /// A slipped blow did no damage, so it moves nothing.
+    pub fn health_after(&self, revealed: usize) -> (u32, u32) {
+        let mut player = self.player.health;
+        let mut opponent = self.opponent.health;
+        // Who swung is the name the round carries, and the cultivator's name is
+        // whatever this report says it is — compared against the report rather
+        // than against a constant, so a fight between two other things still
+        // folds correctly.
+        let player_name = self.player.name.as_str();
+        for round in self.rounds.iter().take(revealed) {
+            let target = if round.attacker == player_name {
+                &mut opponent
+            } else {
+                &mut player
+            };
+            *target = target.saturating_sub(round.damage);
+        }
+        (player, opponent)
+    }
 }
 
 /// Settle one fight.
@@ -126,8 +165,11 @@ pub struct DuelReport {
 /// when full, so a fast fighter simply gets more turns. A tie on the meter goes
 /// to the faster side, which is the same advantage stated once more.
 pub fn duel(player: Fighter, guardian: Fighter, rng: &mut Rng) -> DuelReport {
-    let mut player = player;
-    let mut guardian = guardian;
+    // The two sides as they walked in, kept for the report: the fight mutates
+    // its own copies, and what a surface shows beside the replay is the
+    // numbers the fight began between.
+    let (walked_in, mut player, mut guardian) =
+        ((player.clone(), guardian.clone()), player, guardian);
     let player_name = player.name.clone();
     let guardian_name = guardian.name.clone();
     let mut rounds = Vec::new();
@@ -161,10 +203,11 @@ pub fn duel(player: Fighter, guardian: Fighter, rng: &mut Rng) -> DuelReport {
         let index = rounds.len() as u32 + 1;
         rounds.push(DuelRound { index, ..round });
     }
+    let (player_side, opponent_side) = walked_in;
     DuelReport {
         won: guardian.down() && !player.down(),
-        player_health: player.health,
-        guardian_health: guardian.health,
+        player: player_side,
+        opponent: opponent_side,
         rounds,
     }
 }
@@ -193,6 +236,11 @@ fn strike(attacker: &mut Fighter, defender: &mut Fighter, rng: &mut Rng) -> Duel
     {
         attacker.inner -= strike.cost;
         damage = external_damage(damage, strike.multiplier_permille);
+        // A completed 外功 adds its mastery share of 攻击力 to every blow it
+        // lands: the multiplier is what the 阶 bought, this is what finishing
+        // the last one bought.
+        let mastered = attacker.attack.saturating_mul(strike.mastery_permille) / 1_000;
+        damage = damage.saturating_add(mastered);
         art = Some(strike.name);
     }
     // 命中 against 闪避, never a certainty and never hopeless.
@@ -235,10 +283,15 @@ mod tests {
     fn the_stronger_fighter_wins() {
         let strong = brute("strong", 500, 60, 10);
         let weak = brute("weak", 200, 20, 10);
-        let report = duel(strong, weak, &mut Rng::seeded(1));
+        let report = duel(strong.clone(), weak.clone(), &mut Rng::seeded(1));
         assert!(report.won);
-        assert_eq!(report.guardian_health, 0);
-        assert!(report.player_health > 0);
+        // The sides travel whole, so the report says what the fight was
+        // between as well as how it ended.
+        assert_eq!(report.player.attack, 60);
+        assert_eq!(report.opponent.attack, 20);
+        let (player, opponent) = report.health_after(report.rounds.len());
+        assert_eq!(opponent, 0, "the loser is at zero once every blow is shown");
+        assert!(player > 0);
         assert!(!report.rounds.is_empty(), "the log says what happened");
     }
 
@@ -295,6 +348,7 @@ mod tests {
                 name: "降龙十八掌".to_owned(),
                 multiplier_permille: 2_000,
                 cost: 10,
+                mastery_permille: 0,
             }),
             ..brute("fighter", 1_000, 100, 10)
         };
@@ -308,6 +362,46 @@ mod tests {
         let third = strike(&mut fighter, &mut target, &mut Rng::seeded(5));
         assert_eq!(third.art, None, "no 内力 left to spend");
         assert!(third.damage > 0, "a fighter out of 内力 still fights");
+    }
+
+    /// A fighter whose 外功 has reached its last 阶 hits harder with it than
+    /// the same art one 阶 short does — the mastery share is paid on top of the
+    /// multiplier, and only while the art is being swung.
+    #[test]
+    fn a_completed_external_art_adds_its_mastery_share() {
+        fn striker(mastery_permille: u32) -> Fighter {
+            Fighter {
+                inner: 100,
+                art: Some(ArtStrike {
+                    name: "掌法".to_owned(),
+                    multiplier_permille: 1_200,
+                    cost: 10,
+                    mastery_permille,
+                }),
+                ..brute("fighter", 10_000, 1_000, 10)
+            }
+        }
+        let mut plain_target = brute("target", 100_000, 0, 10);
+        let mut mastered_target = brute("target", 100_000, 0, 10);
+        let plain = strike(&mut striker(0), &mut plain_target, &mut Rng::seeded(11));
+        let mastered = strike(
+            &mut striker(150),
+            &mut mastered_target,
+            &mut Rng::seeded(11),
+        );
+        assert!(!plain.dodged, "the probe needs a blow that lands");
+        // 1,000 攻击力 through a 120% art is 1,200; the mastery share adds
+        // fifteen percent of the 攻击力 behind it.
+        assert_eq!(plain.damage, 1_200);
+        assert_eq!(mastered.damage, 1_350, "the completed art hits harder");
+        // Out of 内力 the art — and its mastery share with it — is not spent.
+        let mut spent = Fighter {
+            inner: 0,
+            ..striker(150)
+        };
+        let bare = strike(&mut spent, &mut plain_target, &mut Rng::seeded(12));
+        assert_eq!(bare.art, None, "no 内力, no art");
+        assert_eq!(bare.damage, 1_000, "and no mastery share either");
     }
 
     #[test]

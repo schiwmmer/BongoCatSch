@@ -49,7 +49,8 @@ mod tests;
 
 pub use arts::{
     ART_COUNT, ArtBlueprint, ArtGrade, ArtKind, ArtOutcome, ArtView, OwnedArt, art_attributes,
-    art_view, blueprint, effective_failure_permille, external_damage, required_pomodoros,
+    art_view, blueprint, effective_failure_permille, external_damage, mastery_permille,
+    required_pomodoros,
 };
 pub use battle::{BattleReport, Guardian, guardian_fighter, wanderer_fighter};
 // `duel` itself stays crate-private: it takes the seeded `Rng`, which is nobody

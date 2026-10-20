@@ -667,7 +667,9 @@
       "multiplier": "%{value}% power",
       "select": "Train",
       "selected": "Training",
-      "mastered": "Mastered"
+      "mastered": "Mastered",
+      "mastery_attribute": "Mastered · +%{value}% attributes per rank",
+      "mastery_damage": "Mastered · +%{value}% attack per blow"
     },
     "derived": "Shown",
     "derived_hint": "Follows from the four attributes; no point can be placed here",
@@ -740,6 +742,7 @@
       "dodge": "%{attacker} swings and %{target} slips it",
       "guardian": "the guardian",
       "hit": "%{attacker} lands %{art} on %{target} for %{damage} (%{target} has %{health} left)",
+      "hp": "%{health} / %{max}",
       "lose": "Defeat",
       "lost_gear": "Gear lost: %{name}",
       "playing": "Replaying the fight… click the log to skip",
@@ -747,6 +750,8 @@
       "replay": "Replay",
       "reward_art": "Art learned: %{name}",
       "reward_gear": "Gear gained: %{name}",
+      "side_foe": "Their side",
+      "side_you": "Your side",
       "title_breakthrough": "The breakthrough fight",
       "title_exploration": "A chance meeting",
       "wanderer": "the wanderer",

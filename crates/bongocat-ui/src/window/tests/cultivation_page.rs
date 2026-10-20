@@ -11,9 +11,12 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use super::*;
+use crate::window::cultivation_duel;
 use crate::window::cultivation_settings;
 use bongocat_pomodoro::{
-    Cultivation, CultivationDocument, PomodoroCommand, PomodoroSnapshot, PomodoroState,
+    Cultivation, CultivationDocument, DuelReport, DuelRound, ExplorationOutcome, Fighter,
+    LAYERS_PER_STAGE, PLAYER_NAME, PomodoroCommand, PomodoroSnapshot, PomodoroState, WANDERER_NAME,
+    threshold_for,
 };
 
 /// The page mounted on its own.
@@ -145,9 +148,13 @@ fn pomodoro_snapshot(cultivation: bongocat_pomodoro::CultivationView) -> Pomodor
 
 /// A cultivator standing at the first realm's last layer, so the guardian is
 /// offered — the growth that fills 炼气's hundred levels.
+///
+/// Asked of the curve rather than written down: the ramp is authored data, and
+/// a test that spelled out one of its numbers would need rewriting every time
+/// the ramp is retuned (ADR-0094) instead of following it.
 fn at_the_cap() -> bongocat_pomodoro::CultivationView {
     Cultivation::new(CultivationDocument {
-        growth: 1_188,
+        growth: threshold_for(LAYERS_PER_STAGE),
         ..CultivationDocument::default()
     })
     .view()
@@ -262,4 +269,100 @@ fn the_cultivation_smoke_refuses_a_ladder_that_disagrees_with_itself(cx: &mut Te
         error.contains("layer and rank"),
         "the refusal has to say what is wrong: {error}"
     );
+}
+
+/// A walk that met someone: six of the cultivator's blows, both sides walking
+/// in whole.
+fn walk_report() -> DuelReport {
+    DuelReport {
+        rounds: (1..=6)
+            .map(|index| DuelRound {
+                index,
+                attacker: PLAYER_NAME.to_owned(),
+                art: None,
+                dodged: false,
+                damage: 10,
+                target_health: 100 - index,
+            })
+            .collect(),
+        won: true,
+        player: Fighter {
+            name: PLAYER_NAME.to_owned(),
+            health: 100,
+            attack: 300,
+            inner: 120,
+            spell: 240,
+            resist: 160,
+            speed: 40,
+            hit: 800,
+            evade: 100,
+            art: None,
+        },
+        opponent: Fighter {
+            name: WANDERER_NAME.to_owned(),
+            health: 80,
+            attack: 240,
+            inner: 0,
+            spell: 0,
+            resist: 0,
+            speed: 32,
+            hit: 800,
+            evade: 100,
+            art: None,
+        },
+    }
+}
+
+/// The popup mounted on its own.
+///
+/// The settings window's own frame would put it behind a sidebar and a scroll
+/// view; the popup is what is under test, so the popup is the whole frame.
+struct DuelPopup(CultivationDuel);
+
+impl Render for DuelPopup {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let actions = CultivationDuelActions {
+            on_replay: Rc::new(|_, _| {}),
+            on_skip: Rc::new(|_, _| {}),
+            on_close: Rc::new(|_, _| {}),
+        };
+        div()
+            .id("duel-harness")
+            .size_full()
+            .child(cultivation_duel::render(
+                &self.0,
+                "en-US",
+                Tokens::from_theme(cx),
+                actions,
+            ))
+    }
+}
+
+/// The fight popup is drawn the way a fight is watched: the two health bars on
+/// top, the cultivator's numbers on the left and their opponent's on the right,
+/// and the log under both. A frame that painted only the log would pass every
+/// click test above and still not show what the fight was between.
+#[gpui_kit::test]
+fn the_fight_popup_shows_both_sides_and_their_health(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let duel = CultivationDuel::new(
+        CultivationDuelSource::Exploration,
+        cultivation_duel::CultivationDuelPayload::Exploration(
+            ExplorationOutcome::Victory,
+            None,
+            Some(walk_report()),
+        ),
+    );
+    let (_, visual) =
+        cx.add_window_view(move |window, cx| Root::new(cx.new(|_| DuelPopup(duel)), window, cx));
+    visual.update(|window, cx| window.render_frame(cx));
+    for id in [
+        "cultivation-duel-health-player",
+        "cultivation-duel-health-opponent",
+        "cultivation-duel-side-player",
+        "cultivation-duel-side-opponent",
+        "cultivation-duel-log",
+    ] {
+        assert!(painted(visual, id), "the popup must paint {id}");
+    }
 }

@@ -255,6 +255,33 @@ pub fn required_pomodoros(rank: u8) -> u32 {
     (1.45_f64.powf(exponent)).ceil() as u32
 }
 
+/// What reaching the last 阶 of a 功法 pays on top, in parts per thousand, by
+/// grade: 黄阶 fifteen percent, 神阶 forty.
+///
+/// A 内功 pays its attributes multiplied by this — the art becomes more of
+/// itself rather than a second art. An 外功 adds this share of 攻击力 to every
+/// blow it lands, on top of the multiplier its 阶 already bought. The grade is
+/// what sizes the bonus, so the deep arts are worth the season they take.
+pub const MASTERY_PERMILLE: [u32; 5] = [150, 200, 250, 300, 400];
+
+/// The bonus a completed 功法 of this grade pays.
+pub const fn mastery_permille(grade: ArtGrade) -> u32 {
+    MASTERY_PERMILLE[grade.index()]
+}
+
+/// One 阶's attribute payout with a mastery multiplier folded in.
+///
+/// A 内功 that has not reached its last 阶 pays exactly what its blueprint
+/// says; a completed one pays [`MASTERY_PERMILLE`] more per 阶. The product is
+/// rounded rather than truncated: a 黄阶 art pays six or seven points, and a
+/// fifteen-percent bonus that floors to zero would read as a lie on a row that
+/// promises one.
+fn paid(value: i32, times: i64, mastery: i64) -> i32 {
+    let product = i64::from(value) * times * mastery;
+    let rounded = (product + 500) / 1_000;
+    i32::try_from(rounded).unwrap_or(i32::MAX)
+}
+
 /// How much a failed attempt is softened by 潜质, at most.
 const APTITUDE_DISCOUNT_CAP: u32 = 150;
 
@@ -330,7 +357,9 @@ pub fn train(owned: &mut OwnedArt, aptitude: u32, rng: &mut Rng) -> ArtOutcome {
 /// The attributes every owned 内功 has paid so far.
 ///
 /// One 阶 pays the art's gain once, so a 神阶 内功 at its tenth 阶 has paid ten
-/// times over — which is what makes finishing one worth the ninety-odd pomodoros.
+/// times over — which is what makes finishing one worth the ninety-odd
+/// pomodoros. A completed art pays a mastery bonus on every one of those 阶:
+/// see [`MASTERY_PERMILLE`].
 pub fn art_attributes(owned: &[OwnedArt]) -> Attributes {
     let mut total = Attributes::default();
     for art in owned {
@@ -338,11 +367,25 @@ pub fn art_attributes(owned: &[OwnedArt]) -> Attributes {
         if blueprint.kind != ArtKind::Internal {
             continue;
         }
-        let times = i32::from(art.rank);
-        total.root += blueprint.gain.root * times;
-        total.strength += blueprint.gain.strength * times;
-        total.mana += blueprint.gain.mana * times;
-        total.agility += blueprint.gain.agility * times;
+        let times = i64::from(art.rank);
+        let mastery = if art.rank >= blueprint.grade.ranks() {
+            1_000 + i64::from(mastery_permille(blueprint.grade))
+        } else {
+            1_000
+        };
+        total.root = total
+            .root
+            .saturating_add(paid(blueprint.gain.root, times, mastery));
+        total.strength =
+            total
+                .strength
+                .saturating_add(paid(blueprint.gain.strength, times, mastery));
+        total.mana = total
+            .mana
+            .saturating_add(paid(blueprint.gain.mana, times, mastery));
+        total.agility = total
+            .agility
+            .saturating_add(paid(blueprint.gain.agility, times, mastery));
     }
     total
 }
@@ -374,6 +417,10 @@ pub struct ArtView {
     pub cost: u32,
     /// What one use is worth, for an 外功.
     pub multiplier_permille: u32,
+    /// What the art's last 阶 pays on top, in parts per thousand: zero until
+    /// every 阶 is in. An 内功 pays its attributes multiplied by this, an 外功
+    /// adds this share of 攻击力 to every blow.
+    pub mastery_permille: u32,
     /// Whether this is the art the next finished pomodoro trains.
     pub selected: bool,
 }
@@ -394,6 +441,11 @@ pub fn art_view(owned: &OwnedArt, aptitude: u32, selected: bool) -> ArtView {
         gain: art.gain,
         cost: art.cost,
         multiplier_permille: art.multiplier_permille,
+        mastery_permille: if owned.rank >= art.grade.ranks() {
+            mastery_permille(art.grade)
+        } else {
+            0
+        },
         selected,
     }
 }
@@ -514,27 +566,74 @@ mod tests {
     fn an_internal_art_pays_attributes_and_an_external_one_does_not() {
         let mut owned = vec![OwnedArt {
             art_id: 1,
-            rank: 3,
+            rank: 2,
             progress: 0,
             outcome: None,
         }];
         let art = blueprint(1);
         if art.kind == ArtKind::Internal {
-            let paid = art_attributes(&owned);
-            assert_eq!(paid.total(), art.gain.total() * 3);
+            // Two 阶 in and the third still owed: exactly twice the gain.
+            assert_eq!(art_attributes(&owned).total(), art.gain.total() * 2);
         } else {
             assert_eq!(art_attributes(&owned), Attributes::default());
             assert!(art.cost > 0 && art.multiplier_permille > 1_000);
         }
-        // A mastered 内功 pays for every 阶 it reached.
+        // A completed 内功 pays for every 阶 it reached — and the mastery
+        // bonus on every one of them, because the last 阶 is what completes it.
         owned[0].rank = art.grade.ranks();
-        let paid = art_attributes(&owned);
         if art.kind == ArtKind::Internal {
-            assert_eq!(
-                paid.total(),
-                art.gain.total() * u32::from(art.grade.ranks())
-            );
+            let times = i64::from(art.grade.ranks());
+            let mastery = 1_000 + i64::from(mastery_permille(art.grade));
+            let expected = Attributes {
+                root: paid(art.gain.root, times, mastery),
+                strength: paid(art.gain.strength, times, mastery),
+                mana: paid(art.gain.mana, times, mastery),
+                agility: paid(art.gain.agility, times, mastery),
+            };
+            assert_eq!(art_attributes(&owned), expected);
         }
+    }
+
+    #[test]
+    fn a_completed_internal_art_pays_more_than_its_ranks_alone() {
+        // Art 1 is 黄阶: three 阶 of a two-point gain, and completing them pays
+        // the fifteen-percent mastery share on top.
+        let art = blueprint(1);
+        assert_eq!(art.kind, ArtKind::Internal, "art 1 is an 内功");
+        let ranks = art.grade.ranks();
+        let unfinished = vec![OwnedArt {
+            art_id: 1,
+            rank: ranks - 1,
+            progress: 0,
+            outcome: None,
+        }];
+        let finished = vec![OwnedArt {
+            art_id: 1,
+            rank: ranks,
+            progress: 0,
+            outcome: None,
+        }];
+        let before = art_attributes(&unfinished).total();
+        let after = art_attributes(&finished).total();
+        let ranks_alone = art.gain.total() * u32::from(ranks);
+        assert!(
+            after > ranks_alone,
+            "the mastery bonus is paid, not floored away: {after} against {ranks_alone}"
+        );
+        assert!(
+            after > before + art.gain.total(),
+            "the last 阶 pays its own gain and the bonus besides"
+        );
+    }
+
+    #[test]
+    fn a_mastery_bonus_grows_with_the_grade() {
+        let bonuses: Vec<u32> = ArtGrade::ALL.into_iter().map(mastery_permille).collect();
+        assert_eq!(bonuses, vec![150, 200, 250, 300, 400]);
+        assert!(
+            bonuses[0] < bonuses[4],
+            "a 神阶 art is the one worth finishing"
+        );
     }
 
     #[test]
