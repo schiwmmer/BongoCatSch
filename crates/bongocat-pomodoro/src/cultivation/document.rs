@@ -12,10 +12,17 @@ use serde::{Deserialize, Serialize};
 use super::{
     ART_COUNT, Attributes, EquipmentRecord, MAX_LEVEL, OwnedArt, PLOT_COUNT, PlotRecord,
     SLOT_COUNT, STAGE_COUNT, SeedStack, blueprint,
-    curve::{level_for_growth, stage_floor},
+    curve::{self, level_for_growth, stage_floor},
     duel::{DUEL_RECORD_CAP, DuelRecord},
     explore::WalkRecord,
 };
+
+/// The [`curve::CURVE_REV`] a document carries when nothing was stored: a fresh
+/// in-memory default, already counted on the current ramp. A document written
+/// before the field existed reads as `1` — the first ramp — and is migrated.
+fn first_curve_rev() -> u32 {
+    1
+}
 
 /// Everything a cultivator keeps between launches.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -23,6 +30,9 @@ pub struct CultivationDocument {
     /// Lifetime growth, less what the missed days took.
     #[serde(default)]
     pub growth: u32,
+    /// Which growth ramp `growth` was counted on; see [`curve::CURVE_REV`].
+    #[serde(default = "first_curve_rev")]
+    pub curve_rev: u32,
     /// The realm the cultivator has entered, as its ladder position.
     #[serde(default)]
     pub realm: u8,
@@ -116,10 +126,28 @@ pub struct CultivationDocument {
 }
 
 impl CultivationDocument {
+    /// Bring `growth` onto the current ramp, once.
+    ///
+    /// The move keeps the level — and its fraction of the way to the next one —
+    /// so a retune raises only the cost of levels ahead. `curve_rev == 1` is a
+    /// document from the first ramp; `0` is a fresh default that never touched
+    /// a ramp and is simply stamped. Anything already at [`curve::CURVE_REV`]
+    /// is left exactly as it is, which is what makes a second run a no-op.
+    fn migrate_curve(&mut self) {
+        if self.curve_rev >= curve::CURVE_REV {
+            return;
+        }
+        if self.curve_rev == 1 {
+            self.growth = curve::migrate_growth_v1(self.growth);
+        }
+        self.curve_rev = curve::CURVE_REV;
+    }
+
     /// The document as written back out: the slots and the plots are the fixed
     /// size the surfaces draw, the realm is on the ladder, and the growth never
     /// sits below the floor of the realm it is in.
     pub(crate) fn normalized(mut self) -> Self {
+        self.migrate_curve();
         let realm = usize::from(self.realm).min(STAGE_COUNT - 1);
         self.realm = realm as u8;
         self.growth = self.growth.max(stage_floor(realm));
@@ -255,5 +283,47 @@ mod tests {
         .normalized();
         assert_eq!(document.equipped.len(), SLOT_COUNT);
         assert!(document.equipped.iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn a_document_on_the_first_ramp_moves_onto_the_current_one_keeping_its_level() {
+        // The stored shape of a document written before `curve_rev` existed:
+        // growth counted on the first ramp, no marker.
+        let parsed: CultivationDocument =
+            serde_json::from_str(r#"{"growth":4986,"realm":2}"#).expect("the older shape loads");
+        assert_eq!(
+            parsed.curve_rev, 1,
+            "the absent field reads as the first ramp"
+        );
+        let document = parsed.normalized();
+        assert_eq!(
+            level_for_growth(document.growth).level,
+            217,
+            "the level the stored growth reached survives the move"
+        );
+        assert_eq!(document.peak_level, 217);
+        assert_eq!(document.curve_rev, curve::CURVE_REV);
+    }
+
+    #[test]
+    fn normalizing_twice_changes_nothing() {
+        let parsed: CultivationDocument =
+            serde_json::from_str(r#"{"growth":4986,"realm":2}"#).expect("the older shape loads");
+        let once = parsed.clone().normalized();
+        let twice = once.clone().normalized();
+        assert_eq!(once, twice, "the migration runs once and only once");
+    }
+
+    #[test]
+    fn a_fresh_default_is_already_on_the_current_ramp() {
+        // A default has counted nothing and must not be read as a first-ramp
+        // document: growth earned after it would otherwise be re-denominated.
+        let document = CultivationDocument {
+            growth: 4_986,
+            ..CultivationDocument::default()
+        }
+        .normalized();
+        assert_eq!(document.growth, 4_986, "a fresh default is never migrated");
+        assert_eq!(document.curve_rev, curve::CURVE_REV);
     }
 }

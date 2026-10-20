@@ -6,7 +6,7 @@ use super::*;
 use crate::CalendarDay;
 
 /// The growth that fills the first realm: the last layer of 炼气.
-const FIRST_REALM_CAP: u32 = 1_188;
+const FIRST_REALM_CAP: u32 = 9_900;
 
 fn day(number: i64) -> CalendarDay {
     CalendarDay::from_day_number(number)
@@ -173,7 +173,7 @@ fn a_deeper_realm_pays_a_deeper_penalty() {
 #[test]
 fn a_penalty_never_takes_back_the_realm_already_entered() {
     let mut cultivation = Cultivation::new(CultivationDocument {
-        growth: 1_200,
+        growth: 10_000,
         realm: 1,
         last_active_day: Some(20_000),
         charged_through_day: Some(20_000),
@@ -184,7 +184,7 @@ fn a_penalty_never_takes_back_the_realm_already_entered() {
     assert_eq!(charge.days, 39);
     assert_eq!(
         cultivation.document().growth,
-        1_200,
+        10_000,
         "the floor of the entered realm holds"
     );
     assert_eq!(charge.charged, 0, "nothing was taken");
@@ -345,7 +345,7 @@ fn a_breakthrough_is_only_offered_at_the_realm_cap() {
 #[test]
 fn growth_beyond_the_cap_is_kept_but_buys_no_layers() {
     let cultivation = Cultivation::new(CultivationDocument {
-        growth: 5_000,
+        growth: 12_000,
         ..CultivationDocument::default()
     });
     assert_eq!(cultivation.level(), 100, "the cap holds the level down");
