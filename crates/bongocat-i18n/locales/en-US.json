@@ -665,18 +665,13 @@
         "heaven": "Heaven",
         "divine": "Divine"
       },
-      "rank": "rank %{rank}/%{max}",
-      "progress": "%{have}/%{need} pomodoros",
-      "failure": "%{value}% to fail",
       "gain": "%{attribute} +%{value}",
       "cost": "costs %{value} inner",
       "multiplier": "%{value}% power",
       "select": "Train",
       "selected": "Training",
-      "mastered": "Mastered",
       "mastery_attribute": "Mastered · +%{value}% attributes per rank",
-      "mastery_damage": "Mastered · +%{value}% attack per blow",
-      "mastery_paid": "Mastery bonus %{value}%, paid for good"
+      "mastery_damage": "Mastered · +%{value}% attack per blow"
     },
     "derived": "Shown",
     "derived_hint": "Follows from the four attributes; no point can be placed here",
@@ -826,7 +821,6 @@
       "stones": "Stones %{stones}",
       "shelf": "Today's shelf (refreshes daily)",
       "empty": "The shelf is bare. Come back tomorrow.",
-      "buy": "Buy",
       "bought": "Bought",
       "sell": "Sell %{stones}",
       "equipment": "Gear",
@@ -839,7 +833,10 @@
       "refuse_owned": "You do not own that",
       "refuse_equipped": "Worn gear cannot be sold",
       "refuse_training": "The art being trained cannot be sold",
-      "refuse_already": "You already have that art"
+      "refuse_already": "You already have that art",
+      "sold": "Sold",
+      "refuse_sold": "This tome has been sold already",
+      "detail_sell": "Sells back for %{stones} stones"
     },
     "hint": {
       "realm_title": "Realm: the hard ceiling on how far you can climb",

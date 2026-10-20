@@ -167,6 +167,14 @@ pub struct CultivationDocument {
     /// sessions, 功法 turning over, goods bought and sold, crops pulled.
     #[serde(default)]
     pub events: Vec<EventRecord>,
+    /// The learned 功法 whose tome sale has been collected, named by id.
+    ///
+    /// Selling a learned 功法 sells the tome, not the knowledge: the 功法
+    /// stays in [`Self::mastered_arts`] and pays exactly what it paid. What is
+    /// sold once cannot be sold twice — a tome the market buys every time it is
+    /// asked about is a money printer — so the sale is written down here.
+    #[serde(default)]
+    pub sold_mastered_arts: Vec<u64>,
 }
 
 impl CultivationDocument {
@@ -218,6 +226,15 @@ impl CultivationDocument {
         // The event log is a window too, and a hand-edited save could carry a
         // season of entries; cut it back to the window here rather than trust it.
         self.events.truncate(EVENT_LOG_CAP);
+        // A collected tome sale is a marker, not a list that grows: out-of-range
+        // ids cannot name a 功法, and a duplicate would read as two sales.
+        let mut sold: Vec<u64> = Vec::with_capacity(self.sold_mastered_arts.len());
+        for id in self.sold_mastered_arts.drain(..) {
+            if (1..=ART_COUNT).contains(&id) && !sold.contains(&id) {
+                sold.push(id);
+            }
+        }
+        self.sold_mastered_arts = sold;
         // A hand-edited or stale document could carry a thousand bought slots for
         // a shelf of ten; the shelf is a window, so is this.
         self.shop_bought.truncate(super::SHOP_MAX_OFFERS);

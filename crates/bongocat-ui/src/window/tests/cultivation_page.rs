@@ -546,7 +546,7 @@ fn the_page_draws_the_learned_arts_in_their_own_panel(cx: &mut TestAppContext) {
     for id in [
         "cultivation-mastered-art-1",
         "cultivation-mastered-art-3",
-        "cultivation-mastered-art-detail-1",
+        "cultivation-mastered-art-payoff-1",
     ] {
         assert!(painted(visual, id), "the page must draw {id}");
     }

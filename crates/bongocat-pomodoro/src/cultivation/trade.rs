@@ -34,6 +34,9 @@ pub enum TradeRefusal {
     /// buy: a second copy of a 功法 the cultivator has is not a thing the page
     /// could say anything true about.
     AlreadyOwned,
+    /// The learned 功法's sale has been collected once already: what is sold is
+    /// the tome, and a tome sold twice is a money printer, not a market.
+    AlreadySold,
 }
 
 impl TradeRefusal {
@@ -47,6 +50,7 @@ impl TradeRefusal {
             Self::Equipped => "cultivation.shop.refuse_equipped",
             Self::Training => "cultivation.shop.refuse_training",
             Self::AlreadyOwned => "cultivation.shop.refuse_already",
+            Self::AlreadySold => "cultivation.shop.refuse_sold",
         }
     }
 }

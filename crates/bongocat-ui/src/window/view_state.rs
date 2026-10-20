@@ -445,6 +445,7 @@ impl SettingsView {
             pomodoro_observed_revision: 0,
             cultivation_minute_observed: None,
             cultivation_open_item: None,
+            cultivation_open_offer: None,
             // No fight is being replayed when the window opens, and none is
             // waiting on the worker either.
             cultivation_duel: None,

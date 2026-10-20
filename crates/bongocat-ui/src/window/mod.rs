@@ -322,6 +322,10 @@ pub struct SettingsView {
     /// Clicking an item's name toggles it; only one stays open at a time so a
     /// long satchel stays scannable.
     pub(crate) cultivation_open_item: Option<u64>,
+    /// Which shelf slot's detail the cultivation page has open, if any.
+    /// Clicking a shelf row's name toggles it, the same one-open-at-a-time rule
+    /// the inventory rows follow.
+    pub(crate) cultivation_open_offer: Option<usize>,
     /// The fight the cultivation page is replaying over the page, if any.
     pub(crate) cultivation_duel: Option<CultivationDuel>,
     /// A fight or a walk the user asked for that the worker has not answered

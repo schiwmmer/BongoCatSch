@@ -1410,7 +1410,10 @@ impl Cultivation {
             .document
             .mastered_arts
             .iter()
-            .map(|id| mastered_art_view(*id))
+            .map(|id| MasteredArtView {
+                sold: self.document.sold_mastered_arts.contains(id),
+                ..mastered_art_view(*id)
+            })
             .collect();
         let mut equipped: [Option<ItemView>; SLOT_COUNT] = array::from_fn(|_| None);
         let mut inventory = Vec::new();
@@ -1724,43 +1727,37 @@ impl Cultivation {
         Ok(stones)
     }
 
-    /// Sell one 功法 for 灵石 — a book or a learned one alike.
+    /// Sell one 功法 for 灵石 — a book, or the tome of a learned one.
     ///
     /// The one being trained is refused: 修炼 reads it every session, and the
     /// record of a session that trained a 功法 no longer owned would be a lie.
     ///
-    /// A **已习得** 功法 is sellable too, and selling one is selling what it
-    /// pays: the mastery leaves [`CultivationDocument::mastered_arts`], the
-    /// attributes stop, and the stones are the market's price for giving that
-    /// up. The shelf prices a learned 功法 what it prices the book — the market
-    /// buys paper and ink either way — so selling one is a choice about the
-    /// bonus, not an arbitrage.
+    /// A **已习得** 功法 is sellable too, and selling one sells the tome, not
+    /// the knowledge: the 功法 stays in [`CultivationDocument::mastered_arts`],
+    /// its attributes and its swing stay exactly what they were, and the stones
+    /// are the market's price for the paper. The sale is collected once — a
+    /// tome the market buys again every time it is asked about would be a
+    /// money printer — so the id is written into
+    /// [`CultivationDocument::sold_mastered_arts`] and a second attempt is
+    /// refused.
     pub fn sell_art(&mut self, art_id: u64, now_unix: i64) -> Result<u32, TradeRefusal> {
         if self.document.selected_art == Some(art_id) {
             return Err(TradeRefusal::Training);
         }
         let name = blueprint(art_id).name;
-        let owned = if let Some(index) = self
-            .document
-            .arts
-            .iter()
-            .position(|art| art.art_id == art_id)
-        {
-            self.document.arts.remove(index);
-            true
-        } else if let Some(index) = self
-            .document
-            .mastered_arts
-            .iter()
-            .position(|learned| *learned == art_id)
-        {
-            self.document.mastered_arts.remove(index);
-            true
+        let learned = self.document.arts.iter().all(|art| art.art_id != art_id);
+        if learned {
+            // A learned 功法 is not in the books; if it is not learned either,
+            // there is nothing here to sell.
+            if !self.document.mastered_arts.contains(&art_id) {
+                return Err(TradeRefusal::NotOwned);
+            }
+            if self.document.sold_mastered_arts.contains(&art_id) {
+                return Err(TradeRefusal::AlreadySold);
+            }
+            self.document.sold_mastered_arts.push(art_id);
         } else {
-            false
-        };
-        if !owned {
-            return Err(TradeRefusal::NotOwned);
+            self.document.arts.retain(|art| art.art_id != art_id);
         }
         let stones = shop::ShopOffer::Art { art_id }.sell_price();
         self.document.stones = self.document.stones.saturating_add(stones);

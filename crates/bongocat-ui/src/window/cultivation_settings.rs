@@ -15,9 +15,10 @@
 use super::*;
 use bongocat_i18n::{compact_number, format_text, text};
 use bongocat_pomodoro::{
-    ArtKind, ArtOutcome, ArtView, Attribute, CultivationView, Derived, DerivedBreakdown, DropView,
-    EquipSlot, EventDetail, ExplorationOutcome, Fighter, ItemView, MAX_LEVEL, MasteredArtView,
-    PomodoroCommand, Realm, SaleKind, ShopOffer, ShopOfferView, blueprint, mastered_art_payout,
+    ArtKind, ArtOutcome, ArtView, Attribute, Attributes, CultivationView, Derived,
+    DerivedBreakdown, DropView, EquipSlot, EventDetail, ExplorationOutcome, Fighter, ItemView,
+    MAX_LEVEL, MasteredArtView, PomodoroCommand, Realm, SaleKind, ShopOffer, ShopOfferView,
+    blueprint, mastered_art_payout,
 };
 
 use gpui_kit::component::Sizable as _;
@@ -58,6 +59,7 @@ pub(super) fn content(
     let snapshot = view.read(cx).pomodoro.snapshot();
     let cultivation = snapshot.cultivation.clone();
     let open_item = view.read(cx).cultivation_open_item;
+    let open_offer = view.read(cx).cultivation_open_offer;
 
     div()
         .id("cultivation-settings")
@@ -67,6 +69,7 @@ pub(super) fn content(
         .p_3()
         .child(realm_header(&cultivation, locale, tokens))
         .children(notices(&cultivation, locale, tokens))
+        .child(record_section(&cultivation, locale, tokens))
         .child(attributes_panel(&view, &cultivation, locale, tokens))
         .child(derived_panel(&cultivation, locale, tokens))
         .child(equipment_panel(
@@ -89,8 +92,7 @@ pub(super) fn content(
         .child(garden_panel(&view, &cultivation, locale, tokens))
         .child(breakthrough_panel(&view, &cultivation, locale, tokens))
         .child(exploration_panel(&view, &cultivation, locale, tokens))
-        .child(record_section(&cultivation, locale, tokens))
-        .child(shop_panel(&view, &cultivation, locale, tokens))
+        .child(shop_panel(&view, &cultivation, open_offer, locale, tokens))
         .into_any_element()
 }
 
@@ -967,12 +969,13 @@ fn mastered_panel(
     panel
 }
 
-/// One learned 功法: what it is, what it pays, and the sale that gives both up.
+/// One learned 功法, as one line: name and grade on the left, what it pays on
+/// the right, and the tome's sale beside them.
 ///
-/// The learned 功法 is sellable like the books are — selling one is choosing
-/// the stones over what it pays for good — so the row carries the same sell
-/// button a book does, and the concrete numbers it pays sit on the right of
-/// the name line where the books' do.
+/// Selling a learned 功法 sells the tome, not the knowledge: nothing it pays
+/// is ever taken away, so the row keeps drawing the same numbers after the
+/// sale — and the sale happens once, so a collected tome reads 已售 instead of
+/// a price.
 fn mastered_art_row(
     view: &Entity<SettingsView>,
     art: &MasteredArtView,
@@ -982,69 +985,45 @@ fn mastered_art_row(
     let grade = text(locale, art.grade.name_key());
     let head = format!("{} · {}", art.name, grade);
     let payoff = mastered_art_payoff(art, locale);
-    let detail = format_text(
-        locale,
-        "cultivation.art.mastery_paid",
-        &[("value", (art.mastery_permille / 10).to_string())],
-    );
     let art_id = art.id;
+    let sell_button = Button::new(format!("cultivation-sell-mastered-art-{}", art.id))
+        .ghost()
+        .small();
     div()
         .id(format!("cultivation-mastered-art-{}", art.id))
         .flex()
-        .flex_col()
-        .gap_1()
+        .flex_row()
+        .items_center()
+        .gap_2()
         .py_1()
+        .child(div().flex_1().min_w_0().truncate().text_xs().child(head))
         .child(
             div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .child(div().flex_1().min_w_0().truncate().text_xs().child(head))
-                .child(
-                    div()
-                        .id(format!("cultivation-mastered-art-payoff-{}", art.id))
-                        .text_xs()
-                        .text_color(tokens.muted)
-                        .child(payoff)
-                        .test_support(),
-                ),
+                .id(format!("cultivation-mastered-art-payoff-{}", art.id))
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(payoff)
+                .test_support(),
         )
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .child(
-                    div()
-                        .id(format!("cultivation-mastered-art-detail-{}", art.id))
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_xs()
-                        .text_color(tokens.muted)
-                        .child(detail)
-                        .test_support(),
-                )
-                .child(
-                    Button::new(format!("cultivation-sell-mastered-art-{}", art.id))
-                        .ghost()
-                        .small()
-                        .label(sell_label(locale, art_sell_price(art.id)))
-                        .on_click({
-                            let view = view.clone();
-                            move |_, _, cx| {
-                                view.update(cx, |view, cx| {
-                                    let _ = view
-                                        .pomodoro
-                                        .try_publish(PomodoroCommand::SellArt { art_id });
-                                    view.poll_pomodoro(cx);
-                                });
-                            }
-                        }),
-                ),
-        )
+        .child(if art.sold {
+            sell_button
+                .label(text(locale, "cultivation.shop.sold"))
+                .disabled(true)
+        } else {
+            sell_button
+                .label(sell_label(locale, art_sell_price(art.id)))
+                .on_click({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            let _ = view
+                                .pomodoro
+                                .try_publish(PomodoroCommand::SellArt { art_id });
+                            view.poll_pomodoro(cx);
+                        });
+                    }
+                })
+        })
         .test_support()
 }
 
@@ -1094,135 +1073,85 @@ fn mastered_art_payoff(art: &MasteredArtView, locale: &str) -> String {
     format!("{kind} · {}", parts.join(" · "))
 }
 
-/// One 功法: what it is, how far it has been trained, and the select button.
+/// One 功法, as one line: the name and grade on the left, what it pays on the
+/// right, and the two buttons a book needs beside them.
 ///
-/// The name and the grade lead the row and the 加成 sits on the right of the
-/// same line, so the two things a user weighs — which 功法 and what it pays —
-/// read together rather than one hiding a line below.
+/// One line is the whole row — no second line of 阶 and tomato counts under
+/// it — because the two things a user weighs are which 功法 and what it pays,
+/// and a row that took two lines took twice the scan.
 fn art_row(
     view: &Entity<SettingsView>,
     art: &ArtView,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
-    let mastered = art.rank >= art.max_rank;
     let grade = text(locale, art.grade.name_key());
     let head = format!("{} · {}", art.name, grade);
-    let rank = format_text(
-        locale,
-        "cultivation.art.rank",
-        &[
-            ("rank", art.rank.to_string()),
-            ("max", art.max_rank.to_string()),
-        ],
-    );
-    let detail = if mastered {
-        text(locale, "cultivation.art.mastered").to_string()
-    } else {
-        format!(
-            "{} · {}",
-            format_text(
-                locale,
-                "cultivation.art.progress",
-                &[
-                    ("have", art.progress.to_string()),
-                    ("need", art.required.to_string()),
-                ],
-            ),
-            format_text(
-                locale,
-                "cultivation.art.failure",
-                &[("value", (art.failure_permille / 10).to_string())],
-            ),
-        )
-    };
     let payoff = art_payoff(art, locale);
     let art_id = art.id;
     div()
         .id(format!("cultivation-art-{}", art.id))
         .flex()
-        .flex_col()
-        .gap_1()
+        .flex_row()
+        .items_center()
+        .gap_2()
         .py_1()
+        .child(div().flex_1().min_w_0().truncate().text_xs().child(head))
         .child(
             div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .child(div().flex_1().min_w_0().truncate().text_xs().child(head))
-                .child(
-                    div()
-                        .id(format!("cultivation-art-payoff-{}", art.id))
-                        .text_xs()
-                        .text_color(tokens.muted)
-                        .child(payoff)
-                        .test_support(),
-                ),
+                .id(format!("cultivation-art-payoff-{}", art.id))
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(payoff)
+                .test_support(),
         )
         .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .child(
-                    div()
-                        .id(format!("cultivation-art-detail-{}", art.id))
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_xs()
-                        .text_color(tokens.muted)
-                        .child(format!("{rank} · {detail}")),
-                )
-                .child(
-                    Button::new(format!("cultivation-art-select-{}", art.id))
-                        .ghost()
-                        .small()
-                        .label(text(
-                            locale,
-                            if art.selected {
-                                "cultivation.art.selected"
-                            } else {
-                                "cultivation.art.select"
-                            },
-                        ))
-                        .disabled(art.selected)
-                        .on_click({
-                            let view = view.clone();
-                            move |_, _, cx| {
-                                view.update(cx, |view, cx| {
-                                    let _ = view.pomodoro.try_publish(PomodoroCommand::SelectArt {
-                                        art_id: Some(art_id),
-                                    });
-                                    view.poll_pomodoro(cx);
-                                });
-                            }
-                        }),
-                )
-                .child(
-                    // The trained 功法 is not for sale: 修炼 reads it every session,
-                    // and the button is disabled rather than hidden so that the
-                    // reason it cannot be sold is a thing the user can see.
-                    Button::new(format!("cultivation-sell-art-{}", art.id))
-                        .ghost()
-                        .small()
-                        .label(sell_label(locale, art_sell_price(art.id)))
-                        .disabled(art.selected)
-                        .on_click({
-                            let view = view.clone();
-                            move |_, _, cx| {
-                                view.update(cx, |view, cx| {
-                                    let _ = view
-                                        .pomodoro
-                                        .try_publish(PomodoroCommand::SellArt { art_id });
-                                    view.poll_pomodoro(cx);
-                                });
-                            }
-                        }),
-                ),
+            Button::new(format!("cultivation-art-select-{}", art.id))
+                .ghost()
+                .small()
+                .label(text(
+                    locale,
+                    if art.selected {
+                        "cultivation.art.selected"
+                    } else {
+                        "cultivation.art.select"
+                    },
+                ))
+                .disabled(art.selected)
+                .on_click({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            let _ = view.pomodoro.try_publish(PomodoroCommand::SelectArt {
+                                art_id: Some(art_id),
+                            });
+                            view.poll_pomodoro(cx);
+                        });
+                    }
+                }),
         )
+        .child(
+            // The trained 功法 is not for sale: 修炼 reads it every session,
+            // and the button is disabled rather than hidden so that the
+            // reason it cannot be sold is a thing the user can see.
+            Button::new(format!("cultivation-sell-art-{}", art.id))
+                .ghost()
+                .small()
+                .label(sell_label(locale, art_sell_price(art.id)))
+                .disabled(art.selected)
+                .on_click({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            let _ = view
+                                .pomodoro
+                                .try_publish(PomodoroCommand::SellArt { art_id });
+                            view.poll_pomodoro(cx);
+                        });
+                    }
+                }),
+        )
+        .test_support()
 }
 
 /// What training this 功法 actually pays: attributes for an 内功, damage and a
@@ -1388,6 +1317,7 @@ fn allocate_button(
 fn shop_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
+    open_offer: Option<usize>,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
@@ -1434,120 +1364,214 @@ fn shop_panel(
             cultivation
                 .shop_offers
                 .iter()
-                .map(|entry| shop_row(view, entry, cultivation, locale, tokens)),
+                .map(|entry| shop_row(view, entry, open_offer, locale, tokens)),
         ),
     );
     panel
 }
 
-/// One line of the shelf: what it is, what it costs, and the button that buys it.
+/// One line of the shelf: the goods on the left, the price on the right.
 ///
-/// A bought row keeps its place and says so rather than vanishing: a shelf that
+/// The name side is a click: it opens the offer's detail under the row, the
+/// same one-open-at-a-time rule the inventory rows follow. The price side is
+/// the buy — one click, one price, and no state that changes with the purse:
+/// 灵石不够 is the refusal the shop answers with, not a different button. A
+/// bought row keeps its place and says so rather than vanishing: a shelf that
 /// reshuffles under the cursor is a shelf where the wrong thing gets bought.
 fn shop_row(
     view: &Entity<SettingsView>,
     entry: &ShopOfferView,
-    cultivation: &CultivationView,
+    open_offer: Option<usize>,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
     let label = shop_offer_label(&entry.offer, locale);
+    let slot = entry.slot;
     let price = format_text(
         locale,
         "cultivation.shop.price",
         &[("stones", entry.price.to_string())],
     );
-    // The two endings are written as two whole rows rather than as two values
-    // slotted into one: the buy ending owns a `Button` and the bought ending
-    // owns a `Div`, and an element tree cannot mix the two in one branch. Two
-    // rows also let the bought one drop the purse comparison it no longer needs.
-    if entry.bought {
-        return shop_row_bought(entry, &label, &price, locale, tokens).into_any_element();
-    }
-    let afford = cultivation.stones >= entry.price;
-    shop_row_buy(view, entry, &label, &price, afford, locale, tokens).into_any_element()
-}
-
-/// A shelf line that is still for sale.
-fn shop_row_buy(
-    view: &Entity<SettingsView>,
-    entry: &ShopOfferView,
-    label: &str,
-    price: &str,
-    afford: bool,
-    locale: &str,
-    tokens: Tokens,
-) -> impl IntoElement {
-    let button = Button::new(format!("cultivation-shop-buy-{}", entry.slot))
-        .ghost()
-        .small()
-        // A button the user cannot afford is shown and says why on hover rather
-        // than being hidden: "the shelf is empty" and "you cannot pay for that"
-        // are different answers, and only one of them is true.
-        .label(if afford {
-            text(locale, "cultivation.shop.buy").to_owned()
+    let name = div()
+        .id(format!("cultivation-shop-name-{}", slot))
+        .flex_1()
+        .min_w_0()
+        .truncate()
+        .text_xs()
+        .text_color(if entry.bought {
+            tokens.muted
         } else {
-            price.to_owned()
+            tokens.text
         })
+        .child(label)
         .on_click({
             let view = view.clone();
-            let slot = entry.slot;
             move |_, _, cx| {
                 view.update(cx, |view, cx| {
-                    let _ = view
-                        .pomodoro
-                        .try_publish(PomodoroCommand::BuyFromShop { slot });
-                    view.poll_pomodoro(cx);
+                    view.cultivation_open_offer = if view.cultivation_open_offer == Some(slot) {
+                        None
+                    } else {
+                        Some(slot)
+                    };
+                    cx.notify();
                 });
             }
-        });
-    div()
-        .id(format!("cultivation-shop-row-{}", entry.slot))
+        })
+        .test_support();
+    let mut row = div()
+        .id(format!("cultivation-shop-row-{}", slot))
         .flex()
         .flex_row()
         .items_center()
         .justify_between()
-        .child(
+        .gap_2()
+        .child(name)
+        .child(if entry.bought {
             div()
-                .text_xs()
-                .text_color(tokens.text)
-                .child(format!("{label} · {price}")),
-        )
-        .child(button)
-        .test_support()
-}
-
-/// A shelf line that has been bought: it keeps its place and says so, because a
-/// shelf that reshuffles under the cursor is a shelf where the wrong thing gets
-/// bought.
-fn shop_row_bought(
-    entry: &ShopOfferView,
-    label: &str,
-    price: &str,
-    locale: &str,
-    tokens: Tokens,
-) -> impl IntoElement {
-    div()
-        .id(format!("cultivation-shop-row-{}", entry.slot))
-        .flex()
-        .flex_row()
-        .items_center()
-        .justify_between()
-        .child(
-            div()
-                .text_xs()
-                .text_color(tokens.muted)
-                .child(format!("{label} · {price}")),
-        )
-        .child(
-            div()
-                .id(format!("cultivation-shop-bought-{}", entry.slot))
+                .id(format!("cultivation-shop-bought-{}", slot))
                 .text_xs()
                 .text_color(tokens.accent)
                 .child(text(locale, "cultivation.shop.bought"))
-                .test_support(),
+                .test_support()
+                .into_any_element()
+        } else {
+            Button::new(format!("cultivation-shop-buy-{}", slot))
+                .ghost()
+                .small()
+                .label(price)
+                .on_click({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            let _ = view
+                                .pomodoro
+                                .try_publish(PomodoroCommand::BuyFromShop { slot });
+                            view.poll_pomodoro(cx);
+                        });
+                    }
+                })
+                .into_any_element()
+        })
+        .test_support();
+    if open_offer == Some(slot) {
+        row = row.child(shop_offer_detail(
+            &entry.offer,
+            entry.sell_price,
+            locale,
+            tokens,
+        ));
+    }
+    row
+}
+
+/// One offer's detail, shown under its row when the name is clicked: the
+/// attribute breakdown a garment carries, or the one line a herb and a 功法
+/// need to say what they are worth.
+fn shop_offer_detail(
+    offer: &ShopOffer,
+    sell_price: u32,
+    locale: &str,
+    tokens: Tokens,
+) -> gpui_kit::AnyElement {
+    let resale = format_text(
+        locale,
+        "cultivation.shop.detail_sell",
+        &[("stones", sell_price.to_string())],
+    );
+    match offer {
+        ShopOffer::Equipment(item) => item_detail(
+            &ItemView {
+                id: item.id,
+                slot: item.slot,
+                tier: item.tier,
+                rarity: item.rarity,
+                attributes: item.attributes(),
+                power: item.power(),
+                equipped: false,
+                name: item.name.clone(),
+                sell_price,
+            },
+            locale,
+            tokens,
         )
-        .test_support()
+        .into_any_element(),
+        ShopOffer::Seed {
+            attribute,
+            tier,
+            name,
+        } => div()
+            .text_xs()
+            .text_color(tokens.muted)
+            .child(format!(
+                "{} · {}",
+                seed_label(locale, *attribute, *tier, name.as_deref()),
+                resale
+            ))
+            .into_any_element(),
+        ShopOffer::Art { art_id } => {
+            let art = blueprint(*art_id);
+            div()
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(format!(
+                    "{} · {} · {} · {}",
+                    text(locale, art.kind.name_key()),
+                    text(locale, art.grade.name_key()),
+                    art_numbers(
+                        art.kind,
+                        &art.gain,
+                        art.multiplier_permille,
+                        art.cost,
+                        locale
+                    ),
+                    resale
+                ))
+                .into_any_element()
+        }
+    }
+}
+
+/// The numbers one 功法 pays, as the payoff lines spell them: an 内功's per-阶
+/// gains, an 外功's swing and its cost.
+fn art_numbers(
+    kind: ArtKind,
+    gain: &Attributes,
+    multiplier_permille: u32,
+    cost: u32,
+    locale: &str,
+) -> String {
+    match kind {
+        ArtKind::Internal => Attribute::ALL
+            .into_iter()
+            .filter_map(|attribute| {
+                let value = attribute.of(*gain);
+                (value > 0).then(|| {
+                    format_text(
+                        locale,
+                        "cultivation.art.gain",
+                        &[
+                            ("attribute", text(locale, attribute.name_key()).to_string()),
+                            ("value", value.to_string()),
+                        ],
+                    )
+                })
+            })
+            .collect::<Vec<_>>()
+            .join(" · "),
+        ArtKind::External => format!(
+            "{} · {}",
+            format_text(
+                locale,
+                "cultivation.art.multiplier",
+                &[("value", (multiplier_permille / 10).to_string())],
+            ),
+            format_text(
+                locale,
+                "cultivation.art.cost",
+                &[("value", cost.to_string())],
+            ),
+        ),
+    }
 }
 
 /// What the 集市 pays for a 功法 of that id.

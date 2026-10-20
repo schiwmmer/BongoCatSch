@@ -503,6 +503,9 @@ pub struct MasteredArtView {
     pub cost: u32,
     /// What one use is worth, for an 外功.
     pub multiplier_permille: u32,
+    /// Whether the tome's sale has been collected: the 功法 itself is not for
+    /// sale a second time, though nothing it pays is ever taken away.
+    pub sold: bool,
 }
 
 /// Fold an owned art and its blueprint into what a surface draws.
@@ -546,6 +549,9 @@ pub fn mastered_art_view(art_id: u64) -> MasteredArtView {
         gain: art.gain,
         cost: art.cost,
         multiplier_permille: art.multiplier_permille,
+        // The caller that knows the save marks the collected sales; a view
+        // built from the id alone has nothing sold to speak of.
+        sold: false,
     }
 }
 

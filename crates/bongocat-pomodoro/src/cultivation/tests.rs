@@ -1015,10 +1015,10 @@ fn a_mastered_art_leaves_the_books_and_joins_the_learned_ones() {
     );
 }
 
-/// A learned 功法 is sellable too, and selling one sells what it pays: the
-/// mastery leaves the learned list, the attributes stop, and the stones land.
+/// Selling a learned 功法 sells the tome, not the knowledge: the stones land
+/// once, and everything the 功法 pays stays exactly what it was.
 #[test]
-fn selling_a_learned_art_takes_what_it_pays_with_it() {
+fn selling_a_learned_art_takes_nothing_it_pays_with_it() {
     let mut cultivation = Cultivation::default();
     // Art 1 is an 内功, so there is a mastery to lose: the point of the test.
     cultivation.grant_art_book(1).expect("a book for art 1");
@@ -1030,7 +1030,8 @@ fn selling_a_learned_art_takes_what_it_pays_with_it() {
     let learned_before = cultivation.art_attributes().total();
     assert!(learned_before > 0, "the learned 内功 pays");
 
-    // The learned 功法 sells at the market's price for a 功法.
+    // The tome sells at the market's price for a 功法.
+    let purse = cultivation.document().stones;
     let stones = cultivation
         .sell_art(id, 99_000)
         .expect("learned is sellable");
@@ -1038,23 +1039,37 @@ fn selling_a_learned_art_takes_what_it_pays_with_it() {
         stones,
         super::shop::ShopOffer::Art { art_id: id }.sell_price()
     );
-    assert!(
-        !cultivation
-            .view()
-            .mastered_arts
-            .iter()
-            .any(|art| art.id == id),
-        "the 功法 is no longer learned"
+    assert_eq!(
+        cultivation.document().stones,
+        purse + stones,
+        "the sale paid exactly the market price"
     );
     assert_eq!(
         cultivation.art_attributes().total(),
-        0,
-        "and the mastery it paid is gone with it"
+        learned_before,
+        "the mastery it pays is untouched by the sale"
     );
-    // What was sold reads in the log, named.
+    // The 功法 is still learned, its tome marked sold, and the log says so.
     let view = cultivation.view();
+    let learned = view
+        .mastered_arts
+        .iter()
+        .find(|art| art.id == id)
+        .expect("the 功法 is still learned");
+    assert!(learned.sold, "the tome's sale has been collected");
     let sold = view.events.first().expect("the sale logged");
     assert_eq!(sold.at_unix, 99_000);
+
+    // A tome the market bought once is not for sale again.
+    assert_eq!(
+        cultivation.sell_art(id, 99_001).expect_err("already sold"),
+        TradeRefusal::AlreadySold
+    );
+    assert_eq!(
+        cultivation.document().stones,
+        purse + stones,
+        "and the second attempt paid nothing"
+    );
 }
 
 /// The one 功法 that cannot be sold is the one being trained.
