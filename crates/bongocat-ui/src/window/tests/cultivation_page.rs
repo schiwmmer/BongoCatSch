@@ -14,9 +14,9 @@ use super::*;
 use crate::window::cultivation_duel;
 use crate::window::cultivation_settings;
 use bongocat_pomodoro::{
-    Cultivation, CultivationDocument, DuelRecord, DuelReport, DuelRound, EventDetail, EventRecord,
-    ExplorationOutcome, FightKind, Fighter, LAYERS_PER_STAGE, PLAYER_NAME, PomodoroCommand,
-    PomodoroSnapshot, PomodoroState, WANDERER_NAME, WalkRecord, threshold_for,
+    Cultivation, CultivationDocument, DuelReport, DuelRound, EventDetail, EventRecord,
+    ExplorationOutcome, Fighter, LAYERS_PER_STAGE, PLAYER_NAME, PomodoroCommand, PomodoroSnapshot,
+    PomodoroState, WANDERER_NAME, threshold_for,
 };
 
 /// The page mounted on its own.
