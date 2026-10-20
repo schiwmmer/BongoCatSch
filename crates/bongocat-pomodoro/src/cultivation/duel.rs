@@ -115,6 +115,48 @@ pub struct DuelRound {
     pub target_health: u32,
 }
 
+/// How many fights the record keeps.
+///
+/// Eight is what the page has room to draw without turning into a scroll of
+/// history nobody reads, and it is long enough that a run of losses still leaves
+/// the wins visible at the top.
+pub const DUEL_RECORD_CAP: usize = 8;
+
+/// Which fight a record line is about.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum FightKind {
+    /// The guardian waiting at a realm's last layer.
+    Guardian,
+    /// Someone met on a walk.
+    Wanderer,
+}
+
+impl FightKind {
+    /// The catalog key naming this kind of fight.
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Guardian => "cultivation.record.guardian",
+            Self::Wanderer => "cultivation.record.wanderer",
+        }
+    }
+}
+
+/// One fought fight, as the page's record reads it.
+///
+/// The record is one line per fight and nothing more: who it was against, whether
+/// it was won, and where it happened. The blows are not kept — the popup has
+/// already shown them, and a save that carried every round of every fight would
+/// be a second, worse copy of the combat log.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DuelRecord {
+    pub won: bool,
+    pub kind: FightKind,
+    /// The realm index the fight was fought in.
+    pub realm: u8,
+    /// When it was fought.
+    pub at_unix: i64,
+}
+
 /// How a fight came out, and every blow in it.
 ///
 /// The two sides travel whole — every number they walked in with — because the

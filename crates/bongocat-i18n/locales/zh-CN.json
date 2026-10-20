@@ -745,7 +745,7 @@
       "hp": "%{health} / %{max}",
       "lose": "败北",
       "lost_gear": "丢失装备：%{name}",
-      "playing": "战斗回放中……点击日志可跳过",
+      "playing": "战斗回放中…点击日志可跳过",
       "power": "战力 %{player} 对 %{guardian}",
       "replay": "重播",
       "reward_art": "获得功法：%{name}",
@@ -778,6 +778,26 @@
       "drop_equipment": "获得装备 %{item}",
       "drop_seed": "获得种子 %{item}",
       "seed_return": "收获返得 %{seed}"
+    },
+    "discipline": {
+      "title": "四维",
+      "practice": "修炼",
+      "wander": "游历",
+      "fight": "战斗",
+      "fortune": "造化",
+      "bonus": "+%{value}% / 上限 %{cap}%",
+      "total": "下一个番茄钟 ×%{value}%"
+    },
+    "record": {
+      "title": "战斗记录",
+      "guardian": "守卫",
+      "wanderer": "游荡者",
+      "win": "胜",
+      "loss": "负",
+      "walk": "最近游历：%{outcome}",
+      "found_art": "功法「%{name}」",
+      "found_gear": "装备「%{name}」",
+      "found_seed": "仙草「%{name}」"
     }
   }
 }

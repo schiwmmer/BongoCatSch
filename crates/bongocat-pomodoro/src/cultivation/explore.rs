@@ -10,6 +10,8 @@
 //! guardian — it is a wanderer, weaker, and paying less — and losing it costs
 //! nothing but the walk.
 
+use serde::{Deserialize, Serialize};
+
 use super::Rng;
 
 /// How long a failed breakthrough locks the attempt for, in seconds.
@@ -35,7 +37,7 @@ pub const VICTORY_GEAR_PERMILLE: u64 = 250;
 pub const VICTORY_SEED_PERMILLE: u64 = 450;
 
 /// What one walk came to.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum ExplorationOutcome {
     /// Nothing but the walk itself.
     Nothing,
@@ -56,6 +58,44 @@ impl ExplorationOutcome {
     pub fn fought(self) -> bool {
         matches!(self, Self::Victory | Self::Defeat)
     }
+
+    /// The catalog key naming how the walk ended.
+    pub const fn outcome_key(self) -> &'static str {
+        match self {
+            Self::Nothing => "cultivation.explore.nothing",
+            Self::Seed => "cultivation.explore.found_seed",
+            Self::Gear => "cultivation.explore.found_gear",
+            Self::Art => "cultivation.explore.found_art",
+            Self::Victory => "cultivation.explore.victory",
+            Self::Defeat => "cultivation.explore.defeat",
+        }
+    }
+}
+
+/// How many walks the record keeps.
+pub const WALK_RECORD_CAP: usize = 8;
+
+/// What the last walk settled, kept after the app restarts.
+///
+/// The popup that shows a walk is deliberately forgotten on quit — it is a
+/// moment, not a record — so without this the page could never say what the last
+/// walk actually paid. Only names are stored: the record is a line of history,
+/// and a line that went stale because an item was renamed would be a worse lie
+/// than one that says what it found.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct WalkRecord {
+    /// When the walk was taken.
+    pub at_unix: i64,
+    /// The realm index it was taken in.
+    pub realm: u8,
+    /// How it ended.
+    pub outcome: ExplorationOutcome,
+    /// The 功法 it turned up, by name, when it turned one up.
+    pub art: Option<String>,
+    /// The gear it turned up, by name, when it turned some up.
+    pub gear: Option<String>,
+    /// The herb it turned up, by name, when it turned one up.
+    pub seed: Option<String>,
 }
 
 /// What one walk turns up, before any fight is settled.

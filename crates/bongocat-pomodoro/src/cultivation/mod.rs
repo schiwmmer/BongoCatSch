@@ -61,12 +61,12 @@ pub use curve::{
 };
 pub use document::CultivationDocument;
 pub use duel::{
-    ArtStrike, DUEL_ROUND_CAP, DuelReport, DuelRound, Fighter, GUARDIAN_NAME, PLAYER_NAME,
-    WANDERER_NAME,
+    ArtStrike, DUEL_RECORD_CAP, DUEL_ROUND_CAP, DuelRecord, DuelReport, DuelRound, FightKind,
+    Fighter, GUARDIAN_NAME, PLAYER_NAME, WANDERER_NAME,
 };
 pub use explore::{
     BREAKTHROUGH_COOLDOWN_SECONDS, ENCOUNTER_PERMILLE, EXPLORATION_COOLDOWN_SECONDS,
-    ExplorationOutcome, VICTORY_SEED_PERMILLE,
+    ExplorationOutcome, VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkRecord,
 };
 pub use garden::{MAX_SEED_TIER, PLOT_COUNT, PlotRecord, SeedStack};
 pub use items::{EquipSlot, EquipmentRecord, Rarity, SLOT_COUNT};
@@ -532,6 +532,192 @@ impl Attributes {
             aptitude: scaled(root * APTITUDE_PER_ROOT),
         }
     }
+}
+
+/// The four ways a cultivator is said to be trained, and the one number the
+/// growth formula and the page both read for each.
+///
+/// Four is not decoration: each dimension is fed by a different action the user
+/// already takes — finishing a pomodoro, walking out, winning a fight, pulling a
+/// crop — so the growth a session pays says which of those they have actually
+/// been doing. A user who only ever finishes pomodoros watches the 修炼 bar rise
+/// and the other three sit still, and the page can say so.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Discipline {
+    /// 修炼 — the 功法 being trained, which only finished sessions feed.
+    Practice,
+    /// 游历 — the walks taken.
+    Wander,
+    /// 战斗 — the fights won.
+    Fight,
+    /// 造化 — the crops pulled.
+    Fortune,
+}
+
+impl Discipline {
+    /// Every dimension, in the order the page draws them.
+    pub const ALL: [Self; 4] = [Self::Practice, Self::Wander, Self::Fight, Self::Fortune];
+
+    /// The catalog key naming this dimension.
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Practice => "cultivation.discipline.practice",
+            Self::Wander => "cultivation.discipline.wander",
+            Self::Fight => "cultivation.discipline.fight",
+            Self::Fortune => "cultivation.discipline.fortune",
+        }
+    }
+}
+
+/// What one step of a dimension is worth, in parts per thousand of the growth it
+/// multiplies.
+///
+/// Fifty parts — five percent — is the step that makes a dimension read as a
+/// discipline rather than as a rounding difference: a 阶 of 功法 or a single walk
+/// has to be worth seeing on the page, and twenty of them is most of a dimension
+/// before the realm's own cap takes over.
+const DISCIPLINE_STEP_PERMILLE: u32 = 50;
+
+/// How many steps each action dimension is worth before it stops: two hundred
+/// walks, wins or harvests is far past any save, and the cap is what stops the
+/// formula from being worth farming one path forever.
+const DISCIPLINE_STEP_CAP: u32 = 20;
+
+/// How much the three action dimensions can add between them, in parts per
+/// thousand.
+///
+/// Each is capped at [`DISCIPLINE_STEP_CAP`] steps, so three full ones reach a
+/// thousand; the shared cap says a save cannot hold all three *and* a trained
+/// 功法 at full value, which keeps 修炼 worth choosing at every realm.
+const ACTION_BONUS_CAP_PERMILLE: u32 = 1_000;
+
+/// The most the four dimensions add to one session between them.
+///
+/// Four times the base is the ceiling on the whole formula — see
+/// [`GROWTH_MULTIPLIER_CAP_PERMILLE`] — so this is what says "as trained as this
+/// save can get".
+const TOTAL_BONUS_CAP_PERMILLE: u32 = GROWTH_MULTIPLIER_CAP_PERMILLE - 1_000;
+
+/// What the dimensions are worth on top of a flat session, in parts per
+/// thousand.
+///
+/// Authored per realm rather than derived: 修炼 is the dimension that has to
+/// carry the late game (a 功法 is the only thing that keeps up with a 真仙's
+/// growth), while the three action dimensions are worth most exactly where a new
+/// save can still fill them — the first realms. Read as a multiplier: 炼气 caps
+/// at ×1.2, the deepest realm at ×4.
+const PRACTICE_CAP_PERMILLE: [u32; STAGE_COUNT] = [
+    200, 500, 800, 1_200, 1_600, 2_000, 2_400, 2_800, 3_000, 3_000,
+];
+
+/// The most one finished session can be worth, in parts per thousand of the flat
+/// [`session_growth`].
+///
+/// A session that has trained everything is four times a bare one. The cap is
+/// what keeps the formula honest: the ladder is meant to take years, and a
+/// multiplier that could reach ten would be a different game.
+pub const GROWTH_MULTIPLIER_CAP_PERMILLE: u32 = 4_000;
+
+/// What one dimension is worth right now, in parts per thousand **on top of** a
+/// flat session — so zero means "this dimension has not been trained yet".
+///
+/// `rank` is the 阶 of the 功法 being trained (only [`Discipline::Practice`] reads
+/// it) and `actions` the lifetime count the dimension is fed by. The three action
+/// dimensions share [`ACTION_BONUS_CAP_PERMILLE`]; 修炼 is capped by the realm
+/// instead, because a 阶 of 功法 is worth more the deeper the realm is.
+pub fn discipline_bonus(discipline: Discipline, rank: u8, actions: u32, realm: Realm) -> u32 {
+    match discipline {
+        Discipline::Practice => u32::from(rank)
+            .saturating_mul(DISCIPLINE_STEP_PERMILLE)
+            .min(PRACTICE_CAP_PERMILLE[realm.index()]),
+        _ => actions
+            .min(DISCIPLINE_STEP_CAP)
+            .saturating_mul(DISCIPLINE_STEP_PERMILLE)
+            .min(ACTION_BONUS_CAP_PERMILLE),
+    }
+}
+
+/// The most one dimension can be worth in the given realm — what its bar is drawn
+/// against, and what the page says it is capped at.
+pub fn discipline_cap(discipline: Discipline, realm: Realm) -> u32 {
+    match discipline {
+        Discipline::Practice => PRACTICE_CAP_PERMILLE[realm.index()],
+        _ => ACTION_BONUS_CAP_PERMILLE,
+    }
+}
+
+/// The multiplier one finished session pays, in parts per thousand.
+///
+/// The four bonuses add rather than compound: four trained dimensions are worth
+/// four times a bare session, not sixteen, which is what
+/// [`GROWTH_MULTIPLIER_CAP_PERMILLE`] promises. A penalty for a missed day is
+/// scaled by the same number, so a save that has trained deep also loses more for
+/// letting a day go — the four dimensions are the same lever whichever way it
+/// moves.
+pub fn growth_permille(realm: Realm, rank: u8, walks: u32, wins: u32, harvests: u32) -> u32 {
+    let counts = [
+        (Discipline::Practice, rank, 0),
+        (Discipline::Wander, 0, walks),
+        (Discipline::Fight, 0, wins),
+        (Discipline::Fortune, 0, harvests),
+    ];
+    let bonus = counts
+        .iter()
+        .map(|(discipline, rank, actions)| discipline_bonus(*discipline, *rank, *actions, realm))
+        .sum::<u32>()
+        .min(TOTAL_BONUS_CAP_PERMILLE);
+    1_000 + bonus
+}
+
+/// One dimension as a surface reads it.
+///
+/// `progress_permille` is how far the dimension has come toward its own cap,
+/// which is the bar the page draws: it is already clamped, so a surface never has
+/// to divide by a cap that could be zero.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DisciplineView {
+    pub discipline: Discipline,
+    /// What this dimension adds on top of a flat session, in parts per thousand.
+    pub bonus_permille: u32,
+    /// The most it could add in this realm.
+    pub cap_permille: u32,
+    pub progress_permille: u32,
+}
+
+impl DisciplineView {
+    /// The four dimensions as the cultivator stands now.
+    pub fn of(realm: Realm, rank: u8, walks: u32, wins: u32, harvests: u32) -> [Self; 4] {
+        let feeds = [
+            (Discipline::Practice, rank, 0),
+            (Discipline::Wander, 0, walks),
+            (Discipline::Fight, 0, wins),
+            (Discipline::Fortune, 0, harvests),
+        ];
+        feeds.map(|(discipline, rank, actions)| {
+            let bonus_permille = discipline_bonus(discipline, rank, actions, realm);
+            let cap_permille = discipline_cap(discipline, realm);
+            Self {
+                discipline,
+                bonus_permille,
+                cap_permille,
+                // A dimension with no cap left reads as no progress rather than
+                // as a division by zero: the bar is the whole point of the view.
+                progress_permille: bonus_permille
+                    .saturating_mul(1_000)
+                    .checked_div(cap_permille)
+                    .unwrap_or(0),
+            }
+        })
+    }
+}
+
+/// Scale a growth figure by a [`growth_permille`] multiplier.
+///
+/// Integer arithmetic in u64 so a deep realm's flat growth times four cannot
+/// overflow before it is divided back down.
+pub fn scaled_growth(growth: u32, multiplier_permille: u32) -> u32 {
+    let multiplier_permille = multiplier_permille.min(GROWTH_MULTIPLIER_CAP_PERMILLE);
+    (u64::from(growth) * u64::from(multiplier_permille) / 1_000) as u32
 }
 
 /// The attributes a level alone carries.

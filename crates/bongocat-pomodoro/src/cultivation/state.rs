@@ -15,8 +15,8 @@ use std::array;
 
 use super::{
     ART_COUNT, ArtGrade, ArtKind, ArtOutcome, ArtStrike, ArtView, Attribute, Attributes,
-    BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport, CultivationDocument, Derived, DuelReport,
-    EQUIPMENT_DROP_PERMILLE, EXPLORATION_COOLDOWN_SECONDS, EquipSlot, EquipmentRecord,
+    BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport, CultivationDocument, Derived, DisciplineView,
+    DuelReport, EQUIPMENT_DROP_PERMILLE, EXPLORATION_COOLDOWN_SECONDS, EquipSlot, EquipmentRecord,
     ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, Guardian, MAX_LEVEL, OwnedArt, PLAYER_NAME,
     PLOT_COUNT, Rarity, Realm, Rng, SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack,
     VICTORY_SEED_PERMILLE, absence_penalty, art_attributes, art_view,
@@ -24,11 +24,12 @@ use super::{
     base_attributes,
     battle::{guardian_fighter, guardian_for, resolve, wanderer_fighter},
     curve::{layer_rank, level_for_growth, stage_floor, threshold_for},
-    duel::duel,
-    explore::{breakthrough_ready, exploration_ready, roll_victory, roll_walk},
+    duel::{DUEL_RECORD_CAP, DuelRecord, FightKind, duel},
+    explore::{WalkRecord, breakthrough_ready, exploration_ready, roll_victory, roll_walk},
     garden::{CropRecord, harvest_points, seed_name, seed_return},
+    growth_permille,
     items::roll_equipment,
-    mastery_permille,
+    mastery_permille, scaled_growth,
 };
 use crate::CalendarDay;
 
@@ -229,6 +230,16 @@ pub struct CultivationView {
     pub breakthrough_attempts: u32,
     /// How many walks have been taken so far.
     pub explorations: u32,
+    /// The four disciplines, as the page's four bars draw them.
+    pub disciplines: [DisciplineView; 4],
+    /// What one finished session is worth right now, in parts per thousand of
+    /// the flat growth. The page prints this next to the bars so the number the
+    /// user is chasing is the number the ladder will pay.
+    pub growth_multiplier_permille: u32,
+    /// The fights fought, newest first.
+    pub duel_record: Vec<DuelRecord>,
+    /// What the last walk settled, kept past the quit that ended its popup.
+    pub last_walk: Option<WalkRecord>,
 }
 
 /// How often a lost breakthrough costs a piece of gear, in parts per thousand.
@@ -271,8 +282,6 @@ pub struct Cultivation {
     /// second, so "the revision moved" cannot tell a new fight from a running
     /// timer.
     breakthrough_attempts: u32,
-    /// How many walks have been taken, for the same reason.
-    explorations: u32,
 }
 
 impl Default for Cultivation {
@@ -296,7 +305,6 @@ impl Cultivation {
             last_exploration: None,
             last_exploration_found: None,
             breakthrough_attempts: 0,
-            explorations: 0,
         }
     }
 
@@ -447,7 +455,10 @@ impl Cultivation {
         let mut asked = 0u32;
         let stage = self.realm().index() as u32 + 1;
         for _ in first..=last {
-            asked = asked.saturating_add(absence_penalty(self.document.missed_streak, stage));
+            asked = asked.saturating_add(scaled_growth(
+                absence_penalty(self.document.missed_streak, stage),
+                self.growth_multiplier_permille(),
+            ));
             self.document.missed_streak = self.document.missed_streak.saturating_add(1);
             days = days.saturating_add(1);
         }
@@ -481,7 +492,13 @@ impl Cultivation {
         let session_number = self.document.session_count_today.saturating_add(1);
         self.document.session_count_today = session_number;
         let stage = self.realm().index() as u32 + 1;
-        let growth = super::session_growth(session_number, stage);
+        // The four disciplines say what this save has been doing, and a session
+        // is worth what that is worth: a trained cultivator's pomodoro is several
+        // times a bare one, up to the ceiling [`scaled_growth`] enforces.
+        let growth = scaled_growth(
+            super::session_growth(session_number, stage),
+            self.growth_multiplier_permille(),
+        );
         self.document.growth = self.document.growth.saturating_add(growth);
         self.document.last_active_day = Some(today_number);
         self.document.missed_streak = 0;
@@ -697,6 +714,9 @@ impl Cultivation {
         };
         crop.attribute
             .add_to(&mut self.document.crop_bonus, harvest_points(crop.tier));
+        // Counted here rather than on the seed roll: a crop that returned nothing
+        // was still pulled, and the 造化 dimension is fed by pulling.
+        self.document.harvests = self.document.harvests.saturating_add(1);
         let mut rng = self.rng(now_unix);
         let seed = seed_return(crop.attribute, crop.tier, &mut rng);
         if let Some((attribute, tier)) = seed {
@@ -760,6 +780,9 @@ impl Cultivation {
         // comparison so the user knows where they stand, and then the two of
         // them actually trade blows.
         let duel = duel(self.fighter(), guardian_fighter(current), &mut rng);
+        // Won fights are what train the 战斗 dimension; a loss is not counted
+        // there, and only ever shows up in the record below.
+        self.record_duel(duel.won, FightKind::Guardian, now_unix);
         if !duel.won {
             self.document.breakthrough_failures =
                 self.document.breakthrough_failures.saturating_add(1);
@@ -783,6 +806,42 @@ impl Cultivation {
         }
         self.enter_realm(guardian, duel, now_unix);
         self.last_breakthrough.clone()
+    }
+
+    /// Write one fought fight into the record, newest first.
+    ///
+    /// A win is also what trains the 战斗 dimension, so the count and the line of
+    /// history are written together: a record that disagreed with the dimension
+    /// would be two truths about the same fight.
+    fn record_duel(&mut self, won: bool, kind: FightKind, now_unix: i64) {
+        if won {
+            self.document.battle_wins = self.document.battle_wins.saturating_add(1);
+        }
+        self.document.duel_record.insert(
+            0,
+            DuelRecord {
+                won,
+                kind,
+                realm: self.realm().index() as u8,
+                at_unix: now_unix,
+            },
+        );
+        self.document.duel_record.truncate(DUEL_RECORD_CAP);
+    }
+
+    /// The multiplier every finished session is currently worth, in parts per
+    /// thousand.
+    ///
+    /// Read from the four disciplines rather than carried, so the page and the
+    /// formula cannot disagree about what a session pays.
+    fn growth_multiplier_permille(&self) -> u32 {
+        growth_permille(
+            self.realm(),
+            self.trained_art_rank(),
+            self.document.explorations,
+            self.document.battle_wins,
+            self.document.harvests,
+        )
     }
 
     /// The cultivator as a fighter, with the 外功 they would use.
@@ -904,7 +963,7 @@ impl Cultivation {
         self.document.last_exploration_unix = Some(now_unix);
         // Counted here rather than on the outcome: a walk that found nothing is
         // still a walk a surface has not shown yet.
-        self.explorations = self.explorations.saturating_add(1);
+        self.document.explorations = self.document.explorations.saturating_add(1);
         let mut rng = self.rng(now_unix);
         let mut outcome = roll_walk(&mut rng);
         let tier = self.realm().index() as u8 + 1;
@@ -953,10 +1012,30 @@ impl Cultivation {
                 } else {
                     ExplorationOutcome::Defeat
                 };
+                self.record_duel(duel.won, FightKind::Wanderer, now_unix);
                 self.last_exploration_duel = Some(duel);
             }
             ExplorationOutcome::Defeat | ExplorationOutcome::Nothing => {}
         }
+        // The settlement is written before the popup is shown and outlives it: the
+        // popup is forgotten at quit, the page's record is not.
+        self.document.last_walk = Some(WalkRecord {
+            at_unix: now_unix,
+            realm: self.realm().index() as u8,
+            outcome,
+            art: match &found {
+                Some(ExplorationFindView::Art(name)) => Some(name.clone()),
+                _ => None,
+            },
+            gear: match &found {
+                Some(ExplorationFindView::Gear(item)) => item.name.clone(),
+                _ => None,
+            },
+            seed: match &found {
+                Some(ExplorationFindView::Seed(seed)) => seed.name.clone(),
+                _ => None,
+            },
+        });
         self.last_exploration = Some(outcome);
         self.last_exploration_found = found;
         Some(outcome)
@@ -1107,8 +1186,29 @@ impl Cultivation {
                 .map(|last| last.saturating_add(EXPLORATION_COOLDOWN_SECONDS)),
             breakthrough_ready_at: self.document.breakthrough_blocked_until,
             breakthrough_attempts: self.breakthrough_attempts,
-            explorations: self.explorations,
+            explorations: self.document.explorations,
+            disciplines: DisciplineView::of(
+                realm,
+                self.trained_art_rank(),
+                self.document.explorations,
+                self.document.battle_wins,
+                self.document.harvests,
+            ),
+            growth_multiplier_permille: self.growth_multiplier_permille(),
+            duel_record: self.document.duel_record.clone(),
+            last_walk: self.document.last_walk.clone(),
         }
+    }
+
+    /// The 阶 of the 功法 a finished session trains, or zero when none is chosen.
+    ///
+    /// The 修炼 dimension is trained by this and nothing else, so both the bar and
+    /// the session multiplier read it from here.
+    fn trained_art_rank(&self) -> u8 {
+        self.document
+            .selected_art
+            .and_then(|id| self.document.arts.iter().find(|art| art.art_id == id))
+            .map_or(0, |art| art.rank)
     }
 
     /// One owned item as a surface reads it, worn or not.
@@ -1129,5 +1229,257 @@ impl Cultivation {
                 == Some(item.id),
             name: item.name.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{
+        DISCIPLINE_STEP_CAP, DISCIPLINE_STEP_PERMILLE, Discipline, GROWTH_MULTIPLIER_CAP_PERMILLE,
+        LAYERS_PER_STAGE, STAGE_COUNT, discipline_bonus, discipline_cap, growth_permille,
+        scaled_growth, session_growth, threshold_for,
+    };
+    use super::*;
+    use crate::CalendarDay;
+
+    fn day(number: i64) -> CalendarDay {
+        CalendarDay::from_day_number(number)
+    }
+
+    /// A cultivator at the first realm's last layer, so a guardian is offered.
+    fn at_the_first_cap() -> Cultivation {
+        Cultivation::new(CultivationDocument {
+            growth: threshold_for(LAYERS_PER_STAGE),
+            ..CultivationDocument::default()
+        })
+    }
+
+    /// The bonus one dimension is worth, read the way the page reads it.
+    fn bonus(view: &CultivationView, discipline: Discipline) -> u32 {
+        view.disciplines
+            .iter()
+            .find(|entry| entry.discipline == discipline)
+            .expect("every dimension is in the view")
+            .bonus_permille
+    }
+
+    /// Four dimensions that add rather than compound, capped at four times a bare
+    /// session.
+    ///
+    /// The cap is the whole promise of the formula: a save that trained
+    /// everything is worth four sessions, never sixteen, or the ladder would be a
+    /// different game for anyone who played long enough.
+    #[test]
+    fn four_dimensions_add_up_to_at_most_four_times_a_bare_session() {
+        let trained = Realm::from_level(LAYERS_PER_STAGE * STAGE_COUNT as u16 - 1);
+        assert_eq!(
+            growth_permille(trained, 9, 40, 40, 40),
+            GROWTH_MULTIPLIER_CAP_PERMILLE,
+            "a fully trained save is capped, not multiplied twice"
+        );
+        assert_eq!(
+            growth_permille(trained, 0, 0, 0, 0),
+            1_000,
+            "an untrained one is flat"
+        );
+    }
+
+    /// 修炼 is capped by the realm, not by a count: a 阶 of 功法 is worth more the
+    /// deeper the realm is, which is what keeps the late game honest.
+    #[test]
+    fn a_trained_art_is_worth_more_the_deeper_the_realm_is() {
+        let first = Realm::from_level(1);
+        let deepest = Realm::from_level(LAYERS_PER_STAGE * STAGE_COUNT as u16 - 1);
+        assert_eq!(discipline_cap(Discipline::Practice, first), 200);
+        assert_eq!(discipline_cap(Discipline::Practice, deepest), 3_000);
+        assert_eq!(
+            discipline_bonus(Discipline::Practice, 9, 0, first),
+            200,
+            "炼气 stops at one fifth more than a bare session"
+        );
+        assert_eq!(
+            discipline_bonus(Discipline::Practice, 9, 0, deepest),
+            450,
+            "and no further than four 阶 can carry it"
+        );
+    }
+
+    /// The three action dimensions share one cap, so no single path is worth
+    /// farming forever.
+    #[test]
+    fn an_action_dimension_stops_at_twenty_acts() {
+        let realm = Realm::from_level(1);
+        assert_eq!(discipline_bonus(Discipline::Wander, 0, 0, realm), 0);
+        assert_eq!(discipline_bonus(Discipline::Wander, 0, 1, realm), 50);
+        assert_eq!(
+            discipline_bonus(Discipline::Wander, 0, 20, realm),
+            1_000,
+            "twenty walks is the whole of it"
+        );
+        assert_eq!(
+            discipline_bonus(Discipline::Wander, 0, 400, realm),
+            1_000,
+            "and four hundred is no more"
+        );
+    }
+
+    /// What the page shows and what the session pays are the same number.
+    #[test]
+    fn a_finished_session_pays_what_the_page_says_it_pays() {
+        let mut cultivation = Cultivation::default();
+        let bare = growth_permille(Realm::from_level(1), 0, 0, 0, 0);
+        assert_eq!(cultivation.view().growth_multiplier_permille, bare);
+        let flat = cultivation.on_session_completed(1_000, day(20), 25).growth;
+        assert_eq!(
+            flat,
+            session_growth(1, 1),
+            "an untrained save pays the base"
+        );
+
+        // Twenty walks train 游历 to its cap; each walk is twelve hours apart, and
+        // a walk that meets someone may train 战斗 as well — so the number the
+        // page shows is read back rather than assumed.
+        for step in 0..20 {
+            cultivation.explore(1_000 + step * EXPLORATION_COOLDOWN_SECONDS);
+        }
+        let view = cultivation.view();
+        assert_eq!(bonus(&view, Discipline::Wander), 1_000, "游历 at its cap");
+        assert!(
+            view.growth_multiplier_permille > bare,
+            "walking has to be worth something: {}",
+            view.growth_multiplier_permille
+        );
+
+        let reward = cultivation.on_session_completed(1_000_000, day(30), 25);
+        assert_eq!(
+            reward.growth,
+            scaled_growth(session_growth(1, 1), view.growth_multiplier_permille),
+            "the session pays exactly the multiplier the page printed"
+        );
+    }
+
+    /// A missed day is scaled by the same number, so a save that trained deep
+    /// also loses more for letting a day go.
+    #[test]
+    fn a_missed_day_costs_what_a_trained_save_earns() {
+        let active = |explorations| CultivationDocument {
+            growth: 100_000,
+            explorations,
+            last_active_day: Some(19),
+            charged_through_day: Some(19),
+            ..CultivationDocument::default()
+        };
+        let mut trained = Cultivation::new(active(20));
+        let multiplier = trained.view().growth_multiplier_permille;
+        assert_eq!(multiplier, 2_000);
+        let mut bare = Cultivation::new(active(0));
+        assert_eq!(bare.view().growth_multiplier_permille, 1_000);
+
+        // Charged through yesterday: asking on the twentieth charges nothing,
+        // because the twentieth is the day still being lived in.
+        let charged = trained.apply_absence(day(21)).expect("a day was charged");
+        let flat = bare.apply_absence(day(21)).expect("a day was charged");
+        assert_eq!(charged.days, 1);
+        assert_eq!(charged.charged, flat.charged * 2, "twice the bare penalty");
+        assert_eq!(
+            charged.charged,
+            scaled_growth(flat.charged, multiplier),
+            "and exactly what the multiplier says"
+        );
+    }
+
+    /// The record is a window of eight, newest first, however many were fought.
+    ///
+    /// Guardian fights cannot fill a window on their own: a win enters the next
+    /// realm and there is nothing left to fight until the cap is climbed again,
+    /// and a loss writes a twelve hour cooldown. So the window is filled the way a
+    /// real save fills it — one guardian fight, then the fights met on walks.
+    #[test]
+    fn the_record_keeps_the_last_eight_fights_newest_first() {
+        let mut cultivation = at_the_first_cap();
+        for step in 0..60 {
+            let _ = cultivation.explore(100_000 + step * EXPLORATION_COOLDOWN_SECONDS);
+        }
+        // Fought last, so the guardian's line is the newest one: a window of eight
+        // would otherwise push it out, which is the window working, not failing.
+        let _ = cultivation.breakthrough(100_000 + 60 * EXPLORATION_COOLDOWN_SECONDS);
+        let view = cultivation.view();
+        assert_eq!(
+            view.duel_record.len(),
+            DUEL_RECORD_CAP,
+            "the window holds at eight"
+        );
+        assert!(
+            view.duel_record
+                .windows(2)
+                .all(|pair| pair[0].at_unix > pair[1].at_unix),
+            "newest first: {:?}",
+            view.duel_record
+                .iter()
+                .map(|line| line.at_unix)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            view.duel_record
+                .iter()
+                .any(|line| line.kind == FightKind::Guardian),
+            "the guardian fight is in the record"
+        );
+        assert!(
+            view.duel_record
+                .iter()
+                .any(|line| line.kind == FightKind::Wanderer),
+            "and so are the walks' fights"
+        );
+    }
+
+    /// A win is what trains the 战斗 dimension, and a loss is not.
+    ///
+    /// A guardian fight cannot carry this on its own — a fresh save loses it — so
+    /// the count is read from the fights actually fought and checked against the
+    /// dimension the page draws.
+    #[test]
+    fn only_wins_train_the_battle_dimension() {
+        let mut cultivation = at_the_first_cap();
+        let _ = cultivation.breakthrough(1_000);
+        assert_eq!(
+            bonus(&cultivation.view(), Discipline::Fight),
+            0,
+            "a loss trains nothing"
+        );
+
+        for step in 0..40 {
+            let _ = cultivation.explore(100_000 + step * EXPLORATION_COOLDOWN_SECONDS);
+        }
+        let view = cultivation.view();
+        let won = view
+            .duel_record
+            .iter()
+            .filter(|line| line.kind == FightKind::Wanderer && line.won)
+            .count() as u32;
+        assert!(won > 0, "forty walks should have met someone: {view:?}");
+        assert_eq!(
+            bonus(&view, Discipline::Fight),
+            DISCIPLINE_STEP_PERMILLE * won.min(DISCIPLINE_STEP_CAP),
+            "one step per win, and no more than the cap"
+        );
+    }
+
+    /// The counters the four dimensions read are in the document, so a relaunch
+    /// does not quietly reset the bars.
+    #[test]
+    fn the_dimensions_survive_a_relaunch() {
+        let cultivation = Cultivation::new(CultivationDocument {
+            growth: 100_000,
+            explorations: 7,
+            battle_wins: 5,
+            harvests: 3,
+            ..CultivationDocument::default()
+        });
+        let view = cultivation.view();
+        assert_eq!(bonus(&view, Discipline::Wander), 350);
+        assert_eq!(bonus(&view, Discipline::Fight), 250);
+        assert_eq!(bonus(&view, Discipline::Fortune), 150);
+        assert_eq!(view.growth_multiplier_permille, 1_750);
     }
 }

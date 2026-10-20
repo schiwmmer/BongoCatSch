@@ -13,6 +13,8 @@ use super::{
     ART_COUNT, Attributes, EquipmentRecord, MAX_LEVEL, OwnedArt, PLOT_COUNT, PlotRecord,
     SLOT_COUNT, STAGE_COUNT, SeedStack, blueprint,
     curve::{level_for_growth, stage_floor},
+    duel::{DUEL_RECORD_CAP, DuelRecord},
+    explore::WalkRecord,
 };
 
 /// Everything a cultivator keeps between launches.
@@ -89,6 +91,28 @@ pub struct CultivationDocument {
     /// When the last walk happened, which is what gates the next one.
     #[serde(default)]
     pub last_exploration_unix: Option<i64>,
+    /// How many walks have been taken — the 游历 dimension's own count, kept in
+    /// the document because a dimension that forgot its training on every restart
+    /// would never fill its bar.
+    #[serde(default)]
+    pub explorations: u32,
+    /// How many fights have been won — the 战斗 dimension's count. Losses do not
+    /// count: the dimension is trained by winning, not by having been swung at.
+    #[serde(default)]
+    pub battle_wins: u32,
+    /// How many crops have been pulled — the 造化 dimension's count.
+    #[serde(default)]
+    pub harvests: u32,
+    /// The fights fought, newest first, capped at [`DUEL_RECORD_CAP`].
+    ///
+    /// Persisted rather than left to the popup because the popup is a moment: it
+    /// is forgotten on quit, and a page that could not say how the last few
+    /// fights went would be showing the ladder without its history.
+    #[serde(default)]
+    pub duel_record: Vec<DuelRecord>,
+    /// What the last walk settled, kept past the quit that ends its popup.
+    #[serde(default)]
+    pub last_walk: Option<WalkRecord>,
 }
 
 impl CultivationDocument {
@@ -116,6 +140,9 @@ impl CultivationDocument {
             self.allocated.mana.max(0),
             self.allocated.agility.max(0),
         );
+        // A hand-edited save could carry a thousand lines of history; the record
+        // is a window, so it is cut back to the window here rather than trusted.
+        self.duel_record.truncate(DUEL_RECORD_CAP);
         self.equipped.resize(SLOT_COUNT, None);
         self.plots.resize(PLOT_COUNT, PlotRecord::default());
         let highest = self.equipment.iter().map(|item| item.id).max().unwrap_or(0);

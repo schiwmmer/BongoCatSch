@@ -778,6 +778,26 @@
       "drop_equipment": "Found gear: %{item}",
       "drop_seed": "Found a seed: %{item}",
       "seed_return": "The harvest brought back %{seed}"
+    },
+    "discipline": {
+      "title": "Disciplines",
+      "practice": "Practice",
+      "wander": "Wandering",
+      "fight": "Fighting",
+      "fortune": "Fortune",
+      "bonus": "+%{value}% / cap %{cap}%",
+      "total": "Next pomodoro ×%{value}%"
+    },
+    "record": {
+      "title": "Fight record",
+      "guardian": "Guardian",
+      "wanderer": "Wanderer",
+      "win": "Won",
+      "loss": "Lost",
+      "walk": "Last walk: %{outcome}",
+      "found_art": "art “%{name}”",
+      "found_gear": "gear “%{name}”",
+      "found_seed": "herb “%{name}”"
     }
   }
 }

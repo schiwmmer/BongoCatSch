@@ -14,9 +14,9 @@ use super::*;
 use crate::window::cultivation_duel;
 use crate::window::cultivation_settings;
 use bongocat_pomodoro::{
-    Cultivation, CultivationDocument, DuelReport, DuelRound, ExplorationOutcome, Fighter,
-    LAYERS_PER_STAGE, PLAYER_NAME, PomodoroCommand, PomodoroSnapshot, PomodoroState, WANDERER_NAME,
-    threshold_for,
+    Cultivation, CultivationDocument, DuelRecord, DuelReport, DuelRound, ExplorationOutcome,
+    FightKind, Fighter, LAYERS_PER_STAGE, PLAYER_NAME, PomodoroCommand, PomodoroSnapshot,
+    PomodoroState, WANDERER_NAME, WalkRecord, threshold_for,
 };
 
 /// The page mounted on its own.
@@ -310,6 +310,59 @@ fn walk_report() -> DuelReport {
             evade: 100,
             art: None,
         },
+    }
+}
+
+/// The four disciplines, their total, and the fight record are all on the page.
+///
+/// Both sections exist to turn a number the user cannot move into numbers they
+/// can: a page that drew neither would still say what a pomodoro pays, and
+/// nothing about how it got there. So the save handed to the page has trained all
+/// four dimensions and fought a few fights, and every part has to be on screen.
+#[gpui_kit::test]
+fn the_page_draws_the_disciplines_and_the_record(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        growth: threshold_for(LAYERS_PER_STAGE),
+        explorations: 20,
+        battle_wins: 4,
+        harvests: 2,
+        duel_record: vec![
+            DuelRecord {
+                won: true,
+                kind: FightKind::Guardian,
+                realm: 0,
+                at_unix: 1_000,
+            },
+            DuelRecord {
+                won: false,
+                kind: FightKind::Wanderer,
+                realm: 0,
+                at_unix: 2_000,
+            },
+        ],
+        last_walk: Some(WalkRecord {
+            at_unix: 2_000,
+            realm: 0,
+            outcome: ExplorationOutcome::Gear,
+            art: None,
+            gear: Some("青锋".to_owned()),
+            seed: None,
+        }),
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    for id in [
+        "cultivation-disciplines",
+        "cultivation-disciplines-total",
+        "cultivation-record",
+        "cultivation-record-duel-0",
+        "cultivation-record-duel-1",
+        "cultivation-record-walk",
+    ] {
+        assert!(painted(visual, id), "the page must draw {id}");
     }
 }
 

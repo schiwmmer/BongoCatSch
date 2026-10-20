@@ -17,7 +17,15 @@ use bongocat_i18n::{format_text, text};
 use bongocat_pomodoro::{
     ArtKind, ArtOutcome, ArtView, Attribute, CultivationView, Derived, DropView, EquipSlot,
     ExplorationFindView, ExplorationOutcome, Fighter, ItemView, MAX_LEVEL, PomodoroCommand, Realm,
+    WalkRecord,
 };
+
+/// How wide a discipline's bar is drawn, in pixels.
+///
+/// Fixed like the growth bar beside it rather than a percentage: the number the
+/// row prints is the same number the bar draws, so the two cannot need a layout
+/// pass to agree.
+const DISCIPLINE_BAR_WIDTH: f32 = 220.0;
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::hover_card::HoverCard;
 // `test_support()` marks the elements the headless window tests observe; without
@@ -64,6 +72,7 @@ pub(super) fn content(
         .gap_3()
         .p_3()
         .child(realm_header(&cultivation, locale, tokens))
+        .child(disciplines_section(&cultivation, locale, tokens))
         .children(notices(&cultivation, locale, tokens))
         .child(attributes_panel(&view, &cultivation, locale, tokens))
         .child(derived_panel(&cultivation, locale, tokens))
@@ -86,6 +95,7 @@ pub(super) fn content(
         .child(garden_panel(&view, &cultivation, locale, tokens))
         .child(breakthrough_panel(&view, &cultivation, locale, tokens))
         .child(exploration_panel(&view, &cultivation, locale, tokens))
+        .child(record_section(&cultivation, locale, tokens))
         .into_any_element()
 }
 
@@ -1422,6 +1432,184 @@ fn cooldown_line(owed_at: Option<i64>, key: &'static str, locale: &str) -> Strin
             ("minutes", minutes.to_string()),
         ],
     )
+}
+
+/// The four disciplines, each with the bar that says how far it has come.
+///
+/// The bars are the point: a finished pomodoro is worth what these are worth, and
+/// a page that only printed the total would leave the user with a number they
+/// cannot move. So each row shows its own bonus against its own cap — the 修炼 row
+/// against the realm's cap, the other three against the same shared one — and the
+/// total sits under them as what the next session will actually pay.
+fn disciplines_section(
+    cultivation: &CultivationView,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    let total_permille = cultivation.growth_multiplier_permille;
+    div()
+        .id("cultivation-disciplines")
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(section_title(
+            locale,
+            "cultivation.discipline.title",
+            tokens,
+        ))
+        // Marked so a frame can be asked whether the section is on screen at all.
+        .test_support()
+        .children(cultivation.disciplines.iter().map(|entry| {
+            let fraction = entry.progress_permille.min(1_000) as f32 / 1_000.0;
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(tokens.text)
+                                .child(text(locale, entry.discipline.key())),
+                        )
+                        .child(div().text_xs().text_color(tokens.muted).child(format_text(
+                            locale,
+                            "cultivation.discipline.bonus",
+                            &[
+                                ("value", entry.bonus_permille.div_ceil(10).to_string()),
+                                ("cap", entry.cap_permille.div_ceil(10).to_string()),
+                            ],
+                        ))),
+                )
+                .child(
+                    div()
+                        .w_full()
+                        .h(px(6.0))
+                        .rounded_full()
+                        .bg(tokens.border)
+                        .child(
+                            div()
+                                .w(px(DISCIPLINE_BAR_WIDTH * fraction))
+                                .h(px(6.0))
+                                .rounded_full()
+                                .bg(tokens.accent),
+                        ),
+                )
+        }))
+        .child(
+            div()
+                .id("cultivation-disciplines-total")
+                .text_xs()
+                .text_color(tokens.text)
+                .child(format_text(
+                    locale,
+                    "cultivation.discipline.total",
+                    &[("value", total_permille.div_ceil(10).to_string())],
+                ))
+                .test_support(),
+        )
+}
+
+/// The fights fought and what the last walk settled.
+///
+/// Both are lines of history rather than state: the popups that show them are
+/// forgotten at quit, so this is the only place a save can be asked what it has
+/// been through. The record is eight lines — long enough that a run of losses
+/// still shows the wins, short enough to be read at a glance.
+fn record_section(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> impl IntoElement {
+    let mut column = div()
+        .id("cultivation-record")
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(section_title(locale, "cultivation.record.title", tokens))
+        // Marked so a frame can be asked whether the record is on screen.
+        .test_support();
+    for (index, line) in cultivation.duel_record.iter().enumerate() {
+        column = column.child(
+            div()
+                .id(format!("cultivation-record-duel-{index}"))
+                .flex()
+                .flex_row()
+                .justify_between()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(tokens.text)
+                        .child(text(locale, line.kind.key())),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(if line.won {
+                            tokens.accent
+                        } else {
+                            tokens.danger
+                        })
+                        .child(text(
+                            locale,
+                            if line.won {
+                                "cultivation.record.win"
+                            } else {
+                                "cultivation.record.loss"
+                            },
+                        )),
+                )
+                .test_support(),
+        );
+    }
+    if let Some(walk) = &cultivation.last_walk {
+        column = column.child(
+            div()
+                .id("cultivation-record-walk")
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(walk_line(walk, locale))
+                .test_support(),
+        );
+    }
+    column
+}
+
+/// One walk's settlement, as a single line: how it ended and what it turned up.
+///
+/// A walk can pay three things at once, so the line names each in turn rather
+/// than saying "something was found" — a record that does not say what was found
+/// is not worth keeping.
+fn walk_line(walk: &WalkRecord, locale: &str) -> String {
+    let mut line = format_text(
+        locale,
+        "cultivation.record.walk",
+        &[(
+            "outcome",
+            text(locale, walk.outcome.outcome_key()).to_string(),
+        )],
+    );
+    for found in [
+        walk.art
+            .as_deref()
+            .map(|name| ("cultivation.record.found_art", name)),
+        walk.gear
+            .as_deref()
+            .map(|name| ("cultivation.record.found_gear", name)),
+        walk.seed
+            .as_deref()
+            .map(|name| ("cultivation.record.found_seed", name)),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        line.push_str(&format!(
+            " · {}",
+            format_text(locale, found.0, &[("name", found.1.to_owned())],)
+        ));
+    }
+    line
 }
 
 fn section_title(locale: &str, key: &'static str, tokens: Tokens) -> impl IntoElement {
