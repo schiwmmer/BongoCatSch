@@ -629,6 +629,9 @@
     "realm": "%{stage} · %{layer} 层 %{rank} 级",
     "progress": "%{value} / %{next} 成长值",
     "capped": "本境圆满，破境方能再进",
+    "growth": {
+      "next": "下一个番茄钟 +%{value} 成长值"
+    },
     "attributes": "属性",
     "free_points": "可分配 %{points} 点",
     "attribute": {
@@ -644,8 +647,12 @@
       "agility_desc": "身法：每点 +2 速度、命中 +0.5%、闪避 +0.2%（命中上限 95%、闪避 25%）。与力量同为武术一脉（每点 +12 武术战力，配对再计 10 点默契）。"
     },
     "arts": {
-      "title": "功法",
-      "empty": "还没有功法。闯关成功必得，探索亦有几率。"
+      "title": "功法书",
+      "empty": "还没有功法书。闯关成功必得，探索亦有几率。"
+    },
+    "mastered": {
+      "title": "已习得功法",
+      "empty": "尚无圆满之功法。修习圆满后，功法便已习得，永久生效。"
     },
     "art": {
       "kind": {
@@ -669,7 +676,8 @@
       "selected": "修习中",
       "mastered": "圆满",
       "mastery_attribute": "大成 · 每阶属性 +%{value}%",
-      "mastery_damage": "大成 · 附加 %{value}% 攻击力"
+      "mastery_damage": "大成 · 附加 %{value}% 攻击力",
+      "mastery_paid": "大成加成 %{value}%，永久生效"
     },
     "derived": "外显属性",
     "derived_hint": "由四维算出，不可加点",
@@ -764,9 +772,11 @@
       "found_art": "寻得功法：%{name}",
       "found_gear": "寻得装备：%{name}",
       "found_seed": "寻得种子：%{name}",
+      "found_stones": "寻得灵石：%{value}",
       "held": "%{hours} 小时 %{minutes} 分后可再次探索",
       "nothing": "一无所获。",
       "ready": "可以在外走一趟了。",
+      "refuse_cooldown": "上次外出尚未回返，需再等些时日。",
       "title": "探索",
       "victory": "遭遇战胜利，小有斩获。"
     },
@@ -779,15 +789,6 @@
       "drop_seed": "获得种子 %{item}",
       "seed_return": "收获返得 %{seed}"
     },
-    "discipline": {
-      "title": "四维",
-      "practice": "修炼",
-      "wander": "游历",
-      "fight": "战斗",
-      "fortune": "造化",
-      "bonus": "+%{value}% / 上限 %{cap}%",
-      "total": "下一个番茄钟 ×%{value}%"
-    },
     "record": {
       "title": "战斗记录",
       "guardian": "守卫",
@@ -797,7 +798,8 @@
       "walk": "最近游历：%{outcome}",
       "found_art": "功法「%{name}」",
       "found_gear": "装备「%{name}」",
-      "found_seed": "仙草「%{name}」"
+      "found_seed": "仙草「%{name}」",
+      "found_stones": "灵石「%{value}」"
     },
     "shop": {
       "title": "集市",
@@ -816,10 +818,10 @@
       "refuse_bought": "今日已买过这件",
       "refuse_owned": "没有这件东西",
       "refuse_equipped": "身上的装备不能卖",
-      "refuse_training": "正在修炼的功法不能卖"
+      "refuse_training": "正在修炼的功法不能卖",
+      "refuse_already": "已有此功法，无需再买"
     },
     "hint": {
-      "discipline_title": "四维：只管成长多快，不管打起来多强",
       "realm_title": "境界：能爬到第几层的硬上限",
       "schools_title": "法术与武术：四项属性切成的两半",
       "schools_hint": "法术＝根骨＋仙力，武术＝力量＋身法。同系两项一起练有联动加成，只堆一个更亏。",

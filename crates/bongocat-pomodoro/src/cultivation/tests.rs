@@ -657,13 +657,18 @@ fn a_finished_session_trains_the_selected_art() {
         cultivation.on_session_completed(1_000 + offset, day(30_000 + offset), 25);
     }
     let view = cultivation.view();
-    let art = view
-        .arts
+    // The book has been read to the end, so it is no longer a book: it has
+    // become one of the 功法 the cultivator has learned outright.
+    assert!(
+        !view.arts.iter().any(|art| art.id == granted.id),
+        "the 功法书 is no longer being trained"
+    );
+    let learned = view
+        .mastered_arts
         .iter()
         .find(|art| art.id == granted.id)
-        .expect("the art is still owned");
-    assert_eq!(art.rank, art.max_rank, "enough sessions master a 黄阶 art");
-    assert_eq!(art.progress, 0);
+        .expect("the 功法 is learned");
+    assert_eq!(learned.rank, learned.grade.ranks());
     assert!(
         view.last_training.is_some(),
         "the panel says what the session did"
@@ -817,12 +822,12 @@ fn one_walk_every_twelve_hours() {
     );
     // The panel reads the same rule the walk does, from the clock it is handed.
     assert!(
-        !cultivation.view_at(10_001).exploration_ready,
+        !cultivation.view_on(10_001, 10_001).exploration_ready,
         "the second walk is not owed yet"
     );
     assert!(
         cultivation
-            .view_at(10_000 + EXPLORATION_COOLDOWN_SECONDS)
+            .view_on(10_000 + EXPLORATION_COOLDOWN_SECONDS, 10_000)
             .exploration_ready
     );
     let second = cultivation
@@ -833,8 +838,8 @@ fn one_walk_every_twelve_hours() {
     let _ = first;
 }
 
-/// A walk that turns something up says what it turned up: the herb, the piece
-/// or the 功法, not merely that something happened.
+/// A walk that turns something up says what it turned up: the herb, the piece,
+/// the 功法 or the 灵石, not merely that something happened.
 #[test]
 fn a_walk_says_what_it_turned_up() {
     let mut found = 0;
@@ -845,17 +850,26 @@ fn a_walk_says_what_it_turned_up() {
             continue;
         };
         let turned_up = cultivation.view().last_exploration_found.clone();
-        match (outcome, turned_up) {
-            // A walk that found nothing, or lost the fight it met, owes nothing.
-            (ExplorationOutcome::Nothing | ExplorationOutcome::Defeat, None) => empty += 1,
-            (ExplorationOutcome::Defeat, Some(_)) => {
-                panic!("a walk that was beaten turned something up")
+        let turned_up = turned_up.expect("a walk always carries what it found");
+        match outcome {
+            // A walk that was beaten owes nothing: the fight decided it, and a
+            // purse that filled up on a defeat would make being beaten a way of
+            // earning.
+            ExplorationOutcome::Defeat => {
+                assert!(
+                    turned_up.is_empty(),
+                    "a walk that was beaten turned something up"
+                )
             }
-            // Anything else — a seed, gear, a 功法, or a win that paid — names it.
-            (_, Some(_)) => found += 1,
-            // A win whose second roll paid nothing is a walk that met someone and
-            // beat them for the experience.
-            (_, None) => {}
+            // Anything else — a seed, gear, a 功法, stones, or a win that paid —
+            // names it.
+            _ => {
+                if turned_up.is_empty() {
+                    empty += 1;
+                } else {
+                    found += 1;
+                }
+            }
         }
     }
     assert!(found > 0, "a walk turns something up sometimes: {found}/40");
@@ -908,11 +922,280 @@ fn a_lost_fight_says_when_the_next_one_is_owed() {
         .expect("an attempt at the cap");
     assert!(!lost.duel.won, "a naked cultivator loses the fight");
     let owed = 1_000 + BREAKTHROUGH_COOLDOWN_SECONDS;
-    let held = cultivation.view_at(owed - 1);
+    let held = cultivation.view_on(owed - 1, 0);
     assert_eq!(held.breakthrough_ready_at, Some(owed));
     assert!(!held.breakthrough_ready, "the attempt is still held");
     assert!(
-        cultivation.view_at(owed).breakthrough_ready,
+        cultivation.view_on(owed, 0).breakthrough_ready,
         "the lock lifts"
     );
+}
+
+/// A walk can turn up 灵石, and they land in the purse.
+///
+/// The point of the rule is that the purse is fed by walking and not only by
+/// working: a user who never sells anything still has a way to buy.
+#[test]
+fn a_walk_can_turn_up_stones() {
+    let mut turned_up = 0;
+    for clock in 0..60_i64 {
+        let mut cultivation = Cultivation::default();
+        let Some(outcome) = cultivation.explore(1_000 + clock * 100_000) else {
+            continue;
+        };
+        let found = cultivation.view().last_exploration_found.clone();
+        let Some(found) = found else { continue };
+        let Some(amount) = found.stones else {
+            continue;
+        };
+        turned_up += 1;
+        assert!(
+            (STONE_FIND_MIN..=STONE_FIND_MAX).contains(&amount),
+            "a walk pays a handful, not a fortune: {amount}"
+        );
+        assert_eq!(cultivation.stones(), amount, "the stones land in the purse");
+        if outcome == ExplorationOutcome::Stones {
+            assert!(
+                found.seed.is_none() && found.gear.is_none() && found.art.is_none(),
+                "a walk that turned up stones and nothing else says so"
+            );
+        }
+    }
+    assert!(
+        turned_up > 0,
+        "a walk turns up stones sometimes: {turned_up}/60"
+    );
+}
+
+/// A walk that was beaten pays nothing at all: a purse that filled up on a
+/// defeat would make being beaten a way of earning.
+#[test]
+fn a_walk_that_was_beaten_pays_nothing() {
+    for clock in 0..60_i64 {
+        let mut cultivation = Cultivation::default();
+        let Some(outcome) = cultivation.explore(1_000 + clock * 100_000) else {
+            continue;
+        };
+        if outcome != ExplorationOutcome::Defeat {
+            continue;
+        }
+        assert_eq!(
+            cultivation.stones(),
+            0,
+            "a defeat fills the purse with nothing"
+        );
+        let found = cultivation.view().last_exploration_found.clone();
+        assert!(
+            found.expect("a walk carries its find").is_empty(),
+            "and turns nothing up"
+        );
+    }
+}
+
+/// A 功法 that reaches 圆满 leaves the books and becomes one the cultivator
+/// has learned outright.
+#[test]
+fn a_mastered_art_leaves_the_books_and_joins_the_learned_ones() {
+    let mut cultivation = Cultivation::default();
+    let granted = cultivation
+        .grant_art(ArtGrade::Yellow, 1_000)
+        .expect("a 黄阶 art");
+    for offset in 0..40_i64 {
+        cultivation.on_session_completed(1_000 + offset, day(30_000 + offset), 25);
+    }
+    let view = cultivation.view();
+    assert!(
+        !view.arts.iter().any(|art| art.id == granted.id),
+        "the 功法书 is gone: it has been read to the end"
+    );
+    assert!(
+        view.mastered_arts.iter().any(|art| art.id == granted.id),
+        "and the 功法 is learned outright"
+    );
+}
+
+/// Selling the book a 功法 was learned from takes nothing away that was
+/// learned: the two are kept apart exactly so that this is true.
+#[test]
+fn selling_the_book_does_not_take_the_learned_art_away() {
+    let mut cultivation = Cultivation::default();
+    let granted = cultivation
+        .grant_art(ArtGrade::Yellow, 1_000)
+        .expect("a 黄阶 art");
+    let id = granted.id;
+    // Learn it: enough sessions for any 黄阶 art to reach its last 阶.
+    for offset in 0..40_i64 {
+        cultivation.on_session_completed(1_000 + offset, day(30_000 + offset), 25);
+    }
+    let learned_before = cultivation.art_attributes().total();
+
+    // The book is gone after mastery, so there is nothing left to sell — and
+    // the learned 功法 is untouched.
+    assert_eq!(
+        cultivation.sell_art(id).expect_err("there is no book left"),
+        TradeRefusal::NotOwned
+    );
+    assert_eq!(
+        cultivation.art_attributes().total(),
+        learned_before,
+        "and the learned 功法 still pays"
+    );
+    assert!(
+        cultivation
+            .view()
+            .mastered_arts
+            .iter()
+            .any(|art| art.id == id),
+        "the 功法 is still learned"
+    );
+}
+
+/// A learned 内功 pays for as long as the save lives, whether or not the book
+/// it was learned from is still on the shelf.
+#[test]
+fn a_learned_internal_art_pays_its_mastery_for_good() {
+    let mut cultivation = Cultivation::default();
+    let granted = cultivation
+        .grant_art(ArtGrade::Yellow, 1_000)
+        .expect("a 黄阶 art");
+    if blueprint(granted.id).kind != ArtKind::Internal {
+        return;
+    }
+    for offset in 0..40_i64 {
+        cultivation.on_session_completed(1_000 + offset, day(30_000 + offset), 25);
+    }
+    let learned = mastered_art_attributes(&[granted.id]);
+    assert!(learned.total() > 0, "a learned 内功 pays its attributes");
+    assert_eq!(
+        cultivation.art_attributes().total(),
+        learned.total(),
+        "and the page counts it exactly once"
+    );
+}
+
+/// A save written before the books and the learned 功法 were split reads as
+/// having learned what it had in fact finished.
+#[test]
+fn an_old_save_moves_its_finished_art_to_the_learned_ones() {
+    let parsed: CultivationDocument =
+        serde_json::from_str(r#"{"arts":[{"art_id":1,"rank":3,"progress":0}]}"#)
+            .expect("the older shape loads");
+    let document = parsed.normalized();
+    assert!(
+        document.arts.is_empty(),
+        "the finished 功法 is no longer a book"
+    );
+    assert_eq!(
+        document.mastered_arts,
+        vec![1],
+        "it is learned outright instead"
+    );
+}
+
+/// A refused purchase says why, and says it again on the next refusal: the
+/// count moves with the reason, so a surface can tell a new refusal from the
+/// one still sitting in the snapshot.
+#[test]
+fn a_refusal_is_recorded_with_a_reason_and_a_count() {
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        stones: 0,
+        ..CultivationDocument::default()
+    });
+    assert_eq!(cultivation.view().refusal_count, 0);
+    let refusal = cultivation
+        .buy_from_shop(0, 20_000, 1_000)
+        .expect_err("no stones, no goods");
+    cultivation.note_refusal(Refusal::Trade(refusal));
+    let view = cultivation.view();
+    assert_eq!(view.refusal_count, 1);
+    assert_eq!(
+        view.last_refusal.map(|reason| reason.key()),
+        Some("cultivation.shop.refuse_stones"),
+        "the page can say which reason it was"
+    );
+}
+
+/// A walk that is not owed says so rather than doing nothing in silence.
+#[test]
+fn a_walk_that_is_not_owed_says_why() {
+    let mut cultivation = Cultivation::default();
+    let _ = cultivation.explore(10_000);
+    assert!(
+        cultivation.explore(10_001).is_none(),
+        "the walk is not owed"
+    );
+    let view = cultivation.view();
+    assert_eq!(view.refusal_count, 1);
+    assert_eq!(
+        view.last_refusal.map(|reason| reason.key()),
+        Some("cultivation.explore.refuse_cooldown"),
+        "the page says it is cooling down"
+    );
+}
+
+/// The market sells the 功法 its shelf names, not another one of its grade.
+///
+/// A shelf that names a 功法 and hands over a different one is a market that
+/// lies about what it stocks, and the price the user paid was for the one on
+/// the shelf.
+#[test]
+fn the_market_sells_the_art_its_shelf_names() {
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        stones: 100_000,
+        ..CultivationDocument::default()
+    });
+    let shelf = cultivation.shop(20_000);
+    let art = shelf
+        .iter()
+        .find_map(|entry| match entry.offer {
+            ShopOffer::Art { art_id } => Some((entry.slot, art_id)),
+            _ => None,
+        })
+        .expect("a shelf stocks a 功法");
+    let (slot, art_id) = art;
+    cultivation
+        .buy_from_shop(slot, 20_000, 1_000)
+        .expect("the purchase went through");
+    assert!(
+        cultivation
+            .document()
+            .arts
+            .iter()
+            .any(|art| art.art_id == art_id),
+        "the 功法 on the shelf is the one that was handed over"
+    );
+}
+
+/// A 功法 the cultivator already has is not sold again: a second copy of
+/// something they already hold is not a thing the page could say anything true
+/// about.
+#[test]
+fn an_art_the_cultivator_already_has_is_not_sold_again() {
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        stones: 100_000,
+        ..CultivationDocument::default()
+    });
+    // Find a day whose shelf stocks a particular 功法, and the slot it sits in.
+    let (day, slot, art_id) = (20_000..20_500)
+        .find_map(|day| {
+            crate::cultivation::roll_offers(day, Realm::from_level(1), day as u64)
+                .into_iter()
+                .enumerate()
+                .find_map(|(slot, offer)| match offer {
+                    ShopOffer::Art { art_id } => Some((day, slot, art_id)),
+                    _ => None,
+                })
+        })
+        .expect("some day stocks a 功法");
+    // The cultivator already has that one: a walk or a fight gave it to them.
+    assert!(
+        cultivation.grant_art_book(art_id).is_some(),
+        "the book is in hand"
+    );
+    let before = cultivation.stones();
+    let refusal = cultivation
+        .buy_from_shop(slot, day, 1_000)
+        .expect_err("the same 功法 is not sold twice");
+    assert_eq!(refusal, TradeRefusal::AlreadyOwned, "the refusal says why");
+    assert_eq!(cultivation.stones(), before, "and nothing was charged");
 }

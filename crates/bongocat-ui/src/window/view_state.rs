@@ -449,6 +449,10 @@ impl SettingsView {
             // waiting on the worker either.
             cultivation_duel: None,
             cultivation_duel_pending: None,
+            // Nothing has been refused yet, so there is no error waiting to be
+            // shown and no count to compare against.
+            cultivation_refusal_pending: None,
+            cultivation_refusal_seen: 0,
             pomodoro_done_expanded: false,
             pomodoro_chart_days: 7,
             // No day is picked when the page opens: the chart ends on today
@@ -551,6 +555,37 @@ impl SettingsView {
         self.open_answered_cultivation_duel(cx);
         // And this is where a replay being read is paced out.
         self.advance_cultivation_duel(cx);
+        // A refused purchase or a walk that is not owed is reported here: the
+        // worker says why, and the page says it out loud.
+        self.open_cultivation_refusal(cx);
+    }
+
+    /// Show why an action was refused, once.
+    ///
+    /// The domain counts the refusals, and this watches that count: a count
+    /// that has not moved is the same reason still sitting in the snapshot, and
+    /// a count that has moved is a new refusal that has to be said. The
+    /// snapshot revision cannot be used for this — a running pomodoro bumps it
+    /// every second.
+    fn open_cultivation_refusal(&mut self, cx: &mut Context<Self>) {
+        let cultivation = &self.pomodoro.snapshot().cultivation;
+        let count = cultivation.refusal_count;
+        if count == self.cultivation_refusal_seen {
+            return;
+        }
+        // A count that went *down* means the worker was restarted and the
+        // ladder it holds is a new one: the baseline moves rather than the
+        // page announcing a refusal that never happened.
+        if count < self.cultivation_refusal_seen {
+            self.cultivation_refusal_seen = count;
+            return;
+        }
+        self.cultivation_refusal_seen = count;
+        let Some(refusal) = cultivation.last_refusal else {
+            return;
+        };
+        self.cultivation_refusal_pending = Some((refusal, count));
+        cx.notify();
     }
 
     /// Show the fight or walk the user asked for, once the worker has answered.

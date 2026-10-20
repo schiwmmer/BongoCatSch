@@ -50,9 +50,9 @@ mod trade;
 mod tests;
 
 pub use arts::{
-    ART_COUNT, ArtBlueprint, ArtGrade, ArtKind, ArtOutcome, ArtView, OwnedArt, art_attributes,
-    art_view, blueprint, effective_failure_permille, external_damage, mastery_permille,
-    required_pomodoros,
+    ART_COUNT, ArtBlueprint, ArtGrade, ArtKind, ArtOutcome, ArtView, MasteredArtView, OwnedArt,
+    art_attributes, art_view, blueprint, effective_failure_permille, external_damage,
+    mastered_art_attributes, mastered_art_view, mastery_permille, required_pomodoros,
 };
 pub use battle::{BattleReport, Guardian, guardian_fighter, wanderer_fighter};
 // `duel` itself stays crate-private: it takes the seeded `Rng`, which is nobody
@@ -68,7 +68,8 @@ pub use duel::{
 };
 pub use explore::{
     BREAKTHROUGH_COOLDOWN_SECONDS, ENCOUNTER_PERMILLE, EXPLORATION_COOLDOWN_SECONDS,
-    ExplorationOutcome, VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkRecord,
+    ExplorationOutcome, STONE_FIND_MAX, STONE_FIND_MIN, STONE_FIND_PERMILLE, VICTORY_SEED_PERMILLE,
+    WALK_RECORD_CAP, WalkRecord,
 };
 pub use garden::{MAX_SEED_TIER, PLOT_COUNT, PlotRecord, SeedStack};
 pub use items::{EquipSlot, EquipmentRecord, Rarity, SLOT_COUNT};
@@ -85,6 +86,34 @@ pub use state::{
 pub use trade::{TradeRefusal, session_earnings};
 
 use serde::{Deserialize, Serialize};
+
+/// Why an action the page offered could not be carried out.
+///
+/// The page has to say something when a click does nothing: "灵石不够" and
+/// "还没到时候" are different sentences, and a silent no-op teaches the user
+/// that the button is broken. The reasons live here rather than in the surfaces
+/// so that the page and the domain cannot disagree about what happened — the
+/// surface reads the reason the domain recorded, it never invents one.
+///
+/// A reason is carried as a catalog key rather than as text, because the text
+/// has to be translated and the key is what the catalog is written in.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Refusal {
+    /// A purchase or a sale was refused; the trade layer says which.
+    Trade(TradeRefusal),
+    /// A walk was asked for while the last one is still on cooldown.
+    ExploreCooldown,
+}
+
+impl Refusal {
+    /// The catalog key saying why.
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Trade(trade) => trade.key(),
+            Self::ExploreCooldown => "cultivation.explore.refuse_cooldown",
+        }
+    }
+}
 
 /// Growth the first finished focus session of a local day pays.
 ///
@@ -476,6 +505,246 @@ impl Derived {
     }
 }
 
+/// One of the nine numbers the four attributes turn into, and the arithmetic
+/// that produces it.
+///
+/// The base, the per-point gain and the ceiling are the very constants
+/// [`Attributes::derived`] reads, so a surface that shows the recipe shows the
+/// arithmetic that actually ran: there is no second table to drift from the
+/// first, and a number the page prints can be checked by hand against the
+/// numbers beside it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DerivedBreakdown {
+    /// The catalog key naming the number.
+    pub key: &'static str,
+    /// The attribute that feeds it.
+    pub attribute: Attribute,
+    /// That attribute's current value.
+    pub attribute_value: i32,
+    /// What every cultivator starts from.
+    pub base: u32,
+    /// What one point of the attribute adds.
+    pub per_point: u32,
+    /// The ceiling, where the number has one.
+    pub cap: Option<u32>,
+    /// What the arithmetic yields before the ceiling.
+    pub computed: u32,
+    /// What the page shows: the arithmetic, held to the ceiling.
+    pub result: u32,
+    /// Whether the numbers are counted in parts per thousand, as 命中 and 闪避
+    /// are. A surface prints those as percentages and the rest as they are.
+    pub per_mille: bool,
+}
+
+/// The nine numbers the four attributes turn into, in the order the page draws
+/// them.
+///
+/// Every line of [`Attributes::derived`] is one of these, and the list is the
+/// only place a derived number's arithmetic is written down: the values, the
+/// recipes and the breakdowns all come from it, so the page cannot show one
+/// number and another set of numbers behind it.
+const DERIVED_SPECS: [DerivedSpec; 9] = [
+    DerivedSpec {
+        key: "cultivation.attack",
+        slot: DerivedSlot::Attack,
+        attribute: Attribute::Strength,
+        base: BASE_ATTACK,
+        per_point: ATTACK_PER_STRENGTH,
+        cap: None,
+        per_mille: false,
+    },
+    DerivedSpec {
+        key: "cultivation.health",
+        slot: DerivedSlot::Health,
+        attribute: Attribute::Strength,
+        base: BASE_HEALTH,
+        per_point: HEALTH_PER_STRENGTH,
+        cap: None,
+        per_mille: false,
+    },
+    DerivedSpec {
+        key: "cultivation.inner",
+        slot: DerivedSlot::Inner,
+        attribute: Attribute::Root,
+        base: BASE_INNER,
+        per_point: INNER_PER_ROOT,
+        cap: None,
+        per_mille: false,
+    },
+    DerivedSpec {
+        key: "cultivation.spell",
+        slot: DerivedSlot::Spell,
+        attribute: Attribute::Mana,
+        base: 0,
+        per_point: SPELL_PER_MANA,
+        cap: None,
+        per_mille: false,
+    },
+    DerivedSpec {
+        key: "cultivation.resist",
+        slot: DerivedSlot::Resist,
+        attribute: Attribute::Mana,
+        base: 0,
+        per_point: RESIST_PER_MANA,
+        cap: None,
+        per_mille: false,
+    },
+    DerivedSpec {
+        key: "cultivation.speed",
+        slot: DerivedSlot::Speed,
+        attribute: Attribute::Agility,
+        base: BASE_SPEED,
+        per_point: SPEED_PER_AGILITY,
+        cap: None,
+        per_mille: false,
+    },
+    DerivedSpec {
+        key: "cultivation.hit",
+        slot: DerivedSlot::Hit,
+        attribute: Attribute::Agility,
+        base: BASE_HIT_PERMILLE,
+        per_point: HIT_PERMILLE_PER_AGILITY,
+        cap: Some(HIT_PERMILLE_CAP),
+        per_mille: true,
+    },
+    DerivedSpec {
+        key: "cultivation.evade",
+        slot: DerivedSlot::Evade,
+        attribute: Attribute::Agility,
+        base: BASE_EVADE_PERMILLE,
+        per_point: EVADE_PERMILLE_PER_AGILITY,
+        cap: Some(EVADE_PERMILLE_CAP),
+        per_mille: true,
+    },
+    DerivedSpec {
+        key: "cultivation.aptitude",
+        slot: DerivedSlot::Aptitude,
+        attribute: Attribute::Root,
+        base: 0,
+        per_point: APTITUDE_PER_ROOT,
+        cap: None,
+        per_mille: false,
+    },
+];
+
+/// Which of the nine numbers one line of the table fills.
+///
+/// Named rather than positional so that reordering the table cannot silently
+/// swap two numbers: the value a slot receives is written where the slot is
+/// named, and the compiler is the one that notices a mismatch.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DerivedSlot {
+    Attack,
+    Health,
+    Inner,
+    Spell,
+    Resist,
+    Speed,
+    Hit,
+    Evade,
+    Aptitude,
+}
+
+impl DerivedSlot {
+    /// The slot's place in the values the table fills.
+    const fn index(self) -> usize {
+        match self {
+            Self::Attack => 0,
+            Self::Health => 1,
+            Self::Inner => 2,
+            Self::Spell => 3,
+            Self::Resist => 4,
+            Self::Speed => 5,
+            Self::Hit => 6,
+            Self::Evade => 7,
+            Self::Aptitude => 8,
+        }
+    }
+}
+
+/// One line of the table above: which number it is and how it is computed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DerivedSpec {
+    key: &'static str,
+    slot: DerivedSlot,
+    attribute: Attribute,
+    base: i64,
+    per_point: i64,
+    cap: Option<i64>,
+    per_mille: bool,
+}
+
+impl DerivedSpec {
+    /// What the arithmetic yields for a set of attributes, before the ceiling.
+    fn computed(self, attributes: Attributes) -> i64 {
+        self.base + i64::from(self.attribute.of(attributes)) * self.per_point
+    }
+
+    /// The number the page shows: the arithmetic, held to the ceiling.
+    fn value(self, attributes: Attributes) -> u32 {
+        let computed = self.computed(attributes);
+        let held = match self.cap {
+            Some(cap) => computed.min(cap),
+            None => computed,
+        };
+        scaled(held)
+    }
+}
+
+impl Derived {
+    /// The nine numbers, filled from the one table that says how they are
+    /// computed.
+    ///
+    /// Every value comes from a line of [`DERIVED_SPECS`], and every line of
+    /// that table is read here — so the number a fight uses and the arithmetic
+    /// the page prints are the same arithmetic, read in the same place. There is
+    /// no second set of constants to drift.
+    fn from_table(attributes: Attributes) -> Self {
+        let mut values = [0u32; 9];
+        for spec in DERIVED_SPECS.iter() {
+            values[spec.slot.index()] = spec.value(attributes);
+        }
+        Self {
+            attack: values[DerivedSlot::Attack.index()],
+            health: values[DerivedSlot::Health.index()],
+            inner: values[DerivedSlot::Inner.index()],
+            spell: values[DerivedSlot::Spell.index()],
+            resist: values[DerivedSlot::Resist.index()],
+            speed: values[DerivedSlot::Speed.index()],
+            hit: values[DerivedSlot::Hit.index()],
+            evade: values[DerivedSlot::Evade.index()],
+            aptitude: values[DerivedSlot::Aptitude.index()],
+        }
+    }
+
+    /// The nine numbers with the arithmetic that produced each.
+    ///
+    /// The same order as [`Attributes::derived`] reads, so a surface that walks
+    /// the numbers once gets the value and the recipe that made it together.
+    pub fn breakdowns(self, attributes: Attributes) -> Vec<DerivedBreakdown> {
+        DERIVED_SPECS
+            .iter()
+            .map(|spec| {
+                let computed = spec.computed(attributes);
+                let held = match spec.cap {
+                    Some(cap) => computed.min(cap),
+                    None => computed,
+                };
+                DerivedBreakdown {
+                    key: spec.key,
+                    attribute: spec.attribute,
+                    attribute_value: spec.attribute.of(attributes),
+                    base: scaled(spec.base),
+                    per_point: u32::try_from(spec.per_point.max(0)).unwrap_or(u32::MAX),
+                    cap: spec.cap.map(scaled),
+                    computed: scaled(computed),
+                    result: scaled(held),
+                    per_mille: spec.per_mille,
+                }
+            })
+            .collect()
+    }
+}
 /// The floor every 攻击力 starts from, and what one point of 力量 adds.
 const BASE_ATTACK: i64 = 10;
 const ATTACK_PER_STRENGTH: i64 = 3;
@@ -519,26 +788,7 @@ impl Attributes {
     /// say exactly where a number came from and a change to a constant moves the
     /// panel and the fight together.
     pub fn derived(self) -> Derived {
-        let strength = i64::from(self.strength);
-        let mana = i64::from(self.mana);
-        let agility = i64::from(self.agility);
-        let root = i64::from(self.root);
-        Derived {
-            attack: scaled(BASE_ATTACK + strength * ATTACK_PER_STRENGTH),
-            health: scaled(BASE_HEALTH + strength * HEALTH_PER_STRENGTH),
-            inner: scaled(BASE_INNER + root * INNER_PER_ROOT),
-            spell: scaled(mana * SPELL_PER_MANA),
-            resist: scaled(mana * RESIST_PER_MANA),
-            speed: scaled(BASE_SPEED + agility * SPEED_PER_AGILITY),
-            hit: scaled(
-                (BASE_HIT_PERMILLE + agility * HIT_PERMILLE_PER_AGILITY).min(HIT_PERMILLE_CAP),
-            ),
-            evade: scaled(
-                (BASE_EVADE_PERMILLE + agility * EVADE_PERMILLE_PER_AGILITY)
-                    .min(EVADE_PERMILLE_CAP),
-            ),
-            aptitude: scaled(root * APTITUDE_PER_ROOT),
-        }
+        Derived::from_table(self)
     }
 }
 
@@ -565,16 +815,6 @@ pub enum Discipline {
 impl Discipline {
     /// Every dimension, in the order the page draws them.
     pub const ALL: [Self; 4] = [Self::Practice, Self::Wander, Self::Fight, Self::Fortune];
-
-    /// The catalog key naming this dimension.
-    pub const fn key(self) -> &'static str {
-        match self {
-            Self::Practice => "cultivation.discipline.practice",
-            Self::Wander => "cultivation.discipline.wander",
-            Self::Fight => "cultivation.discipline.fight",
-            Self::Fortune => "cultivation.discipline.fortune",
-        }
-    }
 }
 
 /// What one step of a dimension is worth, in parts per thousand of the growth it
@@ -675,48 +915,6 @@ pub fn growth_permille(realm: Realm, rank: u8, walks: u32, wins: u32, harvests: 
         .sum::<u32>()
         .min(TOTAL_BONUS_CAP_PERMILLE);
     1_000 + bonus
-}
-
-/// One dimension as a surface reads it.
-///
-/// `progress_permille` is how far the dimension has come toward its own cap,
-/// which is the bar the page draws: it is already clamped, so a surface never has
-/// to divide by a cap that could be zero.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DisciplineView {
-    pub discipline: Discipline,
-    /// What this dimension adds on top of a flat session, in parts per thousand.
-    pub bonus_permille: u32,
-    /// The most it could add in this realm.
-    pub cap_permille: u32,
-    pub progress_permille: u32,
-}
-
-impl DisciplineView {
-    /// The four dimensions as the cultivator stands now.
-    pub fn of(realm: Realm, rank: u8, walks: u32, wins: u32, harvests: u32) -> [Self; 4] {
-        let feeds = [
-            (Discipline::Practice, rank, 0),
-            (Discipline::Wander, 0, walks),
-            (Discipline::Fight, 0, wins),
-            (Discipline::Fortune, 0, harvests),
-        ];
-        feeds.map(|(discipline, rank, actions)| {
-            let bonus_permille = discipline_bonus(discipline, rank, actions, realm);
-            let cap_permille = discipline_cap(discipline, realm);
-            Self {
-                discipline,
-                bonus_permille,
-                cap_permille,
-                // A dimension with no cap left reads as no progress rather than
-                // as a division by zero: the bar is the whole point of the view.
-                progress_permille: bonus_permille
-                    .saturating_mul(1_000)
-                    .checked_div(cap_permille)
-                    .unwrap_or(0),
-            }
-        })
-    }
 }
 
 /// Scale a growth figure by a [`growth_permille`] multiplier.

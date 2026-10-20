@@ -240,6 +240,106 @@ fn a_free_attempt_is_fought_with_one_click(cx: &mut TestAppContext) {
     );
 }
 
+/// A walk that is not owed is still offered, and asking for one anyway reaches
+/// the worker: the page says why it is refused rather than pretending the
+/// button was never there.
+#[gpui_kit::test]
+fn a_walk_that_is_not_owed_is_still_offered_and_asks(cx: &mut TestAppContext) {
+    let mut cultivation = at_the_cap();
+    cultivation.exploration_ready = false;
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-explore-attempt"),
+        "the walk must be offered whether or not one is owed"
+    );
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-explore-attempt", cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(commands.as_slice(), [PomodoroCommand::Explore]),
+        "the click asks the worker anyway, and the worker refuses it: {commands:?}"
+    );
+}
+
+/// A refused action is said out loud.
+///
+/// The domain records why; the page has to show it. A click that does nothing
+/// without a word is a button the user reads as broken, so the refusal count is
+/// watched and the reason is turned into an error the user can read.
+#[gpui_kit::test]
+fn a_refused_action_is_reported_to_the_user(cx: &mut TestAppContext) {
+    let mut cultivation = at_the_cap();
+    cultivation.refusal_count = 1;
+    cultivation.last_refusal = Some(bongocat_pomodoro::Refusal::ExploreCooldown);
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (view, visual) = cultivation_page_with(cx, pomodoro);
+    // The refusal is only noticed on the cultivation page: that is where a
+    // purchase or a walk can be refused in the first place.
+    view.update(visual, |view, _| {
+        view.navigation_memory
+            .select(SettingsNavigationPage::Cultivation)
+    });
+    view.update(visual, |view, cx| view.poll_pomodoro(cx));
+    let reported = view.update(visual, |view, _| {
+        view.cultivation_refusal_pending
+            .map(|(refusal, _)| refusal.key())
+    });
+    assert_eq!(
+        reported,
+        Some("cultivation.explore.refuse_cooldown"),
+        "the refusal has to be reported with its reason"
+    );
+}
+
+/// The arithmetic behind a derived number is on the page.
+///
+/// The value beside it can be checked by hand only if the sum that produced it
+/// is shown, so the hover carries the base, the attribute it reads, what one
+/// point of that attribute adds, and the ceiling it was held to.
+#[gpui_kit::test]
+fn a_derived_number_shows_the_sum_behind_it(cx: &mut TestAppContext) {
+    let clock = cx.dispatcher.clone();
+    let cultivation = at_the_cap();
+    let attack = *cultivation
+        .derived_breakdowns
+        .iter()
+        .find(|breakdown| breakdown.key == "cultivation.attack")
+        .expect("the attack number has an arithmetic behind it");
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-derived-attack"),
+        "the attack chip must be on the page"
+    );
+    let hint = "cultivation-hint-cultivation.attack-body";
+    assert!(
+        !painted(visual, hint),
+        "the arithmetic is not shown until the pointer arrives"
+    );
+
+    visual.update(|window, cx| window.hover(ElementId::from("cultivation-derived-attack"), cx));
+    clock.advance_clock(Duration::from_millis(500));
+    visual.run_until_parked();
+    visual.update(|window, cx| window.render_frame(cx));
+
+    assert!(
+        painted(visual, hint),
+        "hovering a derived number must show the sum behind it"
+    );
+    // The numbers on the card are the ones the domain computed: a card that
+    // showed a different sum would be worse than no card at all.
+    assert_eq!(
+        attack.result,
+        attack.base + attack.attribute_value.max(0) as u32 * attack.per_point,
+        "the card shows the sum the domain ran"
+    );
+}
+
 /// The smoke a scripted run paints the ladder with reads the same snapshot the
 /// page does, so the empty ladder a worker-less client serves has to pass: it
 /// is a ladder, at realm one, layer zero, rank one.
@@ -313,14 +413,15 @@ fn walk_report() -> DuelReport {
     }
 }
 
-/// The four disciplines, their total, and the fight record are all on the page.
+/// What the next pomodoro is worth, and the fight record, are on the page.
 ///
-/// Both sections exist to turn a number the user cannot move into numbers they
-/// can: a page that drew neither would still say what a pomodoro pays, and
-/// nothing about how it got there. So the save handed to the page has trained all
-/// four dimensions and fought a few fights, and every part has to be on screen.
+/// The growth line is the one number the user is chasing, so the page says it
+/// as a number rather than as a percentage: the four dimensions that decide it
+/// are not shown, and a multiplier the user cannot see is a multiplier the user
+/// cannot move. The record is beside it because a page that only said what a
+/// pomodoro pays would say nothing about what this save has been through.
 #[gpui_kit::test]
-fn the_page_draws_the_disciplines_and_the_record(cx: &mut TestAppContext) {
+fn the_page_draws_the_next_session_worth_and_the_record(cx: &mut TestAppContext) {
     let cultivation = Cultivation::new(CultivationDocument {
         growth: threshold_for(LAYERS_PER_STAGE),
         explorations: 20,
@@ -347,16 +448,21 @@ fn the_page_draws_the_disciplines_and_the_record(cx: &mut TestAppContext) {
             art: None,
             gear: Some("青锋".to_owned()),
             seed: None,
+            stones: None,
         }),
         ..CultivationDocument::default()
     })
     .view();
+    assert!(
+        cultivation.next_session_growth > 0,
+        "the page has a number to show: {}",
+        cultivation.next_session_growth
+    );
     let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
     let (_view, visual) = cultivation_page_with(cx, pomodoro);
     visual.update(|window, cx| window.render_frame(cx));
     for id in [
-        "cultivation-disciplines",
-        "cultivation-disciplines-total",
+        "cultivation-next-session-growth",
         "cultivation-record",
         "cultivation-record-duel-0",
         "cultivation-record-duel-1",
@@ -401,19 +507,52 @@ fn the_page_draws_the_market_with_a_shelf(cx: &mut TestAppContext) {
 }
 
 /// The two layer explanations the page is most often misread without: the
-/// disciplines and the two schools.
+/// schools and the derived numbers.
 ///
-/// Both exist for the same reason — four attributes, four disciplines, two
-/// schools and eight derived numbers on one page read as one pile of numbers
-/// unless something says which layer each belongs to.
+/// Both exist for the same reason — four attributes, two schools and eight
+/// derived numbers on one page read as one pile of numbers unless something
+/// says which layer each belongs to. The derived numbers also carry the
+/// arithmetic that produced them, so the sum can be checked by hand.
 #[gpui_kit::test]
 fn the_page_explains_which_layer_each_number_belongs_to(cx: &mut TestAppContext) {
     let cultivation = Cultivation::new(CultivationDocument::default()).view();
+    assert!(
+        !cultivation.derived_breakdowns.is_empty(),
+        "the page has an arithmetic to show behind each number"
+    );
     let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
     let (_view, visual) = cultivation_page_with(cx, pomodoro);
     visual.update(|window, cx| window.render_frame(cx));
-    assert!(painted(visual, "cultivation-disciplines"));
     assert!(painted(visual, "cultivation-power-schools"));
+    assert!(painted(visual, "cultivation-derived-attack"));
+}
+
+/// A learned 功法 is on the page in its own panel.
+///
+/// The two lists are kept apart because they are sold differently: a book is
+/// still being trained and can be sold, a learned 功法 is kept for good. A page
+/// that showed them in one list would make the second look like the first.
+#[gpui_kit::test]
+fn the_page_draws_the_learned_arts_in_their_own_panel(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        mastered_arts: vec![1, 3],
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-mastered-arts"),
+        "the learned 功法 have their own panel"
+    );
+    for id in [
+        "cultivation-mastered-art-1",
+        "cultivation-mastered-art-3",
+        "cultivation-mastered-art-detail-1",
+    ] {
+        assert!(painted(visual, id), "the page must draw {id}");
+    }
 }
 
 /// The popup mounted on its own.

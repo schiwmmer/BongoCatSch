@@ -30,6 +30,10 @@ pub enum TradeRefusal {
     /// The 功法 being trained cannot be sold: the 修炼 dimension reads it, and a
     /// dimension reading a thing that is no longer there is a save that lies.
     Training,
+    /// The 功法 is already owned or already learned, so there is nothing to
+    /// buy: a second copy of a 功法 the cultivator has is not a thing the page
+    /// could say anything true about.
+    AlreadyOwned,
 }
 
 impl TradeRefusal {
@@ -42,6 +46,7 @@ impl TradeRefusal {
             Self::NotOwned => "cultivation.shop.refuse_owned",
             Self::Equipped => "cultivation.shop.refuse_equipped",
             Self::Training => "cultivation.shop.refuse_training",
+            Self::AlreadyOwned => "cultivation.shop.refuse_already",
         }
     }
 }

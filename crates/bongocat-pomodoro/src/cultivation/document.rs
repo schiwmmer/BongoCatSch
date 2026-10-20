@@ -90,8 +90,28 @@ pub struct CultivationDocument {
     /// Only the id, the 阶 and the banked progress are stored: everything else
     /// about a 功法 is rebuilt from its id, so a save cannot drift from the
     /// catalog and a 功法 the user has never met costs nothing.
+    ///
+    /// These are the **功法书** — the books the cultivator is still learning
+    /// from. A book that has been trained to 圆满 leaves this list and becomes
+    /// an entry in [`Self::mastered_arts`]; see that field for why.
     #[serde(default)]
     pub arts: Vec<OwnedArt>,
+    /// The 功法 the cultivator has learned outright, named by id.
+    ///
+    /// A 功法 that reaches 圆满 stops being a book and becomes a thing the
+    /// cultivator knows: it leaves [`Self::arts`] and is written down here
+    /// instead. The two are kept apart on purpose. A book can be sold, and
+    /// selling one must not take the 功法 it taught with it — otherwise the
+    /// attributes a completed 内功 pays would be lost the moment the user
+    /// tidied up their shelf. And a book is what a 功法 is learned *from*: with
+    /// no book there is nothing to train, which is why the training list and
+    /// the learned list cannot be the same list.
+    ///
+    /// Stored by id alone, because a learned 功法 is complete: its 阶 is its
+    /// grade's last one and its progress is nothing, both of which the id
+    /// rebuilds exactly.
+    #[serde(default)]
+    pub mastered_arts: Vec<u64>,
     /// The 功法 the next finished pomodoro trains, if one is chosen.
     #[serde(default)]
     pub selected_art: Option<u64>,
@@ -219,6 +239,27 @@ impl CultivationDocument {
                 art.progress = 0;
             }
         }
+        // A 功法 that has reached its last 阶 is no longer a book: it is one the
+        // cultivator knows. This is where a save written before the two lists
+        // were split moves its finished 功法 across, so an old save reads as
+        // having learned what it had in fact finished rather than as still
+        // carrying a book it has already read to the end.
+        let mut mastered: Vec<u64> = Vec::with_capacity(self.mastered_arts.len());
+        for id in self.mastered_arts.drain(..) {
+            if (1..=ART_COUNT).contains(&id) && !mastered.contains(&id) {
+                mastered.push(id);
+            }
+        }
+        self.arts.retain(|art| {
+            if art.rank < blueprint(art.art_id).grade.ranks() {
+                return true;
+            }
+            if !mastered.contains(&art.art_id) {
+                mastered.push(art.art_id);
+            }
+            false
+        });
+        self.mastered_arts = mastered;
         if self
             .selected_art
             .is_some_and(|id| !self.arts.iter().any(|art| art.art_id == id))

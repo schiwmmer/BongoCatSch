@@ -127,6 +127,12 @@ struct SettingsServiceErrorNotification;
 
 struct ShortcutConflictNotification;
 
+/// Marks the notification pushed when a cultivation action was refused.
+///
+/// Its own marker rather than the service error's, so a refusal does not
+/// replace a message the user is still reading about something else.
+struct CultivationRefusalNotification;
+
 /// Marks the notification pushed when the model catalog cannot be read.
 ///
 /// A notification is a prompt, and a catalog that stays unreadable would repeat
@@ -322,6 +328,16 @@ pub struct SettingsView {
     /// yet, with the count of that action at the moment it was asked for: the
     /// count is what tells an answered command from a running pomodoro's tick.
     pub(crate) cultivation_duel_pending: Option<(CultivationDuelSource, u32)>,
+    /// A refused cultivation action waiting to be shown as an error, and the
+    /// refusal count it was seen at.
+    ///
+    /// The count is what tells a *new* refusal from the one already sitting in
+    /// the snapshot: the same reason refused twice is two messages, and one
+    /// reason sitting there is one message said once.
+    pub(crate) cultivation_refusal_pending: Option<(bongocat_pomodoro::Refusal, u32)>,
+    /// The refusal count the page has already shown, so a new one can be told
+    /// from the last.
+    pub(crate) cultivation_refusal_seen: u32,
     pub(crate) seed: SettingsWindowSeed,
     pub(crate) snapshot: Option<SettingsSnapshot>,
     pub(crate) pending: Option<PendingOperation>,

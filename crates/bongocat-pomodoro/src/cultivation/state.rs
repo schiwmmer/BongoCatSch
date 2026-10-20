@@ -15,17 +15,19 @@ use std::array;
 
 use super::{
     ART_COUNT, ArtGrade, ArtKind, ArtOutcome, ArtStrike, ArtView, Attribute, Attributes,
-    BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport, CultivationDocument, Derived, DisciplineView,
+    BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport, CultivationDocument, Derived, DerivedBreakdown,
     DuelReport, EQUIPMENT_DROP_PERMILLE, EXPLORATION_COOLDOWN_SECONDS, EquipSlot, EquipmentRecord,
-    ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, Guardian, MAX_LEVEL, OwnedArt, PLAYER_NAME,
-    PLOT_COUNT, Rarity, Realm, Rng, SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack,
-    VICTORY_SEED_PERMILLE, absence_penalty, art_attributes, art_view,
-    arts::{blueprint, train},
+    ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, Guardian, MAX_LEVEL, MasteredArtView,
+    OwnedArt, PLAYER_NAME, PLOT_COUNT, Rarity, Realm, Refusal, Rng, SEED_DROP_PERMILLE, SLOT_COUNT,
+    SeedStack, VICTORY_SEED_PERMILLE, absence_penalty, art_attributes, art_view,
+    arts::{blueprint, mastered_art_attributes, mastered_art_view, train},
     base_attributes,
     battle::{guardian_fighter, guardian_for, resolve, wanderer_fighter},
     curve::{layer_rank, level_for_growth, stage_floor, threshold_for},
     duel::{DUEL_RECORD_CAP, DuelRecord, FightKind, duel},
-    explore::{WalkRecord, breakthrough_ready, exploration_ready, roll_victory, roll_walk},
+    explore::{
+        WalkRecord, breakthrough_ready, exploration_ready, roll_stones, roll_victory, roll_walk,
+    },
     garden::{CropRecord, harvest_points, seed_name, seed_return},
     growth_permille,
     items::roll_equipment,
@@ -34,7 +36,6 @@ use super::{
     trade::TradeRefusal,
 };
 use crate::CalendarDay;
-use crate::calendar::SECONDS_PER_DAY;
 
 /// What the absence evaluation took, if anything.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -166,17 +167,33 @@ pub enum DropView {
     Seed { attribute: Attribute, tier: u8 },
 }
 
-/// One thing a walk turned up, as a surface reads it.
+/// What one walk turned up, as a surface reads it.
 ///
-/// A walk is the only source that pays all three kinds at once, so its find is
+/// A walk is the only source that pays every kind at once, so its find is
 /// carried whole rather than reduced to the outcome's name: the panel can say
-/// which herb, which piece and which 功法 came of it.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ExplorationFindView {
-    Seed(SeedView),
-    Gear(ItemView),
-    /// A 功法, by the name it was given.
-    Art(String),
+/// which herb, which piece, which 功法 and how much money came of it.
+///
+/// A struct rather than one-of, because the rolls are not exclusive: 灵石 is
+/// drawn beside the finding rather than in place of it, so a walk can come
+/// back with a herb and a handful of stones both, and a find that could only
+/// hold one would have to drop the other on the floor.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ExplorationFindView {
+    /// The herb it turned up, when it turned one up.
+    pub seed: Option<SeedView>,
+    /// The gear it turned up, when it turned some up.
+    pub gear: Option<ItemView>,
+    /// The 功法 it turned up, by the name it was given.
+    pub art: Option<String>,
+    /// The 灵石 it turned up, when it turned any up.
+    pub stones: Option<u32>,
+}
+
+impl ExplorationFindView {
+    /// Whether the walk came back with nothing at all.
+    pub fn is_empty(&self) -> bool {
+        self.seed.is_none() && self.gear.is_none() && self.art.is_none() && self.stones.is_none()
+    }
 }
 
 /// Everything a surface reads in one value.
@@ -219,7 +236,16 @@ pub struct CultivationView {
     /// The seed the most recent harvest gave back, if it gave one.
     pub last_seed_return: Option<SeedView>,
     /// Every 功法 owned, with the blueprint folded in.
+    ///
+    /// These are the **功法书**: the ones still being trained. A 功法 that has
+    /// been trained to 圆满 is not in this list — it is in
+    /// [`Self::mastered_arts`] instead.
     pub arts: Vec<ArtView>,
+    /// Every 功法 learned outright, with the blueprint folded in.
+    ///
+    /// Kept apart from [`Self::arts`] because the two are sold differently: a
+    /// book can be sold, and what it taught cannot be taken back by selling it.
+    pub mastered_arts: Vec<MasteredArtView>,
     /// What the trained 内功 have paid in total.
     pub art_attributes: Attributes,
     /// The 功法 the next finished pomodoro trains.
@@ -245,18 +271,36 @@ pub struct CultivationView {
     pub breakthrough_attempts: u32,
     /// How many walks have been taken so far.
     pub explorations: u32,
-    /// The four disciplines, as the page's four bars draw them.
-    pub disciplines: [DisciplineView; 4],
-    /// What one finished session is worth right now, in parts per thousand of
-    /// the flat growth. The page prints this next to the bars so the number the
-    /// user is chasing is the number the ladder will pay.
-    pub growth_multiplier_permille: u32,
+    /// What the next finished session pays, in growth.
+    ///
+    /// A number rather than a percentage: the four disciplines that decide it
+    /// are not shown, so a multiplier would be a rule the user cannot see and
+    /// cannot move. This is what the next pomodoro is actually worth, and it is
+    /// the number the ladder moves by.
+    pub next_session_growth: u32,
+    /// The eight shown numbers and the arithmetic behind each of them.
+    ///
+    /// Carried whole so a hover can print the very sum that produced the
+    /// number beside it: the base, the attribute it reads, what one point of it
+    /// adds and what the ceiling held it to.
+    pub derived_breakdowns: Vec<DerivedBreakdown>,
     /// The fights fought, newest first.
     pub duel_record: Vec<DuelRecord>,
     /// What the last walk settled, kept past the quit that ended its popup.
     pub last_walk: Option<WalkRecord>,
     /// The 灵石 in the purse.
     pub stones: u32,
+    /// Why the last refused action was refused, if one was.
+    ///
+    /// The page shows this as an error rather than swallowing it: a click that
+    /// does nothing has to say why, or the user reads the button as broken.
+    pub last_refusal: Option<Refusal>,
+    /// How many actions have been refused so far.
+    ///
+    /// A count rather than a flag, because the surface watches it to know a
+    /// *new* refusal happened: the same reason refused twice is two messages,
+    /// and one reason refused twice is one message said twice.
+    pub refusal_count: u32,
     /// The day this view was read for.
     ///
     /// Carried because the shelf is rolled from the day: a surface that worked the
@@ -317,6 +361,17 @@ pub struct Cultivation {
     /// second, so "the revision moved" cannot tell a new fight from a running
     /// timer.
     breakthrough_attempts: u32,
+    /// Why the last refused action was refused, if one was.
+    ///
+    /// Kept beside the document rather than in it: a refusal is a moment, not
+    /// a fact worth keeping, and it is written back only so a surface can say
+    /// it out loud.
+    last_refusal: Option<Refusal>,
+    /// How many actions have been refused so far.
+    ///
+    /// Monotonic, so a surface can tell a *new* refusal from the same reason
+    /// sitting in the snapshot since the last time it looked.
+    refusal_count: u32,
 }
 
 impl Default for Cultivation {
@@ -340,6 +395,8 @@ impl Cultivation {
             last_exploration: None,
             last_exploration_found: None,
             breakthrough_attempts: 0,
+            last_refusal: None,
+            refusal_count: 0,
         }
     }
 
@@ -394,8 +451,23 @@ impl Cultivation {
     }
 
     /// The attributes every trained 内功 has paid.
+    ///
+    /// The books still being trained and the 功法 already learned are counted
+    /// apart and then added: the books pay what their 阶 have paid, the learned
+    /// ones pay their full mastery, and neither counts the other's.
     pub fn art_attributes(&self) -> Attributes {
         art_attributes(&self.document.arts)
+            .plus(mastered_art_attributes(&self.document.mastered_arts))
+    }
+
+    /// Record why an action was refused, so a surface can say it out loud.
+    ///
+    /// The count moves with it, which is what lets a surface notice a *new*
+    /// refusal rather than re-announcing the reason that has been sitting in
+    /// the snapshot since the last time it looked.
+    pub(crate) fn note_refusal(&mut self, refusal: Refusal) {
+        self.last_refusal = Some(refusal);
+        self.refusal_count = self.refusal_count.saturating_add(1);
     }
 
     /// The points the peak level has paid so far.
@@ -560,6 +632,11 @@ impl Cultivation {
     ///
     /// 潜质 is what decides how often the attempt lands, so a 根骨 build learns
     /// faster — the same knob the panel promises when it shows 潜质.
+    ///
+    /// A 功法 that reaches its last 阶 leaves the books and joins the learned
+    /// ones: it is no longer something being trained, and the attributes it
+    /// pays are paid from then on whether or not its book is still on the
+    /// shelf.
     fn train_selected(&mut self, now_unix: i64) {
         let Some(art_id) = self.document.selected_art else {
             return;
@@ -576,6 +653,20 @@ impl Cultivation {
         };
         let outcome = train(art, aptitude, &mut rng);
         let rank = art.rank;
+        let max_rank = blueprint(art_id).grade.ranks();
+        if outcome == ArtOutcome::Mastered && rank >= max_rank {
+            // The book has been read to the end: it stops being a book. The
+            // learned 功法 is written down in its own list so that selling the
+            // book cannot take what it taught with it.
+            self.document.arts.retain(|art| art.art_id != art_id);
+            if !self.document.mastered_arts.contains(&art_id) {
+                self.document.mastered_arts.push(art_id);
+            }
+            // Nothing is being trained any more, so the selection goes with it.
+            if self.document.selected_art == Some(art_id) {
+                self.document.selected_art = None;
+            }
+        }
         self.last_training = Some(TrainingView {
             art_id,
             name: blueprint(art_id).name,
@@ -600,6 +691,10 @@ impl Cultivation {
     /// Returns whether anything was gained: every 功法 of the asked-for grade is
     /// already owned, the next grade down is tried, and only a cultivator who
     /// owns all five hundred walks away with nothing.
+    ///
+    /// A 功法 that has already been learned outright is not given again: it is
+    /// known, and a second book of it would be a thing the page could not say
+    /// anything true about.
     pub fn grant_art(&mut self, grade: ArtGrade, now_unix: i64) -> Option<ArtView> {
         let mut rng = self.rng(now_unix);
         for grade in ArtGrade::ALL.iter().rev().skip_while(|g| **g != grade) {
@@ -607,6 +702,7 @@ impl Cultivation {
                 .filter(|id| {
                     blueprint(*id).grade == *grade
                         && !self.document.arts.iter().any(|art| art.art_id == *id)
+                        && !self.document.mastered_arts.contains(id)
                 })
                 .collect();
             if unowned.is_empty() {
@@ -629,6 +725,39 @@ impl Cultivation {
             ));
         }
         None
+    }
+
+    /// Give the cultivator the book for one named 功法.
+    ///
+    /// The counterpart to [`Self::grant_art`]: a walk or a fight pays a 功法
+    /// nobody chose, while the market stocks a specific one and sells that one.
+    /// A book the cultivator already has, or a 功法 they have already learned,
+    /// is not given again — the shelf names a 功法, and handing over a second
+    /// copy of one they already hold would be a market that sells what it does
+    /// not show.
+    pub(crate) fn grant_art_book(&mut self, art_id: u64) -> Option<ArtView> {
+        if !(1..=ART_COUNT).contains(&art_id) {
+            return None;
+        }
+        if self.document.arts.iter().any(|art| art.art_id == art_id)
+            || self.document.mastered_arts.contains(&art_id)
+        {
+            return None;
+        }
+        self.document.arts.push(OwnedArt {
+            art_id,
+            rank: 1,
+            progress: 0,
+            outcome: None,
+        });
+        if self.document.selected_art.is_none() {
+            self.document.selected_art = Some(art_id);
+        }
+        Some(art_view(
+            self.document.arts.last()?,
+            self.attributes().derived().aptitude,
+            true,
+        ))
     }
 
     /// Remember a new high-water mark for the level.
@@ -935,6 +1064,11 @@ impl Cultivation {
 
     /// The 外功 the cultivator brings to a fight: the one being trained if it is
     /// an 外功, otherwise the deepest one owned.
+    ///
+    /// A learned 外功 counts as well: it was learned to the end, so it swings
+    /// with its full mastery however long ago that was. The books still being
+    /// trained are what the training itself is measured against, so they are
+    /// offered first.
     fn strike(&self) -> Option<ArtStrike> {
         let arts: Vec<(u64, u8)> = self
             .document
@@ -942,6 +1076,13 @@ impl Cultivation {
             .iter()
             .filter(|owned| blueprint(owned.art_id).kind == ArtKind::External)
             .map(|owned| (owned.art_id, owned.rank))
+            .collect();
+        let learned: Vec<(u64, u8)> = self
+            .document
+            .mastered_arts
+            .iter()
+            .filter(|id| blueprint(**id).kind == ArtKind::External)
+            .map(|id| (*id, blueprint(*id).grade.ranks()))
             .collect();
         let pick = self
             .document
@@ -951,12 +1092,23 @@ impl Cultivation {
                 arts.iter()
                     .max_by_key(|(_, rank)| *rank)
                     .map(|(art_id, _)| *art_id)
+            })
+            .or_else(|| {
+                learned
+                    .iter()
+                    .max_by_key(|(_, rank)| *rank)
+                    .map(|(art_id, _)| *art_id)
             })?;
         let art = blueprint(pick);
-        let rank = arts
-            .iter()
-            .find(|(art_id, _)| *art_id == pick)
-            .map_or(1, |(_, rank)| *rank);
+        let rank = arts.iter().find(|(art_id, _)| *art_id == pick).map_or_else(
+            || {
+                learned
+                    .iter()
+                    .find(|(art_id, _)| *art_id == pick)
+                    .map_or(1, |(_, rank)| *rank)
+            },
+            |(_, rank)| *rank,
+        );
         Some(ArtStrike {
             name: art.name,
             multiplier_permille: art.multiplier_permille,
@@ -1035,11 +1187,14 @@ impl Cultivation {
 
     /// Walk out of the door once every twelve hours.
     ///
-    /// Returns `None` while the walk is still on cooldown. A walk that meets
-    /// someone settles that fight the same way a breakthrough does, and losing it
-    /// costs nothing but the walk.
+    /// Returns `None` while the walk is still on cooldown, and says why in
+    /// [`Self::last_refusal`] so the page can show it: a button that does
+    /// nothing has to say that it is cooling down rather than look broken. A
+    /// walk that meets someone settles that fight the same way a breakthrough
+    /// does, and losing it costs nothing but the walk.
     pub fn explore(&mut self, now_unix: i64) -> Option<ExplorationOutcome> {
         if !exploration_ready(self.document.last_exploration_unix, now_unix) {
+            self.note_refusal(Refusal::ExploreCooldown);
             return None;
         }
         self.document.last_exploration_unix = Some(now_unix);
@@ -1049,44 +1204,42 @@ impl Cultivation {
         let mut rng = self.rng(now_unix);
         let mut outcome = roll_walk(&mut rng);
         let tier = self.realm().index() as u8 + 1;
-        let mut found = None;
+        let mut found = ExplorationFindView::default();
         match outcome {
             ExplorationOutcome::Seed => {
                 let attribute =
                     Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
-                found = Some(ExplorationFindView::Seed(
-                    self.push_seed(attribute, tier, &mut rng),
-                ));
+                found.seed = Some(self.push_seed(attribute, tier, &mut rng));
             }
             ExplorationOutcome::Gear => {
                 let item = self.push_equipment(tier, &mut rng);
-                found = Some(ExplorationFindView::Gear(self.item_view(&item)));
+                found.gear = Some(self.item_view(&item));
             }
             ExplorationOutcome::Art => {
-                let art = self.grant_art(art_grade_for_realm(self.realm()), now_unix);
-                found = art.map(|art| ExplorationFindView::Art(art.name));
+                found.art = self
+                    .grant_art(art_grade_for_realm(self.realm()), now_unix)
+                    .map(|art| art.name);
             }
             ExplorationOutcome::Victory => {
                 let duel = duel(self.fighter(), wanderer_fighter(self.realm()), &mut rng);
                 outcome = if duel.won {
                     match roll_victory(&mut rng) {
                         ExplorationOutcome::Art => {
-                            let art = self.grant_art(art_grade_for_realm(self.realm()), now_unix);
-                            found = art.map(|art| ExplorationFindView::Art(art.name));
+                            found.art = self
+                                .grant_art(art_grade_for_realm(self.realm()), now_unix)
+                                .map(|art| art.name);
                             ExplorationOutcome::Victory
                         }
                         ExplorationOutcome::Gear => {
                             let item = self.push_equipment(tier, &mut rng);
-                            found = Some(ExplorationFindView::Gear(self.item_view(&item)));
+                            found.gear = Some(self.item_view(&item));
                             ExplorationOutcome::Victory
                         }
                         ExplorationOutcome::Seed => {
                             let attribute = Attribute::from_index(
                                 rng.below(Attribute::ALL.len() as u64) as usize,
                             );
-                            found = Some(ExplorationFindView::Seed(
-                                self.push_seed(attribute, tier, &mut rng),
-                            ));
+                            found.seed = Some(self.push_seed(attribute, tier, &mut rng));
                             ExplorationOutcome::Victory
                         }
                         _ => ExplorationOutcome::Victory,
@@ -1097,7 +1250,30 @@ impl Cultivation {
                 self.record_duel(duel.won, FightKind::Wanderer, now_unix);
                 self.last_exploration_duel = Some(duel);
             }
-            ExplorationOutcome::Defeat | ExplorationOutcome::Nothing => {}
+            ExplorationOutcome::Defeat
+            | ExplorationOutcome::Nothing
+            | ExplorationOutcome::Stones => {}
+        }
+        // 灵石 are rolled beside the finding rather than in place of it: a walk
+        // can come back with a herb and a handful of stones both, and the purse
+        // is fed by walking rather than only by working.
+        //
+        // A walk that was beaten pays nothing at all: the fight decided the
+        // walk, and a purse that filled up on a defeat would make being beaten
+        // a way of earning.
+        let stones = if outcome == ExplorationOutcome::Defeat {
+            None
+        } else {
+            roll_stones(&mut rng)
+        };
+        if let Some(amount) = stones {
+            self.document.stones = self.document.stones.saturating_add(amount);
+            found.stones = Some(amount);
+            // A walk that turned up stones and nothing else reads as having
+            // turned up stones, not as having turned up nothing.
+            if outcome == ExplorationOutcome::Nothing {
+                outcome = ExplorationOutcome::Stones;
+            }
         }
         // The settlement is written before the popup is shown and outlives it: the
         // popup is forgotten at quit, the page's record is not.
@@ -1105,21 +1281,13 @@ impl Cultivation {
             at_unix: now_unix,
             realm: self.realm().index() as u8,
             outcome,
-            art: match &found {
-                Some(ExplorationFindView::Art(name)) => Some(name.clone()),
-                _ => None,
-            },
-            gear: match &found {
-                Some(ExplorationFindView::Gear(item)) => item.name.clone(),
-                _ => None,
-            },
-            seed: match &found {
-                Some(ExplorationFindView::Seed(seed)) => seed.name.clone(),
-                _ => None,
-            },
+            art: found.art.clone(),
+            gear: found.gear.as_ref().and_then(|item| item.name.clone()),
+            seed: found.seed.as_ref().and_then(|seed| seed.name.clone()),
+            stones,
         });
         self.last_exploration = Some(outcome);
-        self.last_exploration_found = found;
+        self.last_exploration_found = Some(found);
         Some(outcome)
     }
 
@@ -1135,13 +1303,20 @@ impl Cultivation {
     /// Read the snapshot a surface renders, without a clock.
     ///
     /// Only the tests reach for this: a surface has a clock and asks for
-    /// [`Self::view_at`], so the cooldowns it reads are the real ones.
+    /// [`Self::view_on`], so the cooldowns it reads are the real ones.
     pub fn view(&self) -> CultivationView {
-        self.view_at(0)
+        self.view_on(0, 0)
     }
 
     /// Read the snapshot a surface renders.
-    pub fn view_at(&self, now_unix: i64) -> CultivationView {
+    ///
+    /// The local day is passed in rather than derived from the timestamp,
+    /// because the day is a local one: the session counter resets on it, and
+    /// the shelf is rolled from it. A surface that worked the day out for
+    /// itself could be a timezone's worth of hours out — which would show
+    /// yesterday's shelf and price the next pomodoro as the second of the day
+    /// when it is really the first.
+    pub fn view_on(&self, now_unix: i64, day: i64) -> CultivationView {
         let realm = self.realm();
         let level = self.level();
         let said = layer_rank(level);
@@ -1158,6 +1333,7 @@ impl Cultivation {
             .plus(allocated_attributes)
             .plus(art_attributes);
         let aptitude = attributes.derived().aptitude;
+        let derived = attributes.derived();
         let arts: Vec<ArtView> = self
             .document
             .arts
@@ -1169,6 +1345,12 @@ impl Cultivation {
                     self.document.selected_art == Some(art.art_id),
                 )
             })
+            .collect();
+        let mastered_arts: Vec<MasteredArtView> = self
+            .document
+            .mastered_arts
+            .iter()
+            .map(|id| mastered_art_view(*id))
             .collect();
         let mut equipped: [Option<ItemView>; SLOT_COUNT] = array::from_fn(|_| None);
         let mut inventory = Vec::new();
@@ -1208,7 +1390,7 @@ impl Cultivation {
             floor,
             next,
             attributes,
-            derived: attributes.derived(),
+            derived,
             level_attributes,
             equipment_attributes,
             crop_attributes,
@@ -1254,6 +1436,7 @@ impl Cultivation {
             }),
             last_seed_return: self.last_seed_return.clone(),
             arts,
+            mastered_arts,
             selected_art: self.document.selected_art,
             last_training: self.last_training.clone(),
             last_exploration_duel: self.last_exploration_duel.clone(),
@@ -1271,20 +1454,40 @@ impl Cultivation {
             breakthrough_ready_at: self.document.breakthrough_blocked_until,
             breakthrough_attempts: self.breakthrough_attempts,
             explorations: self.document.explorations,
-            disciplines: DisciplineView::of(
-                realm,
-                self.trained_art_rank(),
-                self.document.explorations,
-                self.document.battle_wins,
-                self.document.harvests,
-            ),
-            growth_multiplier_permille: self.growth_multiplier_permille(),
+            next_session_growth: self.next_session_growth(day),
+            derived_breakdowns: derived.breakdowns(attributes),
             duel_record: self.document.duel_record.clone(),
             last_walk: self.document.last_walk.clone(),
             stones: self.document.stones,
-            day: now_unix.div_euclid(SECONDS_PER_DAY),
-            shop_offers: self.shop(now_unix.div_euclid(SECONDS_PER_DAY)),
+            last_refusal: self.last_refusal,
+            refusal_count: self.refusal_count,
+            day,
+            shop_offers: self.shop(day),
         }
+    }
+
+    /// What the next finished session pays, in growth.
+    ///
+    /// The number rather than the multiplier the four disciplines add up to: the
+    /// disciplines are not shown, so a percentage would be a rule the user can
+    /// neither see nor move. This is the growth the next pomodoro is worth, and
+    /// it is read from the same formula the session itself is paid by, so the
+    /// two cannot disagree.
+    ///
+    /// The session number is the one the next session will actually be: the
+    /// counter resets when the day changes, so a session that lands on a new day
+    /// is the first of that day rather than the next of this one.
+    fn next_session_growth(&self, day: i64) -> u32 {
+        let stage = self.realm().index() as u32 + 1;
+        let session_number = if self.document.last_active_day == Some(day) {
+            self.document.session_count_today.saturating_add(1)
+        } else {
+            1
+        };
+        scaled_growth(
+            super::session_growth(session_number, stage),
+            self.growth_multiplier_permille(),
+        )
     }
 
     /// The 阶 of the 功法 a finished session trains, or zero when none is chosen.
@@ -1378,6 +1581,15 @@ impl Cultivation {
         if self.document.stones < price {
             return Err(TradeRefusal::NotEnoughStones);
         }
+        // A 功法 the cultivator already has cannot be bought: it is either a
+        // book they are still reading or a 功法 they have learned, and a second
+        // copy of either is not a thing the page could say anything true about.
+        if let ShopOffer::Art { art_id } = &offer
+            && (self.document.arts.iter().any(|art| art.art_id == *art_id)
+                || self.document.mastered_arts.contains(art_id))
+        {
+            return Err(TradeRefusal::AlreadyOwned);
+        }
         self.document.stones -= price;
         self.document.shop_bought.push(slot as u8);
         // The goods land the same way a drop's do, so a bought 功法 counts toward
@@ -1398,7 +1610,10 @@ impl Cultivation {
                 self.push_seed_named(attribute, tier, name, &mut rng);
             }
             ShopOffer::Art { art_id } => {
-                let _ = self.grant_art(super::blueprint(art_id).grade, now_unix);
+                // The book that was on the shelf, not another one of its grade:
+                // the shelf names the 功法, and buying a different one would be
+                // a market that sells what it does not show.
+                self.grant_art_book(art_id);
             }
         }
         Ok(offer)
@@ -1429,10 +1644,15 @@ impl Cultivation {
         Ok(stones)
     }
 
-    /// Sell one 功法 for 灵石.
+    /// Sell one 功法书 for 灵石.
     ///
     /// The one being trained is refused: 修炼 reads it every session, and the
     /// record of a session that trained a 功法 no longer owned would be a lie.
+    ///
+    /// A **已习得** 功法 is not sellable at all, and needs no check here: it is
+    /// not a book any more, so it is not in the list this looks in. Selling the
+    /// book a 功法 was learned from therefore takes nothing away that was
+    /// learned — the two are kept apart exactly so that this is true.
     pub fn sell_art(&mut self, art_id: u64) -> Result<u32, TradeRefusal> {
         if self.document.selected_art == Some(art_id) {
             return Err(TradeRefusal::Training);
@@ -1546,15 +1766,6 @@ mod tests {
         })
     }
 
-    /// The bonus one dimension is worth, read the way the page reads it.
-    fn bonus(view: &CultivationView, discipline: Discipline) -> u32 {
-        view.disciplines
-            .iter()
-            .find(|entry| entry.discipline == discipline)
-            .expect("every dimension is in the view")
-            .bonus_permille
-    }
-
     /// Four dimensions that add rather than compound, capped at four times a bare
     /// session.
     ///
@@ -1616,16 +1827,25 @@ mod tests {
     }
 
     /// What the page shows and what the session pays are the same number.
+    ///
+    /// The page prints the growth the next session pays rather than the
+    /// multiplier behind it, so this reads that number and checks the session
+    /// against it: the two are the same formula read twice.
     #[test]
     fn a_finished_session_pays_what_the_page_says_it_pays() {
         let mut cultivation = Cultivation::default();
-        let bare = growth_permille(Realm::from_level(1), 0, 0, 0, 0);
-        assert_eq!(cultivation.view().growth_multiplier_permille, bare);
-        let flat = cultivation.on_session_completed(1_000, day(20), 25).growth;
+        // The page is asked first, before the session happens: it says what the
+        // next pomodoro is worth, and the session then pays that.
+        let promised = cultivation.view().next_session_growth;
         assert_eq!(
-            flat,
+            promised,
             session_growth(1, 1),
             "an untrained save pays the base"
+        );
+        let flat = cultivation.on_session_completed(1_000, day(20), 25).growth;
+        assert_eq!(
+            flat, promised,
+            "and the session pays exactly what the page printed"
         );
 
         // Twenty walks train 游历 to its cap; each walk is twelve hours apart, and
@@ -1635,18 +1855,16 @@ mod tests {
             cultivation.explore(1_000 + step * EXPLORATION_COOLDOWN_SECONDS);
         }
         let view = cultivation.view();
-        assert_eq!(bonus(&view, Discipline::Wander), 1_000, "游历 at its cap");
         assert!(
-            view.growth_multiplier_permille > bare,
+            view.next_session_growth > session_growth(1, 1),
             "walking has to be worth something: {}",
-            view.growth_multiplier_permille
+            view.next_session_growth
         );
 
         let reward = cultivation.on_session_completed(1_000_000, day(30), 25);
         assert_eq!(
-            reward.growth,
-            scaled_growth(session_growth(1, 1), view.growth_multiplier_permille),
-            "the session pays exactly the multiplier the page printed"
+            reward.growth, view.next_session_growth,
+            "the session pays exactly what the page printed"
         );
     }
 
@@ -1662,10 +1880,10 @@ mod tests {
             ..CultivationDocument::default()
         };
         let mut trained = Cultivation::new(active(20));
-        let multiplier = trained.view().growth_multiplier_permille;
+        let multiplier = growth_permille(trained.realm(), 0, 20, 0, 0);
         assert_eq!(multiplier, 2_000);
         let mut bare = Cultivation::new(active(0));
-        assert_eq!(bare.view().growth_multiplier_permille, 1_000);
+        assert_eq!(growth_permille(bare.realm(), 0, 0, 0, 0), 1_000);
 
         // Charged through yesterday: asking on the twentieth charges nothing,
         // because the twentieth is the day still being lived in.
@@ -1729,13 +1947,13 @@ mod tests {
     ///
     /// A guardian fight cannot carry this on its own — a fresh save loses it — so
     /// the count is read from the fights actually fought and checked against the
-    /// dimension the page draws.
+    /// dimension the growth formula reads.
     #[test]
     fn only_wins_train_the_battle_dimension() {
         let mut cultivation = at_the_first_cap();
         let _ = cultivation.breakthrough(1_000);
         assert_eq!(
-            bonus(&cultivation.view(), Discipline::Fight),
+            discipline_bonus(Discipline::Fight, 0, 0, cultivation.realm()),
             0,
             "a loss trains nothing"
         );
@@ -1751,14 +1969,14 @@ mod tests {
             .count() as u32;
         assert!(won > 0, "forty walks should have met someone: {view:?}");
         assert_eq!(
-            bonus(&view, Discipline::Fight),
+            discipline_bonus(Discipline::Fight, 0, won, view.realm),
             DISCIPLINE_STEP_PERMILLE * won.min(DISCIPLINE_STEP_CAP),
             "one step per win, and no more than the cap"
         );
     }
 
     /// The counters the four dimensions read are in the document, so a relaunch
-    /// does not quietly reset the bars.
+    /// does not quietly reset them.
     #[test]
     fn the_dimensions_survive_a_relaunch() {
         let cultivation = Cultivation::new(CultivationDocument {
@@ -1768,10 +1986,10 @@ mod tests {
             harvests: 3,
             ..CultivationDocument::default()
         });
-        let view = cultivation.view();
-        assert_eq!(bonus(&view, Discipline::Wander), 350);
-        assert_eq!(bonus(&view, Discipline::Fight), 250);
-        assert_eq!(bonus(&view, Discipline::Fortune), 150);
-        assert_eq!(view.growth_multiplier_permille, 1_750);
+        let realm = cultivation.realm();
+        assert_eq!(discipline_bonus(Discipline::Wander, 0, 7, realm), 350);
+        assert_eq!(discipline_bonus(Discipline::Fight, 0, 5, realm), 250);
+        assert_eq!(discipline_bonus(Discipline::Fortune, 0, 3, realm), 150);
+        assert_eq!(growth_permille(realm, 0, 7, 5, 3), 1_750);
     }
 }

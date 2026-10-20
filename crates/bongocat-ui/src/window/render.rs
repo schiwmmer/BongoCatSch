@@ -193,6 +193,21 @@ impl Render for SettingsView {
                 cx,
             );
         }
+        // A refused purchase or a walk that is not owed is said out loud: a
+        // click that does nothing has to say why, or the user reads the button
+        // as broken.
+        if let Some((refusal, _count)) = self.cultivation_refusal_pending.take() {
+            window.push_notification(
+                Notification::new()
+                    .id::<CultivationRefusalNotification>()
+                    .message(bongocat_i18n::text(
+                        language.catalog_locale(),
+                        refusal.key(),
+                    ))
+                    .with_type(NotificationType::Error),
+                cx,
+            );
+        }
         // Reported before the success below, so a run that installed several
         // models and could not prepare one of them reads as "this one failed"
         // first and "the rest are in" second.

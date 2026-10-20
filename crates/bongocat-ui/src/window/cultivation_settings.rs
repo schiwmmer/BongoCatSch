@@ -15,17 +15,11 @@
 use super::*;
 use bongocat_i18n::{format_text, text};
 use bongocat_pomodoro::{
-    ArtKind, ArtOutcome, ArtView, Attribute, CultivationView, Derived, DropView, EquipSlot,
-    ExplorationFindView, ExplorationOutcome, Fighter, ItemView, MAX_LEVEL, PomodoroCommand, Realm,
-    ShopOffer, ShopOfferView, WalkRecord, blueprint,
+    ArtKind, ArtOutcome, ArtView, Attribute, CultivationView, Derived, DerivedBreakdown, DropView,
+    EquipSlot, ExplorationOutcome, Fighter, ItemView, MAX_LEVEL, MasteredArtView, PomodoroCommand,
+    Realm, ShopOffer, ShopOfferView, WalkRecord, blueprint,
 };
 
-/// How wide a discipline's bar is drawn, in pixels.
-///
-/// Fixed like the growth bar beside it rather than a percentage: the number the
-/// row prints is the same number the bar draws, so the two cannot need a layout
-/// pass to agree.
-const DISCIPLINE_BAR_WIDTH: f32 = 220.0;
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::hover_card::HoverCard;
 // `test_support()` marks the elements the headless window tests observe; without
@@ -72,7 +66,6 @@ pub(super) fn content(
         .gap_3()
         .p_3()
         .child(realm_header(&cultivation, locale, tokens))
-        .child(disciplines_section(&cultivation, locale, tokens))
         .children(notices(&cultivation, locale, tokens))
         .child(attributes_panel(&view, &cultivation, locale, tokens))
         .child(derived_panel(&cultivation, locale, tokens))
@@ -91,6 +84,7 @@ pub(super) fn content(
             open_item,
         ))
         .child(arts_panel(&view, &cultivation, locale, tokens))
+        .child(mastered_panel(&cultivation, locale, tokens))
         .child(seed_panel(&view, &cultivation, locale, tokens))
         .child(garden_panel(&view, &cultivation, locale, tokens))
         .child(breakthrough_panel(&view, &cultivation, locale, tokens))
@@ -181,6 +175,22 @@ fn realm_header(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> 
                 .gap_3()
                 .child(growth_bar(tokens, fraction))
                 .child(div().text_xs().text_color(tokens.muted).child(growth_text)),
+        )
+        // What the next pomodoro is worth, in growth. A number rather than a
+        // percentage: the four dimensions that decide it are not shown, so a
+        // multiplier would be a rule the user can neither see nor move. This
+        // is the growth the next session will actually pay.
+        .child(
+            div()
+                .id("cultivation-next-session-growth")
+                .text_xs()
+                .text_color(tokens.accent)
+                .child(format_text(
+                    locale,
+                    "cultivation.growth.next",
+                    &[("value", cultivation.next_session_growth.to_string())],
+                ))
+                .test_support(),
         )
 }
 
@@ -354,7 +364,10 @@ fn notices(
             ExplorationOutcome::Victory => Some(("cultivation.explore.victory", tokens.accent)),
             ExplorationOutcome::Defeat => Some(("cultivation.explore.defeat", tokens.danger)),
             // A quiet find is named by the line under it.
-            ExplorationOutcome::Seed | ExplorationOutcome::Gear | ExplorationOutcome::Art => None,
+            ExplorationOutcome::Seed
+            | ExplorationOutcome::Gear
+            | ExplorationOutcome::Art
+            | ExplorationOutcome::Stones => None,
         };
         if let Some((key, color)) = kind {
             notices.push(
@@ -366,39 +379,71 @@ fn notices(
                 .into_any_element(),
             );
         }
-        let found = cultivation.last_exploration_found.as_ref().map(|found| {
-            let (id, line) = match found {
-                ExplorationFindView::Seed(seed) => (
-                    "cultivation-notice-exploration-seed",
-                    format_text(
-                        locale,
-                        "cultivation.explore.found_seed",
-                        &[(
-                            "name",
-                            seed_label(locale, seed.attribute, seed.tier, seed.name.as_deref()),
-                        )],
-                    ),
-                ),
-                ExplorationFindView::Gear(item) => (
-                    "cultivation-notice-exploration-gear",
-                    format_text(
-                        locale,
-                        "cultivation.explore.found_gear",
-                        &[("name", item_label(locale, item))],
-                    ),
-                ),
-                ExplorationFindView::Art(name) => (
-                    "cultivation-notice-exploration-art",
-                    format_text(
-                        locale,
-                        "cultivation.explore.found_art",
-                        &[("name", name.clone())],
-                    ),
-                ),
-            };
-            notice(id, line, tokens.accent).into_any_element()
-        });
-        notices.extend(found);
+        // Each thing the walk turned up gets its own line, because a walk can
+        // turn up more than one: the stones are rolled beside the finding
+        // rather than in place of it, so a herb and a handful of money can
+        // come back together.
+        if let Some(found) = &cultivation.last_exploration_found {
+            if let Some(seed) = &found.seed {
+                notices.push(
+                    notice(
+                        "cultivation-notice-exploration-seed",
+                        format_text(
+                            locale,
+                            "cultivation.explore.found_seed",
+                            &[(
+                                "name",
+                                seed_label(locale, seed.attribute, seed.tier, seed.name.as_deref()),
+                            )],
+                        ),
+                        tokens.accent,
+                    )
+                    .into_any_element(),
+                );
+            }
+            if let Some(item) = &found.gear {
+                notices.push(
+                    notice(
+                        "cultivation-notice-exploration-gear",
+                        format_text(
+                            locale,
+                            "cultivation.explore.found_gear",
+                            &[("name", item_label(locale, item))],
+                        ),
+                        tokens.accent,
+                    )
+                    .into_any_element(),
+                );
+            }
+            if let Some(name) = &found.art {
+                notices.push(
+                    notice(
+                        "cultivation-notice-exploration-art",
+                        format_text(
+                            locale,
+                            "cultivation.explore.found_art",
+                            &[("name", name.clone())],
+                        ),
+                        tokens.accent,
+                    )
+                    .into_any_element(),
+                );
+            }
+            if let Some(amount) = found.stones {
+                notices.push(
+                    notice(
+                        "cultivation-notice-exploration-stones",
+                        format_text(
+                            locale,
+                            "cultivation.explore.found_stones",
+                            &[("value", amount.to_string())],
+                        ),
+                        tokens.accent,
+                    )
+                    .into_any_element(),
+                );
+            }
+        }
     }
     notices
 }
@@ -588,9 +633,18 @@ fn derived_panel(cultivation: &CultivationView, locale: &str, tokens: Tokens) ->
             &[("value", cultivation.derived.aptitude.to_string())],
         ),
     ));
-    let chips = rows
-        .into_iter()
-        .map(|(key, line)| derived_chip(key, line, locale, tokens));
+    // The arithmetic behind each number, matched to the number by its catalog
+    // key: the chip that prints the value also prints the sum that produced
+    // it, so the two cannot be read as two different numbers.
+    let breakdowns: std::collections::HashMap<&'static str, &DerivedBreakdown> = cultivation
+        .derived_breakdowns
+        .iter()
+        .map(|breakdown| (breakdown.key, breakdown))
+        .collect();
+    let chips = rows.into_iter().map(|(key, line)| {
+        let breakdown = breakdowns.get(key).copied();
+        derived_chip(key, line, breakdown, locale, tokens)
+    });
     div()
         .id("cultivation-derived")
         .flex()
@@ -685,13 +739,28 @@ pub(super) fn derived_rows(stats: &CombatStats, locale: &str) -> Vec<(&'static s
 
 /// One derived number: its name and its value together, as the catalog line
 /// spells them.
-fn derived_chip(key: &'static str, line: String, locale: &str, tokens: Tokens) -> impl IntoElement {
+///
+/// The hover carries the arithmetic that produced the number — the base, the
+/// attribute it reads, what one point of that attribute adds, and the ceiling
+/// it was held to — so the value beside it can be checked by hand rather than
+/// taken on trust. The numbers come from the domain's own breakdown, which is
+/// computed by the same table the fight reads, so the sum on the card is the
+/// sum that ran.
+fn derived_chip(
+    key: &'static str,
+    line: String,
+    breakdown: Option<&DerivedBreakdown>,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
     // A chip with no button on it reads as a number the page forgot how to change,
     // so each carries the sentence that says where it comes from. The strings are
     // read out here because the hover body outlives this call and cannot borrow
     // `locale`.
     let title = text(locale, "cultivation.hint.derived_title");
     let body = text(locale, "cultivation.hint.derived_hint_each");
+    // The arithmetic, spelled out with the very numbers the domain computed.
+    let formula = breakdown.map(derived_formula);
     let chip = div()
         // The key carries its own `cultivation.` prefix; the element id drops
         // it so the tree reads `cultivation-derived-attack`.
@@ -708,19 +777,91 @@ fn derived_chip(key: &'static str, line: String, locale: &str, tokens: Tokens) -
         .rounded_md()
         .bg(tokens.overlay)
         .child(div().text_xs().text_color(tokens.text).child(line));
-    HoverCard::new(format!(
+    let hover = HoverCard::new(format!(
         "cultivation-hint-{}",
         key.trim_start_matches("cultivation.derived.")
     ))
     .trigger(chip.test_support())
-    .open_delay(Duration::from_millis(120))
-    .content(move |_, _, _| {
-        hint_body_with_title(format!("cultivation-hint-{key}-body"), title, body, tokens)
-    })
-    .into_any_element()
+    .open_delay(Duration::from_millis(120));
+    match formula {
+        Some(formula) => {
+            let formula = formula.clone();
+            hover
+                .content(move |_, _, _| {
+                    derived_hint_body(
+                        format!("cultivation-hint-{key}-body"),
+                        title,
+                        body,
+                        formula.clone(),
+                        tokens,
+                    )
+                })
+                .into_any_element()
+        }
+        None => hover
+            .content(move |_, _, _| {
+                hint_body_with_title(format!("cultivation-hint-{key}-body"), title, body, tokens)
+            })
+            .into_any_element(),
+    }
 }
 
-/// The 功法 the cultivator owns, and which one the next pomodoro trains.
+/// The arithmetic behind one derived number, as a line the user can check.
+///
+/// Spelled out with the numbers themselves rather than with a rule: "基础 10 +
+/// 力量 3 × 20 = 70" can be added up on the page, and "由属性换算" cannot. A
+/// number held to a ceiling says so, because a number that stops growing and
+/// does not say why reads as a bug.
+fn derived_formula(breakdown: &DerivedBreakdown) -> String {
+    let attribute = breakdown.attribute.name_key();
+    let base = breakdown.base;
+    let per_point = breakdown.per_point;
+    let value = breakdown.attribute_value.max(0) as u32;
+    let result = breakdown.result;
+    let line = format!("{base} + {attribute} {value} × {per_point} = {result}",);
+    match breakdown.cap {
+        Some(cap) if result >= cap => format!("{line}（上限 {cap}）"),
+        _ => line,
+    }
+}
+
+/// A hover body carrying the arithmetic behind a number.
+///
+/// The formula is its own line rather than part of the paragraph: it is a sum
+/// to be checked, and a sum buried in a sentence is a sum nobody checks.
+fn derived_hint_body(
+    id: impl Into<gpui_kit::ElementId>,
+    title: &'static str,
+    body: &'static str,
+    formula: String,
+    tokens: Tokens,
+) -> impl IntoElement {
+    div()
+        .id(id.into())
+        .flex()
+        .flex_col()
+        .gap_1()
+        .w(px(260.0))
+        .child(div().text_xs().text_color(tokens.text).child(title))
+        .child(
+            div()
+                .text_xs()
+                .text_color(tokens.accent)
+                .whitespace_normal()
+                .child(formula),
+        )
+        .child(
+            div()
+                .text_xs()
+                .text_color(tokens.muted)
+                .whitespace_normal()
+                .child(body),
+        )
+        .test_support()
+}
+
+/// The 功法书 the cultivator is still learning from, and which one the next
+/// pomodoro trains.
 ///
 /// Selecting is the whole interaction: the training itself happens when a
 /// session finishes, so the row says how far along it is and what the next 阶
@@ -752,6 +893,66 @@ fn arts_panel(
             .map(|art| art_row(view, art, locale, tokens)),
     );
     panel
+}
+
+/// The 功法 the cultivator has learned outright.
+///
+/// A separate panel because it is a separate thing: a book is still being
+/// trained and can be sold, while a learned 功法 is kept for good and pays its
+/// mastery for as long as the save lives. Putting them in one list would make
+/// the second look like the first.
+fn mastered_panel(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> impl IntoElement {
+    let mut panel = div()
+        .id("cultivation-mastered-arts")
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(section_title(locale, "cultivation.mastered.title", tokens))
+        // Marked so a frame can be asked whether the panel is on screen.
+        .test_support();
+    if cultivation.mastered_arts.is_empty() {
+        return panel.child(
+            div()
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(text(locale, "cultivation.mastered.empty")),
+        );
+    }
+    panel = panel.children(
+        cultivation
+            .mastered_arts
+            .iter()
+            .map(|art| mastered_art_row(art, locale, tokens)),
+    );
+    panel
+}
+
+/// One learned 功法: what it is and what it pays, for good.
+fn mastered_art_row(art: &MasteredArtView, locale: &str, tokens: Tokens) -> impl IntoElement {
+    let grade = text(locale, art.grade.name_key());
+    let kind = text(locale, art.kind.name_key());
+    let head = format!("{} · {} · {}", art.name, kind, grade);
+    let detail = format_text(
+        locale,
+        "cultivation.art.mastery_paid",
+        &[("value", (art.mastery_permille / 10).to_string())],
+    );
+    div()
+        .id(format!("cultivation-mastered-art-{}", art.id))
+        .flex()
+        .flex_col()
+        .gap_1()
+        .py_1()
+        .child(div().flex_1().min_w_0().truncate().text_xs().child(head))
+        .child(
+            div()
+                .id(format!("cultivation-mastered-art-detail-{}", art.id))
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(detail)
+                .test_support(),
+        )
+        .test_support()
 }
 
 /// One 功法: what it is, how far it has been trained, and the select button.
@@ -1284,22 +1485,6 @@ fn hint_body_with_title(
         .test_support()
 }
 
-/// A section heading from a string the caller already holds.
-///
-/// The same heading as [`section_title`], taking a `&'static str` rather than a
-/// key and a locale: a heading used as a hover trigger has to outlive the call
-/// that builds it, and a `&str` read out of the catalog cannot borrow the locale
-/// it was looked up with.
-fn section_title_str(id: &'static str, title: &'static str, tokens: Tokens) -> impl IntoElement {
-    div()
-        .id(id)
-        .text_xs()
-        .font_semibold()
-        .text_color(tokens.text)
-        .child(title)
-        .test_support()
-}
-
 /// The name and the explanation an attribute's chip shows on hover.
 ///
 /// The card is an element rather than a one-line tooltip string because the
@@ -1778,17 +1963,19 @@ fn breakthrough_panel(
 ///
 /// Gated by the cooldown alone — the thing being rationed is the player's
 /// attention, not a cost — and the countdown says when the next one is owed.
+/// The button is offered whether or not one is owed: a walk that is not owed
+/// says so, and a button that quietly disappeared would leave the user
+/// wondering whether the page was broken or the walk was.
 fn exploration_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
-    let mut button = Button::new("cultivation-explore-attempt")
+    let button = Button::new("cultivation-explore-attempt")
         .small()
-        .label(text(locale, "cultivation.explore.attempt"));
-    if cultivation.exploration_ready {
-        button = button.on_click({
+        .label(text(locale, "cultivation.explore.attempt"))
+        .on_click({
             let view = view.clone();
             move |_, _, cx| {
                 view.update(cx, |view, cx| {
@@ -1800,7 +1987,6 @@ fn exploration_panel(
                 });
             }
         });
-    }
     let status = if cultivation.exploration_ready {
         text(locale, "cultivation.explore.ready").to_string()
     } else {
@@ -1855,109 +2041,6 @@ fn cooldown_line(owed_at: Option<i64>, key: &'static str, locale: &str) -> Strin
             ("minutes", minutes.to_string()),
         ],
     )
-}
-
-/// The four disciplines, each with the bar that says how far it has come.
-///
-/// The bars are the point: a finished pomodoro is worth what these are worth, and
-/// a page that only printed the total would leave the user with a number they
-/// cannot move. So each row shows its own bonus against its own cap — the 修炼 row
-/// against the realm's cap, the other three against the same shared one — and the
-/// total sits under them as what the next session will actually pay.
-fn disciplines_section(
-    cultivation: &CultivationView,
-    locale: &str,
-    tokens: Tokens,
-) -> impl IntoElement {
-    let hint_tokens = tokens;
-    // Read out here because the hover body outlives this call and cannot borrow
-    // `locale`.
-    let disciplines_hint = text(locale, "cultivation.hint.discipline_title");
-    let total_permille = cultivation.growth_multiplier_permille;
-    div()
-        .id("cultivation-disciplines")
-        .flex()
-        .flex_col()
-        .gap_2()
-        // The one panel on the page that is easiest to mistake for the attribute
-        // row above it, so its title carries the sentence that says which of the
-        // two it is: this one changes how fast a session grows, not how hard it
-        // hits.
-        .child(
-            HoverCard::new("cultivation-hint-disciplines")
-                // The title is read out first because the trigger has to outlive
-                // this call and cannot borrow `locale`.
-                .trigger(section_title_str(
-                    "cultivation-disciplines-title",
-                    text(locale, "cultivation.discipline.title"),
-                    tokens,
-                ))
-                .open_delay(Duration::from_millis(120))
-                .content(move |_, _, _| {
-                    hint_body(
-                        "cultivation-hint-disciplines-body",
-                        disciplines_hint,
-                        hint_tokens,
-                    )
-                })
-                .into_any_element(),
-        )
-        // Marked so a frame can be asked whether the section is on screen at all.
-        .test_support()
-        .children(cultivation.disciplines.iter().map(|entry| {
-            let fraction = entry.progress_permille.min(1_000) as f32 / 1_000.0;
-            div()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .justify_between()
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(tokens.text)
-                                .child(text(locale, entry.discipline.key())),
-                        )
-                        .child(div().text_xs().text_color(tokens.muted).child(format_text(
-                            locale,
-                            "cultivation.discipline.bonus",
-                            &[
-                                ("value", entry.bonus_permille.div_ceil(10).to_string()),
-                                ("cap", entry.cap_permille.div_ceil(10).to_string()),
-                            ],
-                        ))),
-                )
-                .child(
-                    div()
-                        .w_full()
-                        .h(px(6.0))
-                        .rounded_full()
-                        .bg(tokens.border)
-                        .child(
-                            div()
-                                .w(px(DISCIPLINE_BAR_WIDTH * fraction))
-                                .h(px(6.0))
-                                .rounded_full()
-                                .bg(tokens.accent),
-                        ),
-                )
-        }))
-        .child(
-            div()
-                .id("cultivation-disciplines-total")
-                .text_xs()
-                .text_color(tokens.text)
-                .child(format_text(
-                    locale,
-                    "cultivation.discipline.total",
-                    &[("value", total_permille.div_ceil(10).to_string())],
-                ))
-                .test_support(),
-        )
 }
 
 /// The fights fought and what the last walk settled.
@@ -2023,9 +2106,10 @@ fn record_section(cultivation: &CultivationView, locale: &str, tokens: Tokens) -
 
 /// One walk's settlement, as a single line: how it ended and what it turned up.
 ///
-/// A walk can pay three things at once, so the line names each in turn rather
-/// than saying "something was found" — a record that does not say what was found
-/// is not worth keeping.
+/// A walk can pay three things at once — and the 灵石 beside them, which is
+/// rolled beside the finding rather than in place of it — so the line names each
+/// in turn rather than saying "something was found". A record that does not say
+/// what was found is not worth keeping.
 fn walk_line(walk: &WalkRecord, locale: &str) -> String {
     let mut line = format_text(
         locale,
@@ -2052,6 +2136,16 @@ fn walk_line(walk: &WalkRecord, locale: &str) -> String {
         line.push_str(&format!(
             " · {}",
             format_text(locale, found.0, &[("name", found.1.to_owned())],)
+        ));
+    }
+    if let Some(amount) = walk.stones {
+        line.push_str(&format!(
+            " · {}",
+            format_text(
+                locale,
+                "cultivation.record.found_stones",
+                &[("value", amount.to_string())]
+            )
         ));
     }
     line

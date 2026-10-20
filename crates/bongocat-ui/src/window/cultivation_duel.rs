@@ -683,35 +683,54 @@ fn payoff_lines(duel: &CultivationDuel, locale: &str, tokens: Tokens) -> Vec<gpu
                     color,
                 ));
             }
-            match found {
-                Some(ExplorationFindView::Seed(seed)) => lines.push(payoff(
-                    "cultivation-duel-walk-seed",
-                    format_text(
-                        locale,
-                        "cultivation.explore.found_seed",
-                        &[("name", seed_label(locale, seed))],
-                    ),
-                    tokens.accent,
-                )),
-                Some(ExplorationFindView::Gear(item)) => lines.push(payoff(
-                    "cultivation-duel-walk-gear",
-                    format_text(
-                        locale,
-                        "cultivation.explore.found_gear",
-                        &[("name", item_label(locale, item))],
-                    ),
-                    tokens.accent,
-                )),
-                Some(ExplorationFindView::Art(name)) => lines.push(payoff(
-                    "cultivation-duel-walk-art",
-                    format_text(
-                        locale,
-                        "cultivation.explore.found_art",
-                        &[("name", name.clone())],
-                    ),
-                    tokens.accent,
-                )),
-                None => {}
+            // Each thing the walk turned up gets its own line: the stones are
+            // rolled beside the finding rather than in place of it, so a walk
+            // can come back with a herb and a handful of money both.
+            if let Some(found) = found {
+                if let Some(seed) = &found.seed {
+                    lines.push(payoff(
+                        "cultivation-duel-walk-seed",
+                        format_text(
+                            locale,
+                            "cultivation.explore.found_seed",
+                            &[("name", seed_label(locale, seed))],
+                        ),
+                        tokens.accent,
+                    ));
+                }
+                if let Some(item) = &found.gear {
+                    lines.push(payoff(
+                        "cultivation-duel-walk-gear",
+                        format_text(
+                            locale,
+                            "cultivation.explore.found_gear",
+                            &[("name", item_label(locale, item))],
+                        ),
+                        tokens.accent,
+                    ));
+                }
+                if let Some(name) = &found.art {
+                    lines.push(payoff(
+                        "cultivation-duel-walk-art",
+                        format_text(
+                            locale,
+                            "cultivation.explore.found_art",
+                            &[("name", name.clone())],
+                        ),
+                        tokens.accent,
+                    ));
+                }
+                if let Some(amount) = found.stones {
+                    lines.push(payoff(
+                        "cultivation-duel-walk-stones",
+                        format_text(
+                            locale,
+                            "cultivation.explore.found_stones",
+                            &[("value", amount.to_string())],
+                        ),
+                        tokens.accent,
+                    ));
+                }
             }
         }
     }

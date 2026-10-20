@@ -36,6 +36,26 @@ pub const VICTORY_ART_PERMILLE: u64 = 80;
 pub const VICTORY_GEAR_PERMILLE: u64 = 250;
 pub const VICTORY_SEED_PERMILLE: u64 = 450;
 
+/// The chance a walk turns up 灵石, in parts per thousand.
+///
+/// This roll is its own: the four quiet findings are exclusive, but 灵石 is a
+/// currency rather than an item, so it is drawn beside them rather than in
+/// place of them. A walk that finds a seed can find money too, which is what
+/// makes the purse something a walk feeds rather than something only a session
+/// does.
+pub const STONE_FIND_PERMILLE: u64 = 350;
+
+/// The most 灵石 one walk can turn up.
+///
+/// A handful rather than a fortune: one walk is a trickle next to a finished
+/// session's [`SESSION_EARNINGS`](super::SESSION_EARNINGS), so the purse grows
+/// from walking as well as from working rather than the walk replacing the
+/// work.
+pub const STONE_FIND_MAX: u32 = 12;
+
+/// The fewest 灵石 a walk turns up when it turns any up.
+pub const STONE_FIND_MIN: u32 = 3;
+
 /// What one walk came to.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum ExplorationOutcome {
@@ -47,6 +67,8 @@ pub enum ExplorationOutcome {
     Gear,
     /// A 功法 came of it: the rarest thing a walk can pay.
     Art,
+    /// 灵石 came of it, and nothing else did.
+    Stones,
     /// Someone was met, and beaten.
     Victory,
     /// Someone was met, and not beaten. Nothing was lost but the walk.
@@ -66,6 +88,7 @@ impl ExplorationOutcome {
             Self::Seed => "cultivation.explore.found_seed",
             Self::Gear => "cultivation.explore.found_gear",
             Self::Art => "cultivation.explore.found_art",
+            Self::Stones => "cultivation.explore.found_stones",
             Self::Victory => "cultivation.explore.victory",
             Self::Defeat => "cultivation.explore.defeat",
         }
@@ -96,6 +119,13 @@ pub struct WalkRecord {
     pub gear: Option<String>,
     /// The herb it turned up, by name, when it turned one up.
     pub seed: Option<String>,
+    /// How many 灵石 it turned up, when it turned any up.
+    ///
+    /// Counted rather than named, because a purse is a number: what the walk
+    /// found is worth exactly what it says, and a name would only be a number
+    /// the page had to guess at again.
+    #[serde(default)]
+    pub stones: Option<u32>,
 }
 
 /// What one walk turns up, before any fight is settled.
@@ -134,6 +164,26 @@ pub fn roll_victory(rng: &mut Rng) -> ExplorationOutcome {
         return ExplorationOutcome::Seed;
     }
     ExplorationOutcome::Nothing
+}
+
+/// How many 灵石 one walk turns up, if it turns any up.
+///
+/// A roll of its own, beside the walk's finding roll rather than inside it:
+/// 灵石 is a currency, not one of the three things a walk finds, so a walk can
+/// come back with a herb and a handful of stones both. The amount is a short
+/// range rather than a fixed figure, so two walks in the same day do not pay
+/// the same purse.
+///
+/// Crate-private like the other rolls: the seeded source it takes is nobody
+/// else's business, and the state machine is the only thing that draws it.
+pub(crate) fn roll_stones(rng: &mut Rng) -> Option<u32> {
+    if rng.below(1_000) >= STONE_FIND_PERMILLE {
+        return None;
+    }
+    let span = STONE_FIND_MAX
+        .saturating_sub(STONE_FIND_MIN)
+        .saturating_add(1);
+    Some(STONE_FIND_MIN + u32::try_from(rng.below(u64::from(span))).unwrap_or(0))
 }
 
 /// Whether a walk is owed: the cooldown has run out.

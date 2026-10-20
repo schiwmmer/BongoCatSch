@@ -629,6 +629,9 @@
     "realm": "%{stage} · layer %{layer} rank %{rank}",
     "progress": "%{value} / %{next} growth",
     "capped": "This realm is full — break through to go further",
+    "growth": {
+      "next": "Next pomodoro +%{value} growth"
+    },
     "attributes": "Attributes",
     "free_points": "%{points} points to place",
     "attribute": {
@@ -644,8 +647,12 @@
       "agility_desc": "Agility: +2 speed, +0.5% hit and +0.2% evade a point (hit caps at 95%, evade at 25%). Pairs with Strength in the martial school (+12 martial power a point, plus 10 for the shorter half)."
     },
     "arts": {
-      "title": "Arts",
-      "empty": "No arts yet. Winning a realm fight always grants one; exploring may."
+      "title": "Art books",
+      "empty": "No art books yet. Winning a realm fight always grants one; exploring may."
+    },
+    "mastered": {
+      "title": "Learned arts",
+      "empty": "No art learned through yet. Train one to its last rank and it stays with you for good."
     },
     "art": {
       "kind": {
@@ -669,7 +676,8 @@
       "selected": "Training",
       "mastered": "Mastered",
       "mastery_attribute": "Mastered · +%{value}% attributes per rank",
-      "mastery_damage": "Mastered · +%{value}% attack per blow"
+      "mastery_damage": "Mastered · +%{value}% attack per blow",
+      "mastery_paid": "Mastery bonus %{value}%, paid for good"
     },
     "derived": "Shown",
     "derived_hint": "Follows from the four attributes; no point can be placed here",
@@ -764,9 +772,11 @@
       "found_art": "Art found: %{name}",
       "found_gear": "Gear found: %{name}",
       "found_seed": "Seed found: %{name}",
+      "found_stones": "Stones found: %{value}",
       "held": "Another walk in %{hours}h %{minutes}m",
       "nothing": "Nothing came of it.",
       "ready": "A walk is owed.",
+      "refuse_cooldown": "The last walk has not come back yet — wait a while longer.",
       "title": "Exploration",
       "victory": "The wanderer was beaten, and paid for it."
     },
@@ -779,15 +789,6 @@
       "drop_seed": "Found a seed: %{item}",
       "seed_return": "The harvest brought back %{seed}"
     },
-    "discipline": {
-      "title": "Disciplines",
-      "practice": "Practice",
-      "wander": "Wandering",
-      "fight": "Fighting",
-      "fortune": "Fortune",
-      "bonus": "+%{value}% / cap %{cap}%",
-      "total": "Next pomodoro ×%{value}%"
-    },
     "record": {
       "title": "Fight record",
       "guardian": "Guardian",
@@ -797,7 +798,8 @@
       "walk": "Last walk: %{outcome}",
       "found_art": "art “%{name}”",
       "found_gear": "gear “%{name}”",
-      "found_seed": "herb “%{name}”"
+      "found_seed": "herb “%{name}”",
+      "found_stones": "stones “%{value}”"
     },
     "shop": {
       "title": "Market",
@@ -816,10 +818,10 @@
       "refuse_bought": "Already bought today",
       "refuse_owned": "You do not own that",
       "refuse_equipped": "Worn gear cannot be sold",
-      "refuse_training": "The art being trained cannot be sold"
+      "refuse_training": "The art being trained cannot be sold",
+      "refuse_already": "You already have that art"
     },
     "hint": {
-      "discipline_title": "Disciplines: how fast you grow, not how hard you hit",
       "realm_title": "Realm: the hard ceiling on how far you can climb",
       "schools_title": "Spell and martial: the two halves of the four attributes",
       "schools_hint": "Spell = root + mana, martial = strength + agility. Pairing one attribute with its partner pays a synergy bonus, so stacking one alone is worse.",

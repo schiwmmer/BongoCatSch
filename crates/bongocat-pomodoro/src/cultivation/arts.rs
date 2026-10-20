@@ -390,6 +390,42 @@ pub fn art_attributes(owned: &[OwnedArt]) -> Attributes {
     total
 }
 
+/// The attributes every **已习得** 内功 pays, for good.
+///
+/// A learned 功法 is complete: it sits at its grade's last 阶 and pays the
+/// mastery bonus on every one of those 阶. The two lists are added together by
+/// the caller, so a book still being trained and a 功法 already learned pay
+/// their own share and neither counts the other's.
+///
+/// The mastery is what makes the two lists worth keeping apart: this is paid
+/// for as long as the save lives, and selling the book it was learned from
+/// does not take it away.
+pub fn mastered_art_attributes(mastered: &[u64]) -> Attributes {
+    let mut total = Attributes::default();
+    for id in mastered {
+        let blueprint = blueprint(*id);
+        if blueprint.kind != ArtKind::Internal {
+            continue;
+        }
+        let times = i64::from(blueprint.grade.ranks());
+        let mastery = 1_000 + i64::from(mastery_permille(blueprint.grade));
+        total.root = total
+            .root
+            .saturating_add(paid(blueprint.gain.root, times, mastery));
+        total.strength =
+            total
+                .strength
+                .saturating_add(paid(blueprint.gain.strength, times, mastery));
+        total.mana = total
+            .mana
+            .saturating_add(paid(blueprint.gain.mana, times, mastery));
+        total.agility = total
+            .agility
+            .saturating_add(paid(blueprint.gain.agility, times, mastery));
+    }
+    total
+}
+
 /// The damage one 外功 does behind a given 攻击力.
 pub fn external_damage(attack: u32, multiplier_permille: u32) -> u32 {
     u64::from(attack)
@@ -425,6 +461,30 @@ pub struct ArtView {
     pub selected: bool,
 }
 
+/// One **已习得** 功法 as a surface reads it.
+///
+/// A learned 功法 has no progress left to show and no 阶 left to climb, so it
+/// carries what it *is* rather than what it is still becoming: its name, its
+/// grade, and the mastery it pays for good. The number a surface needs in
+/// order to draw it is the same one the fight uses, so the two cannot disagree.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MasteredArtView {
+    pub id: u64,
+    pub name: String,
+    pub kind: ArtKind,
+    pub grade: ArtGrade,
+    /// The last 阶 of the grade, which is the one it stands at.
+    pub rank: u8,
+    /// What the last 阶 pays on top, in parts per thousand.
+    pub mastery_permille: u32,
+    /// What one 阶 pays, for an 内功.
+    pub gain: Attributes,
+    /// What one use costs, for an 外功.
+    pub cost: u32,
+    /// What one use is worth, for an 外功.
+    pub multiplier_permille: u32,
+}
+
 /// Fold an owned art and its blueprint into what a surface draws.
 pub fn art_view(owned: &OwnedArt, aptitude: u32, selected: bool) -> ArtView {
     let art = blueprint(owned.art_id);
@@ -447,6 +507,25 @@ pub fn art_view(owned: &OwnedArt, aptitude: u32, selected: bool) -> ArtView {
             0
         },
         selected,
+    }
+}
+
+/// Fold a learned 功法 into what a surface draws.
+///
+/// The id is enough: a learned 功法 is complete, so its 阶 is its grade's last
+/// and its mastery is the one its grade pays.
+pub fn mastered_art_view(art_id: u64) -> MasteredArtView {
+    let art = blueprint(art_id);
+    MasteredArtView {
+        id: art.id,
+        name: art.name,
+        kind: art.kind,
+        grade: art.grade,
+        rank: art.grade.ranks(),
+        mastery_permille: mastery_permille(art.grade),
+        gain: art.gain,
+        cost: art.cost,
+        multiplier_permille: art.multiplier_permille,
     }
 }
 

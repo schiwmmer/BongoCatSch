@@ -11,7 +11,7 @@ use std::{collections::BTreeMap, time::Duration};
 
 use crate::{
     CalendarDay, CalendarDayTotal, CalendarTaskActivity, Cultivation, CultivationView, EquipSlot,
-    MAX_FOCUS_MINUTES, MAX_TASK_NAME_CHARS, MIN_FOCUS_MINUTES,
+    MAX_FOCUS_MINUTES, MAX_TASK_NAME_CHARS, MIN_FOCUS_MINUTES, Refusal,
     document::{Document, TaskRecord, TaskStatus, read_document},
 };
 
@@ -429,18 +429,27 @@ impl PomodoroState {
             }
             PomodoroCommand::BuyFromShop { slot } => {
                 let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
-                let _ = self
-                    .cultivation
-                    .buy_from_shop(slot, today.day_number(), now_unix);
+                if let Err(refusal) =
+                    self.cultivation
+                        .buy_from_shop(slot, today.day_number(), now_unix)
+                {
+                    self.cultivation.note_refusal(Refusal::Trade(refusal));
+                }
             }
             PomodoroCommand::SellEquipment { item_id } => {
-                let _ = self.cultivation.sell_equipment(item_id);
+                if let Err(refusal) = self.cultivation.sell_equipment(item_id) {
+                    self.cultivation.note_refusal(Refusal::Trade(refusal));
+                }
             }
             PomodoroCommand::SellArt { art_id } => {
-                let _ = self.cultivation.sell_art(art_id);
+                if let Err(refusal) = self.cultivation.sell_art(art_id) {
+                    self.cultivation.note_refusal(Refusal::Trade(refusal));
+                }
             }
             PomodoroCommand::SellSeed { attribute, tier } => {
-                let _ = self.cultivation.sell_seed(attribute, tier);
+                if let Err(refusal) = self.cultivation.sell_seed(attribute, tier) {
+                    self.cultivation.note_refusal(Refusal::Trade(refusal));
+                }
             }
         }
         self.sync_cultivation();
@@ -685,6 +694,10 @@ impl PomodoroState {
     /// a worker behind it in the same read it takes the task list from.
     pub fn snapshot_at(&self, revision: u64, now_unix: i64) -> PomodoroSnapshot {
         let running_task = self.timer.task_id();
+        // The local day, read once and handed down: the cultivation page prices
+        // the next pomodoro and rolls the shelf from it, and a day number
+        // computed anywhere else could be a timezone's worth of hours out.
+        let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
         PomodoroSnapshot {
             revision,
             worker: crate::service::PomodoroWorkerState::Ready,
@@ -699,7 +712,7 @@ impl PomodoroState {
             last_completion: self.last_completion,
             total_pomodoros: self.document.total_completions,
             remaining_pomodoros: self.remaining_pomodoros(),
-            cultivation: self.cultivation.view_at(now_unix),
+            cultivation: self.cultivation.view_on(now_unix, today.day_number()),
         }
     }
 
