@@ -326,6 +326,7 @@ Platform input ---> Runtime thread ---> Model/Animation state
 - `live2d-render`：将 `CommittedModel` 的纹理、背景和键位图资源准备为 `RenderResources`，并提供同源的键位图清单与 overlay 解析；不持有 Cubism Core 或 GPU handle。
 - `live2d`：Cubism Core 生命周期、Core parameter/part 写入、motion/expression 到 Core 的适配和不可变 `RenderSnapshot` 生产。
 - `audio`：motion 音效的有序 command、FLAC 解码、唯一 voice、输出设备和 shutdown。
+- `pomodoro`：番茄钟任务/月历与修仙成长体系（境界、成长、属性、装备、仙草园、功法、集市、探索、破境战斗、事件日志）的纯值领域：worker 线程、有界命令队列、共享快照、两份 `schema_version = 1` 文档与注入式时钟；不导入 OS、GPUI 或时区库（ADR-0090、ADR-0092、ADR-0094）。
 - `render`：不可变 render snapshot 和 renderer contract。
 - `config`：环境隔离、当前 v1 schema、验证、备份和原子提交。
 
@@ -350,6 +351,17 @@ ui protocol <------- app -------> runtime <------- platform adapters
 
 业务 crate 不得导入 Win32、Objective-C、GPUI 或 GPU handle。平台实现可以依赖业务定义的 command/event 类型。runtime 可直接使用 `live2d-playback` 的 clip/evaluation 类型和 `live2d-render` 的键位图解析 contract；两层都不读取 runtime command、Core snapshot 或 GPU 资源。
 
+`bongocat-pomodoro` 与 `bongocat-audio` 平行，由 app startup 接线，方向单向：`app → ui/overlay/platform → pomodoro`。领域 crate 不认识任何展示面；三个展示面（macOS 倒计时浮层、托盘与右键菜单、设置窗口 GPUI 页）读同一份带 revision 的 snapshot。
+
+### 6.3 番茄钟与修仙领域
+
+- `PomodoroState` 是无时钟、无 IO 的纯值状态机：`apply(command, now_unix)` 处理命令，`advance(elapsed, now_unix)` 折叠时间。倒计时由单调时间测量，墙上时间只用于把一次完成记进本地日；本地日 = 时间戳加调用方给的 UTC 偏移后整除 86400，偏移只在进入时施加一次，领域 crate 因此不依赖时区库（ADR-0090、ADR-0030）。
+- 持久化两份 `schema_version = 1` 文档，按环境隔离、原子替换：`pomodoro-tasks.json` 保存任务列表与每次完成的时间戳（月历从时间戳按本地日推导，不另存日历），倒计时不持久化——放弃、暂停与关机都让剩余秒数变成无人问津的快照；修仙存档保存境界、成长、四属性与加点、装备、种子与地块、功法与修习、灵石、探索/破境冷却、战斗记录与事件日志。
+- 修仙体系是番茄钟成长值的支出层，全部是纯值计算：十境一百层一千级的阶梯、成长曲线、四属性与法术/武术两系战力、装备与仙草园的阶位定价、五百套功法的修习与大成、每日集市货架 `(日, 境界)` 纯函数、探索掉落表、ATB 行动条战斗与命中比值模型。随机源是可注入种子的 SplitMix64，测试因此能钉死具体掉落（ADR-0092、ADR-0094）。
+- 字段演进遵循 §3.1：新字段一律 `#[serde(default)]`，旧档不得读失败；曲线重标定这类不兼容迁移单独建 ADR、顺序执行、幂等，等级/已发属性点/装备/功法原样保留（ADR-0094）。
+- 拒绝是带原因的值（`TradeRefusal` 等），经 `last_refusal` 回到 UI 统一呈现为 toast；事件日志 cap 16，`serde default` 兼容旧档。
+- 番茄钟菜单入口与倒计时浮层只在 macOS 编译，Windows 菜单树保持原样；i18n 只发 zh-CN 与 en-US 两个 catalog，键集一致性由 catalog 测试强制（ADR-0093）。
+
 ## 7. 仓库布局
 
 ```text
@@ -371,6 +383,7 @@ BongoCat/
     bongocat-live2d-playback/ motion3/exp3 纯解析、曲线求值和 expression 混合
     bongocat-live2d-render/  模型资源准备、键位图清单和 overlay 解析
     bongocat-audio/           motion 音效队列、解码与设备 owner
+    bongocat-pomodoro/        番茄钟与修仙领域：任务/月历状态机、成长体系与持久化
     bongocat-render/          render snapshot/contract
     bongocat-ui/              GPUI 设置界面和 design system
     bongocat-update/          发布清单读取、版本/target 判定、载荷验签与安装策略
