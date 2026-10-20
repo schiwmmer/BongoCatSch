@@ -680,6 +680,10 @@
     },
     "derived": "Shown",
     "derived_hint": "Follows from the four attributes; no point can be placed here",
+    "formula": {
+      "line": "%{base} + %{attribute} %{value} × %{per} = %{result}",
+      "capped": "%{formula} (capped at %{cap})"
+    },
     "attack": "attack %{value}",
     "health": "health %{value}",
     "inner": "inner force %{value}",

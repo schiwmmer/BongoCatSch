@@ -761,7 +761,7 @@ fn derived_chip(
     let title = text(locale, "cultivation.hint.derived_title");
     let body = text(locale, "cultivation.hint.derived_hint_each");
     // The arithmetic, spelled out with the very numbers the domain computed.
-    let formula = breakdown.map(derived_formula);
+    let formula = breakdown.map(|breakdown| derived_formula(breakdown, locale));
     let chip = div()
         // The key carries its own `cultivation.` prefix; the element id drops
         // it so the tree reads `cultivation-derived-attack`.
@@ -809,20 +809,54 @@ fn derived_chip(
 
 /// The arithmetic behind one derived number, as a line the user can check.
 ///
-/// Spelled out with the numbers themselves rather than with a rule: "基础 10 +
-/// 力量 3 × 20 = 70" can be added up on the page, and "由属性换算" cannot. A
+/// Spelled out with the numbers themselves rather than with a rule: "基础 50 +
+/// 根骨 787 × 8 = 6346" can be added up on the page, and "由属性换算" cannot. A
 /// number held to a ceiling says so, because a number that stops growing and
 /// does not say why reads as a bug.
-fn derived_formula(breakdown: &DerivedBreakdown) -> String {
-    let attribute = breakdown.attribute.name_key();
-    let base = breakdown.base;
-    let per_point = breakdown.per_point;
-    let value = breakdown.attribute_value.max(0) as u32;
-    let result = breakdown.result;
-    let line = format!("{base} + {attribute} {value} × {per_point} = {result}",);
+///
+/// Every word in it is a catalog entry, including the attribute's own name: a
+/// formula that spells `cultivation.attribute.root` is a formula that leaked a
+/// key onto the page. 命中 and 闪避 are the two per-mille numbers, and they are
+/// printed in percent with the percent sign, so the sum on the card is in the
+/// same unit as the chip it explains.
+pub(super) fn derived_formula(breakdown: &DerivedBreakdown, locale: &str) -> String {
+    let figure = |value: u32| {
+        if !breakdown.per_mille {
+            return value.to_string();
+        }
+        let tenths = value / 10;
+        let tenth = value % 10;
+        if tenth == 0 {
+            tenths.to_string()
+        } else {
+            format!("{tenths}.{tenth}")
+        }
+    };
+    let unit = if breakdown.per_mille { "%" } else { "" };
+    let formula = format_text(
+        locale,
+        "cultivation.formula.line",
+        &[
+            ("base", figure(breakdown.base)),
+            (
+                "attribute",
+                text(locale, breakdown.attribute.name_key()).to_owned(),
+            ),
+            ("value", figure(breakdown.attribute_value.max(0) as u32)),
+            ("per", figure(breakdown.per_point)),
+            ("result", format!("{}{unit}", figure(breakdown.result))),
+        ],
+    );
     match breakdown.cap {
-        Some(cap) if result >= cap => format!("{line}（上限 {cap}）"),
-        _ => line,
+        Some(cap) if breakdown.result >= cap => format_text(
+            locale,
+            "cultivation.formula.capped",
+            &[
+                ("formula", formula),
+                ("cap", format!("{}{unit}", figure(cap))),
+            ],
+        ),
+        _ => formula,
     }
 }
 

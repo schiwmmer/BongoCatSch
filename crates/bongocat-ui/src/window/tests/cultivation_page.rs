@@ -625,3 +625,59 @@ fn the_growth_line_reads_what_is_banked_over_what_is_owed() {
         "the bar is a fraction of the layer: {fraction}"
     );
 }
+
+/// The arithmetic on a derived chip is written in the user's language.
+///
+/// The sum used to spell the catalog key behind the attribute
+/// (` cultivation.attribute.root 787 × 8`), which is a leaked identifier
+/// rather than a word: the card is there to be read and checked by hand, so
+/// every word on it has to be one the user knows.
+#[test]
+fn the_formula_names_the_attribute_in_the_language_on_screen() {
+    let view = Cultivation::default().view();
+    let inner = view
+        .derived_breakdowns
+        .iter()
+        .find(|breakdown| breakdown.key == "cultivation.inner")
+        .expect("内力 has an arithmetic behind it");
+    let chinese = cultivation_settings::derived_formula(inner, "zh-CN");
+    assert!(
+        !chinese.contains("cultivation."),
+        "the formula leaked a key: {chinese}"
+    );
+    assert!(
+        chinese.contains("根骨"),
+        "内力 reads 根骨, so the formula must say so: {chinese}"
+    );
+    let english = cultivation_settings::derived_formula(inner, "en-US");
+    assert!(
+        !english.contains("cultivation."),
+        "the English formula leaked a key: {english}"
+    );
+    assert_ne!(
+        chinese, english,
+        "the two languages cannot print the same formula"
+    );
+}
+
+/// 命中 and 闪避 are stored in parts per thousand but drawn as percent, so the
+/// sum behind them is in percent too: a card that explains "95%" with "950" is
+/// asking the reader to do the conversion the card exists to save them.
+#[test]
+fn a_percent_row_is_explained_in_percent() {
+    let view = Cultivation::default().view();
+    let hit = view
+        .derived_breakdowns
+        .iter()
+        .find(|breakdown| breakdown.key == "cultivation.hit")
+        .expect("命中 has an arithmetic behind it");
+    let formula = cultivation_settings::derived_formula(hit, "zh-CN");
+    assert!(
+        formula.contains('%'),
+        "a per-mille row has to say so: {formula}"
+    );
+    assert!(
+        !formula.contains("750"),
+        "the raw per-mille base leaked into the card: {formula}"
+    );
+}

@@ -679,7 +679,11 @@
       "mastery_paid": "大成加成 %{value}%，永久生效"
     },
     "derived": "外显属性",
-    "derived_hint": "由四维算出，不可加点",
+    "derived_hint": "由四项属性算出，不可加点",
+    "formula": {
+      "line": "%{base} + %{attribute} %{value} × %{per} = %{result}",
+      "capped": "%{formula}（上限 %{cap}）"
+    },
     "attack": "攻击力 %{value}",
     "health": "生命值 %{value}",
     "inner": "内力值 %{value}",
