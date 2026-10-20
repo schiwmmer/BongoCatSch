@@ -10,17 +10,26 @@
 - Right-clicking a task in the Pomodoro settings opens a small menu to edit it — name and expected focus sessions — or delete it, which also drops the task's running session and history.
 - Each task row in the Pomodoro settings list now carries a "Start" button at its right edge, so a focus session begins straight from the list without opening the picker; it is disabled while a session is already running for that task.
 - The task right-click menu gains a "Duplicate" item that opens the new-task editor pre-filled with the same name and focus-session count, so a copy is confirmed before it is saved as a separate task.
-- The interaction-count ladder is replaced by a cultivation ladder: ten realms from Qi Refining to Immortal, a hundred layers each and a thousand levels in all, every layer bought with growth rather than keystrokes. A finished focus session pays ten growth, and a longer session pays proportionally more.
-- Growth buys four attributes — constitution, strength, spirit power and agility — that climb with the level and jump by a whole realm's worth at each breakthrough, plus the single power figure that sums them for every fight.
+- The interaction-count ladder is replaced by a cultivation ladder: ten realms from Qi Refining to Immortal, a hundred layers each and a thousand levels in all, every layer bought with growth rather than keystrokes. A finished focus session pays five hundred growth, every further session the same day pays a tenth more than the last, and the realm scales the whole day's charge.
+- Growth buys four attributes — constitution, strength, mana and agility — that climb with the level and jump by a whole realm's worth at each breakthrough, plus the two power figures every fight reads: spell power, fed by constitution and mana, and martial power, fed by strength and agility.
 - A cultivator carries a weapon, a robe, trousers and boots, each dropped at one of four rarities; the piece in a slot adds its attributes to the wearer's, and a better piece simply replaces the one it displaces.
 - A herb garden of four plots: plant a seed of one attribute and tier, wait half an hour per tier, and harvest a crop whose power raises that attribute for good.
 - Every finished focus session rolls a low chance of one drop — six percent a piece of gear, five percent a seed, never both at once.
 - Breaking into the next realm needs a guardian beaten in a fight the growth alone cannot win: the guardian is a fifth stronger than a bare cultivator at the same realm's cap, so gear and herbs are what carry it. A loss is recorded and leaves the realm where it was.
-- A day without a finished focus session costs growth, and consecutive missed days double the charge up to a cap of 320, so a lapse is answered without ever undoing a breakthrough.
+- A day without a finished focus session costs eight hundred growth, every further consecutive missed day charges a fifth more, and the realm scales the charge, so a lapse is answered without ever undoing a breakthrough.
 - A task's completion date is now the moment its last focus session finished, not the moment its checkbox was ticked; only a task finished without a single session keeps the tick time.
 - The pomodoro picker folds finished tasks behind a "Finished (N)" toggle that expands on click; every unfinished task starts a session straight from its own row; and every task — finished or running included — opens the same right-click menu as the settings page: edit, duplicate, delete.
 - Every level now pays a free attribute point: the level keeps raising all four attributes on its own, and on top of that one point per level is placed by hand, on whichever attribute the user picks, into the same power figure. Points are paid against the highest level ever reached, so an absence penalty lowers the ladder without taking back a point already earned.
 - A harvest can give a seed back: about one picking in seven returns a seed of the same attribute, and a third of those come back one tier higher. The garden still has to be fed by sessions, but it no longer runs dry.
+- A shelf of five hundred 功法 in five grades from 黄 to 神: an inner art pays each of its ranks into the four attributes, an outer art joins a fight and multiplies its blows, and taking one to 圆满 pays a further bonus on top of both. Choose one to train and every finished pomodoro advances it a step, each rank asking more sessions than the last — the first a single one, the last of a 神 art twenty-nine — while a failed attempt only ever eats the session it failed on.
+- A 功法 row reads as a single line — name and grade on the left, the exact bonus on the right — and a trained 功法 can be sold for 灵石: the tome goes to the market, the knowledge and everything it pays stay exactly as they were, and the market buys a given tome only once. Equipped gear is never for sale, and neither is the 功法 being trained.
+- Spirit stones are the one currency — twelve from every finished session, the rest from selling what the satchel no longer needs. The market shelf refreshes daily and is rolled pure: the same realm on the same day always sees the same five to ten pieces, gear and 功法 and seeds alike, priced off the same numbers the drops use, and everything sells back for half of what it cost.
+- Breaking into the next realm is a real fight now: an action bar decides who strikes when, a blow adds whatever spell power gets through the defender's resistance to the attacker's own, and the hit chance falls off as the two sides drift apart — even footing lands four blows in five, a two-to-one edge one in two. Thirty blows settle it either way. Winning advances the realm with a 功法 and a further roll at gear and a seed; losing costs twelve hours and a small chance at one equipped piece.
+- Exploration opens once every twelve hours: a seed, a piece of gear, a 功法, or a wanderer to fight at four fifths of a bare cultivator's strength — the same engine as a breakthrough, and winning that fight rolls again. A third of the time a handful of stones comes back as well.
+- The cultivation page keeps an event log of the last sixteen things that happened — sessions, walks, training, breakthroughs, buys, sales and harvests — right above the attributes.
+- Growth reads as what the cultivator has and what the next layer still asks for, in compact numbers, and the levels inside a layer are called 阶 rather than levels.
+- Every derived figure on the cultivation page carries the formula that computes it, naming the attributes it reads the way the page names them everywhere else.
+- The growth curve is retuned so a realm is a stretch worth remembering: filling the first realm's layer takes about six days of sessions instead of one, and the whole ladder runs about two years. An existing save keeps its level, its free points, its gear and its 功法 — the curve is re-labeled once, underneath them.
 
 ### 🗑️ Removals
 
@@ -33,6 +42,11 @@
 - The Pomodoro settings page gains a "Cultivation" tab: the realm and its growth bar, the four attributes and the power they add up to, the four gear slots beside the satchel holding the rest, the seeds and the plots they can be planted in, and the guardian with the one button that fights it.
 - Cultivation moves out of the Pomodoro page's tabs into its own sidebar entry, right beneath Pomodoro; the Pomodoro page returns to its two views, the task list and the calendar.
 - The hover panel keeps the two pomodoro counts on a line of their own: how many focus sessions have ever finished, and how many are still ahead — the running task's remainder, or every open task's when no countdown is running. Deleting a task later does not take its finished sessions out of the total.
+- The cultivation page grows the sections the ladder now feeds: the 功法 being trained and the shelf it sits on, the market's daily wares, the exploration button with its cooldown, and the event log above the attributes.
+- A duel — a breakthrough's guardian or an exploration's wanderer — opens a popup with both fighters' health bars and their attributes side by side, the verdict and the spoils only at the end, and a log that jumps to the last blow when clicked.
+- The breakthrough button is gated by its cooldown rather than by the power comparison, and while it cools it says how long is left.
+- Market rows keep to a name and a price: tap the name for the piece's detail, tap the price to buy, and every refusal — stones short, already bought — arrives as one toast whatever the reason.
+- Free points can be placed ten at a time once ten are banked, beside the single one, and the pomodoro picker's right-click menu gains a jump straight to the cultivation page.
 
 ### 🌍 Localization
 
@@ -41,6 +55,7 @@
 - Task rows no longer clip the focus-session icons to a fixed count: past the old cap the icons wrap onto a second line instead of being truncated with an ellipsis, so the whole count stays visible and the row fills its width.
 - Days that carry finished focus sessions get a light red wash in the Pomodoro calendar, so an active day is recognisable at a glance.
 - The product ships Chinese and English only: the other six catalogs, their language options, the language enum values and the Windows installer languages are gone. Any Chinese tag — Traditional included — reads the Simplified catalog; every other language reads English.
+- Both catalogs grow the copy the new sections need: 功法 names and grades, the market's refusals and prices, exploration's findings, the duel popup and the event log.
 
 ## 2.3.1 - 2026-10-13
 
