@@ -1763,6 +1763,50 @@ impl Render for SettingsView {
                     }
                 })
         });
+        // The fight the cultivation page is replaying, over the page that asked
+        // for it. The three buttons move view state the page owns, so they are
+        // wired here rather than inside the panel.
+        let cultivation_duel_overlay = self.cultivation_duel.as_ref().map(|duel| {
+            let view = cx.entity().downgrade();
+            cultivation_duel::render(
+                duel,
+                language.catalog_locale(),
+                Tokens::from_theme(cx),
+                CultivationDuelActions {
+                    on_replay: Rc::new({
+                        let view = view.clone();
+                        move |window: &mut Window, cx: &mut App| {
+                            let _ = view.update(cx, |view, cx| {
+                                if let Some(duel) = view.cultivation_duel.as_mut() {
+                                    duel.replay();
+                                }
+                                cx.notify();
+                                let _ = window;
+                            });
+                        }
+                    }),
+                    on_skip: Rc::new({
+                        let view = view.clone();
+                        move |window: &mut Window, cx: &mut App| {
+                            let _ = view.update(cx, |view, cx| {
+                                if let Some(duel) = view.cultivation_duel.as_mut() {
+                                    duel.reveal_all();
+                                }
+                                cx.notify();
+                                let _ = window;
+                            });
+                        }
+                    }),
+                    on_close: Rc::new(move |window: &mut Window, cx: &mut App| {
+                        let _ = view.update(cx, |view, cx| {
+                            view.cultivation_duel = None;
+                            cx.notify();
+                            let _ = window;
+                        });
+                    }),
+                },
+            )
+        });
 
         div()
             .id("bongocat-settings-root")
@@ -1796,6 +1840,7 @@ impl Render for SettingsView {
             .child(div().min_h_0().w_full().flex_1().child(settings))
             .child(model_drag_exit_listener)
             .children(model_drag_overlay)
+            .children(cultivation_duel_overlay)
             .into_any_element()
     }
 }

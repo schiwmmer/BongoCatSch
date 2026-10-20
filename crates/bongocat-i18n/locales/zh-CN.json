@@ -641,7 +641,7 @@
       "root_desc": "根骨：每点 +8 内力值、+2 潜质。潜质越高，学功法越快、也越不容易失败。与法力同为法术一脉（每点 +15 法术战力，配对再计 10 点默契）。",
       "strength_desc": "力量：每点 +3 攻击力、+20 生命值。与身法同为武术一脉（每点 +20 武术战力，配对再计 10 点默契）。",
       "mana_desc": "法力：每点 +3 法术强度、+2 法抗。与根骨同为法术一脉（每点 +20 法术战力，配对再计 10 点默契）。",
-      "agility_desc": "身法：每点 +2 速度、命中 +0.5%、闪避 +0.4%（命中上限 95%、闪避 40%）。与力量同为武术一脉（每点 +12 武术战力，配对再计 10 点默契）。"
+      "agility_desc": "身法：每点 +2 速度、命中 +0.5%、闪避 +0.2%（命中上限 95%、闪避 25%）。与力量同为武术一脉（每点 +12 武术战力，配对再计 10 点默契）。"
     },
     "arts": {
       "title": "功法",
@@ -730,7 +730,40 @@
       "attempt": "闯关",
       "won": "破境成功，晋入%{stage}。",
       "lost": "闯关失败：战力 %{power} / %{guardian}",
-      "max": "已至仙人境圆满。"
+      "max": "已至仙人境圆满。",
+      "held": "%{hours} 小时 %{minutes} 分后可再次闯关"
+    },
+    "duel": {
+      "blow": "普通一击",
+      "blow_index": "第 %{index} 击",
+      "close": "关闭",
+      "dodge": "%{attacker} 一击被 %{target} 闪避",
+      "guardian": "镇守",
+      "hit": "%{attacker} 以 %{art} 击中 %{target}，造成 %{damage} 点伤害（%{target} 剩余 %{health}）",
+      "lose": "败北",
+      "lost_gear": "丢失装备：%{name}",
+      "playing": "战斗回放中……点击日志可跳过",
+      "power": "战力 %{player} 对 %{guardian}",
+      "replay": "重播",
+      "reward_art": "获得功法：%{name}",
+      "reward_gear": "获得装备：%{name}",
+      "title_breakthrough": "破境之战",
+      "title_exploration": "遭遇战",
+      "wanderer": "游荡者",
+      "win": "胜利",
+      "you": "你"
+    },
+    "explore": {
+      "attempt": "外出探索",
+      "defeat": "遭遇战败北，幸而未失。",
+      "found_art": "寻得功法：%{name}",
+      "found_gear": "寻得装备：%{name}",
+      "found_seed": "寻得种子：%{name}",
+      "held": "%{hours} 小时 %{minutes} 分后可再次探索",
+      "nothing": "一无所获。",
+      "ready": "可以在外走一趟了。",
+      "title": "探索",
+      "victory": "遭遇战胜利，小有斩获。"
     },
     "notice": {
       "art_failed": "修习《%{name}》未成，进度仍在。",

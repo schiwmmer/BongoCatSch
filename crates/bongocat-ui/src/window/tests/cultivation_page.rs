@@ -2,7 +2,9 @@
 //!
 //! The hint is the one control on this page a user has to discover by accident,
 //! so it gets a frame of its own: the pointer arriving on a chip has to put the
-//! explanation on screen, not merely set a flag nobody draws.
+//! explanation on screen, not merely set a flag nobody draws. The fight and the
+//! walk are the two buttons whose click has to reach the worker, so they are
+//! read through a sink rather than through the paint.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -10,6 +12,9 @@ use std::time::Duration;
 
 use super::*;
 use crate::window::cultivation_settings;
+use bongocat_pomodoro::{
+    Cultivation, CultivationDocument, PomodoroCommand, PomodoroSnapshot, PomodoroState,
+};
 
 /// The page mounted on its own.
 ///
@@ -34,6 +39,16 @@ impl Render for CultivationPage {
 }
 
 fn cultivation_page(cx: &mut TestAppContext) -> (Entity<SettingsView>, &mut VisualTestContext) {
+    let (view, visual) = cultivation_page_with(cx, PomodoroClient::unavailable());
+    (view, visual)
+}
+
+/// The page mounted on a pomodoro client that serves one snapshot and keeps
+/// every command the page publishes, so a test can read what a click asked for.
+fn cultivation_page_with(
+    cx: &mut TestAppContext,
+    pomodoro: PomodoroClient,
+) -> (Entity<SettingsView>, &mut VisualTestContext) {
     cx.update(gpui_kit::init);
     let (client, endpoint) = crate::SettingsClient::bounded(4);
     // The page publishes setting commands this test never reads; the endpoint
@@ -51,7 +66,7 @@ fn cultivation_page(cx: &mut TestAppContext) -> (Entity<SettingsView>, &mut Visu
                 },
                 Rc::new(|_| {}),
                 Rc::new(|_| {}),
-                PomodoroClient::unavailable(),
+                pomodoro,
                 window,
                 cx,
             )
@@ -118,5 +133,102 @@ fn the_schools_are_shown_beside_the_attribute_totals(cx: &mut TestAppContext) {
     assert!(
         painted(visual, "cultivation-power-schools"),
         "the spell and martial halves must be on the page"
+    );
+}
+
+/// A snapshot serving one cultivation view, with nothing else the page reads.
+fn pomodoro_snapshot(cultivation: bongocat_pomodoro::CultivationView) -> PomodoroSnapshot {
+    let mut snapshot = PomodoroState::empty().snapshot(7);
+    snapshot.cultivation = cultivation;
+    snapshot
+}
+
+/// A cultivator standing at the first realm's last layer, so the guardian is
+/// offered — the growth that fills 炼气's hundred levels.
+fn at_the_cap() -> bongocat_pomodoro::CultivationView {
+    Cultivation::new(CultivationDocument {
+        growth: 1_188,
+        ..CultivationDocument::default()
+    })
+    .view()
+}
+
+/// Every command the page has published since the sink was last drained.
+fn published(sink: &std::sync::mpsc::Receiver<PomodoroCommand>) -> Vec<PomodoroCommand> {
+    let mut commands = Vec::new();
+    while let Ok(command) = sink.try_recv() {
+        commands.push(command);
+    }
+    commands
+}
+
+/// The walk is a button like any other, and a click on it has to reach the
+/// worker: a button that paints and publishes nothing is the failure this page
+/// had once already.
+#[gpui_kit::test]
+fn clicking_the_walk_asks_the_worker_for_one(cx: &mut TestAppContext) {
+    let (pomodoro, sink) = PomodoroClient::with_sink();
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-explore-attempt"),
+        "the walk must be offered"
+    );
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-explore-attempt", cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(commands.as_slice(), [PomodoroCommand::Explore]),
+        "the click asks the worker for a walk: {commands:?}"
+    );
+}
+
+/// A held attempt says so, and its button publishes nothing: the cooldown is a
+/// rule, not a suggestion.
+#[gpui_kit::test]
+fn a_held_attempt_says_so_and_publishes_nothing(cx: &mut TestAppContext) {
+    let mut cultivation = at_the_cap();
+    cultivation.breakthrough_ready = false;
+    cultivation.breakthrough_ready_at =
+        Some(cultivation.breakthrough_ready_at.unwrap_or(0) + 43_200);
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-breakthrough-held"),
+        "the cooldown has to be on the page"
+    );
+    assert!(
+        published(&sink).is_empty(),
+        "nothing was asked for before the click"
+    );
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-breakthrough-attempt", cx);
+    });
+    assert!(
+        published(&sink).is_empty(),
+        "a held attempt cannot be fought"
+    );
+}
+
+/// An attempt whose cooldown has run out is fought with one click, and the click
+/// reaches the worker.
+#[gpui_kit::test]
+fn a_free_attempt_is_fought_with_one_click(cx: &mut TestAppContext) {
+    let cultivation = at_the_cap();
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-breakthrough-attempt", cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(commands.as_slice(), [PomodoroCommand::Breakthrough]),
+        "the click asks the worker for the fight: {commands:?}"
     );
 }

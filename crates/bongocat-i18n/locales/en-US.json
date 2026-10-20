@@ -641,7 +641,7 @@
       "root_desc": "Constitution: +8 inner force and +2 aptitude a point. Aptitude is what makes 功法 learn faster and fail less. Pairs with Mana in the spell school (+15 spell power a point, plus 10 for the shorter half).",
       "strength_desc": "Strength: +3 attack and +20 health a point. Pairs with Agility in the martial school (+20 martial power a point, plus 10 for the shorter half).",
       "mana_desc": "Mana: +3 spell power and +2 spell resist a point. Pairs with Constitution in the spell school (+20 spell power a point, plus 10 for the shorter half).",
-      "agility_desc": "Agility: +2 speed, +0.5% hit and +0.4% evade a point (hit caps at 95%, evade at 40%). Pairs with Strength in the martial school (+12 martial power a point, plus 10 for the shorter half)."
+      "agility_desc": "Agility: +2 speed, +0.5% hit and +0.2% evade a point (hit caps at 95%, evade at 25%). Pairs with Strength in the martial school (+12 martial power a point, plus 10 for the shorter half)."
     },
     "arts": {
       "title": "Arts",
@@ -730,7 +730,40 @@
       "attempt": "Fight",
       "won": "Breakthrough! You have entered %{stage}.",
       "lost": "Defeated: power %{power} against %{guardian}",
-      "max": "The immortal realm is complete."
+      "max": "The immortal realm is complete.",
+      "held": "The next attempt in %{hours}h %{minutes}m"
+    },
+    "duel": {
+      "blow": "a plain blow",
+      "blow_index": "Blow %{index}",
+      "close": "Close",
+      "dodge": "%{attacker} swings and %{target} slips it",
+      "guardian": "the guardian",
+      "hit": "%{attacker} lands %{art} on %{target} for %{damage} (%{target} has %{health} left)",
+      "lose": "Defeat",
+      "lost_gear": "Gear lost: %{name}",
+      "playing": "Replaying the fight… click the log to skip",
+      "power": "Power %{player} against %{guardian}",
+      "replay": "Replay",
+      "reward_art": "Art learned: %{name}",
+      "reward_gear": "Gear gained: %{name}",
+      "title_breakthrough": "The breakthrough fight",
+      "title_exploration": "A chance meeting",
+      "wanderer": "the wanderer",
+      "win": "Victory",
+      "you": "You"
+    },
+    "explore": {
+      "attempt": "Take a walk",
+      "defeat": "The wanderer was too much; nothing was lost but the walk.",
+      "found_art": "Art found: %{name}",
+      "found_gear": "Gear found: %{name}",
+      "found_seed": "Seed found: %{name}",
+      "held": "Another walk in %{hours}h %{minutes}m",
+      "nothing": "Nothing came of it.",
+      "ready": "A walk is owed.",
+      "title": "Exploration",
+      "victory": "The wanderer was beaten, and paid for it."
     },
     "notice": {
       "art_failed": "Training in %{name} did not take; the progress is still there.",

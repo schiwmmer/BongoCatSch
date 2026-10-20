@@ -56,6 +56,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod cultivation_duel;
+use cultivation_duel::{CultivationDuel, CultivationDuelActions, CultivationDuelSource};
 mod cultivation_settings;
 mod presentation;
 use presentation::*;
@@ -314,6 +316,12 @@ pub struct SettingsView {
     /// Clicking an item's name toggles it; only one stays open at a time so a
     /// long satchel stays scannable.
     pub(crate) cultivation_open_item: Option<u64>,
+    /// The fight the cultivation page is replaying over the page, if any.
+    pub(crate) cultivation_duel: Option<CultivationDuel>,
+    /// A fight or a walk the user asked for that the worker has not answered
+    /// yet, with the count of that action at the moment it was asked for: the
+    /// count is what tells an answered command from a running pomodoro's tick.
+    pub(crate) cultivation_duel_pending: Option<(CultivationDuelSource, u32)>,
     pub(crate) seed: SettingsWindowSeed,
     pub(crate) snapshot: Option<SettingsSnapshot>,
     pub(crate) pending: Option<PendingOperation>,

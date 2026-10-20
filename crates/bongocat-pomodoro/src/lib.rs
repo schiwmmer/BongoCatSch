@@ -62,15 +62,18 @@ pub use calendar::{
 };
 pub use cultivation::{
     ABSENCE_BASE_PENALTY, ART_COUNT, AbsenceCharge, ArtBlueprint, ArtGrade, ArtKind, ArtOutcome,
-    ArtView, Attribute, Attributes, BattleReport, BreakthroughOutcome, CropView, Cultivation,
-    CultivationDocument, CultivationView, Derived, Drop, DropView, EQUIPMENT_DROP_PERMILLE,
-    EquipSlot, EquipmentRecord, FREE_POINTS_PER_LEVEL, GuardianView, HarvestOutcome, ItemView,
-    LAYERS_PER_REALM, LAYERS_PER_STAGE, LayerRank, LevelProgress, MAX_LEVEL, MAX_SEED_TIER,
-    OwnedArt, PLOT_COUNT, PlotView, RANKS_PER_LAYER, Rarity, Realm, SEED_DROP_PERMILLE,
-    SEED_RETURN_PERMILLE, SESSION_BASE_GROWTH, SLOT_COUNT, SeedView, SessionReward, TrainingView,
+    ArtStrike, ArtView, Attribute, Attributes, BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport,
+    BreakthroughOutcome, CropView, Cultivation, CultivationDocument, CultivationView,
+    DUEL_ROUND_CAP, Derived, Drop, DropView, DuelReport, DuelRound, ENCOUNTER_PERMILLE,
+    EQUIPMENT_DROP_PERMILLE, EXPLORATION_COOLDOWN_SECONDS, EquipSlot, EquipmentRecord,
+    ExplorationFindView, ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, GUARDIAN_NAME,
+    Guardian, GuardianView, HarvestOutcome, ItemView, LAYERS_PER_REALM, LAYERS_PER_STAGE,
+    LayerRank, LevelProgress, MAX_LEVEL, MAX_SEED_TIER, OwnedArt, PLAYER_NAME, PLOT_COUNT,
+    PlotView, RANKS_PER_LAYER, Rarity, Realm, SEED_DROP_PERMILLE, SEED_RETURN_PERMILLE,
+    SESSION_BASE_GROWTH, SLOT_COUNT, SeedView, SessionReward, TrainingView, WANDERER_NAME,
     absence_penalty, art_attributes, art_view, base_attributes, blueprint,
-    effective_failure_permille, external_damage, layer_rank, level_for_growth, required_pomodoros,
-    session_growth, threshold_for,
+    effective_failure_permille, external_damage, guardian_fighter, layer_rank, level_for_growth,
+    required_pomodoros, session_growth, threshold_for, wanderer_fighter,
 };
 pub use document::POMODORO_TASKS_SCHEMA_VERSION;
 pub use service::{

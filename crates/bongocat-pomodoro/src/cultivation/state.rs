@@ -14,14 +14,18 @@
 use std::array;
 
 use super::{
-    ART_COUNT, ArtGrade, ArtOutcome, ArtView, Attribute, Attributes, BattleReport,
-    CultivationDocument, Derived, EQUIPMENT_DROP_PERMILLE, EquipSlot, EquipmentRecord,
-    FREE_POINTS_PER_LEVEL, Guardian, MAX_LEVEL, OwnedArt, PLOT_COUNT, Rarity, Realm, Rng,
-    SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack, absence_penalty, art_attributes, art_view,
+    ART_COUNT, ArtGrade, ArtKind, ArtOutcome, ArtStrike, ArtView, Attribute, Attributes,
+    BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport, CultivationDocument, Derived, DuelReport,
+    EQUIPMENT_DROP_PERMILLE, EXPLORATION_COOLDOWN_SECONDS, EquipSlot, EquipmentRecord,
+    ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, Guardian, MAX_LEVEL, OwnedArt, PLAYER_NAME,
+    PLOT_COUNT, Rarity, Realm, Rng, SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack,
+    VICTORY_SEED_PERMILLE, absence_penalty, art_attributes, art_view,
     arts::{blueprint, train},
     base_attributes,
-    battle::{guardian_for, resolve},
+    battle::{guardian_fighter, guardian_for, resolve, wanderer_fighter},
     curve::{layer_rank, level_for_growth, stage_floor, threshold_for},
+    duel::duel,
+    explore::{breakthrough_ready, exploration_ready, roll_victory, roll_walk},
     garden::{CropRecord, harvest_points, seed_name, seed_return},
     items::roll_equipment,
 };
@@ -63,6 +67,12 @@ pub struct BreakthroughOutcome {
     pub target: Realm,
     /// The gear the win paid. A loss pays nothing and takes nothing.
     pub reward: Option<EquipmentRecord>,
+    /// Every blow of the fight that settled it, for the log a surface shows.
+    pub duel: DuelReport,
+    /// The gear a loss cost, if it cost any.
+    pub lost: Option<String>,
+    /// The 功法 a win paid. A win always pays one; a loss never does.
+    pub granted_art: Option<String>,
 }
 
 /// What a harvest took from a plot.
@@ -139,6 +149,19 @@ pub enum DropView {
     Seed { attribute: Attribute, tier: u8 },
 }
 
+/// One thing a walk turned up, as a surface reads it.
+///
+/// A walk is the only source that pays all three kinds at once, so its find is
+/// carried whole rather than reduced to the outcome's name: the panel can say
+/// which herb, which piece and which 功法 came of it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExplorationFindView {
+    Seed(SeedView),
+    Gear(ItemView),
+    /// A 功法, by the name it was given.
+    Art(String),
+}
+
 /// Everything a surface reads in one value.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CultivationView {
@@ -186,6 +209,41 @@ pub struct CultivationView {
     pub selected_art: Option<u64>,
     /// What the last finished session did to the 功法 being trained.
     pub last_training: Option<TrainingView>,
+    /// The fight the last walk met, if it met one.
+    pub last_exploration_duel: Option<DuelReport>,
+    /// What the last walk came to.
+    pub last_exploration: Option<ExplorationOutcome>,
+    /// What the last walk turned up, when it turned something up.
+    pub last_exploration_found: Option<ExplorationFindView>,
+    /// Whether a walk is owed right now.
+    pub exploration_ready: bool,
+    /// Whether the guardian can be fought right now.
+    pub breakthrough_ready: bool,
+    /// The instant a walk is owed again, while one is not.
+    pub exploration_ready_at: Option<i64>,
+    /// The instant the guardian can be fought again, while a loss still holds
+    /// the attempt.
+    pub breakthrough_ready_at: Option<i64>,
+    /// How many breakthroughs have been fought so far.
+    pub breakthrough_attempts: u32,
+    /// How many walks have been taken so far.
+    pub explorations: u32,
+}
+
+/// How often a lost breakthrough costs a piece of gear, in parts per thousand.
+const LOST_GEAR_PERMILLE: u64 = 250;
+/// How often a won breakthrough pays gear or a seed on top of its 功法.
+const VICTORY_EXTRA_PERMILLE: u64 = 400;
+
+/// The grade of 功法 a realm pays: the deeper the realm, the rarer the art.
+fn art_grade_for_realm(realm: Realm) -> ArtGrade {
+    match realm.index() {
+        0..=1 => ArtGrade::Yellow,
+        2..=3 => ArtGrade::Profound,
+        4..=5 => ArtGrade::Earth,
+        6..=7 => ArtGrade::Heaven,
+        _ => ArtGrade::Divine,
+    }
 }
 
 /// The cultivation ladder of one user.
@@ -201,6 +259,19 @@ pub struct Cultivation {
     last_seed_return: Option<SeedView>,
     /// What the last finished session did to the 功法 being trained.
     last_training: Option<TrainingView>,
+    /// The fight the last walk met, if it met one.
+    last_exploration_duel: Option<DuelReport>,
+    /// What the last walk came to.
+    last_exploration: Option<ExplorationOutcome>,
+    /// What the last walk turned up, when it turned something up.
+    last_exploration_found: Option<ExplorationFindView>,
+    /// How many breakthroughs have been fought. A surface watches this rather
+    /// than the report: a pomodoro tick bumps the snapshot revision every
+    /// second, so "the revision moved" cannot tell a new fight from a running
+    /// timer.
+    breakthrough_attempts: u32,
+    /// How many walks have been taken, for the same reason.
+    explorations: u32,
 }
 
 impl Default for Cultivation {
@@ -220,6 +291,11 @@ impl Cultivation {
             last_breakthrough: None,
             last_seed_return: None,
             last_training: None,
+            last_exploration_duel: None,
+            last_exploration: None,
+            last_exploration_found: None,
+            breakthrough_attempts: 0,
+            explorations: 0,
         }
     }
 
@@ -551,7 +627,10 @@ impl Cultivation {
     }
 
     /// Own one seed, folded into an existing stack when there is one.
-    fn push_seed(&mut self, attribute: Attribute, tier: u8, rng: &mut Rng) {
+    ///
+    /// Returns the stack as a surface reads it, so a caller that just found the
+    /// seed can say which herb it was.
+    fn push_seed(&mut self, attribute: Attribute, tier: u8, rng: &mut Rng) -> SeedView {
         if let Some(stack) = self
             .document
             .seeds
@@ -559,11 +638,23 @@ impl Cultivation {
             .find(|stack| stack.attribute == attribute && stack.tier == tier)
         {
             stack.count = stack.count.saturating_add(1);
-            return;
+            return SeedView {
+                attribute: stack.attribute,
+                tier: stack.tier,
+                count: stack.count,
+                name: stack.name.clone(),
+            };
         }
         let mut stack = SeedStack::single(attribute, tier);
         stack.name = Some(seed_name(rng));
+        let view = SeedView {
+            attribute: stack.attribute,
+            tier: stack.tier,
+            count: stack.count,
+            name: stack.name.clone(),
+        };
         self.document.seeds.push(stack);
+        view
     }
 
     /// Plant one seed in the first empty plot.
@@ -648,30 +739,107 @@ impl Cultivation {
     /// last layer, or the ladder has no next realm. A loss costs nothing but
     /// the attempt; a win opens the next realm, lifts the growth to that
     /// realm's floor and pays one piece of the new tier's gear.
-    pub fn breakthrough(&mut self) -> Option<BreakthroughOutcome> {
+    pub fn breakthrough(&mut self, now_unix: i64) -> Option<BreakthroughOutcome> {
         let current = self.realm();
         if self.level() < current.cap_level() {
             return None;
         }
+        if !breakthrough_ready(self.document.breakthrough_blocked_until, now_unix) {
+            return None;
+        }
         let guardian = guardian_for(current)?;
+        // The count is taken here, where a fight is actually joined: it is what
+        // tells a surface there is a report it has not shown yet, and "the
+        // snapshot revision moved" cannot say that — a running pomodoro bumps
+        // it every second.
+        self.breakthrough_attempts = self.breakthrough_attempts.saturating_add(1);
+        let mut rng = self.rng(now_unix);
         let report = resolve(self.attributes(), guardian);
-        if !report.won {
+        // The fight is what decides, not the number above: the panel prints the
+        // comparison so the user knows where they stand, and then the two of
+        // them actually trade blows.
+        let duel = duel(self.fighter(), guardian_fighter(current), &mut rng);
+        if !duel.won {
             self.document.breakthrough_failures =
                 self.document.breakthrough_failures.saturating_add(1);
+            self.document.breakthrough_blocked_until =
+                Some(now_unix.saturating_add(BREAKTHROUGH_COOLDOWN_SECONDS));
+            // A loss can cost a piece of gear. One in four, and only one: the
+            // point is that a loss stings, not that it sets the cultivator back.
+            let lost = (rng.below(1_000) < LOST_GEAR_PERMILLE)
+                .then(|| self.drop_one_item(&mut rng))
+                .flatten();
             let outcome = BreakthroughOutcome {
                 report,
                 target: guardian.target,
                 reward: None,
+                duel,
+                lost,
+                granted_art: None,
             };
             self.last_breakthrough = Some(outcome.clone());
             return Some(outcome);
         }
-        self.enter_realm(guardian);
+        self.enter_realm(guardian, duel, now_unix);
         self.last_breakthrough.clone()
     }
 
+    /// The cultivator as a fighter, with the 外功 they would use.
+    pub fn fighter(&self) -> Fighter {
+        let derived = self.attributes().derived();
+        let art = self.strike();
+        Fighter::from_derived(PLAYER_NAME.to_owned(), derived, art)
+    }
+
+    /// The 外功 the cultivator brings to a fight: the one being trained if it is
+    /// an 外功, otherwise the deepest one owned.
+    fn strike(&self) -> Option<ArtStrike> {
+        let arts: Vec<(u64, u8)> = self
+            .document
+            .arts
+            .iter()
+            .filter(|owned| blueprint(owned.art_id).kind == ArtKind::External)
+            .map(|owned| (owned.art_id, owned.rank))
+            .collect();
+        let pick = self
+            .document
+            .selected_art
+            .filter(|id| arts.iter().any(|(art_id, _)| art_id == id))
+            .or_else(|| {
+                arts.iter()
+                    .max_by_key(|(_, rank)| *rank)
+                    .map(|(art_id, _)| *art_id)
+            })?;
+        let art = blueprint(pick);
+        Some(ArtStrike {
+            name: art.name,
+            multiplier_permille: art.multiplier_permille,
+            cost: art.cost,
+        })
+    }
+
+    /// Give up one owned item and say which. Equipped or not, one item only —
+    /// and the cultivator is never left with nothing they can wear.
+    fn drop_one_item(&mut self, rng: &mut Rng) -> Option<String> {
+        if self.document.equipment.is_empty() {
+            return None;
+        }
+        let index = rng.below(self.document.equipment.len() as u64) as usize;
+        let item = self.document.equipment.remove(index);
+        let name = item
+            .name
+            .clone()
+            .unwrap_or_else(|| item.slot.name_key().to_owned());
+        self.document
+            .equipped
+            .iter_mut()
+            .filter(|slot| **slot == Some(item.id))
+            .for_each(|slot| *slot = None);
+        Some(name)
+    }
+
     /// Open the realm the guardian defended and pay its trophy.
-    fn enter_realm(&mut self, guardian: Guardian) {
+    fn enter_realm(&mut self, guardian: Guardian, duel: DuelReport, now_unix: i64) {
         let target = guardian.target;
         // The power that fought, read before anything moves: entering the realm
         // lifts the level ceiling and pays a trophy, so a report read afterwards
@@ -685,6 +853,18 @@ impl Cultivation {
         self.note_peak_level();
         let mut rng = self.rng(0);
         let reward = self.push_equipment(target.index() as u8 + 1, &mut rng);
+        // A win always pays a 功法 — that is the promise the fight is made for —
+        // and may pay gear or a seed besides.
+        let grade = art_grade_for_realm(target);
+        let granted_art = self.grant_art(grade, now_unix).map(|art| art.name);
+        if rng.below(1_000) < VICTORY_EXTRA_PERMILLE {
+            let tier = target.index() as u8 + 1;
+            let _ = self.push_equipment(tier, &mut rng);
+        }
+        if rng.below(1_000) < VICTORY_SEED_PERMILLE {
+            let attribute = Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
+            self.push_seed(attribute, target.index() as u8 + 1, &mut rng);
+        }
         let outcome = BreakthroughOutcome {
             report: BattleReport {
                 player_power,
@@ -693,8 +873,81 @@ impl Cultivation {
             },
             target,
             reward: Some(reward),
+            duel,
+            lost: None,
+            granted_art,
         };
         self.last_breakthrough = Some(outcome);
+    }
+
+    /// Walk out of the door once every twelve hours.
+    ///
+    /// Returns `None` while the walk is still on cooldown. A walk that meets
+    /// someone settles that fight the same way a breakthrough does, and losing it
+    /// costs nothing but the walk.
+    pub fn explore(&mut self, now_unix: i64) -> Option<ExplorationOutcome> {
+        if !exploration_ready(self.document.last_exploration_unix, now_unix) {
+            return None;
+        }
+        self.document.last_exploration_unix = Some(now_unix);
+        // Counted here rather than on the outcome: a walk that found nothing is
+        // still a walk a surface has not shown yet.
+        self.explorations = self.explorations.saturating_add(1);
+        let mut rng = self.rng(now_unix);
+        let mut outcome = roll_walk(&mut rng);
+        let tier = self.realm().index() as u8 + 1;
+        let mut found = None;
+        match outcome {
+            ExplorationOutcome::Seed => {
+                let attribute =
+                    Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
+                found = Some(ExplorationFindView::Seed(
+                    self.push_seed(attribute, tier, &mut rng),
+                ));
+            }
+            ExplorationOutcome::Gear => {
+                let item = self.push_equipment(tier, &mut rng);
+                found = Some(ExplorationFindView::Gear(self.item_view(&item)));
+            }
+            ExplorationOutcome::Art => {
+                let art = self.grant_art(art_grade_for_realm(self.realm()), now_unix);
+                found = art.map(|art| ExplorationFindView::Art(art.name));
+            }
+            ExplorationOutcome::Victory => {
+                let duel = duel(self.fighter(), wanderer_fighter(self.realm()), &mut rng);
+                outcome = if duel.won {
+                    match roll_victory(&mut rng) {
+                        ExplorationOutcome::Art => {
+                            let art = self.grant_art(art_grade_for_realm(self.realm()), now_unix);
+                            found = art.map(|art| ExplorationFindView::Art(art.name));
+                            ExplorationOutcome::Victory
+                        }
+                        ExplorationOutcome::Gear => {
+                            let item = self.push_equipment(tier, &mut rng);
+                            found = Some(ExplorationFindView::Gear(self.item_view(&item)));
+                            ExplorationOutcome::Victory
+                        }
+                        ExplorationOutcome::Seed => {
+                            let attribute = Attribute::from_index(
+                                rng.below(Attribute::ALL.len() as u64) as usize,
+                            );
+                            found = Some(ExplorationFindView::Seed(
+                                self.push_seed(attribute, tier, &mut rng),
+                            ));
+                            ExplorationOutcome::Victory
+                        }
+                        _ => ExplorationOutcome::Victory,
+                    }
+                } else {
+                    ExplorationOutcome::Defeat
+                };
+                self.last_exploration_duel = Some(duel);
+            }
+            ExplorationOutcome::Defeat | ExplorationOutcome::Nothing => {}
+        }
+        self.last_exploration = Some(outcome);
+        self.last_exploration_found = found;
+        Some(outcome)
     }
 
     /// The guardian offered right now, or `None` while the realm still has
@@ -706,8 +959,16 @@ impl Cultivation {
             .flatten()
     }
 
-    /// Read the snapshot a surface renders.
+    /// Read the snapshot a surface renders, without a clock.
+    ///
+    /// Only the tests reach for this: a surface has a clock and asks for
+    /// [`Self::view_at`], so the cooldowns it reads are the real ones.
     pub fn view(&self) -> CultivationView {
+        self.view_at(0)
+    }
+
+    /// Read the snapshot a surface renders.
+    pub fn view_at(&self, now_unix: i64) -> CultivationView {
         let realm = self.realm();
         let level = self.level();
         let said = layer_rank(level);
@@ -739,22 +1000,7 @@ impl Cultivation {
         let mut equipped: [Option<ItemView>; SLOT_COUNT] = array::from_fn(|_| None);
         let mut inventory = Vec::new();
         for item in &self.document.equipment {
-            let view = ItemView {
-                id: item.id,
-                slot: item.slot,
-                tier: item.tier,
-                rarity: item.rarity,
-                attributes: item.attributes(),
-                power: item.power(),
-                equipped: self
-                    .document
-                    .equipped
-                    .get(item.slot.index())
-                    .copied()
-                    .flatten()
-                    == Some(item.id),
-                name: item.name.clone(),
-            };
+            let view = self.item_view(item);
             if view.equipped {
                 equipped[item.slot.index()] = Some(view);
             } else {
@@ -835,6 +1081,41 @@ impl Cultivation {
             arts,
             selected_art: self.document.selected_art,
             last_training: self.last_training.clone(),
+            last_exploration_duel: self.last_exploration_duel.clone(),
+            last_exploration: self.last_exploration,
+            last_exploration_found: self.last_exploration_found.clone(),
+            exploration_ready: exploration_ready(self.document.last_exploration_unix, now_unix),
+            breakthrough_ready: breakthrough_ready(
+                self.document.breakthrough_blocked_until,
+                now_unix,
+            ),
+            exploration_ready_at: self
+                .document
+                .last_exploration_unix
+                .map(|last| last.saturating_add(EXPLORATION_COOLDOWN_SECONDS)),
+            breakthrough_ready_at: self.document.breakthrough_blocked_until,
+            breakthrough_attempts: self.breakthrough_attempts,
+            explorations: self.explorations,
+        }
+    }
+
+    /// One owned item as a surface reads it, worn or not.
+    fn item_view(&self, item: &EquipmentRecord) -> ItemView {
+        ItemView {
+            id: item.id,
+            slot: item.slot,
+            tier: item.tier,
+            rarity: item.rarity,
+            attributes: item.attributes(),
+            power: item.power(),
+            equipped: self
+                .document
+                .equipped
+                .get(item.slot.index())
+                .copied()
+                .flatten()
+                == Some(item.id),
+            name: item.name.clone(),
         }
     }
 }

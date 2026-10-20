@@ -15,8 +15,8 @@
 use super::*;
 use bongocat_i18n::{format_text, text};
 use bongocat_pomodoro::{
-    ArtKind, ArtOutcome, ArtView, Attribute, CultivationView, DropView, EquipSlot, ItemView,
-    MAX_LEVEL, PomodoroCommand, Realm,
+    ArtKind, ArtOutcome, ArtView, Attribute, CultivationView, DropView, EquipSlot,
+    ExplorationFindView, ExplorationOutcome, ItemView, MAX_LEVEL, PomodoroCommand, Realm,
 };
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::hover_card::HoverCard;
@@ -85,6 +85,7 @@ pub(super) fn content(
         .child(seed_panel(&view, &cultivation, locale, tokens))
         .child(garden_panel(&view, &cultivation, locale, tokens))
         .child(breakthrough_panel(&view, &cultivation, locale, tokens))
+        .child(exploration_panel(&view, &cultivation, locale, tokens))
         .into_any_element()
 }
 
@@ -295,6 +296,60 @@ fn notices(
             tokens.danger
         };
         notices.push(notice("cultivation-notice-breakthrough", line, color).into_any_element());
+    }
+    // The last walk, and whatever it turned up. A walk that found something
+    // names it; a walk that met someone says who won.
+    if let Some(outcome) = cultivation.last_exploration {
+        let kind = match outcome {
+            ExplorationOutcome::Nothing => Some(("cultivation.explore.nothing", tokens.muted)),
+            ExplorationOutcome::Victory => Some(("cultivation.explore.victory", tokens.accent)),
+            ExplorationOutcome::Defeat => Some(("cultivation.explore.defeat", tokens.danger)),
+            // A quiet find is named by the line under it.
+            ExplorationOutcome::Seed | ExplorationOutcome::Gear | ExplorationOutcome::Art => None,
+        };
+        if let Some((key, color)) = kind {
+            notices.push(
+                notice(
+                    "cultivation-notice-exploration",
+                    text(locale, key).to_string(),
+                    color,
+                )
+                .into_any_element(),
+            );
+        }
+        let found = cultivation.last_exploration_found.as_ref().map(|found| {
+            let (id, line) = match found {
+                ExplorationFindView::Seed(seed) => (
+                    "cultivation-notice-exploration-seed",
+                    format_text(
+                        locale,
+                        "cultivation.explore.found_seed",
+                        &[(
+                            "name",
+                            seed_label(locale, seed.attribute, seed.tier, seed.name.as_deref()),
+                        )],
+                    ),
+                ),
+                ExplorationFindView::Gear(item) => (
+                    "cultivation-notice-exploration-gear",
+                    format_text(
+                        locale,
+                        "cultivation.explore.found_gear",
+                        &[("name", item_label(locale, item))],
+                    ),
+                ),
+                ExplorationFindView::Art(name) => (
+                    "cultivation-notice-exploration-art",
+                    format_text(
+                        locale,
+                        "cultivation.explore.found_art",
+                        &[("name", name.clone())],
+                    ),
+                ),
+            };
+            notice(id, line, tokens.accent).into_any_element()
+        });
+        notices.extend(found);
     }
     notices
 }
@@ -1097,6 +1152,12 @@ fn garden_panel(
 }
 
 /// The guardian at the end of the realm, and the one button that fights it.
+///
+/// The button answers to the cooldown rather than to the power line: the fight
+/// is what decides a breakthrough, and a cultivator who is behind on paper has
+/// won one before. The power comparison stays on the page because it is what
+/// the report reads back, and because knowing where you stand is half of
+/// deciding to spend the attempt.
 fn breakthrough_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
@@ -1130,18 +1191,21 @@ fn breakthrough_panel(
     let mut button = Button::new("cultivation-breakthrough-attempt")
         .small()
         .label(text(locale, "cultivation.breakthrough.attempt"));
-    if enough {
+    if cultivation.breakthrough_ready {
         button = button.on_click({
             let view = view.clone();
             move |_, _, cx| {
                 view.update(cx, |view, cx| {
-                    let _ = view.pomodoro.try_publish(PomodoroCommand::Breakthrough);
-                    view.poll_pomodoro(cx);
+                    view.ask_cultivation(
+                        CultivationDuelSource::Breakthrough,
+                        PomodoroCommand::Breakthrough,
+                        cx,
+                    );
                 });
             }
         });
     }
-    panel
+    let mut panel = panel
         .child(div().text_xs().text_color(tokens.muted).child(format_text(
             locale,
             "cultivation.breakthrough.guardian",
@@ -1166,7 +1230,107 @@ fn breakthrough_panel(
                         .child(text(locale, hint_key)),
                 )
                 .child(button),
+        );
+    // A loss holds the attempt for twelve hours. The countdown is the honest
+    // thing to show: a disabled button with no reason beside it reads as broken.
+    if !cultivation.breakthrough_ready {
+        panel = panel.child(
+            div()
+                .id("cultivation-breakthrough-held")
+                .text_xs()
+                .text_color(tokens.danger)
+                .child(cooldown_line(
+                    cultivation.breakthrough_ready_at,
+                    "cultivation.breakthrough.held",
+                    locale,
+                ))
+                .test_support(),
+        );
+    }
+    panel
+}
+
+/// The walk out of the door: one every twelve hours, whatever it comes to.
+///
+/// Gated by the cooldown alone — the thing being rationed is the player's
+/// attention, not a cost — and the countdown says when the next one is owed.
+fn exploration_panel(
+    view: &Entity<SettingsView>,
+    cultivation: &CultivationView,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    let mut button = Button::new("cultivation-explore-attempt")
+        .small()
+        .label(text(locale, "cultivation.explore.attempt"));
+    if cultivation.exploration_ready {
+        button = button.on_click({
+            let view = view.clone();
+            move |_, _, cx| {
+                view.update(cx, |view, cx| {
+                    view.ask_cultivation(
+                        CultivationDuelSource::Exploration,
+                        PomodoroCommand::Explore,
+                        cx,
+                    );
+                });
+            }
+        });
+    }
+    let status = if cultivation.exploration_ready {
+        text(locale, "cultivation.explore.ready").to_string()
+    } else {
+        cooldown_line(
+            cultivation.exploration_ready_at,
+            "cultivation.explore.held",
+            locale,
         )
+    };
+    div()
+        .id("cultivation-exploration")
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(section_title(locale, "cultivation.explore.title", tokens))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .id("cultivation-exploration-status")
+                        .text_xs()
+                        .text_color(tokens.muted)
+                        .child(status)
+                        .test_support(),
+                )
+                .child(button),
+        )
+}
+
+/// The hours and minutes left on a cooldown, as one line.
+///
+/// A cooldown is read from the instant it ends, which the view already carries;
+/// the page owns the clock, so the subtraction happens here rather than in the
+/// domain. An ended cooldown reads as zero rather than as a negative, and a
+/// cooldown that was never started falls back to the bare key.
+fn cooldown_line(owed_at: Option<i64>, key: &'static str, locale: &str) -> String {
+    let Some(owed_at) = owed_at else {
+        return text(locale, key).to_string();
+    };
+    let left = owed_at.saturating_sub(now_unix()).max(0);
+    let hours = left / 3_600;
+    let minutes = (left % 3_600) / 60;
+    format_text(
+        locale,
+        key,
+        &[
+            ("hours", hours.to_string()),
+            ("minutes", minutes.to_string()),
+        ],
+    )
 }
 
 fn section_title(locale: &str, key: &'static str, tokens: Tokens) -> impl IntoElement {
@@ -1180,7 +1344,7 @@ fn section_title(locale: &str, key: &'static str, tokens: Tokens) -> impl IntoEl
 /// An item's display line: its xianxia name when it has one, else the slot, and
 /// in both cases the tier and the grade as stars. The name is what tells two
 /// same-slot, same-tier drops apart, so it leads the line when present.
-fn item_label(locale: &str, item: &ItemView) -> String {
+pub(super) fn item_label(locale: &str, item: &ItemView) -> String {
     let stars = "★".repeat(item.rarity.stars());
     let slot = text(locale, item.slot.name_key()).to_string();
     match item.name.as_deref() {
@@ -1208,7 +1372,12 @@ fn item_label(locale: &str, item: &ItemView) -> String {
 
 /// A seed's or a crop's display line: its xianxia name when the stack carries
 /// one, else the attribute it raises, and in both cases its tier.
-fn seed_label(locale: &str, attribute: Attribute, tier: u8, name: Option<&str>) -> String {
+pub(super) fn seed_label(
+    locale: &str,
+    attribute: Attribute,
+    tier: u8,
+    name: Option<&str>,
+) -> String {
     match name {
         Some(name) => format_text(
             locale,

@@ -38,6 +38,8 @@ mod arts;
 mod battle;
 mod curve;
 mod document;
+mod duel;
+mod explore;
 mod garden;
 mod items;
 mod state;
@@ -49,17 +51,28 @@ pub use arts::{
     ART_COUNT, ArtBlueprint, ArtGrade, ArtKind, ArtOutcome, ArtView, OwnedArt, art_attributes,
     art_view, blueprint, effective_failure_permille, external_damage, required_pomodoros,
 };
-pub use battle::{BattleReport, Guardian};
+pub use battle::{BattleReport, Guardian, guardian_fighter, wanderer_fighter};
+// `duel` itself stays crate-private: it takes the seeded `Rng`, which is nobody
+// else's business. A surface asks the state machine to fight, not the engine.
 pub use curve::{
     LAYERS_PER_REALM, LAYERS_PER_STAGE, LayerRank, LevelProgress, MAX_LEVEL, RANKS_PER_LAYER,
     layer_rank, level_for_growth, threshold_for,
 };
 pub use document::CultivationDocument;
+pub use duel::{
+    ArtStrike, DUEL_ROUND_CAP, DuelReport, DuelRound, Fighter, GUARDIAN_NAME, PLAYER_NAME,
+    WANDERER_NAME,
+};
+pub use explore::{
+    BREAKTHROUGH_COOLDOWN_SECONDS, ENCOUNTER_PERMILLE, EXPLORATION_COOLDOWN_SECONDS,
+    ExplorationOutcome, VICTORY_SEED_PERMILLE,
+};
 pub use garden::{MAX_SEED_TIER, PLOT_COUNT, PlotRecord, SeedStack};
 pub use items::{EquipSlot, EquipmentRecord, Rarity, SLOT_COUNT};
 pub use state::{
     AbsenceCharge, BreakthroughOutcome, CropView, Cultivation, CultivationView, Drop, DropView,
-    GuardianView, HarvestOutcome, ItemView, PlotView, SeedView, SessionReward, TrainingView,
+    ExplorationFindView, GuardianView, HarvestOutcome, ItemView, PlotView, SeedView, SessionReward,
+    TrainingView,
 };
 
 use serde::{Deserialize, Serialize};
@@ -476,8 +489,12 @@ const BASE_HIT_PERMILLE: i64 = 750;
 const HIT_PERMILLE_PER_AGILITY: i64 = 5;
 const HIT_PERMILLE_CAP: i64 = 950;
 const BASE_EVADE_PERMILLE: i64 = 50;
-const EVADE_PERMILLE_PER_AGILITY: i64 = 4;
-const EVADE_PERMILLE_CAP: i64 = 400;
+// Two per point rather than four, and a lower ceiling: at four, a cultivator and
+// the guardian both carry enough 闪避 to push every fight to a forty percent hit
+// rate, which turns a real fight into a coin toss — the opposite of what the log
+// is for. This curve keeps 闪避 worth having without making 命中 meaningless.
+const EVADE_PERMILLE_PER_AGILITY: i64 = 2;
+const EVADE_PERMILLE_CAP: i64 = 250;
 /// What one point of 根骨 is worth to 潜质.
 const APTITUDE_PER_ROOT: i64 = 2;
 

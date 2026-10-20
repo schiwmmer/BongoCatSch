@@ -268,7 +268,7 @@ fn every_shown_number_follows_from_the_attribute_that_owns_it() {
     let swift = Attributes::new(0, 0, 0, 10).derived();
     assert_eq!(swift.speed, 30);
     assert_eq!(swift.hit, 800);
-    assert_eq!(swift.evade, 90);
+    assert_eq!(swift.evade, 70);
 
     let rooted = Attributes::new(10, 0, 0, 0).derived();
     assert_eq!(rooted.inner, 130, "50 + 根骨×8");
@@ -281,9 +281,9 @@ fn every_shown_number_follows_from_the_attribute_that_owns_it() {
 fn hit_and_evade_stop_climbing() {
     let absurd = Attributes::new(0, 0, 0, 10_000).derived();
     assert_eq!(absurd.hit, 950);
-    assert_eq!(absurd.evade, 400);
+    assert_eq!(absurd.evade, 250);
     assert_eq!(absurd.hit_percent(), 95);
-    assert_eq!(absurd.evade_percent(), 40);
+    assert_eq!(absurd.evade_percent(), 25);
 }
 
 #[test]
@@ -291,7 +291,7 @@ fn the_guardian_is_beyond_a_naked_cultivator_at_the_cap() {
     let naked = at_the_first_cap();
     let guardian = naked.guardian().expect("a guardian at the cap");
     assert!(guardian.power > naked.power(), "gear must be required");
-    let outcome = naked.clone().breakthrough().expect("an attempt");
+    let outcome = naked.clone().breakthrough(1_000).expect("an attempt");
     assert!(!outcome.report.won);
     assert_eq!(outcome.target, Realm::Foundation);
     assert!(outcome.reward.is_none());
@@ -302,7 +302,7 @@ fn the_guardian_is_beyond_a_naked_cultivator_at_the_cap() {
 fn gear_is_what_gets_a_cultivator_through() {
     let mut cultivation = geared(at_the_first_cap());
     assert!(cultivation.power() > cultivation.guardian().expect("a guardian").power);
-    let outcome = cultivation.breakthrough().expect("an attempt");
+    let outcome = cultivation.breakthrough(1_000).expect("an attempt");
     assert!(outcome.report.won);
     assert_eq!(cultivation.realm(), Realm::Foundation);
     assert_eq!(
@@ -321,7 +321,7 @@ fn gear_is_what_gets_a_cultivator_through() {
 fn the_report_credits_the_power_that_fought_not_the_trophy() {
     let mut cultivation = geared(at_the_first_cap());
     let before = cultivation.power();
-    let outcome = cultivation.breakthrough().expect("an attempt");
+    let outcome = cultivation.breakthrough(1_000).expect("an attempt");
     assert_eq!(
         outcome.report.player_power, before,
         "the report must show what walked into the fight"
@@ -339,7 +339,7 @@ fn a_breakthrough_is_only_offered_at_the_realm_cap() {
         ..CultivationDocument::default()
     });
     assert!(cultivation.guardian().is_none());
-    assert!(cultivation.breakthrough().is_none());
+    assert!(cultivation.breakthrough(1_000).is_none());
 }
 
 #[test]
@@ -458,7 +458,7 @@ fn drops_are_rare_next_to_the_growth_a_session_pays() {
 #[test]
 fn a_reload_reads_the_ladder_back() {
     let mut cultivation = geared(at_the_first_cap());
-    let outcome = cultivation.breakthrough().expect("an attempt");
+    let outcome = cultivation.breakthrough(1_000).expect("an attempt");
     assert!(outcome.report.won);
     let document = cultivation.document().clone();
     let parsed: CultivationDocument =
@@ -704,4 +704,215 @@ fn only_an_owned_art_can_be_selected() {
     assert_eq!(cultivation.view().selected_art, Some(granted.id));
     assert!(cultivation.select_art(None));
     assert_eq!(cultivation.view().selected_art, None);
+}
+
+/// A lost breakthrough locks the attempt for twelve hours, and the lock lifts.
+#[test]
+fn a_lost_breakthrough_cannot_be_retried_at_once() {
+    let mut cultivation = at_the_first_cap();
+    let lost = cultivation
+        .breakthrough(1_000)
+        .expect("an attempt at the cap");
+    assert!(!lost.duel.won, "a naked cultivator loses the fight");
+    assert!(
+        cultivation.breakthrough(1_001).is_none(),
+        "the next attempt is locked out"
+    );
+    assert!(
+        cultivation
+            .breakthrough(1_000 + BREAKTHROUGH_COOLDOWN_SECONDS)
+            .is_some()
+    );
+    // The fight is logged blow by blow, which is what the panel replays.
+    assert!(
+        !lost.duel.rounds.is_empty(),
+        "a loss is shown, not merely reported"
+    );
+}
+
+/// Winning the fight pays a 功法, every time: that is the promise the fight is
+/// made for.
+///
+/// The fight is rolled, so the test walks a handful of clocks rather than betting
+/// on one — the assertion is about what a win pays, not about a lucky seed.
+#[test]
+fn winning_the_fight_always_pays_an_art() {
+    let mut paid = 0;
+    for attempt in 0..20_i64 {
+        let mut cultivation = geared(at_the_first_cap());
+        let Some(won) = cultivation.breakthrough(2_000 + attempt * 1_000) else {
+            continue;
+        };
+        if !won.duel.won {
+            continue;
+        }
+        paid += 1;
+        assert!(
+            won.granted_art.is_some(),
+            "a win pays a 功法, not just the next realm"
+        );
+        assert!(!cultivation.view().arts.is_empty());
+    }
+    assert!(
+        paid > 0,
+        "gear carries a cultivator through: no clock in twenty produced a win"
+    );
+}
+
+/// Gear in the bag but on nobody: the cultivator fights as bare as one with
+/// nothing at all, so the first guardian wins — and the loss still has gear to
+/// cost. A win is not what is under test here.
+fn carrying(cultivation: Cultivation) -> Cultivation {
+    let mut document = cultivation.document().clone();
+    for slot in document.equipped.iter_mut() {
+        *slot = None;
+    }
+    Cultivation::new(document)
+}
+
+/// A loss costs a piece of gear one time in four and nothing the rest of the
+/// time: it is a sting, not a setback. Never everything, never nothing.
+#[test]
+fn a_loss_costs_gear_sometimes_and_never_everything() {
+    let mut losses = 0;
+    let mut fights = 0;
+    for clock in 0..60_i64 {
+        let mut cultivation = carrying(geared(at_the_first_cap()));
+        let Some(outcome) = cultivation.breakthrough(1_000 + clock * 100_000) else {
+            continue;
+        };
+        if outcome.duel.won {
+            continue;
+        }
+        fights += 1;
+        if outcome.lost.is_some() {
+            losses += 1;
+            assert_eq!(
+                cultivation.document().equipment.len(),
+                3,
+                "exactly one piece is lost, out of the four carried"
+            );
+        }
+    }
+    assert!(
+        fights >= 30,
+        "a cultivator with nothing worn loses to the first guardian: {fights}/60"
+    );
+    assert!(losses > 0, "a loss costs gear sometimes: {losses}/{fights}");
+    assert!(
+        losses < fights,
+        "a loss is a chance, not a rule: {losses}/{fights}"
+    );
+}
+
+/// Exploration is rationed by a cooldown, and a walk is never free of
+/// consequences: it pays something, or it meets someone.
+#[test]
+fn one_walk_every_twelve_hours() {
+    let mut cultivation = Cultivation::default();
+    let first = cultivation.explore(10_000).expect("the first walk is owed");
+    assert!(
+        cultivation.explore(10_001).is_none(),
+        "the walk is not owed"
+    );
+    // The panel reads the same rule the walk does, from the clock it is handed.
+    assert!(
+        !cultivation.view_at(10_001).exploration_ready,
+        "the second walk is not owed yet"
+    );
+    assert!(
+        cultivation
+            .view_at(10_000 + EXPLORATION_COOLDOWN_SECONDS)
+            .exploration_ready
+    );
+    let second = cultivation
+        .explore(10_000 + EXPLORATION_COOLDOWN_SECONDS)
+        .expect("the cooldown has run out");
+    // Whatever the walk was, the panel can say what came of it.
+    assert_eq!(cultivation.view().last_exploration, Some(second));
+    let _ = first;
+}
+
+/// A walk that turns something up says what it turned up: the herb, the piece
+/// or the 功法, not merely that something happened.
+#[test]
+fn a_walk_says_what_it_turned_up() {
+    let mut found = 0;
+    let mut empty = 0;
+    for clock in 0..40_i64 {
+        let mut cultivation = Cultivation::default();
+        let Some(outcome) = cultivation.explore(1_000 + clock * 100_000) else {
+            continue;
+        };
+        let turned_up = cultivation.view().last_exploration_found.clone();
+        match (outcome, turned_up) {
+            // A walk that found nothing, or lost the fight it met, owes nothing.
+            (ExplorationOutcome::Nothing | ExplorationOutcome::Defeat, None) => empty += 1,
+            (ExplorationOutcome::Defeat, Some(_)) => {
+                panic!("a walk that was beaten turned something up")
+            }
+            // Anything else — a seed, gear, a 功法, or a win that paid — names it.
+            (_, Some(_)) => found += 1,
+            // A win whose second roll paid nothing is a walk that met someone and
+            // beat them for the experience.
+            (_, None) => {}
+        }
+    }
+    assert!(found > 0, "a walk turns something up sometimes: {found}/40");
+    assert!(
+        empty > 0,
+        "and nothing at all the rest of the time: {empty}/40"
+    );
+}
+
+/// A fight counts once, and only when it is joined: a surface watches the count
+/// to know there is a report it has not shown, and a running pomodoro bumping
+/// the snapshot revision every second cannot say that.
+#[test]
+fn a_fight_and_a_walk_each_count_once() {
+    let mut cultivation = at_the_first_cap();
+    assert_eq!(cultivation.view().breakthrough_attempts, 0);
+    let _ = cultivation.breakthrough(1_000);
+    assert_eq!(
+        cultivation.view().breakthrough_attempts,
+        1,
+        "the fight counted"
+    );
+    // Held by the cooldown the loss wrote: nothing further is counted.
+    assert!(cultivation.breakthrough(1_001).is_none());
+    assert_eq!(
+        cultivation.view().breakthrough_attempts,
+        1,
+        "a refused attempt does not count"
+    );
+
+    let mut walking = Cultivation::default();
+    assert_eq!(walking.view().explorations, 0);
+    let _ = walking.explore(5_000);
+    assert_eq!(walking.view().explorations, 1, "the walk counted");
+    assert!(walking.explore(5_001).is_none());
+    assert_eq!(
+        walking.view().explorations,
+        1,
+        "a walk that is not owed does not count"
+    );
+}
+
+/// While a loss holds the attempt, the panel counts down to the next one rather
+/// than showing a button that does nothing.
+#[test]
+fn a_lost_fight_says_when_the_next_one_is_owed() {
+    let mut cultivation = at_the_first_cap();
+    let lost = cultivation
+        .breakthrough(1_000)
+        .expect("an attempt at the cap");
+    assert!(!lost.duel.won, "a naked cultivator loses the fight");
+    let owed = 1_000 + BREAKTHROUGH_COOLDOWN_SECONDS;
+    let held = cultivation.view_at(owed - 1);
+    assert_eq!(held.breakthrough_ready_at, Some(owed));
+    assert!(!held.breakthrough_ready, "the attempt is still held");
+    assert!(
+        cultivation.view_at(owed).breakthrough_ready,
+        "the lock lifts"
+    );
 }

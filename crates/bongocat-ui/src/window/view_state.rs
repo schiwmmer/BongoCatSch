@@ -445,6 +445,10 @@ impl SettingsView {
             pomodoro_observed_revision: 0,
             cultivation_minute_observed: None,
             cultivation_open_item: None,
+            // No fight is being replayed when the window opens, and none is
+            // waiting on the worker either.
+            cultivation_duel: None,
+            cultivation_duel_pending: None,
             pomodoro_done_expanded: false,
             pomodoro_chart_days: 7,
             // No day is picked when the page opens: the chart ends on today
@@ -538,19 +542,105 @@ impl SettingsView {
         let revision = self.pomodoro.revision();
         if revision == self.pomodoro_observed_revision {
             self.poll_ripening(cx);
+        } else {
+            self.pomodoro_observed_revision = revision;
+            cx.notify();
+        }
+        // A fight the user asked for is settled by the worker on its own thread:
+        // this is where the page learns it has a report to show.
+        self.open_answered_cultivation_duel(cx);
+        // And this is where a replay being read is paced out.
+        self.advance_cultivation_duel(cx);
+    }
+
+    /// Show the fight or walk the user asked for, once the worker has answered.
+    ///
+    /// The count the domain keeps — fights joined, walks taken — is what says
+    /// the command was applied rather than refused: the snapshot revision moves
+    /// every second while a pomodoro runs, so waiting on it would open the
+    /// popup on a timer tick with the previous attempt's report.
+    fn open_answered_cultivation_duel(&mut self, cx: &mut Context<Self>) {
+        let Some((source, asked_at)) = self.cultivation_duel_pending else {
+            return;
+        };
+        let cultivation = &self.pomodoro.snapshot().cultivation;
+        let (count, payload) = match source {
+            CultivationDuelSource::Breakthrough => (
+                cultivation.breakthrough_attempts,
+                cultivation
+                    .last_breakthrough
+                    .clone()
+                    .map(cultivation_duel::CultivationDuelPayload::Breakthrough),
+            ),
+            CultivationDuelSource::Exploration => (
+                cultivation.explorations,
+                cultivation.last_exploration.map(|outcome| {
+                    cultivation_duel::CultivationDuelPayload::Exploration(
+                        outcome,
+                        cultivation.last_exploration_found.clone(),
+                        cultivation.last_exploration_duel.clone(),
+                    )
+                }),
+            ),
+        };
+        if count <= asked_at {
+            // Not answered yet: the next tick asks again.
             return;
         }
-        self.pomodoro_observed_revision = revision;
+        self.cultivation_duel_pending = None;
+        if let Some(payload) = payload {
+            self.cultivation_duel = Some(CultivationDuel::new(source, payload));
+        }
         cx.notify();
     }
 
-    /// Wake the cultivation page when a growing crop crosses a minute.
+    /// Pace out the fight the cultivation page is replaying.
     ///
-    /// A crop ripens on the wall clock, not on a worker change, so the revision
-    /// never moves while one is in the ground. Without this the plot would keep
-    /// reading "ripe in 3 min" and never turn pickable until something else
-    /// happened to repaint the page. Only the cultivation page pays the
-    /// snapshot clone, and only once per displayed minute.
+    /// A fight dumped on the page all at once is a wall of text: the blows are
+    /// revealed an interval apart, so the replay reads the way the fight
+    /// happened. The poll that already wakes for the garden also serves this, so
+    /// a replay costs no timer of its own.
+    fn advance_cultivation_duel(&mut self, cx: &mut Context<Self>) {
+        let Some(duel) = self.cultivation_duel.as_mut() else {
+            return;
+        };
+        if duel.advance() {
+            cx.notify();
+        }
+    }
+
+    /// Ask the worker for a fight or a walk, and remember that the answer is
+    /// owed a popup.
+    ///
+    /// The count of that action is taken before the command is published, so the
+    /// poll can tell an answered command from a refused one: a running pomodoro
+    /// bumps the snapshot revision every second, and the revision cannot say
+    /// which of the two moved.
+    pub(super) fn ask_cultivation(
+        &mut self,
+        source: CultivationDuelSource,
+        command: bongocat_pomodoro::PomodoroCommand,
+        cx: &mut Context<Self>,
+    ) {
+        let cultivation = &self.pomodoro.snapshot().cultivation;
+        let count = match source {
+            CultivationDuelSource::Breakthrough => cultivation.breakthrough_attempts,
+            CultivationDuelSource::Exploration => cultivation.explorations,
+        };
+        let _ = self.pomodoro.try_publish(command);
+        self.cultivation_duel_pending = Some((source, count));
+        self.poll_pomodoro(cx);
+    }
+
+    /// Wake the cultivation page when a minute the page is counting down to
+    /// goes by.
+    ///
+    /// A crop ripens on the wall clock, not on a worker change, and so do the
+    /// two cooldowns, so the revision never moves while any of them runs. Without
+    /// this the plot would keep reading "ripe in 3 min" and never turn pickable,
+    /// and the fight button would stay locked with a stale countdown beside it,
+    /// until something else happened to repaint the page. Only the cultivation
+    /// page pays the snapshot clone, and only once per displayed minute.
     fn poll_ripening(&mut self, cx: &mut Context<Self>) {
         if self.navigation_memory.page_index() != SettingsNavigationPage::Cultivation.index() {
             self.cultivation_minute_observed = None;
@@ -558,7 +648,7 @@ impl SettingsView {
         }
         let now = now_unix();
         let snapshot = self.pomodoro.snapshot();
-        let key = ripening_minute(&snapshot.cultivation.plots, now);
+        let key = cultivation_minute(&snapshot.cultivation, now);
         if key == self.cultivation_minute_observed {
             return;
         }
@@ -567,24 +657,37 @@ impl SettingsView {
     }
 }
 
-/// The whole minutes left on the soonest crop, or `None` when nothing is in the
-/// ground.
+/// The whole minutes left on the soonest thing the cultivation page counts down:
+/// a ripening crop, a walk being owed, or a fight being held — or `None` when
+/// nothing is in the ground and both cooldowns have run out.
 ///
-/// This is the value whose change means the garden's labels changed: a ripe crop
+/// This is the value whose change means the page's labels changed: a ripe crop
 /// reads as zero rather than counting backwards past its instant, so the tick
-/// stops repainting once everything is pickable.
-fn ripening_minute(plots: &[bongocat_pomodoro::PlotView], now_unix: i64) -> Option<i64> {
-    let soonest = plots
+/// stops repainting once everything is pickable and both buttons are live.
+fn cultivation_minute(
+    cultivation: &bongocat_pomodoro::CultivationView,
+    now_unix: i64,
+) -> Option<i64> {
+    let crops = cultivation
+        .plots
         .iter()
-        .filter_map(|plot| plot.crop.as_ref().map(|crop| crop.ready_at_unix))
-        .min()?;
-    Some((soonest - now_unix).max(0) / 60)
+        .filter_map(|plot| plot.crop.as_ref().map(|crop| crop.ready_at_unix));
+    let cooldowns = [
+        cultivation.exploration_ready_at,
+        cultivation.breakthrough_ready_at,
+    ]
+    .into_iter()
+    .flatten();
+    crops
+        .chain(cooldowns)
+        .map(|at| at.saturating_sub(now_unix).max(0) / 60)
+        .min()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ripening_minute;
-    use bongocat_pomodoro::{Attribute, CropView, PlotView};
+    use super::cultivation_minute;
+    use bongocat_pomodoro::{Attribute, CropView, CultivationView, PlotView};
 
     fn plot(ready_at_unix: i64) -> PlotView {
         PlotView {
@@ -596,16 +699,25 @@ mod tests {
         }
     }
 
+    /// A view with nothing in the ground and no cooldown running: the page has
+    /// no countdown to draw at all.
+    fn quiet() -> CultivationView {
+        let mut cultivation = bongocat_pomodoro::Cultivation::default().view();
+        cultivation.plots = vec![PlotView { crop: None }];
+        cultivation
+    }
+
     #[test]
     fn an_empty_garden_has_no_countdown_to_draw() {
-        assert_eq!(ripening_minute(&[PlotView { crop: None }], 1_000), None);
+        assert_eq!(cultivation_minute(&quiet(), 1_000), None);
     }
 
     #[test]
     fn the_soonest_crop_is_the_one_the_page_counts_down() {
-        let plots = [plot(2_000), plot(1_000), PlotView { crop: None }];
+        let mut cultivation = quiet();
+        cultivation.plots = vec![plot(2_000), plot(1_000), PlotView { crop: None }];
         assert_eq!(
-            ripening_minute(&plots, 700),
+            cultivation_minute(&cultivation, 700),
             Some(5),
             "300s left rounds down"
         );
@@ -613,10 +725,33 @@ mod tests {
 
     #[test]
     fn a_ripe_crop_reads_as_zero_and_stays_there() {
-        let plots = [plot(1_000)];
-        assert_eq!(ripening_minute(&plots, 1_000), Some(0));
+        let mut cultivation = quiet();
+        cultivation.plots = vec![plot(1_000)];
+        assert_eq!(cultivation_minute(&cultivation, 1_000), Some(0));
         // Past the instant the key must not keep changing, or the tick would
         // repaint the page every half second for as long as a crop sits unread.
-        assert_eq!(ripening_minute(&plots, 9_999), Some(0));
+        assert_eq!(cultivation_minute(&cultivation, 9_999), Some(0));
+    }
+
+    #[test]
+    fn a_cooldown_the_page_counts_down_wakes_the_page_too() {
+        let mut cultivation = quiet();
+        // A walk owed in an hour and a half, with nothing in the ground.
+        cultivation.exploration_ready_at = Some(1_000 + 5_400);
+        assert_eq!(cultivation_minute(&cultivation, 1_000), Some(90));
+        // The fight being held is the sooner of the two, so it is the one drawn.
+        cultivation.breakthrough_ready_at = Some(1_000 + 600);
+        assert_eq!(cultivation_minute(&cultivation, 1_000), Some(10));
+    }
+
+    #[test]
+    fn a_cooldown_that_has_run_out_stops_waking_the_page() {
+        let mut cultivation = quiet();
+        cultivation.exploration_ready_at = Some(1_000);
+        assert_eq!(
+            cultivation_minute(&cultivation, 9_999),
+            Some(0),
+            "it reads as zero rather than counting backwards"
+        );
     }
 }

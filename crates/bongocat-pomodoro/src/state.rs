@@ -227,6 +227,8 @@ pub enum PomodoroCommand {
     /// Choose which 功法 the next finished pomodoro trains. `None` stops
     /// training: a session then pays growth alone.
     SelectArt { art_id: Option<u64> },
+    /// Walk out of the door: one exploration, gated by its own cooldown.
+    Explore,
     /// Credit growth for raw keyboard or mouse activity. `count` is how many
     /// interactions happened since the last credit, batched by the caller so a
     /// fast typist does not publish one command per keystroke.
@@ -255,6 +257,7 @@ impl PomodoroCommand {
             | Self::AllocateAttribute { .. }
             | Self::Breakthrough
             | Self::SelectArt { .. }
+            | Self::Explore
             | Self::RecordInput { .. } => true,
         }
     }
@@ -388,10 +391,13 @@ impl PomodoroState {
                 }
             }
             PomodoroCommand::Breakthrough => {
-                self.cultivation.breakthrough();
+                self.cultivation.breakthrough(now_unix);
             }
             PomodoroCommand::SelectArt { art_id } => {
                 self.cultivation.select_art(art_id);
+            }
+            PomodoroCommand::Explore => {
+                self.cultivation.explore(now_unix);
             }
             PomodoroCommand::RecordInput { count } => {
                 for _ in 0..count {
@@ -639,7 +645,7 @@ impl PomodoroState {
     /// The worker state travels with the data rather than only with the
     /// diagnostics: a caller that renders a timer needs to know whether there is
     /// a worker behind it in the same read it takes the task list from.
-    pub fn snapshot(&self, revision: u64) -> PomodoroSnapshot {
+    pub fn snapshot_at(&self, revision: u64, now_unix: i64) -> PomodoroSnapshot {
         let running_task = self.timer.task_id();
         PomodoroSnapshot {
             revision,
@@ -655,8 +661,14 @@ impl PomodoroState {
             last_completion: self.last_completion,
             total_pomodoros: self.document.total_completions,
             remaining_pomodoros: self.remaining_pomodoros(),
-            cultivation: self.cultivation.view(),
+            cultivation: self.cultivation.view_at(now_unix),
         }
+    }
+
+    /// The snapshot for a caller with no clock: the cooldowns read as they would
+    /// at the start of the epoch, which is what the tests want.
+    pub fn snapshot(&self, revision: u64) -> PomodoroSnapshot {
+        self.snapshot_at(revision, 0)
     }
 
     /// The focus sessions still ahead of the user.

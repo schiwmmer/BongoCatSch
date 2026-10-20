@@ -83,6 +83,12 @@ pub struct CultivationDocument {
     /// The 功法 the next finished pomodoro trains, if one is chosen.
     #[serde(default)]
     pub selected_art: Option<u64>,
+    /// The instant a lost breakthrough can be attempted again.
+    #[serde(default)]
+    pub breakthrough_blocked_until: Option<i64>,
+    /// When the last walk happened, which is what gates the next one.
+    #[serde(default)]
+    pub last_exploration_unix: Option<i64>,
 }
 
 impl CultivationDocument {

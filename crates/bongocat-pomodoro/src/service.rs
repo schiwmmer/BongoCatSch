@@ -126,7 +126,10 @@ impl Inner {
     /// Republish the snapshot from the domain state.
     fn publish(&mut self) {
         self.revision = self.revision.saturating_add(1);
-        self.snapshot = self.domain.snapshot(self.revision);
+        // The cultivation cooldowns are read against the wall clock, so the
+        // snapshot is built with one: a surface that polls gets the truth rather
+        // than a cached answer from when the state last changed.
+        self.snapshot = self.domain.snapshot_at(self.revision, now_unix());
         self.snapshot.worker = self.worker_state;
     }
 
@@ -246,6 +249,24 @@ impl PomodoroClient {
             },
             receiver,
         )
+    }
+
+    /// A client that serves one snapshot the caller built, with no worker.
+    ///
+    /// The twin of [`Self::with_sink`] for a surface that renders a state a test
+    /// wants to see — a cultivator standing at a realm's cap with the attempt
+    /// held, say. The page reads exactly that snapshot, and the commands it
+    /// publishes still land in the sink the test can read.
+    pub fn with_snapshot(snapshot: PomodoroSnapshot) -> (Self, Receiver<PomodoroCommand>) {
+        let (client, sink) = Self::with_sink();
+        let mut inner = client
+            .shared
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        inner.snapshot = snapshot;
+        drop(inner);
+        (client, sink)
     }
 
     /// The state a surface renders.
