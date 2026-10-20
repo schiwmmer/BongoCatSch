@@ -137,6 +137,75 @@ mod tests {
         }
     }
 
+    /// The shop pays exactly half of what it asks.
+    ///
+    /// Half rather than "about half": the ratio is the one thing a user checks
+    /// before deciding to sell, and a figure that is not half makes the shop read
+    /// as a different shop on every row.
+    #[test]
+    fn the_shop_pays_half_of_what_it_asks() {
+        for tier in 1..=10u8 {
+            for rarity in Rarity::ALL {
+                let offer = ShopOffer::Equipment(crate::cultivation::EquipmentRecord {
+                    id: 0,
+                    slot: crate::cultivation::EquipSlot::Weapon,
+                    tier,
+                    rarity,
+                    attributes: Default::default(),
+                    name: None,
+                });
+                assert_eq!(
+                    offer.sell_price(),
+                    offer.price() / 2,
+                    "tier {tier} {rarity:?}: {} is not half of {}",
+                    offer.sell_price(),
+                    offer.price()
+                );
+            }
+            let herb = ShopOffer::Seed {
+                attribute: crate::cultivation::Attribute::Root,
+                tier,
+                name: None,
+            };
+            assert_eq!(
+                herb.sell_price(),
+                herb.price() / 2,
+                "seed tier {tier} is not half of its asking price"
+            );
+        }
+        for id in 1..=crate::cultivation::ART_COUNT {
+            let art = ShopOffer::Art { art_id: id };
+            assert_eq!(
+                art.sell_price(),
+                art.price() / 2,
+                "art {id} is not half of its asking price"
+            );
+        }
+    }
+
+    /// A 功法 costs a little over twice the garment of its own band.
+    ///
+    /// The shelf is one market: a 功法 priced at twenty times the garment beside
+    /// it is not something the user weighs against the gear, it is a lottery
+    /// ticket that happens to be sold on the same page. Still above the gear,
+    /// because it is permanent and a garment is one of four slots.
+    #[test]
+    fn an_art_costs_a_little_over_twice_the_gear_of_its_band() {
+        use crate::cultivation::ArtGrade;
+        for grade in ArtGrade::ALL {
+            // The band the shop stocks this grade for: 黄 sits with the second
+            // tier, 神 with the tenth.
+            let tier = u8::try_from((grade.index() + 1) * 2).unwrap_or(10).min(10);
+            let gear = crate::cultivation::equipment_price(tier, Rarity::Common);
+            let art = crate::cultivation::art_price(grade);
+            assert!(
+                art >= gear * 2 && art <= gear * 3,
+                "{:?} costs {art} against {gear} gear at tier {tier}",
+                grade
+            );
+        }
+    }
+
     /// The shelf is a function of the day and the realm, so it cannot be rerolled
     /// by reloading, and two reads of one day agree.
     #[test]

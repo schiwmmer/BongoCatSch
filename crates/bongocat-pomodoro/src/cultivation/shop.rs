@@ -43,11 +43,12 @@ pub const SHOP_MIN_OFFERS: usize = 5;
 
 /// What the shop buys an item for, in tenths of the asking price.
 ///
-/// Sixty percent, not a half: a tenth under a round number leaves the seller's
-/// price visibly *not* the buyer's, which is the whole point of a shop, and ten
-/// percent of margin is still enough that reselling a shop's own goods loses
-/// money every time.
-pub const SELL_NUMERATOR: u32 = 6;
+/// Half. The seller's price has to be visibly the shop's price rather than the
+/// buyer's, and a half is the one ratio a user can check in their head — a user
+/// who cannot tell at a glance what selling costs will not sell. It is also what
+/// closes the resale loop: buying at the asking price and selling straight back
+/// returns half of it, every time, so the shop can never be a money printer.
+pub const SELL_NUMERATOR: u32 = 5;
 pub const SELL_DENOMINATOR: u32 = 10;
 
 /// One thing the shop is offering today.
@@ -126,14 +127,29 @@ pub fn seed_price(tier: u8) -> u32 {
     30 * tier + 20
 }
 
+/// How much dearer than its own tier of gear a 功法 is, in halves.
+///
+/// Two and a half times: enough that the shelf still says a 功法 is the bigger
+/// buy — it is permanent, and every 阶 of it pays for the life of the save —
+/// without making it a thing only a lottery win can reach.
+const ART_OVER_GEAR_NUMERATOR: u32 = 5;
+const ART_OVER_GEAR_DENOMINATOR: u32 = 2;
+
 /// What one 功法 costs.
 ///
-/// The most expensive thing in the shop by a wide margin, and priced off the
-/// grade rather than off the roll: a 功法 is not luck, it is a curriculum, and
-/// letting a user buy their way to 神级 in a week would make the walk's 3‰ 功法
-/// roll pointless.
+/// Priced off the garment it competes with, not off a table of its own: a grade
+/// of 功法 is stocked beside the gear of the realm that grade belongs to, and it
+/// costs [`ART_OVER_GEAR_NUMERATOR`] halves of that gear. The shelf has to read
+/// as one market — an art priced at twenty times the garment next to it is not
+/// an alternative the user weighs, it is a lottery ticket on the same page.
+///
+/// It stays above the gear and the herbs because it is worth more: a garment is
+/// one of four slots and a herb is one planting, while a 功法 is permanent.
 pub fn art_price(grade: super::ArtGrade) -> u32 {
-    2_000 * (u32::try_from(grade.index()).unwrap_or(0).saturating_add(1)).pow(2)
+    // The grade's own band: 黄 sits with the second tier, 神 with the tenth, so
+    // a 功法 is compared against the gear a cultivator of its grade would wear.
+    let tier = u8::try_from((grade.index() + 1) * 2).unwrap_or(10).min(10);
+    equipment_price(tier, Rarity::Common) * ART_OVER_GEAR_NUMERATOR / ART_OVER_GEAR_DENOMINATOR
 }
 
 /// What one finished session pays into the purse.
