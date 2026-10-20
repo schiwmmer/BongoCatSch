@@ -81,7 +81,11 @@ impl Rarity {
     pub const ALL: [Self; 4] = [Self::Common, Self::Fine, Self::Rare, Self::Immortal];
 
     /// The grade's point multiplier in tenths.
-    const fn multiplier(self) -> u32 {
+    ///
+    /// Visible past this module because the shop prices gear by it: a shop with
+    /// its own idea of what a grade is worth would drift from the drops it is an
+    /// alternative to.
+    pub(crate) const fn multiplier(self) -> u32 {
         match self {
             Self::Common => 10,
             Self::Fine => 16,
@@ -222,7 +226,7 @@ impl EquipmentRecord {
 ///
 /// Linear in the tier so a later realm's gear is worth more than an earlier
 /// realm's best roll, which is what keeps a drop a reward rather than clutter.
-fn base_points(tier: u8) -> u32 {
+pub(crate) fn base_points(tier: u8) -> u32 {
     let tier = u32::from(tier.clamp(1, 10));
     45 + 25 * (tier - 1)
 }

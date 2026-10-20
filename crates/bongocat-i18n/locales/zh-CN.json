@@ -798,6 +798,34 @@
       "found_art": "功法「%{name}」",
       "found_gear": "装备「%{name}」",
       "found_seed": "仙草「%{name}」"
+    },
+    "shop": {
+      "title": "集市",
+      "stones": "灵石 %{stones}",
+      "shelf": "今日货架（每日刷新）",
+      "empty": "今日货架空了，明日再来。",
+      "buy": "买",
+      "bought": "已购",
+      "sell": "卖 %{stones}",
+      "equipment": "装备",
+      "seed": "仙草",
+      "art": "功法",
+      "price": "%{stones} 灵石",
+      "refuse_stones": "灵石不够",
+      "refuse_offer": "这件今日已不在货架上",
+      "refuse_bought": "今日已买过这件",
+      "refuse_owned": "没有这件东西",
+      "refuse_equipped": "身上的装备不能卖",
+      "refuse_training": "正在修炼的功法不能卖"
+    },
+    "hint": {
+      "discipline_title": "四维：只管成长多快，不管打起来多强",
+      "realm_title": "境界：能爬到第几层的硬上限",
+      "schools_title": "法术与武术：四项属性切成的两半",
+      "schools_hint": "法术＝根骨＋仙力，武术＝力量＋身法。同系两项一起练有联动加成，只堆一个更亏。",
+      "derived_title": "八项战斗数值：四项属性换算出来的结果，不能直接加点",
+      "derived_hint_each": "由四项属性换算，改上面那四项才会变。",
+      "power_hint": "战力＝法术＋武术，是破境时判定胜负用的那一个数。"
     }
   }
 }

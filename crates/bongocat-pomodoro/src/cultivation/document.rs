@@ -123,6 +123,21 @@ pub struct CultivationDocument {
     /// What the last walk settled, kept past the quit that ends its popup.
     #[serde(default)]
     pub last_walk: Option<WalkRecord>,
+    /// The 灵石 in the purse.
+    #[serde(default)]
+    pub stones: u32,
+    /// The local day whose shelf the bought slots belong to.
+    ///
+    /// The shelf itself is rolled from the day and the realm rather than stored,
+    /// so this is the only thing that has to be right about it: a document saved
+    /// on one day and opened on another has bought slots from a shelf nobody can
+    /// be looking at any more, and clearing them is the whole reason the day is
+    /// written down.
+    #[serde(default)]
+    pub shop_day: Option<i64>,
+    /// Which slots of that day's shelf have been bought, as slot indexes.
+    #[serde(default)]
+    pub shop_bought: Vec<u8>,
 }
 
 impl CultivationDocument {
@@ -171,6 +186,9 @@ impl CultivationDocument {
         // A hand-edited save could carry a thousand lines of history; the record
         // is a window, so it is cut back to the window here rather than trusted.
         self.duel_record.truncate(DUEL_RECORD_CAP);
+        // A hand-edited or stale document could carry a thousand bought slots for
+        // a shelf of ten; the shelf is a window, so is this.
+        self.shop_bought.truncate(super::SHOP_MAX_OFFERS);
         self.equipped.resize(SLOT_COUNT, None);
         self.plots.resize(PLOT_COUNT, PlotRecord::default());
         let highest = self.equipment.iter().map(|item| item.id).max().unwrap_or(0);

@@ -42,7 +42,9 @@ mod duel;
 mod explore;
 mod garden;
 mod items;
+mod shop;
 mod state;
+mod trade;
 
 #[cfg(test)]
 mod tests;
@@ -70,11 +72,17 @@ pub use explore::{
 };
 pub use garden::{MAX_SEED_TIER, PLOT_COUNT, PlotRecord, SeedStack};
 pub use items::{EquipSlot, EquipmentRecord, Rarity, SLOT_COUNT};
+pub use shop::SESSION_EARNINGS;
+pub use shop::{
+    SHOP_MAX_OFFERS, SHOP_MIN_OFFERS, ShopOffer, ShopOfferView, art_price, equipment_price,
+    offers_for_day, roll_offers, seed_price,
+};
 pub use state::{
     AbsenceCharge, BreakthroughOutcome, CropView, Cultivation, CultivationView, Drop, DropView,
     ExplorationFindView, GuardianView, HarvestOutcome, ItemView, PlotView, SeedView, SessionReward,
     TrainingView,
 };
+pub use trade::{TradeRefusal, session_earnings};
 
 use serde::{Deserialize, Serialize};
 

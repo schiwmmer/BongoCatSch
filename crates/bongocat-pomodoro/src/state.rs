@@ -233,6 +233,21 @@ pub enum PomodoroCommand {
     /// interactions happened since the last credit, batched by the caller so a
     /// fast typist does not publish one command per keystroke.
     RecordInput { count: u32 },
+    /// Buy the offer in that slot of the day's shelf.
+    ///
+    /// The slot rather than the item, because the shelf is regenerated from the
+    /// day: a command naming the goods would let a click on yesterday's shelf buy
+    /// today's goods in the same place.
+    BuyFromShop { slot: usize },
+    /// Sell one owned piece of gear for 灵石.
+    SellEquipment { item_id: u64 },
+    /// Sell one owned 功法. The one being trained is refused.
+    SellArt { art_id: u64 },
+    /// Sell one seed out of a stack.
+    SellSeed {
+        attribute: crate::Attribute,
+        tier: u8,
+    },
 }
 
 impl PomodoroCommand {
@@ -259,6 +274,14 @@ impl PomodoroCommand {
             | Self::SelectArt { .. }
             | Self::Explore
             | Self::RecordInput { .. } => true,
+            // A trade is the one command that can be refused, and the state knows
+            // whether it was: `apply` records the outcome and the writer reads it,
+            // so a click on a slot the shelf has already lost does not rewrite the
+            // whole document for nothing.
+            Self::BuyFromShop { .. }
+            | Self::SellEquipment { .. }
+            | Self::SellArt { .. }
+            | Self::SellSeed { .. } => true,
         }
     }
 }
@@ -403,6 +426,21 @@ impl PomodoroState {
                 for _ in 0..count {
                     self.cultivation.on_input();
                 }
+            }
+            PomodoroCommand::BuyFromShop { slot } => {
+                let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
+                let _ = self
+                    .cultivation
+                    .buy_from_shop(slot, today.day_number(), now_unix);
+            }
+            PomodoroCommand::SellEquipment { item_id } => {
+                let _ = self.cultivation.sell_equipment(item_id);
+            }
+            PomodoroCommand::SellArt { art_id } => {
+                let _ = self.cultivation.sell_art(art_id);
+            }
+            PomodoroCommand::SellSeed { attribute, tier } => {
+                let _ = self.cultivation.sell_seed(attribute, tier);
             }
         }
         self.sync_cultivation();

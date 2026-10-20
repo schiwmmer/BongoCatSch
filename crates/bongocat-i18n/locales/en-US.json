@@ -798,6 +798,34 @@
       "found_art": "art “%{name}”",
       "found_gear": "gear “%{name}”",
       "found_seed": "herb “%{name}”"
+    },
+    "shop": {
+      "title": "Market",
+      "stones": "Stones %{stones}",
+      "shelf": "Today's shelf (refreshes daily)",
+      "empty": "The shelf is bare. Come back tomorrow.",
+      "buy": "Buy",
+      "bought": "Bought",
+      "sell": "Sell %{stones}",
+      "equipment": "Gear",
+      "seed": "Herb",
+      "art": "Art",
+      "price": "%{stones} stones",
+      "refuse_stones": "Not enough stones",
+      "refuse_offer": "Not on today's shelf",
+      "refuse_bought": "Already bought today",
+      "refuse_owned": "You do not own that",
+      "refuse_equipped": "Worn gear cannot be sold",
+      "refuse_training": "The art being trained cannot be sold"
+    },
+    "hint": {
+      "discipline_title": "Disciplines: how fast you grow, not how hard you hit",
+      "realm_title": "Realm: the hard ceiling on how far you can climb",
+      "schools_title": "Spell and martial: the two halves of the four attributes",
+      "schools_hint": "Spell = root + mana, martial = strength + agility. Pairing one attribute with its partner pays a synergy bonus, so stacking one alone is worse.",
+      "derived_title": "The eight combat numbers: what the four attributes turn into, not points you can spend",
+      "derived_hint_each": "Read off the four attributes above; only changing those moves this.",
+      "power_hint": "Power = spell + martial, and it is the number that decides a breakthrough."
     }
   }
 }

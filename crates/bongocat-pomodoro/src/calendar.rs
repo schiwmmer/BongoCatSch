@@ -20,7 +20,8 @@ use std::collections::BTreeMap;
 use crate::CalendarTotals;
 
 /// Seconds in a day.
-const SECONDS_PER_DAY: i64 = 86_400;
+/// Seconds in a local day, so nothing has to write 86_400 a second time.
+pub(crate) const SECONDS_PER_DAY: i64 = 86_400;
 
 /// A local calendar day, as the day number in Unix time.
 ///

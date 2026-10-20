@@ -17,7 +17,7 @@ use bongocat_i18n::{format_text, text};
 use bongocat_pomodoro::{
     ArtKind, ArtOutcome, ArtView, Attribute, CultivationView, Derived, DropView, EquipSlot,
     ExplorationFindView, ExplorationOutcome, Fighter, ItemView, MAX_LEVEL, PomodoroCommand, Realm,
-    WalkRecord,
+    ShopOffer, ShopOfferView, WalkRecord, blueprint,
 };
 
 /// How wide a discipline's bar is drawn, in pixels.
@@ -96,6 +96,7 @@ pub(super) fn content(
         .child(breakthrough_panel(&view, &cultivation, locale, tokens))
         .child(exploration_panel(&view, &cultivation, locale, tokens))
         .child(record_section(&cultivation, locale, tokens))
+        .child(shop_panel(&view, &cultivation, locale, tokens))
         .into_any_element()
 }
 
@@ -119,6 +120,11 @@ fn realm_header(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> 
         &[("power", cultivation.power.to_string())],
     );
     let (growth_text, fraction) = growth_line(cultivation, locale);
+    let hint_tokens = tokens;
+    // Read out here because the hover body outlives this call and cannot borrow
+    // `locale`.
+    let power_hint = text(locale, "cultivation.hint.power_hint");
+    let realm_hint = text(locale, "cultivation.hint.realm_title");
 
     div()
         .id("cultivation-realm")
@@ -131,8 +137,41 @@ fn realm_header(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> 
                 .flex_row()
                 .items_center()
                 .justify_between()
-                .child(div().font_semibold().child(realm))
-                .child(div().text_color(tokens.muted).child(power)),
+                // The realm name is a ceiling, not a title: it is the one thing on
+                // the page that says where the user cannot go yet, so it says so.
+                .child(
+                    HoverCard::new("cultivation-hint-realm")
+                        .trigger(
+                            div()
+                                .id("cultivation-realm-name")
+                                .font_semibold()
+                                .child(realm)
+                                .test_support(),
+                        )
+                        .open_delay(Duration::from_millis(120))
+                        .content(move |_, _, _| {
+                            hint_body("cultivation-hint-realm-body", realm_hint, hint_tokens)
+                        })
+                        .into_any_element(),
+                )
+                // The one number on the page that decides something: the
+                // breakthrough compares it against the guardian's. A bare number
+                // with no such label reads as a score, so it says what it decides.
+                .child(
+                    HoverCard::new("cultivation-hint-power")
+                        .trigger(
+                            div()
+                                .id("cultivation-power")
+                                .text_color(tokens.muted)
+                                .child(power)
+                                .test_support(),
+                        )
+                        .open_delay(Duration::from_millis(120))
+                        .content(move |_, _, _| {
+                            hint_body("cultivation-hint-power-body", power_hint, hint_tokens)
+                        })
+                        .into_any_element(),
+                ),
         )
         .child(
             div()
@@ -497,14 +536,33 @@ fn attributes_panel(
                 )),
         )
     };
+    // The two schools are the panel most likely to read as two more attributes,
+    // so their line carries the sentence that says they are a cut of the four
+    // above rather than two things of their own. The strings are read out here
+    // because the hover body outlives this call and cannot borrow `locale`.
+    let schools_hint_title = text(locale, "cultivation.hint.schools_title");
+    let schools_hint_body = text(locale, "cultivation.hint.schools_hint");
     panel
         .child(
-            div()
-                .id("cultivation-power-schools")
-                .text_xs()
-                .text_color(tokens.muted)
-                .child(schools)
-                .test_support(),
+            HoverCard::new("cultivation-hint-schools")
+                .trigger(
+                    div()
+                        .id("cultivation-power-schools")
+                        .text_xs()
+                        .text_color(tokens.muted)
+                        .child(schools)
+                        .test_support(),
+                )
+                .open_delay(Duration::from_millis(120))
+                .content(move |_, _, _| {
+                    hint_body_with_title(
+                        "cultivation-hint-schools-body",
+                        schools_hint_title,
+                        schools_hint_body,
+                        tokens,
+                    )
+                })
+                .into_any_element(),
         )
         .child(div().text_xs().text_color(tokens.muted).child(breakdown))
 }
@@ -532,7 +590,7 @@ fn derived_panel(cultivation: &CultivationView, locale: &str, tokens: Tokens) ->
     ));
     let chips = rows
         .into_iter()
-        .map(|(key, line)| derived_chip(key, line, tokens));
+        .map(|(key, line)| derived_chip(key, line, locale, tokens));
     div()
         .id("cultivation-derived")
         .flex()
@@ -627,8 +685,14 @@ pub(super) fn derived_rows(stats: &CombatStats, locale: &str) -> Vec<(&'static s
 
 /// One derived number: its name and its value together, as the catalog line
 /// spells them.
-fn derived_chip(key: &'static str, line: String, tokens: Tokens) -> impl IntoElement {
-    div()
+fn derived_chip(key: &'static str, line: String, locale: &str, tokens: Tokens) -> impl IntoElement {
+    // A chip with no button on it reads as a number the page forgot how to change,
+    // so each carries the sentence that says where it comes from. The strings are
+    // read out here because the hover body outlives this call and cannot borrow
+    // `locale`.
+    let title = text(locale, "cultivation.hint.derived_title");
+    let body = text(locale, "cultivation.hint.derived_hint_each");
+    let chip = div()
         // The key carries its own `cultivation.` prefix; the element id drops
         // it so the tree reads `cultivation-derived-attack`.
         .id(format!(
@@ -643,7 +707,17 @@ fn derived_chip(key: &'static str, line: String, tokens: Tokens) -> impl IntoEle
         .py_1()
         .rounded_md()
         .bg(tokens.overlay)
-        .child(div().text_xs().text_color(tokens.text).child(line))
+        .child(div().text_xs().text_color(tokens.text).child(line));
+    HoverCard::new(format!(
+        "cultivation-hint-{}",
+        key.trim_start_matches("cultivation.derived.")
+    ))
+    .trigger(chip.test_support())
+    .open_delay(Duration::from_millis(120))
+    .content(move |_, _, _| {
+        hint_body_with_title(format!("cultivation-hint-{key}-body"), title, body, tokens)
+    })
+    .into_any_element()
 }
 
 /// The 功法 the cultivator owns, and which one the next pomodoro trains.
@@ -754,6 +828,27 @@ fn art_row(
                                     let _ = view.pomodoro.try_publish(PomodoroCommand::SelectArt {
                                         art_id: Some(art_id),
                                     });
+                                    view.poll_pomodoro(cx);
+                                });
+                            }
+                        }),
+                )
+                .child(
+                    // The trained 功法 is not for sale: 修炼 reads it every session,
+                    // and the button is disabled rather than hidden so that the
+                    // reason it cannot be sold is a thing the user can see.
+                    Button::new(format!("cultivation-sell-art-{}", art.id))
+                        .ghost()
+                        .small()
+                        .label(sell_label(locale, art_sell_price(art.id)))
+                        .disabled(art.selected)
+                        .on_click({
+                            let view = view.clone();
+                            move |_, _, cx| {
+                                view.update(cx, |view, cx| {
+                                    let _ = view
+                                        .pomodoro
+                                        .try_publish(PomodoroCommand::SellArt { art_id });
                                     view.poll_pomodoro(cx);
                                 });
                             }
@@ -921,6 +1016,290 @@ fn allocate_button(
     })
 }
 
+/// The 集市: what the purse holds, what is on today's shelf, and what a sale pays.
+///
+/// Two halves on one panel because they are one loop: the seed rows and the gear
+/// rows carry a sell button, the shelf carries a buy button, and the number at the
+/// top is what both move. A shop that lived apart from the inventory would ask
+/// the user to go and remember what they were holding.
+fn shop_panel(
+    view: &Entity<SettingsView>,
+    cultivation: &CultivationView,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    let mut panel = div()
+        .id("cultivation-shop")
+        .flex()
+        .flex_col()
+        .gap_2()
+        // Marked so a frame can be asked whether the market is on screen at all.
+        .test_support()
+        .child(section_title(locale, "cultivation.shop.title", tokens))
+        .child(
+            div()
+                .id("cultivation-shop-stones")
+                .text_xs()
+                .text_color(tokens.accent)
+                .child(format_text(
+                    locale,
+                    "cultivation.shop.stones",
+                    &[("stones", cultivation.stones.to_string())],
+                ))
+                .test_support(),
+        )
+        .child(
+            div()
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(text(locale, "cultivation.shop.shelf")),
+        );
+
+    if cultivation.shop_offers.is_empty() {
+        panel = panel.child(
+            div()
+                .id("cultivation-shop-empty")
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(text(locale, "cultivation.shop.empty"))
+                .test_support(),
+        );
+        return panel;
+    }
+    panel = panel.child(
+        div().flex().flex_col().gap_1().children(
+            cultivation
+                .shop_offers
+                .iter()
+                .map(|entry| shop_row(view, entry, cultivation, locale, tokens)),
+        ),
+    );
+    panel
+}
+
+/// One line of the shelf: what it is, what it costs, and the button that buys it.
+///
+/// A bought row keeps its place and says so rather than vanishing: a shelf that
+/// reshuffles under the cursor is a shelf where the wrong thing gets bought.
+fn shop_row(
+    view: &Entity<SettingsView>,
+    entry: &ShopOfferView,
+    cultivation: &CultivationView,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    let label = shop_offer_label(&entry.offer, locale);
+    let price = format_text(
+        locale,
+        "cultivation.shop.price",
+        &[("stones", entry.price.to_string())],
+    );
+    // The two endings are written as two whole rows rather than as two values
+    // slotted into one: the buy ending owns a `Button` and the bought ending
+    // owns a `Div`, and an element tree cannot mix the two in one branch. Two
+    // rows also let the bought one drop the purse comparison it no longer needs.
+    if entry.bought {
+        return shop_row_bought(entry, &label, &price, locale, tokens).into_any_element();
+    }
+    let afford = cultivation.stones >= entry.price;
+    shop_row_buy(view, entry, &label, &price, afford, locale, tokens).into_any_element()
+}
+
+/// A shelf line that is still for sale.
+fn shop_row_buy(
+    view: &Entity<SettingsView>,
+    entry: &ShopOfferView,
+    label: &str,
+    price: &str,
+    afford: bool,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    let button = Button::new(format!("cultivation-shop-buy-{}", entry.slot))
+        .ghost()
+        .small()
+        // A button the user cannot afford is shown and says why on hover rather
+        // than being hidden: "the shelf is empty" and "you cannot pay for that"
+        // are different answers, and only one of them is true.
+        .label(if afford {
+            text(locale, "cultivation.shop.buy").to_owned()
+        } else {
+            price.to_owned()
+        })
+        .on_click({
+            let view = view.clone();
+            let slot = entry.slot;
+            move |_, _, cx| {
+                view.update(cx, |view, cx| {
+                    let _ = view
+                        .pomodoro
+                        .try_publish(PomodoroCommand::BuyFromShop { slot });
+                    view.poll_pomodoro(cx);
+                });
+            }
+        });
+    div()
+        .id(format!("cultivation-shop-row-{}", entry.slot))
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .child(
+            div()
+                .text_xs()
+                .text_color(tokens.text)
+                .child(format!("{label} · {price}")),
+        )
+        .child(button)
+        .test_support()
+}
+
+/// A shelf line that has been bought: it keeps its place and says so, because a
+/// shelf that reshuffles under the cursor is a shelf where the wrong thing gets
+/// bought.
+fn shop_row_bought(
+    entry: &ShopOfferView,
+    label: &str,
+    price: &str,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    div()
+        .id(format!("cultivation-shop-row-{}", entry.slot))
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .child(
+            div()
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(format!("{label} · {price}")),
+        )
+        .child(
+            div()
+                .id(format!("cultivation-shop-bought-{}", entry.slot))
+                .text_xs()
+                .text_color(tokens.accent)
+                .child(text(locale, "cultivation.shop.bought"))
+                .test_support(),
+        )
+        .test_support()
+}
+
+/// What the 集市 pays for a 功法 of that id.
+///
+/// Grade-priced like every other 功法 rather than read off the row, so the number
+/// on the button is the number the sale pays even if the catalog is retuned.
+fn art_sell_price(art_id: u64) -> u32 {
+    ShopOffer::Art { art_id }.sell_price()
+}
+
+/// A sell button's label: the price it pays, spelled out.
+///
+/// The number is on the button rather than in a tooltip because a sell is a
+/// decision the user is about to make, and a price hidden behind a hover is a
+/// price they cannot compare across rows.
+fn sell_label(locale: &str, stones: u32) -> String {
+    format_text(
+        locale,
+        "cultivation.shop.sell",
+        &[("stones", stones.to_string())],
+    )
+}
+
+/// What one offer is called on the shelf.
+///
+/// The same names the inventory uses, so a thing bought from the shelf and the
+/// same thing found on a walk read as the same object on both sides of the page.
+fn shop_offer_label(offer: &ShopOffer, locale: &str) -> String {
+    match offer {
+        ShopOffer::Equipment(item) => item_label(
+            locale,
+            &ItemView {
+                id: item.id,
+                slot: item.slot,
+                tier: item.tier,
+                rarity: item.rarity,
+                attributes: item.attributes(),
+                power: item.power(),
+                equipped: false,
+                name: item.name.clone(),
+                sell_price: offer.sell_price(),
+            },
+        ),
+        ShopOffer::Seed {
+            attribute,
+            tier,
+            name,
+        } => seed_label(locale, *attribute, *tier, name.as_deref()),
+        ShopOffer::Art { art_id } => blueprint(*art_id).name.clone(),
+    }
+}
+
+/// A hover body carrying one paragraph.
+fn hint_body(
+    id: impl Into<gpui_kit::ElementId>,
+    body: &'static str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    div()
+        .id(id.into())
+        .flex()
+        .flex_col()
+        .gap_1()
+        .w(px(240.0))
+        .text_xs()
+        .text_color(tokens.muted)
+        .whitespace_normal()
+        .child(body)
+        .test_support()
+}
+
+/// A hover body carrying a heading and a paragraph.
+///
+/// The heading is what the chip does not already say. A school's chip is two bare
+/// numbers, so the card has to name them; a discipline's title already names its
+/// own row, so the card only adds the sentence that separates the layer.
+fn hint_body_with_title(
+    id: impl Into<gpui_kit::ElementId>,
+    title: &'static str,
+    body: &'static str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    div()
+        .id(id.into())
+        .flex()
+        .flex_col()
+        .gap_1()
+        .w(px(240.0))
+        .child(div().text_xs().text_color(tokens.text).child(title))
+        .child(
+            div()
+                .text_xs()
+                .text_color(tokens.muted)
+                .whitespace_normal()
+                .child(body),
+        )
+        .test_support()
+}
+
+/// A section heading from a string the caller already holds.
+///
+/// The same heading as [`section_title`], taking a `&'static str` rather than a
+/// key and a locale: a heading used as a hover trigger has to outlive the call
+/// that builds it, and a `&str` read out of the catalog cannot borrow the locale
+/// it was looked up with.
+fn section_title_str(id: &'static str, title: &'static str, tokens: Tokens) -> impl IntoElement {
+    div()
+        .id(id)
+        .text_xs()
+        .font_semibold()
+        .text_color(tokens.text)
+        .child(title)
+        .test_support()
+}
+
 /// The name and the explanation an attribute's chip shows on hover.
 ///
 /// The card is an element rather than a one-line tooltip string because the
@@ -1083,6 +1462,24 @@ fn inventory_panel(
                             });
                         }
                     }),
+            )
+            .child(
+                Button::new(format!("cultivation-sell-gear-{}", item.id))
+                    .ghost()
+                    .small()
+                    .label(sell_label(locale, item.sell_price))
+                    .on_click({
+                        let view = view.clone();
+                        let item_id = item.id;
+                        move |_, _, cx| {
+                            view.update(cx, |view, cx| {
+                                let _ = view
+                                    .pomodoro
+                                    .try_publish(PomodoroCommand::SellEquipment { item_id });
+                                view.poll_pomodoro(cx);
+                            });
+                        }
+                    }),
             );
         let mut row = div()
             .id(format!("cultivation-inventory-{}", item.id))
@@ -1163,6 +1560,32 @@ fn seed_panel(
             .py_1()
             .child(div().flex_1().min_w_0().truncate().text_xs().child(label))
             .child(button)
+            // One seed at a time: a stack of ten is nine seeds and one of them,
+            // and which one the user wants to keep is not a question a single
+            // "sell all" can ask.
+            .child(
+                Button::new(format!(
+                    "cultivation-sell-seed-{}-{}",
+                    seed.attribute.index(),
+                    seed.tier
+                ))
+                .ghost()
+                .small()
+                .label(sell_label(locale, seed.sell_price))
+                .on_click({
+                    let view = view.clone();
+                    let attribute = seed.attribute;
+                    let tier = seed.tier;
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            let _ = view
+                                .pomodoro
+                                .try_publish(PomodoroCommand::SellSeed { attribute, tier });
+                            view.poll_pomodoro(cx);
+                        });
+                    }
+                }),
+            )
     });
     panel = panel.children(rows);
     if plots_full {
@@ -1446,17 +1869,39 @@ fn disciplines_section(
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
+    let hint_tokens = tokens;
+    // Read out here because the hover body outlives this call and cannot borrow
+    // `locale`.
+    let disciplines_hint = text(locale, "cultivation.hint.discipline_title");
     let total_permille = cultivation.growth_multiplier_permille;
     div()
         .id("cultivation-disciplines")
         .flex()
         .flex_col()
         .gap_2()
-        .child(section_title(
-            locale,
-            "cultivation.discipline.title",
-            tokens,
-        ))
+        // The one panel on the page that is easiest to mistake for the attribute
+        // row above it, so its title carries the sentence that says which of the
+        // two it is: this one changes how fast a session grows, not how hard it
+        // hits.
+        .child(
+            HoverCard::new("cultivation-hint-disciplines")
+                // The title is read out first because the trigger has to outlive
+                // this call and cannot borrow `locale`.
+                .trigger(section_title_str(
+                    "cultivation-disciplines-title",
+                    text(locale, "cultivation.discipline.title"),
+                    tokens,
+                ))
+                .open_delay(Duration::from_millis(120))
+                .content(move |_, _, _| {
+                    hint_body(
+                        "cultivation-hint-disciplines-body",
+                        disciplines_hint,
+                        hint_tokens,
+                    )
+                })
+                .into_any_element(),
+        )
         // Marked so a frame can be asked whether the section is on screen at all.
         .test_support()
         .children(cultivation.disciplines.iter().map(|entry| {

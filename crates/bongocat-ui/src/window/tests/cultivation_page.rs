@@ -366,6 +366,56 @@ fn the_page_draws_the_disciplines_and_the_record(cx: &mut TestAppContext) {
     }
 }
 
+/// The 集市 is on the page, with the purse and a shelf to buy from.
+///
+/// A shop that is not on the page is a shop that does not exist as far as the user
+/// is concerned, so the test asserts the two things that make it one: the number
+/// the user spends, and at least one row they can click.
+#[gpui_kit::test]
+fn the_page_draws_the_market_with_a_shelf(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        stones: 5_000,
+        ..CultivationDocument::default()
+    })
+    .view();
+    let slot = cultivation
+        .shop_offers
+        .first()
+        .map(|entry| entry.slot)
+        .expect("a fresh save still gets a shelf");
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-shop"),
+        "the market has to be on the page"
+    );
+    assert!(
+        painted(visual, "cultivation-shop-stones"),
+        "and the purse has to be on it"
+    );
+    assert!(
+        painted(visual, format!("cultivation-shop-row-{slot}")),
+        "and the shelf has a row to click"
+    );
+}
+
+/// The two layer explanations the page is most often misread without: the
+/// disciplines and the two schools.
+///
+/// Both exist for the same reason — four attributes, four disciplines, two
+/// schools and eight derived numbers on one page read as one pile of numbers
+/// unless something says which layer each belongs to.
+#[gpui_kit::test]
+fn the_page_explains_which_layer_each_number_belongs_to(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument::default()).view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(painted(visual, "cultivation-disciplines"));
+    assert!(painted(visual, "cultivation-power-schools"));
+}
+
 /// The popup mounted on its own.
 ///
 /// The settings window's own frame would put it behind a sidebar and a scroll

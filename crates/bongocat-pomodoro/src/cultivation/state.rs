@@ -30,8 +30,11 @@ use super::{
     growth_permille,
     items::roll_equipment,
     mastery_permille, scaled_growth,
+    shop::{self, SESSION_EARNINGS, ShopOffer, ShopOfferView},
+    trade::TradeRefusal,
 };
 use crate::CalendarDay;
+use crate::calendar::SECONDS_PER_DAY;
 
 /// What the absence evaluation took, if anything.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -99,6 +102,12 @@ pub struct ItemView {
     pub equipped: bool,
     /// The xianxia-given name the drop carried, if any.
     pub name: Option<String>,
+    /// What the 集市 pays for it, in 灵石.
+    ///
+    /// Carried on the view rather than derived at the surface because the price
+    /// is the shop's margin over its own asking price: a surface that worked it
+    /// out from the tier alone would show a number the sale does not pay.
+    pub sell_price: u32,
 }
 
 /// One seed stack, as a surface reads it.
@@ -109,6 +118,12 @@ pub struct SeedView {
     pub count: u32,
     /// The herb's xianxia-given name, if the stack carries one.
     pub name: Option<String>,
+    /// What the 集市 pays for one seed of this stack, in 灵石.
+    ///
+    /// Per seed rather than per stack: the row sells one at a time, and a number
+    /// on the button that was the price of all ten would not be the price of the
+    /// click.
+    pub sell_price: u32,
 }
 
 /// What the last finished session did to the 功法 being trained.
@@ -240,6 +255,26 @@ pub struct CultivationView {
     pub duel_record: Vec<DuelRecord>,
     /// What the last walk settled, kept past the quit that ended its popup.
     pub last_walk: Option<WalkRecord>,
+    /// The 灵石 in the purse.
+    pub stones: u32,
+    /// The day this view was read for.
+    ///
+    /// Carried because the shelf is rolled from the day: a surface that worked the
+    /// day out for itself could disagree with the one the shelf was rolled from by
+    /// a timezone's worth of hours, and then every offer would read as bought.
+    pub day: i64,
+    /// Today's shelf, as the shop rows read it.
+    pub shop_offers: Vec<ShopOfferView>,
+}
+
+/// What the 集市 pays for one seed of that attribute and tier.
+fn seed_sell_price(attribute: Attribute, tier: u8) -> u32 {
+    shop::ShopOffer::Seed {
+        attribute,
+        tier,
+        name: None,
+    }
+    .sell_price()
 }
 
 /// How often a lost breakthrough costs a piece of gear, in parts per thousand.
@@ -508,6 +543,10 @@ impl Cultivation {
         // only honest measure of time spent training, so learning rides the same
         // event that pays the growth.
         self.train_selected(now_unix);
+        // The session's cut of 灵石, credited here so it lands exactly when the
+        // growth does: a purse that paid on a different day than the work would
+        // be a second, quieter ladder sitting next to the first.
+        self.credit_session_earnings();
         let drop = self.roll_drop(now_unix);
         self.last_drop = drop.clone();
         SessionReward {
@@ -644,6 +683,46 @@ impl Cultivation {
         item
     }
 
+    /// Own one seed that already has its name.
+    ///
+    /// The shop names the herbs it sells so a shelf can be read before buying;
+    /// folding a bought seed in through [`Self::push_seed`] would re-roll that name
+    /// and the shelf would have promised one herb and delivered another.
+    fn push_seed_named(
+        &mut self,
+        attribute: Attribute,
+        tier: u8,
+        name: Option<String>,
+        rng: &mut Rng,
+    ) -> SeedView {
+        if let Some(stack) = self
+            .document
+            .seeds
+            .iter_mut()
+            .find(|stack| stack.attribute == attribute && stack.tier == tier)
+        {
+            stack.count = stack.count.saturating_add(1);
+            return SeedView {
+                attribute: stack.attribute,
+                tier: stack.tier,
+                count: stack.count,
+                name: stack.name.clone(),
+                sell_price: seed_sell_price(stack.attribute, stack.tier),
+            };
+        }
+        let mut stack = SeedStack::single(attribute, tier);
+        stack.name = name.or_else(|| Some(seed_name(rng)));
+        let view = SeedView {
+            attribute: stack.attribute,
+            tier: stack.tier,
+            count: stack.count,
+            name: stack.name.clone(),
+            sell_price: seed_sell_price(stack.attribute, stack.tier),
+        };
+        self.document.seeds.push(stack);
+        view
+    }
+
     /// Own one seed, folded into an existing stack when there is one.
     ///
     /// Returns the stack as a surface reads it, so a caller that just found the
@@ -661,6 +740,7 @@ impl Cultivation {
                 tier: stack.tier,
                 count: stack.count,
                 name: stack.name.clone(),
+                sell_price: seed_sell_price(stack.attribute, stack.tier),
             };
         }
         let mut stack = SeedStack::single(attribute, tier);
@@ -670,6 +750,7 @@ impl Cultivation {
             tier: stack.tier,
             count: stack.count,
             name: stack.name.clone(),
+            sell_price: seed_sell_price(stack.attribute, stack.tier),
         };
         self.document.seeds.push(stack);
         view
@@ -727,6 +808,7 @@ impl Cultivation {
             tier,
             count: 1,
             name: None,
+            sell_price: seed_sell_price(attribute, tier),
         });
         Some(HarvestOutcome { crop, seed })
     }
@@ -1108,6 +1190,7 @@ impl Cultivation {
                 tier: stack.tier,
                 count: stack.count,
                 name: stack.name.clone(),
+                sell_price: seed_sell_price(stack.attribute, stack.tier),
             })
             .collect();
         seeds.sort_by(|left, right| {
@@ -1165,6 +1248,7 @@ impl Cultivation {
                     power: item.power(),
                     equipped: false,
                     name: item.name.clone(),
+                    sell_price: shop::ShopOffer::Equipment(item.clone()).sell_price(),
                 }),
                 Drop::Seed { attribute, tier } => DropView::Seed { attribute, tier },
             }),
@@ -1197,6 +1281,9 @@ impl Cultivation {
             growth_multiplier_permille: self.growth_multiplier_permille(),
             duel_record: self.document.duel_record.clone(),
             last_walk: self.document.last_walk.clone(),
+            stones: self.document.stones,
+            day: now_unix.div_euclid(SECONDS_PER_DAY),
+            shop_offers: self.shop(now_unix.div_euclid(SECONDS_PER_DAY)),
         }
     }
 
@@ -1228,7 +1315,212 @@ impl Cultivation {
                 .flatten()
                 == Some(item.id),
             name: item.name.clone(),
+            sell_price: shop::ShopOffer::Equipment(item.clone()).sell_price(),
         }
+    }
+}
+
+// The shop's transitions live here rather than beside the shop's types: each one
+// reads and writes the document's private fields, and a separate module could
+// only do that by reaching through a `&mut Cultivation` it was handed.
+impl Cultivation {
+    /// The day's shelf, as a surface reads it.
+    ///
+    /// Rolled from the day and the realm, so the same day always shows the same
+    /// goods and a document cannot carry a shelf it never would have rolled. The
+    /// bought slots are cleared here rather than in the domain's own transition:
+    /// a user who opens the page on a new day has, for that page, a new shelf.
+    pub fn shop(&self, today: i64) -> Vec<ShopOfferView> {
+        let realm = self.realm();
+        let bought: &[u8] = if self.document.shop_day == Some(today) {
+            &self.document.shop_bought
+        } else {
+            &[]
+        };
+        shop::roll_offers(today, realm, self.shop_seed(today))
+            .into_iter()
+            .enumerate()
+            .map(|(slot, offer)| {
+                let price = offer.price();
+                let sell_price = offer.sell_price();
+                ShopOfferView {
+                    offer,
+                    price,
+                    sell_price,
+                    bought: bought.contains(&(slot as u8)),
+                    slot,
+                }
+            })
+            .collect()
+    }
+
+    /// Buy one of the day's offers.
+    ///
+    /// The slot is what a command names, not the item, because the shelf is
+    /// regenerated from the day: naming the item would mean a click on an item
+    /// from yesterday's shelf could buy today's item in the same slot.
+    pub fn buy_from_shop(
+        &mut self,
+        slot: usize,
+        today: i64,
+        now_unix: i64,
+    ) -> Result<ShopOffer, TradeRefusal> {
+        self.roll_shop_day(today);
+        let realm = self.realm();
+        let shelf = shop::roll_offers(today, realm, self.shop_seed(today));
+        let Some(offer) = shelf.get(slot).cloned() else {
+            return Err(TradeRefusal::NoSuchOffer);
+        };
+        if self.document.shop_bought.contains(&(slot as u8)) {
+            return Err(TradeRefusal::AlreadyBought);
+        }
+        let price = offer.price();
+        if self.document.stones < price {
+            return Err(TradeRefusal::NotEnoughStones);
+        }
+        self.document.stones -= price;
+        self.document.shop_bought.push(slot as u8);
+        // The goods land the same way a drop's do, so a bought 功法 counts toward
+        // 修炼 and a bought herb plants, rather than sitting in a drawer.
+        let bought = offer.clone();
+        match bought {
+            ShopOffer::Equipment(item) => {
+                let mut item = item;
+                item.id = self.next_id();
+                self.document.equipment.push(item);
+            }
+            ShopOffer::Seed {
+                attribute,
+                tier,
+                name,
+            } => {
+                let mut rng = self.rng(now_unix);
+                self.push_seed_named(attribute, tier, name, &mut rng);
+            }
+            ShopOffer::Art { art_id } => {
+                let _ = self.grant_art(super::blueprint(art_id).grade, now_unix);
+            }
+        }
+        Ok(offer)
+    }
+
+    /// Sell one piece of gear for 灵石.
+    pub fn sell_equipment(&mut self, item_id: u64) -> Result<u32, TradeRefusal> {
+        let Some(index) = self
+            .document
+            .equipment
+            .iter()
+            .position(|item| item.id == item_id)
+        else {
+            return Err(TradeRefusal::NotOwned);
+        };
+        if self
+            .document
+            .equipped
+            .iter()
+            .flatten()
+            .any(|worn| *worn == item_id)
+        {
+            return Err(TradeRefusal::Equipped);
+        }
+        let item: EquipmentRecord = self.document.equipment.remove(index);
+        let stones = shop::ShopOffer::Equipment(item).sell_price();
+        self.document.stones = self.document.stones.saturating_add(stones);
+        Ok(stones)
+    }
+
+    /// Sell one 功法 for 灵石.
+    ///
+    /// The one being trained is refused: 修炼 reads it every session, and the
+    /// record of a session that trained a 功法 no longer owned would be a lie.
+    pub fn sell_art(&mut self, art_id: u64) -> Result<u32, TradeRefusal> {
+        if self.document.selected_art == Some(art_id) {
+            return Err(TradeRefusal::Training);
+        }
+        let Some(index) = self
+            .document
+            .arts
+            .iter()
+            .position(|art| art.art_id == art_id)
+        else {
+            return Err(TradeRefusal::NotOwned);
+        };
+        let owned = self.document.arts.remove(index);
+        let stones = shop::ShopOffer::Art {
+            art_id: owned.art_id,
+        }
+        .sell_price();
+        self.document.stones = self.document.stones.saturating_add(stones);
+        Ok(stones)
+    }
+
+    /// Sell one seed from a stack for 灵石.
+    ///
+    /// One at a time rather than the whole stack: a stack is nine seeds and one
+    /// of them, and which of them the user wants to keep is not a question a
+    /// single "sell all" button can ask.
+    pub fn sell_seed(
+        &mut self,
+        attribute: super::Attribute,
+        tier: u8,
+    ) -> Result<u32, TradeRefusal> {
+        let Some(index) = self
+            .document
+            .seeds
+            .iter()
+            .position(|stack| stack.attribute == attribute && stack.tier == tier)
+        else {
+            return Err(TradeRefusal::NotOwned);
+        };
+        if self.document.seeds[index].count == 0 {
+            return Err(TradeRefusal::NotOwned);
+        }
+        let stack: &mut SeedStack = &mut self.document.seeds[index];
+        stack.count -= 1;
+        let stones = shop::ShopOffer::Seed {
+            attribute,
+            tier,
+            name: stack.name.clone(),
+        }
+        .sell_price();
+        if stack.count == 0 {
+            self.document.seeds.remove(index);
+        }
+        self.document.stones = self.document.stones.saturating_add(stones);
+        Ok(stones)
+    }
+
+    /// Roll the shop's day forward if it has not been done yet.
+    fn roll_shop_day(&mut self, today: i64) {
+        if self.document.shop_day != Some(today) {
+            self.document.shop_day = Some(today);
+            self.document.shop_bought.clear();
+        }
+    }
+
+    /// The seed the day's shelf is rolled from.
+    ///
+    /// The day alone, so the shelf is a pure function of `(day, realm)` — the same
+    /// property the tests pin. Folding in the user's own counter would have spread
+    /// two saves apart, but it would also have moved the shelf every time the user
+    /// bought something, which is a shop that rearranges itself mid-transaction.
+    fn shop_seed(&self, today: i64) -> u64 {
+        today as u64
+    }
+
+    /// Credit one finished session's 灵石.
+    ///
+    /// The only 灵石 that arrives without selling something. Small enough that a
+    /// user who never sells is poor on purpose: the currency is a way to convert a
+    /// walk into something useful, and a faucet that outran the walks would make
+    /// the shop a second ladder.
+    pub(crate) fn credit_session_earnings(&mut self) {
+        self.document.stones = self.document.stones.saturating_add(SESSION_EARNINGS);
+    }
+
+    /// The purse, for a surface.
+    pub fn stones(&self) -> u32 {
+        self.document.stones
     }
 }
 
