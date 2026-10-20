@@ -62,9 +62,9 @@ pub struct Fighter {
     pub spell: u32,
     pub resist: u32,
     pub speed: u32,
-    /// 命中, in parts per thousand.
+    /// 命中, a plain number read against the other side's 闪避.
     pub hit: u32,
-    /// 闪避, in parts per thousand.
+    /// 闪避, a plain number the attacker's 命中 is read against.
     pub evade: u32,
     /// The 外功 being used, if the fighter has one.
     pub art: Option<ArtStrike>,
@@ -266,6 +266,51 @@ fn blow(attacker: &Fighter, defender: &Fighter) -> u32 {
     attacker.attack.saturating_add(spell)
 }
 
+/// The chance one blow lands between even fighters, in parts per thousand.
+///
+/// Eighty percent: two cultivators of the same depth land most of their blows,
+/// but a fight where nothing is ever slipped is arithmetic rather than a fight.
+pub const EVEN_HIT_CHANCE_PERMILLE: i64 = 800;
+
+/// The floor and the ceiling the chance is held to, in parts per thousand.
+///
+/// A blow that can never land is a fight that cannot end, and a blow that can
+/// never be slipped is a stat nobody would pay for; the same two walls the old
+/// percentage model had, kept because the reasons for them did not change.
+const HIT_CHANCE_FLOOR_PERMILLE: i64 = 100;
+const HIT_CHANCE_CEILING_PERMILLE: i64 = 950;
+
+/// The exponent the chance's curve is cut at, over one thousand.
+///
+/// The curve is `EVEN × ratio^k` with `ratio = attacker 命中 / defender 闪避`.
+/// `k = ln 0.625 / ln 0.5 ≈ 0.678` is the one exponent that makes a two-to-one
+/// gap worth exactly a forty-point swing: at ratio ½ the chance is 500‰, so a
+/// fighter whose 命中 is half the other side's 闪避 lands one blow in two, and
+/// evenly matched fighters land four in five. Read the ratio the other way and
+/// the same curve pays the advantage back, up to the ceiling.
+const HIT_CHANCE_EXPONENT_NUM: u32 = 678;
+const HIT_CHANCE_EXPONENT_DEN: f64 = 1_000.0;
+
+/// The chance one blow lands, in parts per thousand.
+///
+/// Read off the *ratio* of the attacker's 命中 to the defender's 闪避 rather
+/// than off their difference: a difference model makes a hundred points mean
+/// everything early and nothing late, while a ratio means what it says at every
+/// depth — even is even, double is double, and the numbers the panel prints are
+/// the numbers the curve eats.
+pub fn hit_chance_permille(attacker_hit: u32, defender_evade: u32) -> i64 {
+    if attacker_hit == 0 {
+        return HIT_CHANCE_FLOOR_PERMILLE;
+    }
+    if defender_evade == 0 {
+        return HIT_CHANCE_CEILING_PERMILLE;
+    }
+    let ratio = f64::from(attacker_hit) / f64::from(defender_evade);
+    let exponent = f64::from(HIT_CHANCE_EXPONENT_NUM) / HIT_CHANCE_EXPONENT_DEN;
+    let chance = (EVEN_HIT_CHANCE_PERMILLE as f64) * ratio.powf(exponent);
+    (chance.round() as i64).clamp(HIT_CHANCE_FLOOR_PERMILLE, HIT_CHANCE_CEILING_PERMILLE)
+}
+
 /// Throw one blow.
 fn strike(attacker: &mut Fighter, defender: &mut Fighter, rng: &mut Rng) -> DuelRound {
     let mut damage = blow(attacker, defender);
@@ -286,7 +331,7 @@ fn strike(attacker: &mut Fighter, defender: &mut Fighter, rng: &mut Rng) -> Duel
         art = Some(strike.name);
     }
     // 命中 against 闪避, never a certainty and never hopeless.
-    let chance = (i64::from(attacker.hit) - i64::from(defender.evade)).clamp(50, 950);
+    let chance = hit_chance_permille(attacker.hit, defender.evade);
     let dodged = rng.below(1_000) >= chance as u64;
     if dodged {
         damage = 0;
@@ -444,6 +489,24 @@ mod tests {
         let bare = strike(&mut spent, &mut plain_target, &mut Rng::seeded(12));
         assert_eq!(bare.art, None, "no 内力, no art");
         assert_eq!(bare.damage, 1_000, "and no mastery share either");
+    }
+
+    #[test]
+    fn the_hit_chance_curve_holds_its_two_anchors() {
+        // Even fighters land four blows in five.
+        assert_eq!(hit_chance_permille(100, 100), 800);
+        assert_eq!(hit_chance_permille(2_000, 2_000), 800);
+        // A two-to-one disadvantage lands half — the anchor the exponent was
+        // cut to make exact.
+        assert_eq!(hit_chance_permille(100, 200), 500);
+        assert_eq!(hit_chance_permille(300, 600), 500);
+        // And the same gap the other way pays back past the ceiling.
+        assert_eq!(hit_chance_permille(200, 100), 950);
+        // Degenerate sides still sit inside the walls.
+        assert_eq!(hit_chance_permille(0, 100), 100);
+        assert_eq!(hit_chance_permille(100, 0), 950);
+        // A wide gap bottoms out toward the floor rather than reaching zero.
+        assert!(hit_chance_permille(100, 1_000) < 200);
     }
 
     #[test]

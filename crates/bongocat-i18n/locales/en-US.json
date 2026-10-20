@@ -643,7 +643,7 @@
       "root_desc": "Constitution: +8 inner force and +2 aptitude a point. Aptitude is what makes 功法 learn faster and fail less. Pairs with Mana in the spell school (+15 spell power a point, plus 10 for the shorter half).",
       "strength_desc": "Strength: +3 attack and +20 health a point. Pairs with Agility in the martial school (+20 martial power a point, plus 10 for the shorter half).",
       "mana_desc": "Mana: +3 spell power and +2 spell resist a point. Pairs with Constitution in the spell school (+20 spell power a point, plus 10 for the shorter half).",
-      "agility_desc": "Agility: +2 speed, +0.5% hit and +0.2% evade a point (hit caps at 95%, evade at 25%). Pairs with Strength in the martial school (+12 martial power a point, plus 10 for the shorter half)."
+      "agility_desc": "Agility: +2 speed, +10 hit and +10 evade a point. Pairs with Strength in the martial school (+12 martial power a point, plus 10 for the shorter half). Hit against the other side's evade decides the chance: even is about eighty percent, a two-to-one gap about fifty."
     },
     "arts": {
       "title": "Art books",
@@ -651,7 +651,7 @@
     },
     "mastered": {
       "title": "Learned arts",
-      "empty": "No art learned through yet. Train one to its last rank and it stays with you for good."
+      "empty": "No art learned through yet. Train one to its last rank and it stays with you for good — or sell it."
     },
     "art": {
       "kind": {
@@ -690,8 +690,8 @@
     "spell": "spell power %{value}",
     "resist": "spell resist %{value}",
     "speed": "speed %{value}",
-    "hit": "hit %{value}%",
-    "evade": "evade %{value}%",
+    "hit": "hit %{value}",
+    "evade": "evade %{value}",
     "aptitude": "aptitude %{value}",
     "power": "power %{power}",
     "power_level": "level %{value}",
@@ -793,16 +793,33 @@
       "seed_return": "The harvest brought back %{seed}"
     },
     "record": {
-      "title": "Fight record",
+      "title": "Recent events",
+      "empty": "Nothing yet. Finished sessions and walks both land here.",
       "guardian": "Guardian",
       "wanderer": "Wanderer",
-      "win": "Won",
-      "loss": "Lost",
-      "walk": "Last walk: %{outcome}",
+      "outcome": {
+        "seed": "found a herb",
+        "gear": "found gear",
+        "art": "found an art",
+        "stones": "found stones"
+      },
       "found_art": "art “%{name}”",
       "found_gear": "gear “%{name}”",
       "found_seed": "herb “%{name}”",
       "found_stones": "stones “%{value}”"
+    },
+    "event": {
+      "session": "Session finished, +%{growth} growth",
+      "walk": "Walked out: %{outcome}",
+      "train_failed": "Training “%{name}” came to nothing; the progress stays",
+      "train_progress": "Training “%{name}” moved along",
+      "train_ranked": "“%{name}” rose to rank %{rank}",
+      "train_mastered": "“%{name}” is mastered",
+      "breakthrough_won": "The realm fight is won — a new realm opens!",
+      "breakthrough_lost": "The realm fight is lost — train and return.",
+      "bought": "Bought %{what}",
+      "sold": "Sold %{what} for %{stones} stones",
+      "harvest": "A crop was pulled."
     },
     "shop": {
       "title": "Market",

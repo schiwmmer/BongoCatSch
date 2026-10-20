@@ -14,6 +14,7 @@ use super::{
     SLOT_COUNT, STAGE_COUNT, SeedStack, blueprint,
     curve::{self, level_for_growth, stage_floor},
     duel::{DUEL_RECORD_CAP, DuelRecord},
+    events::{EVENT_LOG_CAP, EventRecord},
     explore::WalkRecord,
 };
 
@@ -158,6 +159,14 @@ pub struct CultivationDocument {
     /// Which slots of that day's shelf have been bought, as slot indexes.
     #[serde(default)]
     pub shop_bought: Vec<u8>,
+    /// What has happened lately, newest first, capped at
+    /// [`EVENT_LOG_CAP`](super::EVENT_LOG_CAP).
+    ///
+    /// The popups are moments and the duel record only knows fights; this is
+    /// the page's one line of memory for everything else a cultivator does —
+    /// sessions, 功法 turning over, goods bought and sold, crops pulled.
+    #[serde(default)]
+    pub events: Vec<EventRecord>,
 }
 
 impl CultivationDocument {
@@ -206,6 +215,9 @@ impl CultivationDocument {
         // A hand-edited save could carry a thousand lines of history; the record
         // is a window, so it is cut back to the window here rather than trusted.
         self.duel_record.truncate(DUEL_RECORD_CAP);
+        // The event log is a window too, and a hand-edited save could carry a
+        // season of entries; cut it back to the window here rather than trust it.
+        self.events.truncate(EVENT_LOG_CAP);
         // A hand-edited or stale document could carry a thousand bought slots for
         // a shelf of ten; the shelf is a window, so is this.
         self.shop_bought.truncate(super::SHOP_MAX_OFFERS);
@@ -234,7 +246,9 @@ impl CultivationDocument {
         });
         for art in &mut self.arts {
             let max_rank = blueprint(art.art_id).grade.ranks();
-            art.rank = art.rank.clamp(1, max_rank);
+            // Zero is where every 功法 starts: a book on the shelf has been
+            // obtained, not begun, and the first 阶 is what training buys.
+            art.rank = art.rank.clamp(0, max_rank);
             if art.rank >= max_rank {
                 art.progress = 0;
             }

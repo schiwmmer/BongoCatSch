@@ -295,7 +295,7 @@ mod tests {
         let mut cultivation = Cultivation::new(document);
         cultivation.equip(1);
         assert_eq!(
-            cultivation.sell_equipment(1).expect_err("worn"),
+            cultivation.sell_equipment(1, 1_000).expect_err("worn"),
             TradeRefusal::Equipped
         );
 
@@ -310,7 +310,7 @@ mod tests {
             ..CultivationDocument::default()
         });
         assert_eq!(
-            art.sell_art(1).expect_err("being trained"),
+            art.sell_art(1, 1_000).expect_err("being trained"),
             TradeRefusal::Training
         );
     }
@@ -329,7 +329,7 @@ mod tests {
         ));
         let mut cultivation = Cultivation::new(document);
         let paid = cultivation
-            .sell_seed(crate::cultivation::Attribute::Root, 2)
+            .sell_seed(crate::cultivation::Attribute::Root, 2, 1_000)
             .expect("a seed was sold");
         assert!(paid > 0);
         assert_eq!(cultivation.stones(), paid);

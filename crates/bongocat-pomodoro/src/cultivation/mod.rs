@@ -39,6 +39,7 @@ mod battle;
 mod curve;
 mod document;
 mod duel;
+mod events;
 mod explore;
 mod garden;
 mod items;
@@ -52,7 +53,8 @@ mod tests;
 pub use arts::{
     ART_COUNT, ArtBlueprint, ArtGrade, ArtKind, ArtOutcome, ArtView, MasteredArtView, OwnedArt,
     art_attributes, art_view, blueprint, effective_failure_permille, external_damage,
-    mastered_art_attributes, mastered_art_view, mastery_permille, required_pomodoros,
+    mastered_art_attributes, mastered_art_payout, mastered_art_view, mastery_permille,
+    required_pomodoros,
 };
 pub use battle::{BattleReport, Guardian, guardian_fighter, wanderer_fighter};
 // `duel` itself stays crate-private: it takes the seeded `Rng`, which is nobody
@@ -66,6 +68,7 @@ pub use duel::{
     ArtStrike, DUEL_RECORD_CAP, DUEL_ROUND_CAP, DuelRecord, DuelReport, DuelRound, FightKind,
     Fighter, GUARDIAN_NAME, PLAYER_NAME, WANDERER_NAME,
 };
+pub use events::{EVENT_LOG_CAP, EventDetail, EventRecord, SaleKind};
 pub use explore::{
     BREAKTHROUGH_COOLDOWN_SECONDS, ENCOUNTER_PERMILLE, EXPLORATION_COOLDOWN_SECONDS,
     ExplorationOutcome, STONE_FIND_MAX, STONE_FIND_MIN, STONE_FIND_PERMILLE, VICTORY_SEED_PERMILLE,
@@ -485,24 +488,14 @@ pub struct Derived {
     pub resist: u32,
     /// 速度: how often the cultivator acts.
     pub speed: u32,
-    /// 命中: chance to land a blow, in parts per thousand.
+    /// 命中: how hard the fighter's blows are to slip, as a plain number the
+    /// fight reads against the other side's 闪避.
     pub hit: u32,
-    /// 闪避: chance to avoid one, in parts per thousand.
+    /// 闪避: how hard the fighter is to hit, as a plain number the fight reads
+    /// against the attacker's 命中.
     pub evade: u32,
     /// 潜质: how fast 功法 are learned and how rarely the attempt fails.
     pub aptitude: u32,
-}
-
-impl Derived {
-    /// 命中 as a percentage the surfaces can print.
-    pub fn hit_percent(self) -> u32 {
-        self.hit / 10
-    }
-
-    /// 闪避 as a percentage the surfaces can print.
-    pub fn evade_percent(self) -> u32 {
-        self.evade / 10
-    }
 }
 
 /// One of the nine numbers the four attributes turn into, and the arithmetic
@@ -602,19 +595,19 @@ const DERIVED_SPECS: [DerivedSpec; 9] = [
         key: "cultivation.hit",
         slot: DerivedSlot::Hit,
         attribute: Attribute::Agility,
-        base: BASE_HIT_PERMILLE,
-        per_point: HIT_PERMILLE_PER_AGILITY,
-        cap: Some(HIT_PERMILLE_CAP),
-        per_mille: true,
+        base: BASE_HIT,
+        per_point: HIT_PER_AGILITY,
+        cap: None,
+        per_mille: false,
     },
     DerivedSpec {
         key: "cultivation.evade",
         slot: DerivedSlot::Evade,
         attribute: Attribute::Agility,
-        base: BASE_EVADE_PERMILLE,
-        per_point: EVADE_PERMILLE_PER_AGILITY,
-        cap: Some(EVADE_PERMILLE_CAP),
-        per_mille: true,
+        base: BASE_EVADE,
+        per_point: EVADE_PER_AGILITY,
+        cap: None,
+        per_mille: false,
     },
     DerivedSpec {
         key: "cultivation.aptitude",
@@ -760,19 +753,20 @@ const RESIST_PER_MANA: i64 = 2;
 /// The floor every 速度 starts from, and what one point of 身法 adds.
 const BASE_SPEED: i64 = 10;
 const SPEED_PER_AGILITY: i64 = 2;
-/// 命中 and 闪避 start here and climb with 身法, in parts per thousand. Both are
-/// capped: an uncapped 闪避 makes a build untouchable and an uncapped 命中 makes
-/// the cap the only number that matters.
-const BASE_HIT_PERMILLE: i64 = 750;
-const HIT_PERMILLE_PER_AGILITY: i64 = 5;
-const HIT_PERMILLE_CAP: i64 = 950;
-const BASE_EVADE_PERMILLE: i64 = 50;
-// Two per point rather than four, and a lower ceiling: at four, a cultivator and
-// the guardian both carry enough 闪避 to push every fight to a forty percent hit
-// rate, which turns a real fight into a coin toss — the opposite of what the log
-// is for. This curve keeps 闪避 worth having without making 命中 meaningless.
-const EVADE_PERMILLE_PER_AGILITY: i64 = 2;
-const EVADE_PERMILLE_CAP: i64 = 250;
+/// 命中 and 闪避 start here and climb with 身法, as plain numbers a fight
+/// compares rather than percentages.
+///
+/// They share one curve on purpose: the hit chance is read off the *ratio* of
+/// the attacker's 命中 to the defender's 闪避, and a fighter only ever stands
+/// across from someone whose stats came off the same ladder — so two equal
+/// numbers is what "evenly matched" means, and the curve turns that into the
+/// chance the fight promises. What separates builds is how far each side's
+/// numbers have climbed relative to the other's, not a built-in gap between the
+/// two stats.
+const BASE_HIT: i64 = 100;
+const HIT_PER_AGILITY: i64 = 10;
+const BASE_EVADE: i64 = 100;
+const EVADE_PER_AGILITY: i64 = 10;
 /// What one point of 根骨 is worth to 潜质.
 const APTITUDE_PER_ROOT: i64 = 2;
 

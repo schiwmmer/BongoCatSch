@@ -14,9 +14,9 @@ use super::*;
 use crate::window::cultivation_duel;
 use crate::window::cultivation_settings;
 use bongocat_pomodoro::{
-    Cultivation, CultivationDocument, DuelRecord, DuelReport, DuelRound, ExplorationOutcome,
-    FightKind, Fighter, LAYERS_PER_STAGE, PLAYER_NAME, PomodoroCommand, PomodoroSnapshot,
-    PomodoroState, WANDERER_NAME, WalkRecord, threshold_for,
+    Cultivation, CultivationDocument, DuelRecord, DuelReport, DuelRound, EventDetail, EventRecord,
+    ExplorationOutcome, FightKind, Fighter, LAYERS_PER_STAGE, PLAYER_NAME, PomodoroCommand,
+    PomodoroSnapshot, PomodoroState, WANDERER_NAME, WalkRecord, threshold_for,
 };
 
 /// The page mounted on its own.
@@ -427,29 +427,26 @@ fn the_page_draws_the_next_session_worth_and_the_record(cx: &mut TestAppContext)
         explorations: 20,
         battle_wins: 4,
         harvests: 2,
-        duel_record: vec![
-            DuelRecord {
-                won: true,
-                kind: FightKind::Guardian,
-                realm: 0,
+        events: vec![
+            EventRecord {
                 at_unix: 1_000,
+                detail: EventDetail::Breakthrough { won: true },
             },
-            DuelRecord {
-                won: false,
-                kind: FightKind::Wanderer,
-                realm: 0,
+            EventRecord {
                 at_unix: 2_000,
+                detail: EventDetail::Walk {
+                    outcome: ExplorationOutcome::Gear,
+                    art: None,
+                    gear: Some("青锋".to_owned()),
+                    seed: None,
+                    stones: Some(5),
+                },
+            },
+            EventRecord {
+                at_unix: 3_000,
+                detail: EventDetail::Session { growth: 500 },
             },
         ],
-        last_walk: Some(WalkRecord {
-            at_unix: 2_000,
-            realm: 0,
-            outcome: ExplorationOutcome::Gear,
-            art: None,
-            gear: Some("青锋".to_owned()),
-            seed: None,
-            stones: None,
-        }),
         ..CultivationDocument::default()
     })
     .view();
@@ -464,9 +461,9 @@ fn the_page_draws_the_next_session_worth_and_the_record(cx: &mut TestAppContext)
     for id in [
         "cultivation-next-session-growth",
         "cultivation-record",
-        "cultivation-record-duel-0",
-        "cultivation-record-duel-1",
-        "cultivation-record-walk",
+        "cultivation-event-0",
+        "cultivation-event-1",
+        "cultivation-event-2",
     ] {
         assert!(painted(visual, id), "the page must draw {id}");
     }
@@ -660,11 +657,11 @@ fn the_formula_names_the_attribute_in_the_language_on_screen() {
     );
 }
 
-/// 命中 and 闪避 are stored in parts per thousand but drawn as percent, so the
-/// sum behind them is in percent too: a card that explains "95%" with "950" is
-/// asking the reader to do the conversion the card exists to save them.
+/// 命中 and 闪避 are plain numbers now, so the sum behind them is in the same
+/// unit the chip prints: a card that explains "命中 200" with a percent sign
+/// would be explaining a number with a different one.
 #[test]
-fn a_percent_row_is_explained_in_percent() {
+fn a_plain_row_is_explained_in_plain_numbers() {
     let view = Cultivation::default().view();
     let hit = view
         .derived_breakdowns
@@ -673,11 +670,11 @@ fn a_percent_row_is_explained_in_percent() {
         .expect("命中 has an arithmetic behind it");
     let formula = cultivation_settings::derived_formula(hit, "zh-CN");
     assert!(
-        formula.contains('%'),
-        "a per-mille row has to say so: {formula}"
+        !formula.contains('%'),
+        "a plain number row carries no percent sign: {formula}"
     );
     assert!(
-        !formula.contains("750"),
-        "the raw per-mille base leaked into the card: {formula}"
+        formula.contains("100"),
+        "the base the domain actually starts from is on the card: {formula}"
     );
 }

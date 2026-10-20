@@ -437,17 +437,17 @@ impl PomodoroState {
                 }
             }
             PomodoroCommand::SellEquipment { item_id } => {
-                if let Err(refusal) = self.cultivation.sell_equipment(item_id) {
+                if let Err(refusal) = self.cultivation.sell_equipment(item_id, now_unix) {
                     self.cultivation.note_refusal(Refusal::Trade(refusal));
                 }
             }
             PomodoroCommand::SellArt { art_id } => {
-                if let Err(refusal) = self.cultivation.sell_art(art_id) {
+                if let Err(refusal) = self.cultivation.sell_art(art_id, now_unix) {
                     self.cultivation.note_refusal(Refusal::Trade(refusal));
                 }
             }
             PomodoroCommand::SellSeed { attribute, tier } => {
-                if let Err(refusal) = self.cultivation.sell_seed(attribute, tier) {
+                if let Err(refusal) = self.cultivation.sell_seed(attribute, tier, now_unix) {
                     self.cultivation.note_refusal(Refusal::Trade(refusal));
                 }
             }

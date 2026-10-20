@@ -25,6 +25,7 @@ use super::{
     battle::{guardian_fighter, guardian_for, resolve, wanderer_fighter},
     curve::{layer_rank, level_for_growth, stage_floor, threshold_for},
     duel::{DUEL_RECORD_CAP, DuelRecord, FightKind, duel},
+    events::{EVENT_LOG_CAP, EventDetail, EventRecord, SaleKind},
     explore::{
         WalkRecord, breakthrough_ready, exploration_ready, roll_stones, roll_victory, roll_walk,
     },
@@ -288,6 +289,9 @@ pub struct CultivationView {
     pub duel_record: Vec<DuelRecord>,
     /// What the last walk settled, kept past the quit that ended its popup.
     pub last_walk: Option<WalkRecord>,
+    /// What has happened lately, newest first: sessions, walks, 功法 turning
+    /// over, goods bought and sold, crops pulled.
+    pub events: Vec<EventRecord>,
     /// The 灵石 in the purse.
     pub stones: u32,
     /// Why the last refused action was refused, if one was.
@@ -611,6 +615,9 @@ impl Cultivation {
         self.document.missed_streak = 0;
         self.document.charged_through_day = Some(today_number);
         self.note_peak_level();
+        // The log says a session happened and what it paid, newest behind the
+        // training it caused: the 功法's turn is the more telling line of the two.
+        self.push_event(now_unix, EventDetail::Session { growth });
         // The session also trains whatever 功法 is selected: the pomodoro is the
         // only honest measure of time spent training, so learning rides the same
         // event that pays the growth.
@@ -673,6 +680,17 @@ impl Cultivation {
             outcome,
             rank,
         });
+        // A session that trained a 功法 says what came of it, whatever it was:
+        // a run of failures is history too, and the record that only kept the
+        // wins would be a flatterer.
+        self.push_event(
+            now_unix,
+            EventDetail::Training {
+                name: blueprint(art_id).name,
+                outcome,
+                rank,
+            },
+        );
     }
 
     /// Which 功法 the next finished pomodoro trains, or none.
@@ -711,7 +729,9 @@ impl Cultivation {
             let art_id = unowned[rng.below(unowned.len() as u64) as usize];
             self.document.arts.push(OwnedArt {
                 art_id,
-                rank: 1,
+                // A book on the shelf is not yet any of it learned: the first
+                // 阶 is what the sessions buy.
+                rank: 0,
                 progress: 0,
                 outcome: None,
             });
@@ -746,7 +766,9 @@ impl Cultivation {
         }
         self.document.arts.push(OwnedArt {
             art_id,
-            rank: 1,
+            // The same zero the walks and the shelf start a book at: owning it
+            // is not having learned any of it.
+            rank: 0,
             progress: 0,
             outcome: None,
         });
@@ -939,6 +961,7 @@ impl Cultivation {
             name: None,
             sell_price: seed_sell_price(attribute, tier),
         });
+        self.push_event(now_unix, EventDetail::Harvest);
         Some(HarvestOutcome { crop, seed })
     }
 
@@ -994,6 +1017,7 @@ impl Cultivation {
         // Won fights are what train the 战斗 dimension; a loss is not counted
         // there, and only ever shows up in the record below.
         self.record_duel(duel.won, FightKind::Guardian, now_unix);
+        self.push_event(now_unix, EventDetail::Breakthrough { won: duel.won });
         if !duel.won {
             self.document.breakthrough_failures =
                 self.document.breakthrough_failures.saturating_add(1);
@@ -1038,6 +1062,22 @@ impl Cultivation {
             },
         );
         self.document.duel_record.truncate(DUEL_RECORD_CAP);
+    }
+
+    /// Write one event into the page's log, newest first.
+    ///
+    /// The log is a window like the duel record: sixteen lines is what a page
+    /// reads at a glance, and a save that kept every event since the first
+    /// pomodoro would be a diary nobody opens.
+    fn push_event(&mut self, now_unix: i64, detail: EventDetail) {
+        self.document.events.insert(
+            0,
+            EventRecord {
+                at_unix: now_unix,
+                detail,
+            },
+        );
+        self.document.events.truncate(EVENT_LOG_CAP);
     }
 
     /// The multiplier every finished session is currently worth, in parts per
@@ -1288,6 +1328,26 @@ impl Cultivation {
         });
         self.last_exploration = Some(outcome);
         self.last_exploration_found = Some(found);
+        // The walk joins the page's log beside the popups: finds and all, so a
+        // week of walks reads as a week rather than as one line of "last walk".
+        self.push_event(
+            now_unix,
+            EventDetail::Walk {
+                outcome,
+                art: self.document.last_walk.as_ref().and_then(|w| w.art.clone()),
+                gear: self
+                    .document
+                    .last_walk
+                    .as_ref()
+                    .and_then(|w| w.gear.clone()),
+                seed: self
+                    .document
+                    .last_walk
+                    .as_ref()
+                    .and_then(|w| w.seed.clone()),
+                stones,
+            },
+        );
         Some(outcome)
     }
 
@@ -1458,6 +1518,7 @@ impl Cultivation {
             derived_breakdowns: derived.breakdowns(attributes),
             duel_record: self.document.duel_record.clone(),
             last_walk: self.document.last_walk.clone(),
+            events: self.document.events.clone(),
             stones: self.document.stones,
             last_refusal: self.last_refusal,
             refusal_count: self.refusal_count,
@@ -1595,6 +1656,17 @@ impl Cultivation {
         // The goods land the same way a drop's do, so a bought 功法 counts toward
         // 修炼 and a bought herb plants, rather than sitting in a drawer.
         let bought = offer.clone();
+        // The log says what was bought: named when the thing has a name, the
+        // kind when it does not.
+        let what = match &bought {
+            ShopOffer::Equipment(item) => SaleKind::Equipment {
+                name: item.name.clone(),
+            },
+            ShopOffer::Seed { name, .. } => SaleKind::Seed { name: name.clone() },
+            ShopOffer::Art { art_id } => SaleKind::Art {
+                name: Some(blueprint(*art_id).name),
+            },
+        };
         match bought {
             ShopOffer::Equipment(item) => {
                 let mut item = item;
@@ -1616,11 +1688,12 @@ impl Cultivation {
                 self.grant_art_book(art_id);
             }
         }
+        self.push_event(now_unix, EventDetail::Bought { what });
         Ok(offer)
     }
 
     /// Sell one piece of gear for 灵石.
-    pub fn sell_equipment(&mut self, item_id: u64) -> Result<u32, TradeRefusal> {
+    pub fn sell_equipment(&mut self, item_id: u64, now_unix: i64) -> Result<u32, TradeRefusal> {
         let Some(index) = self
             .document
             .equipment
@@ -1639,38 +1712,65 @@ impl Cultivation {
             return Err(TradeRefusal::Equipped);
         }
         let item: EquipmentRecord = self.document.equipment.remove(index);
-        let stones = shop::ShopOffer::Equipment(item).sell_price();
+        let stones = shop::ShopOffer::Equipment(item.clone()).sell_price();
         self.document.stones = self.document.stones.saturating_add(stones);
+        self.push_event(
+            now_unix,
+            EventDetail::Sold {
+                what: SaleKind::Equipment { name: item.name },
+                stones,
+            },
+        );
         Ok(stones)
     }
 
-    /// Sell one 功法书 for 灵石.
+    /// Sell one 功法 for 灵石 — a book or a learned one alike.
     ///
     /// The one being trained is refused: 修炼 reads it every session, and the
     /// record of a session that trained a 功法 no longer owned would be a lie.
     ///
-    /// A **已习得** 功法 is not sellable at all, and needs no check here: it is
-    /// not a book any more, so it is not in the list this looks in. Selling the
-    /// book a 功法 was learned from therefore takes nothing away that was
-    /// learned — the two are kept apart exactly so that this is true.
-    pub fn sell_art(&mut self, art_id: u64) -> Result<u32, TradeRefusal> {
+    /// A **已习得** 功法 is sellable too, and selling one is selling what it
+    /// pays: the mastery leaves [`CultivationDocument::mastered_arts`], the
+    /// attributes stop, and the stones are the market's price for giving that
+    /// up. The shelf prices a learned 功法 what it prices the book — the market
+    /// buys paper and ink either way — so selling one is a choice about the
+    /// bonus, not an arbitrage.
+    pub fn sell_art(&mut self, art_id: u64, now_unix: i64) -> Result<u32, TradeRefusal> {
         if self.document.selected_art == Some(art_id) {
             return Err(TradeRefusal::Training);
         }
-        let Some(index) = self
+        let name = blueprint(art_id).name;
+        let owned = if let Some(index) = self
             .document
             .arts
             .iter()
             .position(|art| art.art_id == art_id)
-        else {
-            return Err(TradeRefusal::NotOwned);
+        {
+            self.document.arts.remove(index);
+            true
+        } else if let Some(index) = self
+            .document
+            .mastered_arts
+            .iter()
+            .position(|learned| *learned == art_id)
+        {
+            self.document.mastered_arts.remove(index);
+            true
+        } else {
+            false
         };
-        let owned = self.document.arts.remove(index);
-        let stones = shop::ShopOffer::Art {
-            art_id: owned.art_id,
+        if !owned {
+            return Err(TradeRefusal::NotOwned);
         }
-        .sell_price();
+        let stones = shop::ShopOffer::Art { art_id }.sell_price();
         self.document.stones = self.document.stones.saturating_add(stones);
+        self.push_event(
+            now_unix,
+            EventDetail::Sold {
+                what: SaleKind::Art { name: Some(name) },
+                stones,
+            },
+        );
         Ok(stones)
     }
 
@@ -1683,6 +1783,7 @@ impl Cultivation {
         &mut self,
         attribute: super::Attribute,
         tier: u8,
+        now_unix: i64,
     ) -> Result<u32, TradeRefusal> {
         let Some(index) = self
             .document
@@ -1703,10 +1804,18 @@ impl Cultivation {
             name: stack.name.clone(),
         }
         .sell_price();
+        let name = stack.name.clone();
         if stack.count == 0 {
             self.document.seeds.remove(index);
         }
         self.document.stones = self.document.stones.saturating_add(stones);
+        self.push_event(
+            now_unix,
+            EventDetail::Sold {
+                what: SaleKind::Seed { name },
+                stones,
+            },
+        );
         Ok(stones)
     }
 

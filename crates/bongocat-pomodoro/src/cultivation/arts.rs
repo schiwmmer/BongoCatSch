@@ -300,7 +300,8 @@ pub fn effective_failure_permille(grade: ArtGrade, aptitude: u32) -> u32 {
 pub struct OwnedArt {
     /// Which of the five hundred this is.
     pub art_id: u64,
-    /// The 阶 reached. One is the first: an owned art is already begun.
+    /// The 阶 reached. Zero is where every 功法 starts: owning the book is not
+    /// having learned any of it, and the first 阶 is what training buys.
     pub rank: u8,
     /// Pomodoros banked toward the next 阶.
     pub progress: u32,
@@ -424,6 +425,25 @@ pub fn mastered_art_attributes(mastered: &[u64]) -> Attributes {
             .saturating_add(paid(blueprint.gain.agility, times, mastery));
     }
     total
+}
+
+/// The attributes one learned 内功 actually pays, every 阶 with its mastery
+/// share folded in.
+///
+/// This is the number the page prints beside the 功法's name — the sum the
+/// attributes panel counts, not the per-阶 blueprint figure — so the card and
+/// the arithmetic cannot disagree. An 外功 pays no attributes; the caller shows
+/// its multiplier and cost instead.
+pub fn mastered_art_payout(art_id: u64) -> Attributes {
+    let blueprint = blueprint(art_id);
+    let times = i64::from(blueprint.grade.ranks());
+    let mastery = 1_000 + i64::from(mastery_permille(blueprint.grade));
+    Attributes::new(
+        paid(blueprint.gain.root, times, mastery),
+        paid(blueprint.gain.strength, times, mastery),
+        paid(blueprint.gain.mana, times, mastery),
+        paid(blueprint.gain.agility, times, mastery),
+    )
 }
 
 /// The damage one 外功 does behind a given 攻击力.

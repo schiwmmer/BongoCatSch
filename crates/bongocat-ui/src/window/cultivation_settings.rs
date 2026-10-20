@@ -16,8 +16,8 @@ use super::*;
 use bongocat_i18n::{compact_number, format_text, text};
 use bongocat_pomodoro::{
     ArtKind, ArtOutcome, ArtView, Attribute, CultivationView, Derived, DerivedBreakdown, DropView,
-    EquipSlot, ExplorationOutcome, Fighter, ItemView, MAX_LEVEL, MasteredArtView, PomodoroCommand,
-    Realm, ShopOffer, ShopOfferView, WalkRecord, blueprint,
+    EquipSlot, EventDetail, ExplorationOutcome, Fighter, ItemView, MAX_LEVEL, MasteredArtView,
+    PomodoroCommand, Realm, SaleKind, ShopOffer, ShopOfferView, blueprint, mastered_art_payout,
 };
 
 use gpui_kit::component::Sizable as _;
@@ -84,7 +84,7 @@ pub(super) fn content(
             open_item,
         ))
         .child(arts_panel(&view, &cultivation, locale, tokens))
-        .child(mastered_panel(&cultivation, locale, tokens))
+        .child(mastered_panel(&view, &cultivation, locale, tokens))
         .child(seed_panel(&view, &cultivation, locale, tokens))
         .child(garden_panel(&view, &cultivation, locale, tokens))
         .child(breakthrough_panel(&view, &cultivation, locale, tokens))
@@ -725,8 +725,8 @@ pub(super) fn derived_rows(stats: &CombatStats, locale: &str) -> Vec<(&'static s
         ("cultivation.spell", stats.spell),
         ("cultivation.resist", stats.resist),
         ("cultivation.speed", stats.speed),
-        ("cultivation.hit", stats.hit / 10),
-        ("cultivation.evade", stats.evade / 10),
+        ("cultivation.hit", stats.hit),
+        ("cultivation.evade", stats.evade),
     ]
     .into_iter()
     .map(|(key, value)| {
@@ -936,7 +936,12 @@ fn arts_panel(
 /// trained and can be sold, while a learned 功法 is kept for good and pays its
 /// mastery for as long as the save lives. Putting them in one list would make
 /// the second look like the first.
-fn mastered_panel(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> impl IntoElement {
+fn mastered_panel(
+    view: &Entity<SettingsView>,
+    cultivation: &CultivationView,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
     let mut panel = div()
         .id("cultivation-mastered-arts")
         .flex()
@@ -957,40 +962,143 @@ fn mastered_panel(cultivation: &CultivationView, locale: &str, tokens: Tokens) -
         cultivation
             .mastered_arts
             .iter()
-            .map(|art| mastered_art_row(art, locale, tokens)),
+            .map(|art| mastered_art_row(view, art, locale, tokens)),
     );
     panel
 }
 
-/// One learned 功法: what it is and what it pays, for good.
-fn mastered_art_row(art: &MasteredArtView, locale: &str, tokens: Tokens) -> impl IntoElement {
+/// One learned 功法: what it is, what it pays, and the sale that gives both up.
+///
+/// The learned 功法 is sellable like the books are — selling one is choosing
+/// the stones over what it pays for good — so the row carries the same sell
+/// button a book does, and the concrete numbers it pays sit on the right of
+/// the name line where the books' do.
+fn mastered_art_row(
+    view: &Entity<SettingsView>,
+    art: &MasteredArtView,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
     let grade = text(locale, art.grade.name_key());
-    let kind = text(locale, art.kind.name_key());
-    let head = format!("{} · {} · {}", art.name, kind, grade);
+    let head = format!("{} · {}", art.name, grade);
+    let payoff = mastered_art_payoff(art, locale);
     let detail = format_text(
         locale,
         "cultivation.art.mastery_paid",
         &[("value", (art.mastery_permille / 10).to_string())],
     );
+    let art_id = art.id;
     div()
         .id(format!("cultivation-mastered-art-{}", art.id))
         .flex()
         .flex_col()
         .gap_1()
         .py_1()
-        .child(div().flex_1().min_w_0().truncate().text_xs().child(head))
         .child(
             div()
-                .id(format!("cultivation-mastered-art-detail-{}", art.id))
-                .text_xs()
-                .text_color(tokens.muted)
-                .child(detail)
-                .test_support(),
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(div().flex_1().min_w_0().truncate().text_xs().child(head))
+                .child(
+                    div()
+                        .id(format!("cultivation-mastered-art-payoff-{}", art.id))
+                        .text_xs()
+                        .text_color(tokens.muted)
+                        .child(payoff)
+                        .test_support(),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .id(format!("cultivation-mastered-art-detail-{}", art.id))
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_xs()
+                        .text_color(tokens.muted)
+                        .child(detail)
+                        .test_support(),
+                )
+                .child(
+                    Button::new(format!("cultivation-sell-mastered-art-{}", art.id))
+                        .ghost()
+                        .small()
+                        .label(sell_label(locale, art_sell_price(art.id)))
+                        .on_click({
+                            let view = view.clone();
+                            move |_, _, cx| {
+                                view.update(cx, |view, cx| {
+                                    let _ = view
+                                        .pomodoro
+                                        .try_publish(PomodoroCommand::SellArt { art_id });
+                                    view.poll_pomodoro(cx);
+                                });
+                            }
+                        }),
+                ),
         )
         .test_support()
 }
 
+/// What a learned 功法 pays, as the concrete numbers the attributes panel
+/// counts: every 阶 of an 内功 with its mastery share folded in, or the swing
+/// an 外功 lands and what it costs.
+fn mastered_art_payoff(art: &MasteredArtView, locale: &str) -> String {
+    let kind = text(locale, art.kind.name_key()).to_string();
+    let parts = match art.kind {
+        ArtKind::Internal => {
+            let payout = mastered_art_payout(art.id);
+            Attribute::ALL
+                .into_iter()
+                .filter_map(|attribute| {
+                    let value = attribute.of(payout);
+                    (value > 0).then(|| {
+                        format_text(
+                            locale,
+                            "cultivation.art.gain",
+                            &[
+                                ("attribute", text(locale, attribute.name_key()).to_string()),
+                                ("value", value.to_string()),
+                            ],
+                        )
+                    })
+                })
+                .collect::<Vec<_>>()
+        }
+        ArtKind::External => vec![
+            format_text(
+                locale,
+                "cultivation.art.multiplier",
+                &[("value", (art.multiplier_permille / 10).to_string())],
+            ),
+            format_text(
+                locale,
+                "cultivation.art.cost",
+                &[("value", art.cost.to_string())],
+            ),
+            format_text(
+                locale,
+                "cultivation.art.mastery_damage",
+                &[("value", (art.mastery_permille / 10).to_string())],
+            ),
+        ],
+    };
+    format!("{kind} · {}", parts.join(" · "))
+}
+
 /// One 功法: what it is, how far it has been trained, and the select button.
+///
+/// The name and the grade lead the row and the 加成 sits on the right of the
+/// same line, so the two things a user weighs — which 功法 and what it pays —
+/// read together rather than one hiding a line below.
 fn art_row(
     view: &Entity<SettingsView>,
     art: &ArtView,
@@ -999,8 +1107,7 @@ fn art_row(
 ) -> impl IntoElement {
     let mastered = art.rank >= art.max_rank;
     let grade = text(locale, art.grade.name_key());
-    let kind = text(locale, art.kind.name_key());
-    let head = format!("{} · {} · {}", art.name, kind, grade);
+    let head = format!("{} · {}", art.name, grade);
     let rank = format_text(
         locale,
         "cultivation.art.rank",
@@ -1044,6 +1151,31 @@ fn art_row(
                 .items_center()
                 .gap_2()
                 .child(div().flex_1().min_w_0().truncate().text_xs().child(head))
+                .child(
+                    div()
+                        .id(format!("cultivation-art-payoff-{}", art.id))
+                        .text_xs()
+                        .text_color(tokens.muted)
+                        .child(payoff)
+                        .test_support(),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .id(format!("cultivation-art-detail-{}", art.id))
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_xs()
+                        .text_color(tokens.muted)
+                        .child(format!("{rank} · {detail}")),
+                )
                 .child(
                     Button::new(format!("cultivation-art-select-{}", art.id))
                         .ghost()
@@ -1091,38 +1223,33 @@ fn art_row(
                         }),
                 ),
         )
-        .child(
-            div()
-                .id(format!("cultivation-art-detail-{}", art.id))
-                .text_xs()
-                .text_color(tokens.muted)
-                .child(format!("{rank} · {detail}")),
-        )
-        .child(div().text_xs().text_color(tokens.muted).child(payoff))
 }
 
 /// What training this 功法 actually pays: attributes for an 内功, damage and a
 /// cost for an 外功 — and, once every 阶 is in, the mastery bonus on top.
+///
+/// The kind leads the line, because the numbers that follow mean different
+/// things for the two kinds: an 内功's figures are what each 阶 pays, an 外功's
+/// are what one swing costs and lands.
 fn art_payoff(art: &ArtView, locale: &str) -> String {
+    let kind = text(locale, art.kind.name_key()).to_string();
     let mut parts = match art.kind {
-        ArtKind::Internal => {
-            let mut parts = Vec::new();
-            for attribute in Attribute::ALL {
+        ArtKind::Internal => Attribute::ALL
+            .into_iter()
+            .filter_map(|attribute| {
                 let value = attribute.of(art.gain);
-                if value > 0 {
-                    parts.push(format_text(
+                (value > 0).then(|| {
+                    format_text(
                         locale,
                         "cultivation.art.gain",
                         &[
                             ("attribute", text(locale, attribute.name_key()).to_string()),
                             ("value", value.to_string()),
                         ],
-                    ));
-                }
-            }
-            parts.push(text(locale, "cultivation.derived_hint").to_string());
-            parts
-        }
+                    )
+                })
+            })
+            .collect::<Vec<_>>(),
         ArtKind::External => vec![
             format_text(
                 locale,
@@ -1150,7 +1277,7 @@ fn art_payoff(art: &ArtView, locale: &str) -> String {
             &[("value", (art.mastery_permille / 10).to_string())],
         ));
     }
-    parts.join(" · ")
+    format!("{kind} · {}", parts.join(" · "))
 }
 
 /// The four slots and whatever is worn in each.
@@ -2078,12 +2205,13 @@ fn cooldown_line(owed_at: Option<i64>, key: &'static str, locale: &str) -> Strin
     )
 }
 
-/// The fights fought and what the last walk settled.
+/// The page's log of what has happened, newest first.
 ///
-/// Both are lines of history rather than state: the popups that show them are
-/// forgotten at quit, so this is the only place a save can be asked what it has
-/// been through. The record is eight lines — long enough that a run of losses
-/// still shows the wins, short enough to be read at a glance.
+/// One line per event and nothing more: sessions, walks and their finds, 功法
+/// turning over, goods bought and sold, crops pulled. The popups that showed
+/// these are forgotten at quit, so this is the only place a save can be asked
+/// what it has been through — and a line that only kept the fights would be a
+/// flatterer's history of a cultivator's week.
 fn record_section(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> impl IntoElement {
     let mut column = div()
         .id("cultivation-record")
@@ -2093,50 +2221,103 @@ fn record_section(cultivation: &CultivationView, locale: &str, tokens: Tokens) -
         .child(section_title(locale, "cultivation.record.title", tokens))
         // Marked so a frame can be asked whether the record is on screen.
         .test_support();
-    for (index, line) in cultivation.duel_record.iter().enumerate() {
-        column = column.child(
+    if cultivation.events.is_empty() {
+        return column.child(
             div()
-                .id(format!("cultivation-record-duel-{index}"))
-                .flex()
-                .flex_row()
-                .justify_between()
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(tokens.text)
-                        .child(text(locale, line.kind.key())),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(if line.won {
-                            tokens.accent
-                        } else {
-                            tokens.danger
-                        })
-                        .child(text(
-                            locale,
-                            if line.won {
-                                "cultivation.record.win"
-                            } else {
-                                "cultivation.record.loss"
-                            },
-                        )),
-                )
+                .id("cultivation-record-empty")
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(text(locale, "cultivation.record.empty"))
                 .test_support(),
         );
     }
-    if let Some(walk) = &cultivation.last_walk {
+    for (index, event) in cultivation.events.iter().enumerate() {
         column = column.child(
             div()
-                .id("cultivation-record-walk")
+                .id(format!("cultivation-event-{index}"))
                 .text_xs()
                 .text_color(tokens.muted)
-                .child(walk_line(walk, locale))
+                .child(event_line(&event.detail, locale))
                 .test_support(),
         );
     }
     column
+}
+
+/// One event, as a line the user reads.
+fn event_line(detail: &EventDetail, locale: &str) -> String {
+    match detail {
+        EventDetail::Session { growth } => format_text(
+            locale,
+            "cultivation.event.session",
+            &[("growth", growth.to_string())],
+        ),
+        EventDetail::Walk {
+            outcome,
+            art,
+            gear,
+            seed,
+            stones,
+        } => walk_line(
+            *outcome,
+            art.as_deref(),
+            gear.as_deref(),
+            seed.as_deref(),
+            *stones,
+            locale,
+        ),
+        EventDetail::Training {
+            name,
+            outcome,
+            rank,
+        } => {
+            let key = match outcome {
+                ArtOutcome::Failed => "cultivation.event.train_failed",
+                ArtOutcome::Progressed => "cultivation.event.train_progress",
+                ArtOutcome::RankedUp => "cultivation.event.train_ranked",
+                ArtOutcome::Mastered => "cultivation.event.train_mastered",
+            };
+            format_text(
+                locale,
+                key,
+                &[("name", name.clone()), ("rank", rank.to_string())],
+            )
+        }
+        EventDetail::Breakthrough { won } => text(
+            locale,
+            if *won {
+                "cultivation.event.breakthrough_won"
+            } else {
+                "cultivation.event.breakthrough_lost"
+            },
+        )
+        .to_string(),
+        EventDetail::Bought { what } => format_text(
+            locale,
+            "cultivation.event.bought",
+            &[("what", sale_label(what, locale))],
+        ),
+        EventDetail::Sold { what, stones } => format_text(
+            locale,
+            "cultivation.event.sold",
+            &[
+                ("what", sale_label(what, locale)),
+                ("stones", stones.to_string()),
+            ],
+        ),
+        EventDetail::Harvest => text(locale, "cultivation.event.harvest").to_string(),
+    }
+}
+
+/// What a sold or bought thing is called: its name when it has one, the kind
+/// when it does not.
+fn sale_label(what: &SaleKind, locale: &str) -> String {
+    let (name, kind_key) = match what {
+        SaleKind::Equipment { name } => (name.clone(), "cultivation.shop.equipment"),
+        SaleKind::Seed { name } => (name.clone(), "cultivation.shop.seed"),
+        SaleKind::Art { name } => (name.clone(), "cultivation.shop.art"),
+    };
+    name.unwrap_or_else(|| text(locale, kind_key).to_string())
 }
 
 /// One walk's settlement, as a single line: how it ended and what it turned up.
@@ -2144,36 +2325,40 @@ fn record_section(cultivation: &CultivationView, locale: &str, tokens: Tokens) -
 /// A walk can pay three things at once — and the 灵石 beside them, which is
 /// rolled beside the finding rather than in place of it — so the line names each
 /// in turn rather than saying "something was found". A record that does not say
-/// what was found is not worth keeping.
-fn walk_line(walk: &WalkRecord, locale: &str) -> String {
+/// what was found is not worth keeping. The outcome is read through the
+/// record's own keys: the popup's outcome sentences carry a `%{name}` or a
+/// `%{value}` for the surface to fill, and a history line that names the finds
+/// beside the outcome would print the placeholder unfilled.
+fn walk_line(
+    outcome: ExplorationOutcome,
+    art: Option<&str>,
+    gear: Option<&str>,
+    seed: Option<&str>,
+    stones: Option<u32>,
+    locale: &str,
+) -> String {
     let mut line = format_text(
         locale,
-        "cultivation.record.walk",
+        "cultivation.event.walk",
         &[(
             "outcome",
-            text(locale, walk.outcome.outcome_key()).to_string(),
+            text(locale, outcome.record_outcome_key()).to_string(),
         )],
     );
     for found in [
-        walk.art
-            .as_deref()
-            .map(|name| ("cultivation.record.found_art", name)),
-        walk.gear
-            .as_deref()
-            .map(|name| ("cultivation.record.found_gear", name)),
-        walk.seed
-            .as_deref()
-            .map(|name| ("cultivation.record.found_seed", name)),
+        art.map(|name| ("cultivation.record.found_art", name)),
+        gear.map(|name| ("cultivation.record.found_gear", name)),
+        seed.map(|name| ("cultivation.record.found_seed", name)),
     ]
     .into_iter()
     .flatten()
     {
         line.push_str(&format!(
             " · {}",
-            format_text(locale, found.0, &[("name", found.1.to_owned())],)
+            format_text(locale, found.0, &[("name", found.1.to_owned())])
         ));
     }
-    if let Some(amount) = walk.stones {
+    if let Some(amount) = stones {
         line.push_str(&format!(
             " · {}",
             format_text(

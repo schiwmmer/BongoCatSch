@@ -643,7 +643,7 @@
       "root_desc": "根骨：每点 +8 内力值、+2 潜质。潜质越高，学功法越快、也越不容易失败。与法力同为法术一脉（每点 +15 法术战力，配对再计 10 点默契）。",
       "strength_desc": "力量：每点 +3 攻击力、+20 生命值。与身法同为武术一脉（每点 +20 武术战力，配对再计 10 点默契）。",
       "mana_desc": "法力：每点 +3 法术强度、+2 法抗。与根骨同为法术一脉（每点 +20 法术战力，配对再计 10 点默契）。",
-      "agility_desc": "身法：每点 +2 速度、命中 +0.5%、闪避 +0.2%（命中上限 95%、闪避 25%）。与力量同为武术一脉（每点 +12 武术战力，配对再计 10 点默契）。"
+      "agility_desc": "身法：每点 +2 速度、命中 +10、闪避 +10。与力量同为武术一脉（每点 +12 武术战力，配对再计 10 点默契）。命中对闪避的比值决定命中率：相当则约八成，相差一倍则约五成。"
     },
     "arts": {
       "title": "功法书",
@@ -651,7 +651,7 @@
     },
     "mastered": {
       "title": "已习得功法",
-      "empty": "尚无圆满之功法。修习圆满后，功法便已习得，永久生效。"
+      "empty": "尚无圆满之功法。修习圆满后即已习得，永久生效，也可售出。"
     },
     "art": {
       "kind": {
@@ -690,8 +690,8 @@
     "spell": "法术强度 %{value}",
     "resist": "法抗 %{value}",
     "speed": "速度 %{value}",
-    "hit": "命中 %{value}%",
-    "evade": "闪避 %{value}%",
+    "hit": "命中 %{value}",
+    "evade": "闪避 %{value}",
     "aptitude": "潜质 %{value}",
     "power": "战力 %{power}",
     "power_level": "境界 %{value}",
@@ -793,16 +793,33 @@
       "seed_return": "收获返得 %{seed}"
     },
     "record": {
-      "title": "战斗记录",
+      "title": "最近事件",
+      "empty": "还没有动静。完成番茄钟、外出探索，都记在这里。",
       "guardian": "守卫",
       "wanderer": "游荡者",
-      "win": "胜",
-      "loss": "负",
-      "walk": "最近游历：%{outcome}",
+      "outcome": {
+        "seed": "寻得仙草",
+        "gear": "寻得装备",
+        "art": "寻得功法",
+        "stones": "寻得灵石"
+      },
       "found_art": "功法「%{name}」",
       "found_gear": "装备「%{name}」",
       "found_seed": "仙草「%{name}」",
       "found_stones": "灵石「%{value}」"
+    },
+    "event": {
+      "session": "完成修炼，成长 +%{growth}",
+      "walk": "外出探索：%{outcome}",
+      "train_failed": "修习《%{name}》未成，进度仍在",
+      "train_progress": "修习《%{name}》有所精进",
+      "train_ranked": "《%{name}》突破至第 %{rank} 阶",
+      "train_mastered": "《%{name}》已至圆满",
+      "breakthrough_won": "闯关成功，晋入新境界！",
+      "breakthrough_lost": "闯关未成，尚需砥砺。",
+      "bought": "购入 %{what}",
+      "sold": "售出 %{what}，得 %{stones} 灵石",
+      "harvest": "仙草园收成了一株。"
     },
     "shop": {
       "title": "集市",

@@ -267,23 +267,24 @@ fn every_shown_number_follows_from_the_attribute_that_owns_it() {
 
     let swift = Attributes::new(0, 0, 0, 10).derived();
     assert_eq!(swift.speed, 30);
-    assert_eq!(swift.hit, 800);
-    assert_eq!(swift.evade, 70);
+    assert_eq!(swift.hit, 200, "100 + 身法×10");
+    assert_eq!(swift.evade, 200, "the same curve 命中 climbs");
 
     let rooted = Attributes::new(10, 0, 0, 0).derived();
     assert_eq!(rooted.inner, 130, "50 + 根骨×8");
     assert_eq!(rooted.aptitude, 20);
 }
 
-/// Both chances are capped: an uncapped 闪避 would make a build untouchable, and
-/// an uncapped 命中 would make every fight a formality.
+/// 命中 and 闪避 are plain numbers the fight reads as a ratio, so they climb
+/// without a ceiling: the ratio is what holds the chance, not a cap.
 #[test]
-fn hit_and_evade_stop_climbing() {
+fn hit_and_evade_climb_as_plain_numbers() {
     let absurd = Attributes::new(0, 0, 0, 10_000).derived();
-    assert_eq!(absurd.hit, 950);
-    assert_eq!(absurd.evade, 250);
-    assert_eq!(absurd.hit_percent(), 95);
-    assert_eq!(absurd.evade_percent(), 25);
+    assert_eq!(absurd.hit, 100_100);
+    assert_eq!(absurd.evade, 100_100);
+    // Equal is equal at every depth: the curve the fight reads turns that
+    // into the same eighty percent whatever the numbers are.
+    assert_eq!(absurd.hit, absurd.evade);
 }
 
 #[test]
@@ -1014,8 +1015,49 @@ fn a_mastered_art_leaves_the_books_and_joins_the_learned_ones() {
     );
 }
 
-/// Selling the book a 功法 was learned from takes nothing away that was
-/// learned: the two are kept apart exactly so that this is true.
+/// A learned 功法 is sellable too, and selling one sells what it pays: the
+/// mastery leaves the learned list, the attributes stop, and the stones land.
+#[test]
+fn selling_a_learned_art_takes_what_it_pays_with_it() {
+    let mut cultivation = Cultivation::default();
+    // Art 1 is an 内功, so there is a mastery to lose: the point of the test.
+    cultivation.grant_art_book(1).expect("a book for art 1");
+    let id = 1;
+    // Learn it: enough sessions for any 黄阶 art to reach its last 阶.
+    for offset in 0..40_i64 {
+        cultivation.on_session_completed(1_000 + offset, day(30_000 + offset), 25);
+    }
+    let learned_before = cultivation.art_attributes().total();
+    assert!(learned_before > 0, "the learned 内功 pays");
+
+    // The learned 功法 sells at the market's price for a 功法.
+    let stones = cultivation
+        .sell_art(id, 99_000)
+        .expect("learned is sellable");
+    assert_eq!(
+        stones,
+        super::shop::ShopOffer::Art { art_id: id }.sell_price()
+    );
+    assert!(
+        !cultivation
+            .view()
+            .mastered_arts
+            .iter()
+            .any(|art| art.id == id),
+        "the 功法 is no longer learned"
+    );
+    assert_eq!(
+        cultivation.art_attributes().total(),
+        0,
+        "and the mastery it paid is gone with it"
+    );
+    // What was sold reads in the log, named.
+    let view = cultivation.view();
+    let sold = view.events.first().expect("the sale logged");
+    assert_eq!(sold.at_unix, 99_000);
+}
+
+/// The one 功法 that cannot be sold is the one being trained.
 #[test]
 fn selling_the_book_does_not_take_the_learned_art_away() {
     let mut cultivation = Cultivation::default();
@@ -1023,31 +1065,18 @@ fn selling_the_book_does_not_take_the_learned_art_away() {
         .grant_art(ArtGrade::Yellow, 1_000)
         .expect("a 黄阶 art");
     let id = granted.id;
-    // Learn it: enough sessions for any 黄阶 art to reach its last 阶.
-    for offset in 0..40_i64 {
-        cultivation.on_session_completed(1_000 + offset, day(30_000 + offset), 25);
-    }
-    let learned_before = cultivation.art_attributes().total();
-
-    // The book is gone after mastery, so there is nothing left to sell — and
-    // the learned 功法 is untouched.
+    // Still training it: the sale is refused while the selection reads it.
     assert_eq!(
-        cultivation.sell_art(id).expect_err("there is no book left"),
-        TradeRefusal::NotOwned
+        cultivation.sell_art(id, 99_000).expect_err("being trained"),
+        TradeRefusal::Training
     );
-    assert_eq!(
-        cultivation.art_attributes().total(),
-        learned_before,
-        "and the learned 功法 still pays"
-    );
-    assert!(
-        cultivation
-            .view()
-            .mastered_arts
-            .iter()
-            .any(|art| art.id == id),
-        "the 功法 is still learned"
-    );
+    // The choice to sell a 功法 one has finished with is always open, but the
+    // book being trained is not the user's to sell until they stop training it.
+    cultivation.select_art(None);
+    let stones = cultivation
+        .sell_art(id, 99_001)
+        .expect("an unselected book is sellable");
+    assert!(stones > 0);
 }
 
 /// A learned 内功 pays for as long as the save lives, whether or not the book

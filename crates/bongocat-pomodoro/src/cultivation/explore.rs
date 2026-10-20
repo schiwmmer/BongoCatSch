@@ -93,6 +93,26 @@ impl ExplorationOutcome {
             Self::Defeat => "cultivation.explore.defeat",
         }
     }
+
+    /// The catalog key naming how the walk ended, for a line that already names
+    /// the finds beside it.
+    ///
+    /// [`Self::outcome_key`] hands back sentences that carry a `%{name}` or a
+    /// `%{value}` — right in a popup, where the surface fills them in, and
+    /// wrong in a history line where the finds are named *after* the outcome.
+    /// Those four outcomes get placeholder-free sentences here; the other three
+    /// never had one to lose.
+    pub const fn record_outcome_key(self) -> &'static str {
+        match self {
+            Self::Nothing => "cultivation.explore.nothing",
+            Self::Seed => "cultivation.record.outcome.seed",
+            Self::Gear => "cultivation.record.outcome.gear",
+            Self::Art => "cultivation.record.outcome.art",
+            Self::Stones => "cultivation.record.outcome.stones",
+            Self::Victory => "cultivation.explore.victory",
+            Self::Defeat => "cultivation.explore.defeat",
+        }
+    }
 }
 
 /// How many walks the record keeps.
