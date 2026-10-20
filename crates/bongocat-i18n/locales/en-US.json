@@ -604,10 +604,9 @@
   },
   "stats": {
     "hud": {
-      "progress": "%{value} / %{next} growth · %{percent}%",
+      "progress": "%{value} / %{remaining} growth · %{percent}%",
       "total": "growth %{value}",
-      "realm": "%{stage} · layer %{layer} rank %{rank}",
-      "cultivation": "growth %{growth} · %{remaining} to next"
+      "realm": "%{stage} · layer %{layer} rank %{rank}"
     },
     "stage": {
       "name": {
@@ -627,7 +626,7 @@
   },
   "cultivation": {
     "realm": "%{stage} · layer %{layer} rank %{rank}",
-    "progress": "%{value} / %{next} growth",
+    "progress": "%{value} / %{remaining} growth",
     "capped": "This realm is full — break through to go further",
     "growth": {
       "next": "Next pomodoro +%{value} growth"

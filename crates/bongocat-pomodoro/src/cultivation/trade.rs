@@ -102,6 +102,41 @@ mod tests {
         }
     }
 
+    /// Every tier costs clearly more than the one below it.
+    ///
+    /// A ladder whose adjacent steps cost nearly the same is not a ladder: the
+    /// shop would be asking the user to choose between two prices a few 灵石
+    /// apart, and a tier's own worth would not be visible in its price at all.
+    #[test]
+    fn every_tier_of_gear_costs_clearly_more_than_the_one_below_it() {
+        for rarity in Rarity::ALL {
+            let mut previous: Option<u32> = None;
+            for tier in 1..=10u8 {
+                let price = crate::cultivation::equipment_price(tier, rarity);
+                if let Some(previous) = previous {
+                    assert!(
+                        u64::from(price) * 100 >= u64::from(previous) * 115,
+                        "tier {tier} {rarity:?}: {price} is not clearly above {previous}"
+                    );
+                }
+                previous = Some(price);
+            }
+        }
+    }
+
+    /// A herb costs less than a garment of its own tier: one is repeatable and
+    /// the other is not.
+    #[test]
+    fn a_herb_costs_less_than_a_garment_of_its_tier() {
+        for tier in 1..=10u8 {
+            assert!(
+                crate::cultivation::seed_price(tier)
+                    < crate::cultivation::equipment_price(tier, Rarity::Common),
+                "seed tier {tier} costs more than the garment beside it"
+            );
+        }
+    }
+
     /// The shelf is a function of the day and the realm, so it cannot be rerolled
     /// by reloading, and two reads of one day agree.
     #[test]

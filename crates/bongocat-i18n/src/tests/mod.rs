@@ -4,7 +4,7 @@
 //! needs them: a key check, a placeholder check and a coverage check all start
 //! from the same flattened catalog and the same scan of the source.
 
-use super::{current_platform_id, format_text, locale_code, platform_text, text};
+use super::{compact_number, current_platform_id, format_text, locale_code, platform_text, text};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 

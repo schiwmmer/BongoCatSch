@@ -608,3 +608,20 @@ fn the_fight_popup_shows_both_sides_and_their_health(cx: &mut TestAppContext) {
         assert!(painted(visual, id), "the popup must paint {id}");
     }
 }
+
+/// The growth line is the pair the ladder is about: what has been grown over
+/// what is still owed. The figures are printed compactly, because the exact
+/// number runs to five digits and would push the bar off the row.
+#[test]
+fn the_growth_line_reads_what_is_banked_over_what_is_owed() {
+    let mut view = Cultivation::default().view();
+    view.floor = 54_000;
+    view.growth = 54_683;
+    view.next = Some(55_000);
+    let (line, fraction) = cultivation_settings::growth_line(&view, "zh-CN");
+    assert_eq!(line, "54.7K / 317 成长值");
+    assert!(
+        (0.0..=1.0).contains(&fraction),
+        "the bar is a fraction of the layer: {fraction}"
+    );
+}

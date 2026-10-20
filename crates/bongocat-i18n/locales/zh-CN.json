@@ -604,10 +604,9 @@
   },
   "stats": {
     "hud": {
-      "progress": "%{value} / %{next} 成长值 · %{percent}%",
+      "progress": "%{value} / %{remaining} 成长值 · %{percent}%",
       "total": "成长值 %{value}",
-      "realm": "%{stage} · %{layer} 层 %{rank} 级",
-      "cultivation": "累计成长值 %{growth} · 距下一级还需 %{remaining}"
+      "realm": "%{stage} · %{layer} 层 %{rank} 阶"
     },
     "stage": {
       "name": {
@@ -623,11 +622,11 @@
         "10": "仙人"
       }
     },
-    "badge": "%{stage} %{layer}层%{rank}级"
+    "badge": "%{stage} %{layer}层%{rank}阶"
   },
   "cultivation": {
-    "realm": "%{stage} · %{layer} 层 %{rank} 级",
-    "progress": "%{value} / %{next} 成长值",
+    "realm": "%{stage} · %{layer} 层 %{rank} 阶",
+    "progress": "%{value} / %{remaining} 成长值",
     "capped": "本境圆满，破境方能再进",
     "growth": {
       "next": "下一个番茄钟 +%{value} 成长值"

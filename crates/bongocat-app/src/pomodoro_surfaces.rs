@@ -22,10 +22,14 @@ use bongocat_pomodoro::PomodoroCommand;
 ///
 /// The badge gets the realm and layer alone, because it rides the forehead and
 /// has room for nothing else. The HUD gets the same line followed by the growth
-/// behind it, and under that the cultivation line: the lifetime growth the
-/// cultivator has banked and the growth still owed before the next layer opens.
-/// A right-click on the model is meant to answer "how far have I climbed and how
-/// far to the next step", so the pomodoro counts are deliberately left out.
+/// behind it — the growth banked, a slash, and the growth still owed before the
+/// next layer opens — over the bar that growth fills. A right-click on the model
+/// is meant to answer "how far have I climbed and how far to the next step", so
+/// the pomodoro counts are deliberately left out.
+///
+/// The two growth figures are the pair on one line rather than a total on one
+/// line and a remainder on the next: the banked figure is the total, so printing
+/// it twice would only be printing the same number in two shapes.
 #[cfg(target_os = "macos")]
 pub(crate) fn cultivation_copy(
     cultivation: &CultivationView,
@@ -57,8 +61,16 @@ pub(crate) fn cultivation_copy(
                 locale,
                 "stats.hud.progress",
                 &[
-                    ("value", cultivation.growth.to_string()),
-                    ("next", next.to_string()),
+                    (
+                        "value",
+                        bongocat_i18n::compact_number(u64::from(cultivation.growth)),
+                    ),
+                    (
+                        "remaining",
+                        bongocat_i18n::compact_number(u64::from(
+                            next.saturating_sub(cultivation.growth),
+                        )),
+                    ),
                     ("percent", (permille / 10).to_string()),
                 ],
             );
@@ -68,7 +80,10 @@ pub(crate) fn cultivation_copy(
             let progress = bongocat_i18n::format_text(
                 locale,
                 "stats.hud.total",
-                &[("value", cultivation.growth.to_string())],
+                &[(
+                    "value",
+                    bongocat_i18n::compact_number(u64::from(cultivation.growth)),
+                )],
             );
             (progress, 1_000)
         }
@@ -82,23 +97,9 @@ pub(crate) fn cultivation_copy(
             ("rank", cultivation.rank.to_string()),
         ],
     );
-    // How much growth still stands between the cultivator and the next layer. A
-    // capped realm has no next layer, so it owes nothing: the line reads the
-    // lifetime total alone.
-    let remaining = cultivation
-        .next
-        .map_or(0, |next| next.saturating_sub(cultivation.growth));
-    let cultivation_line = bongocat_i18n::format_text(
-        locale,
-        "stats.hud.cultivation",
-        &[
-            ("growth", cultivation.growth.to_string()),
-            ("remaining", remaining.to_string()),
-        ],
-    );
     bongocat_overlay::OverlayCultivationText {
         badge,
-        hud: format!("{realm} · {progress}\n{cultivation_line}"),
+        hud: format!("{realm} · {progress}"),
         hud_progress_permille: permille,
     }
 }
@@ -333,39 +334,57 @@ mod tests {
         assert_eq!(copy.hud_progress_permille, 1_000);
     }
 
-    /// The hover panel carries the lifetime growth and the growth still owed,
-    /// on a line of its own: the realm line already holds the ladder numbers,
-    /// and the cultivation line answers "how far climbed, how far to the next
-    /// step" without ever surfacing the session counts.
+    /// The hover panel carries the growth banked and the growth still owed, as a
+    /// pair on one line: the banked figure is the lifetime total, so a second
+    /// line repeating it would be the same number in two shapes.
     #[test]
     fn the_hover_panel_reports_the_growth_banked_and_the_growth_to_go() {
         let mut view = bongocat_pomodoro::Cultivation::default().view();
         let next = view.next.expect("a fresh cultivator has a next layer");
-        view.growth = view.floor + 10;
+        let span = next - view.floor;
+        view.growth = view.floor + span / 3;
         let copy = cultivation_copy(&view, "zh-CN");
-        let (_realm_line, cultivation) = copy
-            .hud
-            .split_once('\n')
-            .expect("the cultivation line is its own line");
-        let remaining = next - view.growth;
-        assert!(
-            cultivation.contains(&view.growth.to_string()),
-            "cultivation line {cultivation:?} does not report grown {}",
-            view.growth
+        let pair = format!(
+            "{} / {}",
+            bongocat_i18n::compact_number(u64::from(view.growth)),
+            bongocat_i18n::compact_number(u64::from(next - view.growth)),
         );
         assert!(
-            cultivation.contains(&remaining.to_string()),
-            "cultivation line {cultivation:?} does not report remaining {remaining}"
+            copy.hud.contains(&pair),
+            "hud {:?} does not report {pair}",
+            copy.hud
+        );
+        assert!(
+            !copy.hud.contains('\n'),
+            "hud {:?} is more than one line",
+            copy.hud
         );
         // Two cultivators at the same realm but with different growth read their
         // own line, while the badge still names the realm only.
         let mut other = view.clone();
-        other.growth = view.floor + 40;
+        other.growth = view.floor + span * 2 / 3;
         let other_copy = cultivation_copy(&other, "zh-CN");
         assert_ne!(copy.hud, other_copy.hud);
         assert_eq!(
             copy.badge, other_copy.badge,
             "the badge names the realm only"
+        );
+    }
+
+    /// A growth figure long enough to push the bar off the panel is printed in
+    /// thousands, and the number after the slash is what is still owed rather
+    /// than the layer's ceiling.
+    #[test]
+    fn a_long_growth_figure_is_printed_in_thousands_beside_what_is_owed() {
+        let mut view = bongocat_pomodoro::Cultivation::default().view();
+        view.floor = 54_000;
+        view.growth = 54_683;
+        view.next = Some(55_000);
+        let copy = cultivation_copy(&view, "zh-CN");
+        assert!(
+            copy.hud.contains("54.7K / 317"),
+            "hud {:?} does not read 54.7K / 317",
+            copy.hud
         );
     }
 }

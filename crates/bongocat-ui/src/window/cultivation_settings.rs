@@ -13,7 +13,7 @@
 //! in every one of the eight catalogs.
 
 use super::*;
-use bongocat_i18n::{format_text, text};
+use bongocat_i18n::{compact_number, format_text, text};
 use bongocat_pomodoro::{
     ArtKind, ArtOutcome, ArtView, Attribute, CultivationView, Derived, DerivedBreakdown, DropView,
     EquipSlot, ExplorationOutcome, Fighter, ItemView, MAX_LEVEL, MasteredArtView, PomodoroCommand,
@@ -188,7 +188,10 @@ fn realm_header(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> 
                 .child(format_text(
                     locale,
                     "cultivation.growth.next",
-                    &[("value", cultivation.next_session_growth.to_string())],
+                    &[(
+                        "value",
+                        compact_number(u64::from(cultivation.next_session_growth)),
+                    )],
                 ))
                 .test_support(),
         )
@@ -196,10 +199,12 @@ fn realm_header(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> 
 
 /// The growth line and the fraction of the current layer it represents.
 ///
-/// A capped realm reads full: the layers past the cap are bought but not shown
-/// until the guardian is beaten, and a bar that kept filling would promise a
-/// level the user cannot reach.
-fn growth_line(cultivation: &CultivationView, locale: &str) -> (String, f32) {
+/// The line is the pair the ladder is actually about — what has been grown, and
+/// what is still owed before the next layer opens — printed short enough to sit
+/// beside the bar. A capped realm reads full: the layers past the cap are bought
+/// but not shown until the guardian is beaten, and a bar that kept filling would
+/// promise a level the user cannot reach.
+pub(super) fn growth_line(cultivation: &CultivationView, locale: &str) -> (String, f32) {
     match cultivation.next {
         Some(next) => {
             let span = next.saturating_sub(cultivation.floor).max(1);
@@ -212,21 +217,17 @@ fn growth_line(cultivation: &CultivationView, locale: &str) -> (String, f32) {
                     locale,
                     "cultivation.progress",
                     &[
-                        ("value", cultivation.growth.to_string()),
-                        ("next", next.to_string()),
+                        ("value", compact_number(u64::from(cultivation.growth))),
+                        (
+                            "remaining",
+                            compact_number(u64::from(next.saturating_sub(cultivation.growth))),
+                        ),
                     ],
                 ),
                 into as f32 / span as f32,
             )
         }
-        None => (
-            format_text(
-                locale,
-                "cultivation.capped",
-                &[("value", cultivation.growth.to_string())],
-            ),
-            1.0,
-        ),
+        None => (format_text(locale, "cultivation.capped", &[]), 1.0),
     }
 }
 

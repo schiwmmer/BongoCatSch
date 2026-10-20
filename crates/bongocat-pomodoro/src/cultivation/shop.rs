@@ -100,21 +100,25 @@ impl ShopOffer {
 
 /// What a piece of gear costs.
 ///
-/// The point is the attribute points, not the slot: two shops selling the same
-/// tier of gear at different prices is a shop with a bug in it, and the rarity
-/// multiplier is already the number that says how good a roll was.
+/// Priced off the tier's own points and the grade's multiplier, and off nothing
+/// else: two shops selling the same tier of the same grade at different prices
+/// would be a shop with a bug in it, and the points are already the number that
+/// says what a piece is worth.
+///
+/// The curve is quadratic in the tier's points, and steep enough that adjacent
+/// tiers stay distinguishable — at a flatter curve a 二阶 and a 三阶 piece cost
+/// almost the same, which makes the ladder's own steps invisible in the shop.
+/// A grade multiplies that price by its own factor rather than squaring it, so
+/// an 极品 piece is a luxury and not a second ladder bolted onto the first.
 pub fn equipment_price(tier: u8, rarity: Rarity) -> u32 {
-    let points = base_points(tier) * rarity.multiplier() / 10;
-    // Ten 灵石 a point: a tier-one common is 45 points and costs 450, which is a
-    // few pomodoros. The curve is quadratic in the points so the top of the
-    // ladder stays worth reaching rather than being one tier of arithmetic past
-    // the bottom.
-    (points * points) / 2_000 + 40
+    let points = base_points(tier);
+    let base = points * points / 60 + 40;
+    base * rarity.multiplier() / 10
 }
 
 /// What one herb costs.
 ///
-/// Linear in the tier and a third of a common piece of gear at the same tier: a
+/// Linear in the tier, and under a garment of the same tier at every step: a
 /// herb is repeatable and a garment is not, so the same 灵石 should not buy the
 /// same amount of either.
 pub fn seed_price(tier: u8) -> u32 {
