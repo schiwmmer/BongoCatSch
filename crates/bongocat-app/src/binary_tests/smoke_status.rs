@@ -12,6 +12,7 @@ fn settings_window_smoke_is_opt_in() {
     .expect("settings window smoke options");
     assert!(options.settings_window_smoke);
     assert!(!options.models_page_smoke);
+    assert!(!options.cultivation_page_smoke);
     assert!(!options.hidden_model_switch_smoke);
     assert_eq!(options.run_duration(), Duration::from_secs(4));
     assert!(options.opens_settings_window_on_start());
@@ -24,6 +25,7 @@ fn settings_window_open_smoke_only_opens_the_window() {
     assert!(options.settings_window_open_smoke);
     assert!(!options.settings_window_smoke);
     assert!(!options.models_page_smoke);
+    assert!(!options.cultivation_page_smoke);
     assert!(!options.hidden_model_switch_smoke);
     assert!(options.opens_settings_window_on_start());
 }
@@ -45,12 +47,30 @@ fn models_page_smoke_is_opt_in() {
 }
 
 #[test]
+fn cultivation_page_smoke_is_opt_in() {
+    let options = RunOptions::parse(["--cultivation-page-smoke".to_owned()])
+        .expect("cultivation page smoke options");
+    assert!(options.cultivation_page_smoke);
+    assert!(options.settings_window_smoke);
+    assert!(!options.models_page_smoke);
+    assert!(!options.hidden_model_switch_smoke);
+    assert!(!options.system_menu_smoke);
+    #[cfg(target_os = "macos")]
+    assert!(!options.application_reopen_smoke);
+    #[cfg(target_os = "macos")]
+    assert!(!options.startup_item_smoke);
+    #[cfg(target_os = "windows")]
+    assert!(!options.single_instance_smoke);
+}
+
+#[test]
 fn hidden_model_switch_smoke_is_opt_in() {
     let options = RunOptions::parse(["--hidden-model-switch-smoke".to_owned()])
         .expect("hidden model switch smoke options");
     assert!(options.hidden_model_switch_smoke);
     assert!(!options.settings_window_smoke);
     assert!(!options.models_page_smoke);
+    assert!(!options.cultivation_page_smoke);
 }
 
 #[cfg(feature = "storage-test-injection")]

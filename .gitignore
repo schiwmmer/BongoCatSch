@@ -20,3 +20,7 @@ target
 
 # 本地任务状态目录（每阶段任务的 task/progress/verification 记录），不属于构建产物
 .task/
+
+# 某知识管理同步工具误写到仓库根的记忆蒸馏目录（内容与 .workbuddy/memory/ 同源），
+# 不是仓库资产；保留文件供该工具同步，仅防止被误提交
+/memory/

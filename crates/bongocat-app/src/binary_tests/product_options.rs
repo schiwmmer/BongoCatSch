@@ -16,6 +16,7 @@ fn run_options_default_to_an_unbounded_product_lifetime() {
             settings_window_smoke: false,
             settings_window_open_smoke: false,
             models_page_smoke: false,
+            cultivation_page_smoke: false,
             hidden_model_switch_smoke: false,
             #[cfg(feature = "storage-test-injection")]
             settings_window_state_smoke: false,
@@ -97,6 +98,7 @@ fn only_the_bounded_run_duration_keeps_a_start_interactive() {
         "--settings-window-smoke",
         "--settings-window-open-smoke",
         "--models-page-smoke",
+        "--cultivation-page-smoke",
         "--hidden-model-switch-smoke",
         "--system-menu-smoke",
         "--startup-permission-smoke",

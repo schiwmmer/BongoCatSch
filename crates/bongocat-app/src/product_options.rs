@@ -50,6 +50,14 @@ pub(crate) struct RunOptions {
     #[arg(long)]
     pub(crate) models_page_smoke: bool,
 
+    /// Open the cultivation ladder page.
+    ///
+    /// Implies `--settings-window-smoke` for the same reason as the model library
+    /// page, and lands on the ladder the way the menu entry does rather than on
+    /// the settings home.
+    #[arg(long)]
+    pub(crate) cultivation_page_smoke: bool,
+
     /// Switch models without the overlay or the status icon being visible.
     #[arg(long)]
     pub(crate) hidden_model_switch_smoke: bool,
@@ -152,10 +160,10 @@ impl RunOptions {
         // whatever the process was launched as. The name only appears in diagnostics.
         let arguments = std::iter::once(PROGRAM_NAME.to_owned()).chain(arguments);
         let mut options = <Self as clap::Parser>::try_parse_from(arguments)?;
-        // `--models-page-smoke` names a page, and painting a page needs the window smoke
-        // that owns the run guard. Deriving it keeps the two flags from being able to
-        // disagree at runtime.
-        if options.models_page_smoke {
+        // A page flag names a page, and painting a page needs the window smoke
+        // that owns the run guard. Deriving it keeps the flags from being able
+        // to disagree at runtime.
+        if options.models_page_smoke || options.cultivation_page_smoke {
             options.settings_window_smoke = true;
         }
         Ok(options)
@@ -176,6 +184,7 @@ impl RunOptions {
         self.settings_window_smoke
             || self.settings_window_open_smoke
             || self.models_page_smoke
+            || self.cultivation_page_smoke
             || self.hidden_model_switch_smoke
             || self.system_menu_smoke
             || self.startup_permission_smoke

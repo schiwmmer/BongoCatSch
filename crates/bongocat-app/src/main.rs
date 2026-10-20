@@ -1169,6 +1169,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .detach();
 
+        if run_options.cultivation_page_smoke {
+            // Land on the ladder page the way the menu entry does rather than on
+            // the settings home: the page index is private to the ui crate, and
+            // the window opened below reads this memory as its first selection.
+            cx.global_mut::<ProductCoordinator>()
+                .settings_navigation_memory
+                .open_cultivation();
+        }
+
         let initial_settings_window = if run_options.opens_settings_window_on_start() {
             match ensure_settings_window(cx) {
                 Ok(window) => Some(window),
@@ -1771,6 +1780,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         })
                         .await;
                     match models_page {
+                        Ok(()) => {
+                            Timer::after(Duration::from_millis(250)).await;
+                        }
+                        Err(error) => {
+                            record_failure(&smoke_failures, error);
+                            #[cfg(target_os = "macos")]
+                            cx.update(request_product_quit);
+                            #[cfg(target_os = "windows")]
+                            request_windows_product_quit(&smoke_shutdown_requested);
+                            return;
+                        }
+                    }
+                }
+                if run_options.cultivation_page_smoke {
+                    let cultivation_page =
+                        update_settings_window(cx, &smoke_window, |view, _, cx| {
+                            view.show_cultivation_page_for_smoke(cx)
+                        })
+                        .await;
+                    match cultivation_page {
                         Ok(()) => {
                             Timer::after(Duration::from_millis(250)).await;
                         }

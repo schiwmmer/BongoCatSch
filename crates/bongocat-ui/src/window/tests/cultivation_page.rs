@@ -232,3 +232,34 @@ fn a_free_attempt_is_fought_with_one_click(cx: &mut TestAppContext) {
         "the click asks the worker for the fight: {commands:?}"
     );
 }
+
+/// The smoke a scripted run paints the ladder with reads the same snapshot the
+/// page does, so the empty ladder a worker-less client serves has to pass: it
+/// is a ladder, at realm one, layer zero, rank one.
+#[gpui_kit::test]
+fn the_cultivation_smoke_accepts_the_ladder_a_client_serves(cx: &mut TestAppContext) {
+    let (view, visual) = cultivation_page(cx);
+    assert!(
+        view.update(visual, |view, cx| view.show_cultivation_page_for_smoke(cx))
+            .is_ok(),
+        "the empty ladder must pass the cultivation smoke"
+    );
+}
+
+/// A ladder whose layer and rank are not the ones its level says would draw a
+/// level nobody climbed to, so the smoke has to refuse it rather than pass a
+/// page that misreads the ladder.
+#[gpui_kit::test]
+fn the_cultivation_smoke_refuses_a_ladder_that_disagrees_with_itself(cx: &mut TestAppContext) {
+    let mut cultivation = at_the_cap();
+    cultivation.rank = 3;
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (view, visual) = cultivation_page_with(cx, pomodoro);
+    let error = view
+        .update(visual, |view, cx| view.show_cultivation_page_for_smoke(cx))
+        .expect_err("a rank that is not the one the level says must be refused");
+    assert!(
+        error.contains("layer and rank"),
+        "the refusal has to say what is wrong: {error}"
+    );
+}
