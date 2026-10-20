@@ -67,14 +67,28 @@ build *args:
 verify-app:
     cargo run --locked -p bongocat-packaging -- --environment production --formats app
 
-# Reclaim the debug build cache (typically 20G+ of `target/debug`), keeping the
+# Reclaim the debug build cache (typically 16G of `target/debug`), keeping the
 # release build that `just build`/`verify-app` use. Cargo never garbage-collects
 # artifacts for dependency versions that dropped out of `Cargo.lock`, so the
 # debug cache only grows until something removes it. Run this periodically or
-# before a release; the next `cargo check`/`test` rebuilds from source, which is
-# now much lighter thanks to the `line-tables-only` dev profile.
+# before a release; the next `cargo check`/`test` rebuilds from source.
 clean-dev:
     cargo clean --profile dev
+
+# Reclaim the two caches that grow without bound and cost little to keep: the
+# incremental cache (per-crate hashes that only speed up the next edit, 1-5G) and
+# the cross-target tree the packager writes (`target/aarch64-apple-darwin`, a
+# second copy of binaries that are already built, 1.5G). This is the small valve
+# to `clean-dev`'s full one.
+#
+# The paths are removed directly rather than through `cargo clean --target
+# <triple>`: this machine's host triple *is* aarch64-apple-darwin, so asking cargo
+# to clean that target matches every artifact in `target/` and wipes the lot —
+# including the release build the next `verify-app` would have reused.
+prune:
+    /bin/rm -rf target/debug/incremental
+    /bin/rm -rf target/aarch64-apple-darwin
+    @du -sh target 2>/dev/null || true
 
 # Generate the Minisign key pair that signs update payloads (one-time, offline).
 keygen file:

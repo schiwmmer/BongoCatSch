@@ -99,14 +99,23 @@ print_stderr = "deny"
 print_stdout = "deny"
 
 [profile.dev]
-# `line-tables-only` keeps function names + line numbers so panic backtraces
-# still point at the right spot, but drops the variable/type DWARF that inflates
-# every `.o` in `target/debug/deps` (the bulk of the ~23G debug cache). Full
-# debug info is rarely needed for third-party crates; rebuild from a clean cache
-# after this change to see the smaller object files.
+# `line-tables-only` keeps function names + line numbers in our own crates, so a
+# panic still points at the right spot, while dropping the variable/type DWARF
+# that inflates every `.o` in `target/debug/deps`.
 debug = "line-tables-only"
 incremental = true
 panic = "unwind"
+
+# Third-party crates ship no debug info at all.
+#
+# They are the bulk of the cache: ~400 dependencies, each compiled for the dev
+# profile, the test harness and three clippy variants. A backtrace never walks
+# into `gpui` looking for a line number — our own frames carry that — while the
+# line tables inside every dependency's rlib are what made `target/debug` the
+# twenty-gigabyte directory it was. Our crates keep their line tables, so a panic
+# in this workspace still reads properly.
+[profile.dev.package."*"]
+debug = false
 
 [profile.release]
 lto = "fat"
