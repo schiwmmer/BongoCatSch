@@ -30,6 +30,7 @@
 - Growth reads as what the cultivator has and what the next layer still asks for, in compact numbers, and the levels inside a layer are called 阶 rather than levels.
 - Every derived figure on the cultivation page carries the formula that computes it, naming the attributes it reads the way the page names them everywhere else.
 - The growth curve is retuned so a realm is a stretch worth remembering: filling the first realm's layer takes about six days of sessions instead of one, and the whole ladder runs about two years. An existing save keeps its level, its free points, its gear and its 功法 — the curve is re-labeled once, underneath them.
+- The cultivation page's event log keeps the last five events on the page and hands the rest to a popup: one click opens the full history the save still remembers, scrollable, with the backdrop or the close button closing it.
 
 ### 🗑️ Removals
 
@@ -47,6 +48,8 @@
 - The breakthrough button is gated by its cooldown rather than by the power comparison, and while it cools it says how long is left.
 - Market rows keep to a name and a price: tap the name for the piece's detail, tap the price to buy, and every refusal — stones short, already bought — arrives as one toast whatever the reason.
 - Free points can be placed ten at a time once ten are banked, beside the single one, and the pomodoro picker's right-click menu gains a jump straight to the cultivation page.
+- The sticky notices under the next-pomodoro line no longer repeat a walk: what a walk found is in the event log alone, so one event is printed once.
+- A 功法 on the shelf says where its training stands under its name: the 阶 the grade has, what the next one costs in pomodoros, and how far into it the book already is. A finished one says it stands complete.
 
 ### 🌍 Localization
 
