@@ -156,7 +156,7 @@ pub struct DailyOutcome {
 }
 
 /// What a harvest took from a plot.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HarvestOutcome {
     /// The crop that was picked.
     pub crop: CropRecord,
@@ -212,17 +212,20 @@ pub struct TrainingView {
 }
 
 /// One crop in a plot.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CropView {
     pub attribute: Attribute,
     pub tier: u8,
+    /// The herb's name, carried from the seed it grew from. A crop planted by an
+    /// old save has none and reads as its attribute label.
+    pub name: Option<String>,
     /// The instant it can be picked. A surface subtracts its own clock, so the
     /// countdown keeps moving without the domain being polled for it.
     pub ready_at_unix: i64,
 }
 
 /// One plot, as a surface reads it.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PlotView {
     pub crop: Option<CropView>,
 }
@@ -1045,10 +1048,13 @@ impl Cultivation {
         else {
             return false;
         };
+        // The plot inherits the herb's name: the seed stack is spent one
+        // planting at a time and the name is the only thing that survives it.
+        let name = stack.name.clone();
         let Some(plot) = self.document.plots.iter_mut().find(|plot| plot.is_empty()) else {
             return false;
         };
-        plot.crop = Some(CropRecord::planted(attribute, tier, now_unix));
+        plot.crop = Some(CropRecord::planted(attribute, tier, name, now_unix));
         stack.count = stack.count.saturating_sub(1);
         self.document.seeds.retain(|stack| stack.count > 0);
         true
@@ -1063,15 +1069,14 @@ impl Cultivation {
     pub fn harvest(&mut self, plot: usize, now_unix: i64) -> Option<HarvestOutcome> {
         let crop = {
             let plot = self.document.plots.get_mut(plot)?;
-            let crop = plot.crop?;
-            if !crop.is_ready(now_unix) {
+            let ready = plot.crop.as_ref()?.is_ready(now_unix);
+            if !ready {
                 return None;
             }
-            plot.crop = None;
-            crop
+            plot.crop.take()?
         };
-        crop.attribute
-            .add_to(&mut self.document.crop_bonus, harvest_points(crop.tier));
+        let points = harvest_points(crop.tier);
+        crop.attribute.add_to(&mut self.document.crop_bonus, points);
         // Counted here rather than on the seed roll: a crop that returned nothing
         // was still pulled, and the 造化 dimension is fed by pulling.
         self.document.harvests = self.document.harvests.saturating_add(1);
@@ -1087,7 +1092,17 @@ impl Cultivation {
             name: None,
             sell_price: seed_sell_price(attribute, tier),
         });
-        self.push_event(now_unix, EventDetail::Harvest);
+        // The line names the herb and what it paid, because "a crop came up" is
+        // a fact the user cannot check against the garden that is now empty.
+        self.push_event(
+            now_unix,
+            EventDetail::Harvested {
+                attribute: crop.attribute,
+                tier: crop.tier,
+                name: crop.name.clone(),
+                points,
+            },
+        );
         Some(HarvestOutcome { crop, seed })
     }
 
@@ -1866,9 +1881,10 @@ impl Cultivation {
                 .plots
                 .iter()
                 .map(|plot| PlotView {
-                    crop: plot.crop.map(|crop| CropView {
+                    crop: plot.crop.as_ref().map(|crop| CropView {
                         attribute: crop.attribute,
                         tier: crop.tier,
+                        name: crop.name.clone(),
                         ready_at_unix: crop.ready_at_unix,
                     }),
                 })

@@ -23,7 +23,7 @@ use bongocat_platform::{
     ModelSourcePickerError, ModelSourcePickerOutcome, pick_model_cover, pick_model_folder,
     validate_model_folder,
 };
-use bongocat_pomodoro::PomodoroClient;
+use bongocat_pomodoro::{Attribute, PomodoroClient};
 use gpui_kit::component::{
     ActiveTheme, Disableable, Icon, IndexPath, Root, Theme, ThemeMode, ThemeStyled, WindowExt,
     button::{Button, ButtonVariant, ButtonVariants},
@@ -326,6 +326,17 @@ pub struct SettingsView {
     /// Clicking a shelf row's name toggles it, the same one-open-at-a-time rule
     /// the inventory rows follow.
     pub(crate) cultivation_open_offer: Option<usize>,
+    /// Which seed stack's harvest facts the cultivation page has open, if any.
+    ///
+    /// A seed is the same seed on the shelf, in the satchel and in the ground,
+    /// so one click anywhere says what it will pay: the attribute, the points
+    /// and how long it takes. One open at a time, the rule every other
+    /// expandable row on this page follows.
+    pub(crate) cultivation_open_seed: Option<(Attribute, u8)>,
+    /// Which plot's crop facts the cultivation page has open, if any. Kept
+    /// apart from the seed above because a plot is addressed by its index, not
+    /// by what is growing in it: two plots can hold the same herb.
+    pub(crate) cultivation_open_plot: Option<usize>,
     /// Whether the cultivation page's full event history is open over the
     /// page. The page carries the click, the window frame carries the popup,
     /// so this is all the state there is.

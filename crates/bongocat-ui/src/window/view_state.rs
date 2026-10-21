@@ -446,6 +446,8 @@ impl SettingsView {
             cultivation_minute_observed: None,
             cultivation_open_item: None,
             cultivation_open_offer: None,
+            cultivation_open_seed: None,
+            cultivation_open_plot: None,
             // The event history starts closed: the page's five lines are the
             // record until the user asks for more.
             cultivation_events_open: false,
@@ -784,6 +786,7 @@ mod tests {
             crop: Some(CropView {
                 attribute: Attribute::Root,
                 tier: 1,
+                name: None,
                 ready_at_unix,
             }),
         }

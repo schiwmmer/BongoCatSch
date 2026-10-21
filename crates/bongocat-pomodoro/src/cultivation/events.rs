@@ -15,6 +15,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::ArtOutcome;
+use super::Attribute;
 use super::daily::DailyKind;
 use super::explore::ExplorationOutcome;
 
@@ -97,8 +98,25 @@ pub enum EventDetail {
     },
     /// Something was sold at the market, for this much.
     Sold { what: SaleKind, stones: u32 },
-    /// A crop was pulled.
-    Harvest,
+    /// A crop was pulled by a save that predates the log knowing which herb it
+    /// was. It is kept under the tag those saves wrote so they still load; only
+    /// that old bare line is ever read from it.
+    #[serde(rename = "Harvest")]
+    HarvestBare,
+    /// A crop was pulled: which herb, its tier, and the attribute points it paid.
+    ///
+    /// The name travels beside the attribute because the plot is empty once the
+    /// crop is out: a line that said only "a crop came up" leaves the user with
+    /// nothing to check against a garden that is now bare.
+    Harvested {
+        attribute: Attribute,
+        #[serde(default)]
+        tier: u8,
+        #[serde(default)]
+        name: Option<String>,
+        /// What the harvest added to that attribute, permanently.
+        points: i32,
+    },
     /// The day opened with something: an ambush, a gift, or a coin in the dust.
     ///
     /// One line for all three because it is one thing that happened to the

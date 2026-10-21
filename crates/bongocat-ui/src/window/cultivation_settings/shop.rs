@@ -1,5 +1,6 @@
 //! The daily market: the rolled shelf, one row per offer, and buying.
 
+use super::garden::seed_facts;
 use super::*;
 
 /// The 集市: what the purse holds, what is on today's shelf, and what a sale pays.
@@ -112,8 +113,7 @@ fn shop_row(
             }
         })
         .test_support();
-    let mut row = div()
-        .id(format!("cultivation-shop-row-{}", slot))
+    let main_line = div()
         .flex()
         .flex_row()
         .items_center()
@@ -145,7 +145,13 @@ fn shop_row(
                     }
                 })
                 .into_any_element()
-        })
+        });
+    let mut row = div()
+        .id(format!("cultivation-shop-row-{}", slot))
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(main_line)
         .test_support();
     if open_offer == Some(slot) {
         row = row.child(shop_offer_detail(
@@ -194,8 +200,15 @@ fn shop_offer_detail(
             tier,
             name,
         } => div()
+            .flex()
+            .flex_col()
+            .gap_1()
             .text_xs()
             .text_color(tokens.muted)
+            // What the seed pays when it comes up, then what a sale would bring:
+            // the two numbers a buyer is choosing between when they look at the
+            // price on the button.
+            .child(seed_facts(locale, *attribute, *tier))
             .child(format!(
                 "{} · {}",
                 seed_label(locale, *attribute, *tier, name.as_deref()),

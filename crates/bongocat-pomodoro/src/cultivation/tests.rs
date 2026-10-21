@@ -361,6 +361,7 @@ fn a_planted_seed_ripens_on_the_clock_and_pays_an_attribute() {
     assert!(cultivation.plant(Attribute::Root, 1, 1_000));
     let planted = cultivation.view().plots[0]
         .crop
+        .clone()
         .expect("a crop in the first plot");
     assert_eq!(planted.ready_at_unix, 1_000 + grow_seconds(1));
     assert!(
@@ -384,6 +385,49 @@ fn a_planted_seed_ripens_on_the_clock_and_pays_an_attribute() {
         cultivation.view().plots[0].crop,
         None,
         "the plot is free again"
+    );
+}
+
+/// A harvest line says which herb came up and what it paid: the plot is empty
+/// afterwards, so a line that said only "a crop was pulled" left nothing to
+/// check the attribute gain against.
+#[test]
+fn a_harvest_is_logged_with_its_herb_and_its_points() {
+    let mut document = CultivationDocument::default();
+    document.seeds.push(SeedStack {
+        attribute: Attribute::Mana,
+        tier: 3,
+        count: 1,
+        name: Some("青芝".to_owned()),
+    });
+    let mut cultivation = Cultivation::new(document);
+    assert!(cultivation.plant(Attribute::Mana, 3, 0));
+    assert_eq!(
+        cultivation.view().plots[0]
+            .crop
+            .as_ref()
+            .and_then(|crop| crop.name.clone()),
+        Some("青芝".to_owned()),
+        "the plot keeps the herb's name the seed stack gave it"
+    );
+    cultivation
+        .harvest(0, grow_seconds(3))
+        .expect("a ripe crop");
+    let event = cultivation
+        .view()
+        .events
+        .first()
+        .expect("the harvest is logged")
+        .detail
+        .clone();
+    assert_eq!(
+        event,
+        EventDetail::Harvested {
+            attribute: Attribute::Mana,
+            tier: 3,
+            name: Some("青芝".to_owned()),
+            points: harvest_points(3),
+        }
     );
 }
 

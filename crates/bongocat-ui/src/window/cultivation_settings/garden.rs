@@ -2,10 +2,70 @@
 
 use super::*;
 
+/// What one harvest of this seed pays, in the attribute it raises.
+///
+/// The domain owns the number; the page only spells it. Both the shelf and the
+/// satchel read it, so the figure a buyer sees is the figure the plot pays.
+fn harvest_line(locale: &str, attribute: Attribute, tier: u8) -> String {
+    format_text(
+        locale,
+        "cultivation.seed.harvest_line",
+        &[
+            ("attribute", text(locale, attribute.name_key()).to_string()),
+            ("value", harvest_points(tier).to_string()),
+        ],
+    )
+}
+
+/// Everything a seed is worth knowing before it is planted: what it pays when
+/// it comes up, and how long that takes.
+///
+/// One string shared by the shelf and the satchel, so the herb cannot be
+/// described two ways depending on where the user happened to look at it.
+pub(super) fn seed_facts(locale: &str, attribute: Attribute, tier: u8) -> String {
+    format!(
+        "{} · {}",
+        harvest_line(locale, attribute, tier),
+        growing_line(locale, grow_seconds(tier)),
+    )
+}
+
+/// The line under a seed's row: what it pays, what a sale would bring, and —
+/// on the shelf and in the satchel — how long it would take to grow.
+fn seed_detail(
+    view: &Entity<SettingsView>,
+    key: (Attribute, u8),
+    line: String,
+    tokens: Tokens,
+) -> gpui_kit::AnyElement {
+    div()
+        .id(format!(
+            "cultivation-seed-detail-{}-{}",
+            key.0.index(),
+            key.1
+        ))
+        .w_full()
+        .text_xs()
+        .text_color(tokens.muted)
+        .child(line)
+        .test_support()
+        .on_click({
+            let view = view.clone();
+            move |_, _, cx| {
+                view.update(cx, |view, cx| {
+                    view.cultivation_open_seed = None;
+                    cx.notify();
+                });
+            }
+        })
+        .into_any_element()
+}
+
 /// The seeds waiting to be planted.
 pub(super) fn seed_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
+    open_seed: Option<(Attribute, u8)>,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
@@ -25,6 +85,7 @@ pub(super) fn seed_panel(
     }
     let plots_full = cultivation.plots.iter().all(|plot| plot.crop.is_some());
     let rows = cultivation.seeds.iter().take(8).map(|seed| {
+        let key = (seed.attribute, seed.tier);
         let label = format!(
             "{} ×{}",
             seed_label(locale, seed.attribute, seed.tier, seed.name.as_deref()),
@@ -53,45 +114,96 @@ pub(super) fn seed_panel(
                 }
             });
         }
-        div()
+        // The name is the click: it says what this herb is worth before money
+        // is spent on it or a plot is given up for it. The buttons beside it
+        // stay one-click, so asking a question never costs an action.
+        let name = div()
+            .id(format!(
+                "cultivation-seed-name-{}-{}",
+                seed.attribute.index(),
+                seed.tier
+            ))
+            .flex_1()
+            .min_w_0()
+            .truncate()
+            .text_xs()
+            .child(label)
+            .test_support()
+            .on_click({
+                let view = view.clone();
+                move |_, _, cx| {
+                    view.update(cx, |view, cx| {
+                        view.cultivation_open_seed = if view.cultivation_open_seed == Some(key) {
+                            None
+                        } else {
+                            Some(key)
+                        };
+                        cx.notify();
+                    });
+                }
+            });
+        let mut row = div()
             .id(format!(
                 "cultivation-seed-{}-{}",
                 seed.attribute.index(),
                 seed.tier
             ))
             .flex()
-            .flex_row()
-            .items_center()
-            .gap_2()
+            .flex_col()
+            .gap_1()
             .py_1()
-            .child(div().flex_1().min_w_0().truncate().text_xs().child(label))
-            .child(button)
-            // One seed at a time: a stack of ten is nine seeds and one of them,
-            // and which one the user wants to keep is not a question a single
-            // "sell all" can ask.
             .child(
-                Button::new(format!(
-                    "cultivation-sell-seed-{}-{}",
-                    seed.attribute.index(),
-                    seed.tier
-                ))
-                .ghost()
-                .small()
-                .label(sell_label(locale, seed.sell_price))
-                .on_click({
-                    let view = view.clone();
-                    let attribute = seed.attribute;
-                    let tier = seed.tier;
-                    move |_, _, cx| {
-                        view.update(cx, |view, cx| {
-                            let _ = view
-                                .pomodoro
-                                .try_publish(PomodoroCommand::SellSeed { attribute, tier });
-                            view.poll_pomodoro(cx);
-                        });
-                    }
-                }),
-            )
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(name)
+                    .child(button)
+                    // One seed at a time: a stack of ten is nine seeds and one of
+                    // them, and which one the user wants to keep is not a question
+                    // a single "sell all" can ask.
+                    .child(
+                        Button::new(format!(
+                            "cultivation-sell-seed-{}-{}",
+                            seed.attribute.index(),
+                            seed.tier
+                        ))
+                        .ghost()
+                        .small()
+                        .label(sell_label(locale, seed.sell_price))
+                        .on_click({
+                            let view = view.clone();
+                            let attribute = seed.attribute;
+                            let tier = seed.tier;
+                            move |_, _, cx| {
+                                view.update(cx, |view, cx| {
+                                    let _ = view
+                                        .pomodoro
+                                        .try_publish(PomodoroCommand::SellSeed { attribute, tier });
+                                    view.poll_pomodoro(cx);
+                                });
+                            }
+                        }),
+                    ),
+            );
+        if open_seed == Some(key) {
+            row = row.child(seed_detail(
+                view,
+                key,
+                format!(
+                    "{} · {}",
+                    seed_facts(locale, seed.attribute, seed.tier),
+                    format_text(
+                        locale,
+                        "cultivation.shop.detail_sell",
+                        &[("stones", seed.sell_price.to_string())],
+                    ),
+                ),
+                tokens,
+            ));
+        }
+        row
     });
     panel = panel.children(rows);
     if plots_full {
@@ -140,6 +252,7 @@ fn growing_line(locale: &str, remaining: i64) -> String {
 pub(super) fn garden_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
+    open_plot: Option<usize>,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
@@ -159,7 +272,15 @@ pub(super) fn garden_panel(
             .gap_2();
         for (offset, plot) in chunk.iter().enumerate() {
             let index = row_index * 3 + offset;
-            row = row.child(plot_cell(view, index, plot, now, locale, tokens));
+            row = row.child(plot_cell(
+                view,
+                index,
+                plot,
+                open_plot == Some(index),
+                now,
+                locale,
+                tokens,
+            ));
         }
         panel = panel.child(row);
     }
@@ -196,6 +317,7 @@ fn plot_cell(
     view: &Entity<SettingsView>,
     index: usize,
     plot: &PlotView,
+    open: bool,
     now: i64,
     locale: &str,
     tokens: Tokens,
@@ -209,7 +331,7 @@ fn plot_cell(
         .gap_1()
         .py_1()
         .test_support();
-    let Some(crop) = plot.crop else {
+    let Some(crop) = plot.crop.as_ref() else {
         return cell
             .child(
                 div()
@@ -219,12 +341,44 @@ fn plot_cell(
             )
             .into_any_element();
     };
-    cell = cell.child(div().text_xs().truncate().child(seed_label(
-        locale,
-        crop.attribute,
-        crop.tier,
-        None,
-    )));
+    // The name is the click: what is in the ground can be asked what it will
+    // pay without giving up the harvest to find out.
+    cell = cell.child(
+        div()
+            .id(format!("cultivation-plot-name-{index}"))
+            .text_xs()
+            .truncate()
+            .child(seed_label(
+                locale,
+                crop.attribute,
+                crop.tier,
+                crop.name.as_deref(),
+            ))
+            .test_support()
+            .on_click({
+                let view = view.clone();
+                move |_, _, cx| {
+                    view.update(cx, |view, cx| {
+                        view.cultivation_open_plot = if view.cultivation_open_plot == Some(index) {
+                            None
+                        } else {
+                            Some(index)
+                        };
+                        cx.notify();
+                    });
+                }
+            }),
+    );
+    if open {
+        cell = cell.child(
+            div()
+                .id(format!("cultivation-plot-detail-{index}"))
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(harvest_line(locale, crop.attribute, crop.tier))
+                .test_support(),
+        );
+    }
     let remaining = crop.ready_at_unix.saturating_sub(now).max(0);
     if remaining == 0 {
         cell = cell.child(

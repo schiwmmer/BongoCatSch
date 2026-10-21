@@ -331,7 +331,27 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
                 ("stones", stones.to_string()),
             ],
         ),
-        EventDetail::Harvest => text(locale, "cultivation.event.harvest").to_string(),
+        // A crop pulled by a save from before the log knew which herb it was:
+        // the bare line is what those events said, so that is what they keep
+        // saying rather than a line with a blank where the name would go.
+        EventDetail::HarvestBare => text(locale, "cultivation.event.harvest").to_string(),
+        EventDetail::Harvested {
+            attribute,
+            tier,
+            name,
+            points,
+        } => format_text(
+            locale,
+            "cultivation.event.harvested",
+            &[
+                (
+                    "seed",
+                    seed_label(locale, *attribute, *tier, name.as_deref()),
+                ),
+                ("attribute", text(locale, attribute.name_key()).to_string()),
+                ("points", points.to_string()),
+            ],
+        ),
     }
 }
 

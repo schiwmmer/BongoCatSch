@@ -122,40 +122,47 @@ pub(crate) fn seed_name(rng: &mut Rng) -> String {
 }
 
 /// A crop growing in a plot, or one ready to be picked.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CropRecord {
     /// The attribute the harvest will raise.
     pub attribute: Attribute,
     pub tier: u8,
+    /// The herb's xianxia-given name, carried over from the seed stack it was
+    /// planted from: the plot says what is growing in it, and the harvest line
+    /// can say which herb came up. An old save's crops predate the field and
+    /// read as the bare attribute label they always showed.
+    #[serde(default)]
+    pub name: Option<String>,
     pub planted_at_unix: i64,
     pub ready_at_unix: i64,
 }
 
 impl CropRecord {
     /// A crop planted now, maturing after its tier's growing time.
-    pub fn planted(attribute: Attribute, tier: u8, now_unix: i64) -> Self {
+    pub fn planted(attribute: Attribute, tier: u8, name: Option<String>, now_unix: i64) -> Self {
         let tier = tier.clamp(1, MAX_SEED_TIER);
         Self {
             attribute,
             tier,
+            name,
             planted_at_unix: now_unix,
             ready_at_unix: now_unix.saturating_add(grow_seconds(tier)),
         }
     }
 
     /// Whether the crop can be picked at this instant.
-    pub fn is_ready(self, now_unix: i64) -> bool {
+    pub fn is_ready(&self, now_unix: i64) -> bool {
         now_unix >= self.ready_at_unix
     }
 
     /// How long is left before the crop is ready; zero once it is.
-    pub fn remaining_seconds(self, now_unix: i64) -> u32 {
+    pub fn remaining_seconds(&self, now_unix: i64) -> u32 {
         u32::try_from(self.ready_at_unix.saturating_sub(now_unix).max(0)).unwrap_or(u32::MAX)
     }
 }
 
 /// One plot: empty, growing, or ready.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct PlotRecord {
     #[serde(default)]
     pub crop: Option<CropRecord>,
@@ -163,7 +170,7 @@ pub struct PlotRecord {
 
 impl PlotRecord {
     /// Whether a crop can be planted here.
-    pub const fn is_empty(self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.crop.is_none()
     }
 }
@@ -174,7 +181,7 @@ mod tests {
 
     #[test]
     fn a_crop_is_ready_only_after_its_growing_time() {
-        let crop = CropRecord::planted(Attribute::Root, 2, 1_000);
+        let crop = CropRecord::planted(Attribute::Root, 2, None, 1_000);
         assert_eq!(crop.ready_at_unix, 1_000 + 4_800);
         assert!(!crop.is_ready(1_000));
         assert!(!crop.is_ready(5_799));

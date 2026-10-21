@@ -722,7 +722,8 @@
     "seed": {
       "label": "%{attribute} seed · tier %{tier}",
       "label_named": "%{name} · tier %{tier}",
-      "plant": "Plant"
+      "plant": "Plant",
+      "harvest_line": "%{attribute} +%{value} when harvested"
     },
     "seeds": {
       "title": "Seeds",
@@ -840,6 +841,7 @@
       "bought": "Bought %{what} for %{stones} stones",
       "sold": "Sold %{what} for %{stones} stones",
       "harvest": "A crop was pulled.",
+      "harvested": "Harvested %{seed} — %{attribute} +%{points}",
       "bought_bare": "Bought %{what}"
     },
     "shop": {

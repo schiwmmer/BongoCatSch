@@ -14,10 +14,10 @@ use super::*;
 use crate::window::cultivation_duel;
 use crate::window::cultivation_settings;
 use bongocat_pomodoro::{
-    ArtOutcome, Cultivation, CultivationDocument, DuelReport, DuelRound, EventDetail, EventRecord,
-    ExplorationFindView, ExplorationOutcome, Fighter, LAYERS_PER_STAGE, OwnedArt, PLAYER_NAME,
-    PomodoroCommand, PomodoroSnapshot, PomodoroState, TrainingView, TrialBlocked, TrialOutcome,
-    WANDERER_NAME, threshold_for,
+    ArtOutcome, Attribute, CropRecord, Cultivation, CultivationDocument, DuelReport, DuelRound,
+    EventDetail, EventRecord, ExplorationFindView, ExplorationOutcome, Fighter, LAYERS_PER_STAGE,
+    OwnedArt, PLAYER_NAME, PlotRecord, PomodoroCommand, PomodoroSnapshot, PomodoroState, SeedStack,
+    TrainingView, TrialBlocked, TrialOutcome, WANDERER_NAME, threshold_for,
 };
 
 /// The page mounted on its own.
@@ -767,6 +767,50 @@ fn the_garden_offers_the_next_plot_for_sale(cx: &mut TestAppContext) {
     assert!(
         painted(visual, "cultivation-buy-plot"),
         "the fifth plot is for sale"
+    );
+}
+
+/// A seed says what it pays wherever it is looked at: in the satchel waiting to
+/// be planted, and in the ground already growing.
+///
+/// The facts are the same three at every stage — the attribute, the points and
+/// how long it takes — because it is the same seed; a page that only explained
+/// a seed while it was for sale would leave the user guessing about the one
+/// they already own.
+#[gpui_kit::test]
+fn a_seed_says_what_it_pays_at_every_stage(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        seeds: vec![SeedStack {
+            attribute: Attribute::Root,
+            tier: 3,
+            count: 1,
+            name: Some("青芝".to_owned()),
+        }],
+        plots: vec![PlotRecord {
+            crop: Some(CropRecord::planted(
+                Attribute::Mana,
+                2,
+                Some("玄莲".to_owned()),
+                0,
+            )),
+        }],
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    visual.update(|window, cx| window.click("cultivation-seed-name-0-3", cx));
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-seed-detail-0-3"),
+        "a seed in the satchel says what it pays"
+    );
+    visual.update(|window, cx| window.click("cultivation-plot-name-0", cx));
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-plot-detail-0"),
+        "a seed in the ground says what it pays"
     );
 }
 

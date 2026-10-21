@@ -55,6 +55,19 @@ fn a_count_past_a_thousand_is_printed_in_its_unit() {
     assert_eq!(compact_number(3_000_000_000_000), "3T");
 }
 
+/// From a million up the figure is printed to two decimals: a tenth of a
+/// million is a hundred thousand, so two counts tens of thousands apart would
+/// otherwise read the same. A whole figure keeps no decimals at all.
+#[test]
+fn a_count_in_the_millions_keeps_two_decimals() {
+    assert_eq!(compact_number(1_234_567), "1.23M");
+    assert_eq!(compact_number(1_250_000), "1.25M");
+    assert_eq!(compact_number(1_005_000), "1.01M");
+    assert_eq!(compact_number(1_000_000), "1M");
+    assert_eq!(compact_number(1_230_000_000), "1.23B");
+    assert_eq!(compact_number(1_230_000_000_000), "1.23T");
+}
+
 /// The unit is chosen after the rounding, not before it: a figure that rounds
 /// up to four digits reads as the next unit rather than as `1000K`.
 #[test]

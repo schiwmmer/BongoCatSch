@@ -38,6 +38,8 @@
 - The garden sells plots: the four beds it starts with are free, and five more can be bought with 灵石, each dearer than the last, up to nine in all, three to a row.
 - Seeds of the third tier take four hours to mature and the fourth twelve, and every tier past that triples again; the wait reads in minutes, hours or days, whichever fits.
 - A fight reaches for one of the three strongest 外功 at random, and a book that has not been trained to its first 阶 stays on the shelf; an 外功's 内力 price has doubled.
+- A harvest no longer says only that a crop was pulled: the line names the herb, the attribute it raised and how many points it paid. A seed keeps its name from the shelf to the plot, so the garden shows which herb is growing in it.
+- A seed can be inspected: click its name on the market shelf, in the satchel or in a plot and it says which attribute it will raise, how much it pays and how long it takes to mature; the shelf and the satchel also say what a sale would bring.
 
 ### 🗑️ Removals
 
@@ -63,6 +65,7 @@
 - The learned 功法 panel keeps the three most recently trained and folds the rest behind one click, so it answers "what am I working on" rather than listing every shelf.
 - The floating countdown is white now instead of following the system appearance, and keeps its dark shadow so it still reads on a light wallpaper.
 - Every derived number's hover card gains an even-spread line: what the same four attributes would buy spread evenly, and how far the current build is from it (`+`, `-` or `±0`). The 潜质 card now explains what 潜质 actually decides — how often 功法 training fails — instead of borrowing the generic sentence.
+- Counts in the millions are printed to two decimals (`1.23M`) while thousands keep one (`54.7K`): a tenth of a million is a hundred thousand, so one decimal printed figures tens of thousands apart as the same number.
 
 ### 🌍 Localization
 

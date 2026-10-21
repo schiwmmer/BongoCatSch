@@ -93,41 +93,49 @@ pub fn format_text(locale: &str, key: &str, values: &[(&str, String)]) -> String
 ///
 /// Growth runs into five digits long before a save is old, and a number that
 /// long crowds out everything else in a badge or a one-line HUD. So a count of a
-/// thousand or more is printed in K, M, B or T with one decimal place, and a
-/// count below a thousand is printed exactly. The units are the ones a reader
-/// already knows: `1.2K` is one thousand two hundred, `54.7K` is fifty-four
-/// thousand seven hundred and a fraction.
+/// thousand or more is printed in K, M, B or T with a fraction, and a count
+/// below a thousand is printed exactly. The units are the ones a reader already
+/// knows: `1.2K` is one thousand two hundred, `54.7K` is fifty-four thousand
+/// seven hundred and a fraction.
 ///
-/// Rounding is done in tenths of the unit rather than in floating point, so the
-/// figure is the one integer arithmetic produces and a value like `999_999`
-/// becomes `1M` rather than a four-digit `1000K`: the unit is chosen after the
-/// rounding, not before it.
+/// The fraction is one decimal in thousands and two from millions up: a tenth
+/// of a thousand is a hundred, which is as fine as anyone reads a K, while a
+/// tenth of a million is a hundred thousand and two counts that differ by tens
+/// of thousands would print the same. Trailing zeros are dropped, so a whole
+/// figure stays `3T` rather than `3.00T`.
+///
+/// Rounding is done in the unit's own fraction rather than in floating point,
+/// so the figure is the one integer arithmetic produces and a value like
+/// `999_999` becomes `1M` rather than a four-digit `1000K`: the unit is chosen
+/// after the rounding, not before it.
 pub fn compact_number(value: u64) -> String {
-    /// The units, largest first, with the count each one stands for.
-    const UNITS: [(u128, &str); 4] = [
-        (1_000_000_000_000, "T"),
-        (1_000_000_000, "B"),
-        (1_000_000, "M"),
-        (1_000, "K"),
+    /// The units, largest first, with the count each one stands for and how
+    /// many decimal places it is printed with.
+    const UNITS: [(u128, &str, u32); 4] = [
+        (1_000_000_000_000, "T", 2),
+        (1_000_000_000, "B", 2),
+        (1_000_000, "M", 2),
+        (1_000, "K", 1),
     ];
     if value < 1_000 {
         return value.to_string();
     }
-    for (scale, suffix) in UNITS {
-        // The figure in tenths of this unit, rounded half up. A figure that
+    for (scale, suffix, places) in UNITS {
+        // The figure in the unit's own fraction, rounded half up. A figure that
         // rounds up to four digits has outgrown the unit and is tried against
         // the next one instead.
-        let tenths = (u128::from(value) * 10 + scale / 2) / scale;
+        let factor = 10u128.pow(places);
+        let scaled = (u128::from(value) * factor + scale / 2) / scale;
         // A figure below one whole unit of this scale is not written in it, and
         // one that rounds up to four digits has outgrown it.
-        if (10..10_000).contains(&tenths) {
-            let whole = tenths / 10;
-            let fraction = tenths % 10;
-            return if fraction == 0 {
-                format!("{whole}{suffix}")
-            } else {
-                format!("{whole}.{fraction}{suffix}")
-            };
+        if (factor..10_000 * factor).contains(&scaled) {
+            let whole = scaled / factor;
+            let fraction = scaled % factor;
+            if fraction == 0 {
+                return format!("{whole}{suffix}");
+            }
+            let digits = format!("{fraction:0width$}", width = places as usize);
+            return format!("{whole}.{}{suffix}", digits.trim_end_matches('0'));
         }
     }
     // Past a trillion the figure is printed in trillions without a decimal: no

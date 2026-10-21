@@ -18,7 +18,7 @@ use bongocat_pomodoro::{
     ArtKind, ArtOutcome, ArtView, Attribute, Attributes, CultivationView, DailyKind, DropView,
     EquipSlot, EventDetail, EventRecord, ExplorationOutcome, ItemView, MAX_LEVEL, MasteredArtView,
     PlotView, PomodoroCommand, Realm, SaleKind, ShopOffer, ShopOfferView, TRIAL_ATTEMPTS_PER_DAY,
-    TrialBlocked, art_payout_at, blueprint, mastered_art_payout,
+    TrialBlocked, art_payout_at, blueprint, grow_seconds, harvest_points, mastered_art_payout,
 };
 
 use gpui_kit::component::Sizable as _;
@@ -86,6 +86,8 @@ pub(super) fn content(
     let cultivation = snapshot.cultivation.clone();
     let open_item = view.read(cx).cultivation_open_item;
     let open_offer = view.read(cx).cultivation_open_offer;
+    let open_seed = view.read(cx).cultivation_open_seed;
+    let open_plot = view.read(cx).cultivation_open_plot;
     let mastered_open = view.read(cx).cultivation_mastered_open;
 
     div()
@@ -121,8 +123,8 @@ pub(super) fn content(
             locale,
             tokens,
         ))
-        .child(seed_panel(&view, &cultivation, locale, tokens))
-        .child(garden_panel(&view, &cultivation, locale, tokens))
+        .child(seed_panel(&view, &cultivation, open_seed, locale, tokens))
+        .child(garden_panel(&view, &cultivation, open_plot, locale, tokens))
         .child(breakthrough_panel(&view, &cultivation, locale, tokens))
         .child(exploration_panel(&view, &cultivation, locale, tokens))
         .child(trial_panel(&view, &cultivation, locale, tokens))

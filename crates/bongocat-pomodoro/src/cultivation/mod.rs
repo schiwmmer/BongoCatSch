@@ -76,7 +76,10 @@ pub use explore::{
     BREAKTHROUGH_COOLDOWN_SECONDS, ENCOUNTER_PERMILLE, EXPLORATION_COOLDOWN_SECONDS,
     ExplorationOutcome, VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkRecord,
 };
-pub use garden::{FREE_PLOT_COUNT, MAX_PLOT_COUNT, MAX_SEED_TIER, PlotRecord, SeedStack};
+pub use garden::{
+    CropRecord, FREE_PLOT_COUNT, MAX_PLOT_COUNT, MAX_SEED_TIER, PlotRecord, SeedStack,
+    grow_seconds, harvest_points,
+};
 pub use items::{EquipSlot, EquipmentRecord, Rarity, SLOT_COUNT};
 pub use shop::SESSION_EARNINGS;
 pub use shop::{

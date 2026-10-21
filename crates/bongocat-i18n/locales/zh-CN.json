@@ -722,7 +722,8 @@
     "seed": {
       "label": "%{attribute}种子 · %{tier} 阶",
       "label_named": "%{name} · %{tier} 阶",
-      "plant": "种植"
+      "plant": "种植",
+      "harvest_line": "收获时 %{attribute} +%{value}"
     },
     "seeds": {
       "title": "种子",
@@ -840,6 +841,7 @@
       "bought": "花 %{stones} 灵石购入 %{what}",
       "sold": "售出 %{what}，得 %{stones} 灵石",
       "harvest": "仙草园收成了一株。",
+      "harvested": "仙草园收成 %{seed}，%{attribute} +%{points}",
       "bought_bare": "购入 %{what}"
     },
     "shop": {
