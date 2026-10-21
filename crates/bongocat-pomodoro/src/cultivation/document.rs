@@ -10,8 +10,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ART_COUNT, Attributes, EquipmentRecord, MAX_LEVEL, OwnedArt, PLOT_COUNT, PlotRecord,
-    SLOT_COUNT, STAGE_COUNT, SeedStack, blueprint,
+    ART_COUNT, Attributes, EquipmentRecord, FREE_PLOT_COUNT, MAX_LEVEL, MAX_PLOT_COUNT, OwnedArt,
+    PlotRecord, SLOT_COUNT, STAGE_COUNT, SeedStack, blueprint,
     curve::{self, level_for_growth, stage_floor},
     duel::{DUEL_RECORD_CAP, DuelRecord},
     events::{EVENT_LOG_CAP, EventRecord},
@@ -66,7 +66,9 @@ pub struct CultivationDocument {
     /// Seeds waiting to be planted.
     #[serde(default)]
     pub seeds: Vec<SeedStack>,
-    /// The plots. Padded to [`PLOT_COUNT`].
+    /// The plots. Never fewer than [`FREE_PLOT_COUNT`], never more than
+    /// [`MAX_PLOT_COUNT`]: the four free ones every save starts with, plus
+    /// whatever has been bought since.
     #[serde(default)]
     pub plots: Vec<PlotRecord>,
     /// The attribute points the harvests have paid, permanently.
@@ -239,7 +241,12 @@ impl CultivationDocument {
         // a shelf of ten; the shelf is a window, so is this.
         self.shop_bought.truncate(super::SHOP_MAX_OFFERS);
         self.equipped.resize(SLOT_COUNT, None);
-        self.plots.resize(PLOT_COUNT, PlotRecord::default());
+        // The garden holds between the four free plots and the nine a save can
+        // buy: a hand-edited document with fewer is topped up, one with more
+        // than the garden can hold is cut back.
+        self.plots.truncate(MAX_PLOT_COUNT);
+        self.plots
+            .resize(FREE_PLOT_COUNT.max(self.plots.len()), PlotRecord::default());
         let highest = self.equipment.iter().map(|item| item.id).max().unwrap_or(0);
         self.next_item_id = self.next_item_id.max(highest.saturating_add(1));
         // An equipped id that names nothing — a document edited by hand, or an
@@ -311,7 +318,7 @@ mod tests {
         assert_eq!(document.growth, 0);
         assert_eq!(document.realm, 0);
         assert_eq!(document.equipped.len(), SLOT_COUNT);
-        assert_eq!(document.plots.len(), PLOT_COUNT);
+        assert_eq!(document.plots.len(), FREE_PLOT_COUNT);
         assert!(document.equipment.is_empty());
         assert_eq!(document.next_item_id, 1, "the first drop takes id one");
         assert_eq!(document.peak_level, 1, "level one has paid nothing yet");

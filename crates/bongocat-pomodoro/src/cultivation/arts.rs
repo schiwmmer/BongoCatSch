@@ -235,8 +235,11 @@ fn internal_gain(grade: ArtGrade, rng: &mut Rng) -> Attributes {
 }
 
 /// What one use of an 外功 costs in 内力: the higher the grade, the dearer.
+///
+/// Costly enough that a swing is a decision the 内力 pool feels — an art fired
+/// on every round was a multiplier running at no price.
 fn external_cost(grade: ArtGrade) -> u32 {
-    8 + grade.index() as u32 * 6
+    16 + grade.index() as u32 * 12
 }
 
 /// What an 外功 is worth, in parts per thousand of the 攻击力 behind it.
@@ -446,6 +449,24 @@ pub fn mastered_art_payout(art_id: u64) -> Attributes {
     )
 }
 
+/// The attributes one 内功 pays as it stands, at the 阶 its training has
+/// reached: every 阶 in so far at the blueprint's rate, and no mastery while
+/// any is missing.
+///
+/// This is what the learned-arts panel prints beside a book that is still
+/// being read — the same sum the attributes panel counts, not a promise about
+/// 阶 the training has not paid for yet.
+pub fn art_payout_at(art_id: u64, rank: u8) -> Attributes {
+    let blueprint = blueprint(art_id);
+    let times = i64::from(rank);
+    Attributes::new(
+        paid(blueprint.gain.root, times, 1_000),
+        paid(blueprint.gain.strength, times, 1_000),
+        paid(blueprint.gain.mana, times, 1_000),
+        paid(blueprint.gain.agility, times, 1_000),
+    )
+}
+
 /// The damage one 外功 does behind a given 攻击力.
 pub fn external_damage(attack: u32, multiplier_permille: u32) -> u32 {
     u64::from(attack)
@@ -487,15 +508,24 @@ pub struct ArtView {
 /// carries what it *is* rather than what it is still becoming: its name, its
 /// grade, and the mastery it pays for good. The number a surface needs in
 /// order to draw it is the same one the fight uses, so the two cannot disagree.
+/// A book still being trained shows here too once its first 阶 is in — it is
+/// learned as far as it has gone — and then `complete` is false and `rank` is
+/// where the training stands rather than the grade's last 阶.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MasteredArtView {
     pub id: u64,
     pub name: String,
     pub kind: ArtKind,
     pub grade: ArtGrade,
-    /// The last 阶 of the grade, which is the one it stands at.
+    /// The 阶 it stands at: the grade's last for a complete 功法, the training's
+    /// current one for a book still being read.
     pub rank: u8,
-    /// What the last 阶 pays on top, in parts per thousand.
+    /// How many 阶 the grade has in all.
+    pub max_rank: u8,
+    /// Whether every 阶 is in. An incomplete 功法 pays no mastery yet.
+    pub complete: bool,
+    /// What the last 阶 pays on top, in parts per thousand: zero while the
+    /// 功法 is incomplete.
     pub mastery_permille: u32,
     /// What one 阶 pays, for an 内功.
     pub gain: Attributes,
@@ -504,7 +534,9 @@ pub struct MasteredArtView {
     /// What one use is worth, for an 外功.
     pub multiplier_permille: u32,
     /// Whether the tome's sale has been collected: the 功法 itself is not for
-    /// sale a second time, though nothing it pays is ever taken away.
+    /// sale a second time, though nothing it pays is ever taken away. A book
+    /// still being trained has no collected sale and no sale here — its row is
+    /// a report, and the shelf owns the selling.
     pub sold: bool,
 }
 
@@ -545,6 +577,8 @@ pub fn mastered_art_view(art_id: u64) -> MasteredArtView {
         kind: art.kind,
         grade: art.grade,
         rank: art.grade.ranks(),
+        max_rank: art.grade.ranks(),
+        complete: true,
         mastery_permille: mastery_permille(art.grade),
         gain: art.gain,
         cost: art.cost,

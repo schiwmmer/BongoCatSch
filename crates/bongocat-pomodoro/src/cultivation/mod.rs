@@ -52,9 +52,9 @@ mod tests;
 
 pub use arts::{
     ART_COUNT, ArtBlueprint, ArtGrade, ArtKind, ArtOutcome, ArtView, MasteredArtView, OwnedArt,
-    art_attributes, art_view, blueprint, effective_failure_permille, external_damage,
-    mastered_art_attributes, mastered_art_payout, mastered_art_view, mastery_permille,
-    required_pomodoros,
+    art_attributes, art_payout_at, art_view, blueprint, effective_failure_permille,
+    external_damage, mastered_art_attributes, mastered_art_payout, mastered_art_view,
+    mastery_permille, required_pomodoros,
 };
 pub use battle::{BattleReport, Guardian, guardian_fighter, wanderer_fighter};
 // `duel` itself stays crate-private: it takes the seeded `Rng`, which is nobody
@@ -74,7 +74,7 @@ pub use explore::{
     ExplorationOutcome, STONE_FIND_MAX, STONE_FIND_MIN, STONE_FIND_PERMILLE, VICTORY_SEED_PERMILLE,
     WALK_RECORD_CAP, WalkRecord,
 };
-pub use garden::{MAX_SEED_TIER, PLOT_COUNT, PlotRecord, SeedStack};
+pub use garden::{FREE_PLOT_COUNT, MAX_PLOT_COUNT, MAX_SEED_TIER, PlotRecord, SeedStack};
 pub use items::{EquipSlot, EquipmentRecord, Rarity, SLOT_COUNT};
 pub use shop::SESSION_EARNINGS;
 pub use shop::{

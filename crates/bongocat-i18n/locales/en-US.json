@@ -651,7 +651,8 @@
     },
     "mastered": {
       "title": "Learned arts",
-      "empty": "No art learned through yet. Train one to its last rank and it stays with you for good — or sell it."
+      "empty": "No art learned through yet. Train one to its last rank and it stays with you for good — or sell it.",
+      "progress": "rank %{rank}/%{total}"
     },
     "art": {
       "kind": {
@@ -728,9 +729,12 @@
       "title": "Herb garden",
       "empty": "Empty plot",
       "growing": "ripe in %{minutes} min",
-      "ready": "Ready to pick",
       "harvest": "Harvest",
-      "full": "All four plots are planted."
+      "full": "Every plot is planted.",
+      "buy_plot": "Buy a plot · %{price} stones",
+      "refuse_limit": "the garden already holds every plot it can",
+      "growing_hours": "ready in %{hours}h",
+      "growing_days": "ready in %{days}d"
     },
     "breakthrough": {
       "title": "Breakthrough",
@@ -816,9 +820,10 @@
       "train_mastered": "“%{name}” is mastered",
       "breakthrough_won": "The realm fight is won — a new realm opens!",
       "breakthrough_lost": "The realm fight is lost — train and return.",
-      "bought": "Bought %{what}",
+      "bought": "Bought %{what} for %{stones} stones",
       "sold": "Sold %{what} for %{stones} stones",
-      "harvest": "A crop was pulled."
+      "harvest": "A crop was pulled.",
+      "bought_bare": "Bought %{what}"
     },
     "shop": {
       "title": "Market",
@@ -840,7 +845,9 @@
       "refuse_already": "You already have that art",
       "sold": "Sold",
       "refuse_sold": "This tome has been sold already",
-      "detail_sell": "Sells back for %{stones} stones"
+      "detail_sell": "Sells back for %{stones} stones",
+      "seed_tier": "a tier %{tier} herb",
+      "plot": "a garden plot"
     },
     "hint": {
       "realm_title": "Realm: the hard ceiling on how far you can climb",

@@ -59,8 +59,15 @@ pub enum EventDetail {
     /// The guardian was fought. A wanderer fight is part of the walk that met
     /// it, so it needs no line of its own.
     Breakthrough { won: bool },
-    /// Something was bought at the market.
-    Bought { what: SaleKind },
+    /// Something was bought at the market, for this much.
+    ///
+    /// `stones` is what the purchase paid; an old save's events predate the
+    /// field and read as zero, which the surface renders as the old bare line.
+    Bought {
+        what: SaleKind,
+        #[serde(default)]
+        stones: u32,
+    },
     /// Something was sold at the market, for this much.
     Sold { what: SaleKind, stones: u32 },
     /// A crop was pulled.
@@ -70,10 +77,23 @@ pub enum EventDetail {
 /// Something sold or bought, named the way the log can carry it.
 ///
 /// A name when the thing has one — most gear and every 功法 does — and the kind
-/// to fall back on when it does not, because "sold 装备" beats a blank.
+/// to fall back on when it does not, because "sold 装备" beats a blank. A seed
+/// carries its tier beside the name, because a purchase that says "a seed"
+/// without saying which tier bought what is a line the buyer cannot check
+/// against the price; an old save's seeds predate the field and read as zero.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum SaleKind {
-    Equipment { name: Option<String> },
-    Seed { name: Option<String> },
-    Art { name: Option<String> },
+    Equipment {
+        name: Option<String>,
+    },
+    Seed {
+        name: Option<String>,
+        #[serde(default)]
+        tier: u8,
+    },
+    Art {
+        name: Option<String>,
+    },
+    /// A garden plot bought past the four free ones.
+    Plot,
 }

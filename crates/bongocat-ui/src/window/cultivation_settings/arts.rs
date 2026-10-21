@@ -81,7 +81,11 @@ pub(super) fn mastered_panel(
 /// Selling a learned 功法 sells the tome, not the knowledge: nothing it pays
 /// is ever taken away, so the row keeps drawing the same numbers after the
 /// sale — and the sale happens once, so a collected tome reads 已售 instead of
-/// a price.
+/// a price. A book still being trained reports here too, as far as it has
+/// gone: the 阶 it stands at is in the name, it pays what it has paid for and
+/// no mastery yet, and there is no sale beside it — the shelf owns the
+/// selling, and a second sell button under the same roof would be two doors
+/// to the same room.
 fn mastered_art_row(
     view: &Entity<SettingsView>,
     art: &MasteredArtView,
@@ -89,13 +93,27 @@ fn mastered_art_row(
     tokens: Tokens,
 ) -> impl IntoElement {
     let grade = text(locale, art.grade.name_key());
-    let head = format!("{} · {}", art.name, grade);
+    // An unfinished book says where it stands, so "已习得" cannot be read as
+    // "已圆满": the name carries the 阶 the training has reached.
+    let head = if art.complete {
+        format!("{} · {}", art.name, grade)
+    } else {
+        format!(
+            "{} · {} · {}",
+            art.name,
+            grade,
+            format_text(
+                locale,
+                "cultivation.mastered.progress",
+                &[
+                    ("rank", art.rank.to_string()),
+                    ("total", art.max_rank.to_string()),
+                ],
+            )
+        )
+    };
     let payoff = mastered_art_payoff(art, locale);
-    let art_id = art.id;
-    let sell_button = Button::new(format!("cultivation-sell-mastered-art-{}", art.id))
-        .ghost()
-        .small();
-    div()
+    let mut row = div()
         .id(format!("cultivation-mastered-art-{}", art.id))
         .flex()
         .flex_row()
@@ -110,8 +128,13 @@ fn mastered_art_row(
                 .text_color(tokens.muted)
                 .child(payoff)
                 .test_support(),
-        )
-        .child(if art.sold {
+        );
+    if art.complete {
+        let art_id = art.id;
+        let sell_button = Button::new(format!("cultivation-sell-mastered-art-{}", art.id))
+            .ghost()
+            .small();
+        row = row.child(if art.sold {
             sell_button
                 .label(text(locale, "cultivation.shop.sold"))
                 .disabled(true)
@@ -129,18 +152,24 @@ fn mastered_art_row(
                         });
                     }
                 })
-        })
-        .test_support()
+        });
+    }
+    row.test_support()
 }
 
 /// What a learned 功法 pays, as the concrete numbers the attributes panel
 /// counts: every 阶 of an 内功 with its mastery share folded in, or the swing
-/// an 外功 lands and what it costs.
+/// an 外功 lands and what it costs. A book still being trained pays what it
+/// has paid for — its 阶 so far, and no mastery while any is missing.
 fn mastered_art_payoff(art: &MasteredArtView, locale: &str) -> String {
     let kind = text(locale, art.kind.name_key()).to_string();
     let parts = match art.kind {
         ArtKind::Internal => {
-            let payout = mastered_art_payout(art.id);
+            let payout = if art.complete {
+                mastered_art_payout(art.id)
+            } else {
+                art_payout_at(art.id, art.rank)
+            };
             Attribute::ALL
                 .into_iter()
                 .filter_map(|attribute| {
@@ -158,23 +187,31 @@ fn mastered_art_payoff(art: &MasteredArtView, locale: &str) -> String {
                 })
                 .collect::<Vec<_>>()
         }
-        ArtKind::External => vec![
-            format_text(
-                locale,
-                "cultivation.art.multiplier",
-                &[("value", (art.multiplier_permille / 10).to_string())],
-            ),
-            format_text(
-                locale,
-                "cultivation.art.cost",
-                &[("value", art.cost.to_string())],
-            ),
-            format_text(
-                locale,
-                "cultivation.art.mastery_damage",
-                &[("value", (art.mastery_permille / 10).to_string())],
-            ),
-        ],
+        ArtKind::External => {
+            let mut parts = vec![
+                format_text(
+                    locale,
+                    "cultivation.art.multiplier",
+                    &[("value", (art.multiplier_permille / 10).to_string())],
+                ),
+                format_text(
+                    locale,
+                    "cultivation.art.cost",
+                    &[("value", art.cost.to_string())],
+                ),
+            ];
+            // The mastery share belongs to a complete 功法 alone: an unfinished
+            // one quoting a bonus of zero would be quoting a number that
+            // decides nothing.
+            if art.complete {
+                parts.push(format_text(
+                    locale,
+                    "cultivation.art.mastery_damage",
+                    &[("value", (art.mastery_permille / 10).to_string())],
+                ));
+            }
+            parts
+        }
     };
     format!("{kind} · {}", parts.join(" · "))
 }

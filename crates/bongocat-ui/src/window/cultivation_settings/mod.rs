@@ -16,8 +16,9 @@ use super::*;
 use bongocat_i18n::{compact_number, format_text, text};
 use bongocat_pomodoro::{
     ArtKind, ArtOutcome, ArtView, Attribute, Attributes, CultivationView, DropView, EquipSlot,
-    EventDetail, EventRecord, ExplorationOutcome, ItemView, MAX_LEVEL, MasteredArtView,
-    PomodoroCommand, Realm, SaleKind, ShopOffer, ShopOfferView, blueprint, mastered_art_payout,
+    EventDetail, EventRecord, ExplorationOutcome, ItemView, MAX_LEVEL, MasteredArtView, PlotView,
+    PomodoroCommand, Realm, SaleKind, ShopOffer, ShopOfferView, art_payout_at, blueprint,
+    mastered_art_payout,
 };
 
 use gpui_kit::component::Sizable as _;

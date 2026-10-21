@@ -211,6 +211,9 @@ pub enum PomodoroCommand {
     },
     /// Pick a ripe crop out of a plot.
     HarvestPlot { plot: usize },
+    /// Buy one more garden plot with 灵石, past the four the garden starts
+    /// with. Refused once the garden holds its ninth.
+    BuyPlot,
     /// Wear one owned item in its slot.
     EquipItem { item_id: u64 },
     /// Take whatever is worn in a slot off.
@@ -267,6 +270,7 @@ impl PomodoroCommand {
             // harvest, a worn item and a breakthrough all outlive the session.
             Self::PlantSeed { .. }
             | Self::HarvestPlot { .. }
+            | Self::BuyPlot
             | Self::EquipItem { .. }
             | Self::UnequipSlot { .. }
             | Self::AllocateAttribute { .. }
@@ -399,6 +403,11 @@ impl PomodoroState {
             }
             PomodoroCommand::HarvestPlot { plot } => {
                 self.cultivation.harvest(plot, now_unix);
+            }
+            PomodoroCommand::BuyPlot => {
+                if let Err(refusal) = self.cultivation.buy_plot(now_unix) {
+                    self.cultivation.note_refusal(Refusal::Trade(refusal));
+                }
             }
             PomodoroCommand::EquipItem { item_id } => {
                 self.cultivation.equip(item_id);

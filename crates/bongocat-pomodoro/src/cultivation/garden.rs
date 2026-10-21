@@ -3,17 +3,36 @@
 //!
 //! A crop matures on the wall clock rather than on focus time, so a session
 //! planted before lunch is pickable after it. The growth time scales with the
-//! seed's tier, which is what keeps a late-realm seed worth the wait: the same
-//! thirty minutes that pays eight points at the first realm pays a multiple of
-//! that at the tenth.
+//! seed's tier, and steeply: a third-tier seed is an afternoon's project, and
+//! every tier past it triples the wait, which is what keeps a late-realm seed
+//! worth the wait — and worth owning several plots for.
 
 use serde::{Deserialize, Serialize};
 
 use super::{Attribute, Rng, SEED_RETURN_PERMILLE, SEED_RETURN_UPGRADE_PERCENT, STAGE_COUNT};
 
-/// How many plots a cultivator has. Every plot is independent, so a user can
-/// keep four crops of different lengths growing at once.
-pub const PLOT_COUNT: usize = 4;
+/// How many plots a cultivator starts with. Every plot is independent, so a
+/// user can keep several crops of different lengths growing at once.
+pub const FREE_PLOT_COUNT: usize = 4;
+
+/// How many plots a garden can hold at all: the four free ones and five that
+/// are bought with 灵石.
+pub const MAX_PLOT_COUNT: usize = 9;
+
+/// What the next plot costs, by how many have been bought already: the fifth
+/// plot is the cheapest and every one after it doubles.
+pub const PLOT_PRICES: [u32; MAX_PLOT_COUNT - FREE_PLOT_COUNT] = [150, 300, 600, 1200, 2400];
+
+/// What buying one more plot costs, given how many the garden already holds.
+///
+/// `None` once the garden is full: a price for a plot that cannot exist would
+/// be a button the domain has to keep refusing.
+pub fn plot_price(owned: usize) -> Option<u32> {
+    owned
+        .checked_sub(FREE_PLOT_COUNT)?
+        .lt(&PLOT_PRICES.len())
+        .then(|| PLOT_PRICES[owned - FREE_PLOT_COUNT])
+}
 
 /// The highest seed tier: one per realm, so a seed's tier names the realm that
 /// dropped it.
@@ -21,10 +40,16 @@ pub const MAX_SEED_TIER: u8 = STAGE_COUNT as u8;
 
 /// How long a seed of this tier needs to mature, in seconds.
 ///
-/// Half an hour per tier: the first realm's seed is ready inside one session,
-/// the last one's takes five hours.
+/// The third tier takes four hours, the fourth twelve, and every tier past
+/// that triples again — a high-realm seed is a project, not a lunch break. The
+/// two tiers below the anchor are the same curve read backwards: about half an
+/// hour and about eighty minutes.
 pub fn grow_seconds(tier: u8) -> i64 {
-    1_800 * i64::from(tier.clamp(1, MAX_SEED_TIER))
+    match tier.clamp(1, MAX_SEED_TIER) {
+        1 => 1_800,
+        2 => 4_800,
+        t => 14_400 * 3i64.pow(u32::from(t - 3)),
+    }
 }
 
 /// The attribute points one harvest of this tier pays.
@@ -150,11 +175,11 @@ mod tests {
     #[test]
     fn a_crop_is_ready_only_after_its_growing_time() {
         let crop = CropRecord::planted(Attribute::Root, 2, 1_000);
-        assert_eq!(crop.ready_at_unix, 1_000 + 3_600);
+        assert_eq!(crop.ready_at_unix, 1_000 + 4_800);
         assert!(!crop.is_ready(1_000));
-        assert!(!crop.is_ready(4_599));
-        assert!(crop.is_ready(4_600));
-        assert_eq!(crop.remaining_seconds(1_000), 3_600);
+        assert!(!crop.is_ready(5_799));
+        assert!(crop.is_ready(5_800));
+        assert_eq!(crop.remaining_seconds(1_000), 4_800);
         assert_eq!(crop.remaining_seconds(9_999), 0);
     }
 
@@ -163,5 +188,21 @@ mod tests {
         assert!(grow_seconds(2) > grow_seconds(1));
         assert!(harvest_points(2) > harvest_points(1));
         assert!(harvest_points(10) > harvest_points(9));
+    }
+
+    #[test]
+    fn the_growing_time_anchors_on_tiers_three_and_four() {
+        assert_eq!(grow_seconds(3), 4 * 3_600, "a third-tier seed takes 4h");
+        assert_eq!(grow_seconds(4), 12 * 3_600, "a fourth-tier seed takes 12h");
+        assert_eq!(grow_seconds(5), 36 * 3_600, "and the tripling carries on");
+    }
+
+    #[test]
+    fn the_fifth_plot_costs_and_the_tenth_does_not_exist() {
+        assert_eq!(plot_price(3), None, "the four free plots are free");
+        assert_eq!(plot_price(4), Some(150));
+        assert_eq!(plot_price(5), Some(300));
+        assert_eq!(plot_price(8), Some(2400));
+        assert_eq!(plot_price(9), None, "nine is the whole garden");
     }
 }

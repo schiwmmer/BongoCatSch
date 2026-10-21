@@ -18,8 +18,8 @@ use super::{
     BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport, CultivationDocument, Derived, DerivedBreakdown,
     DuelReport, EQUIPMENT_DROP_PERMILLE, EXPLORATION_COOLDOWN_SECONDS, EquipSlot, EquipmentRecord,
     ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, Guardian, MAX_LEVEL, MasteredArtView,
-    OwnedArt, PLAYER_NAME, PLOT_COUNT, Rarity, Realm, Refusal, Rng, SEED_DROP_PERMILLE, SLOT_COUNT,
-    SeedStack, VICTORY_SEED_PERMILLE, absence_penalty, art_attributes, art_view,
+    OwnedArt, PLAYER_NAME, Rarity, Realm, Refusal, Rng, SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack,
+    VICTORY_SEED_PERMILLE, absence_penalty, art_attributes, art_view,
     arts::{blueprint, mastered_art_attributes, mastered_art_view, train},
     base_attributes,
     battle::{guardian_fighter, guardian_for, resolve, wanderer_fighter},
@@ -29,7 +29,7 @@ use super::{
     explore::{
         WalkRecord, breakthrough_ready, exploration_ready, roll_stones, roll_victory, roll_walk,
     },
-    garden::{CropRecord, harvest_points, seed_name, seed_return},
+    garden::{CropRecord, PlotRecord, harvest_points, plot_price, seed_name, seed_return},
     growth_permille,
     items::roll_equipment,
     mastery_permille, scaled_growth,
@@ -229,6 +229,9 @@ pub struct CultivationView {
     pub inventory: Vec<ItemView>,
     pub seeds: Vec<SeedView>,
     pub plots: Vec<PlotView>,
+    /// What one more garden plot would cost, and `None` once the garden holds
+    /// every plot it can.
+    pub next_plot_price: Option<u32>,
     /// The guardian offered right now: present only at a realm's last layer.
     pub guardian: Option<GuardianView>,
     pub last_breakthrough: Option<BreakthroughOutcome>,
@@ -1013,7 +1016,8 @@ impl Cultivation {
         // The fight is what decides, not the number above: the panel prints the
         // comparison so the user knows where they stand, and then the two of
         // them actually trade blows.
-        let duel = duel(self.fighter(), guardian_fighter(current), &mut rng);
+        let fighter = self.fighter(&mut rng);
+        let duel = duel(fighter, guardian_fighter(current), &mut rng);
         // Won fights are what train the 战斗 dimension; a loss is not counted
         // there, and only ever shows up in the record below.
         self.record_duel(duel.won, FightKind::Guardian, now_unix);
@@ -1096,59 +1100,51 @@ impl Cultivation {
     }
 
     /// The cultivator as a fighter, with the 外功 they would use.
-    pub fn fighter(&self) -> Fighter {
+    pub(crate) fn fighter(&self, rng: &mut Rng) -> Fighter {
         let derived = self.attributes().derived();
-        let art = self.strike();
+        let art = self.strike(rng);
         Fighter::from_derived(PLAYER_NAME.to_owned(), derived, art)
     }
 
-    /// The 外功 the cultivator brings to a fight: the one being trained if it is
-    /// an 外功, otherwise the deepest one owned.
+    /// The 外功 the cultivator brings to a fight: randomly one of the three
+    /// strongest they can swing.
     ///
-    /// A learned 外功 counts as well: it was learned to the end, so it swings
-    /// with its full mastery however long ago that was. The books still being
-    /// trained are what the training itself is measured against, so they are
-    /// offered first.
-    fn strike(&self) -> Option<ArtStrike> {
-        let arts: Vec<(u64, u8)> = self
+    /// "Strongest" is what one swing is worth: the multiplier the 外功 lands,
+    /// with the mastery share folded in for one learned to the end. A book
+    /// still part-trained competes on its multiplier alone, and one that has
+    /// not been trained to its first 阶 does not compete at all — owning a
+    /// book is not swinging it. The training's selection does not pre-empt the
+    /// roll either: the strongest three fight it out, not the book the session
+    /// happens to be reading. With fewer than three the roll runs over what
+    /// there is, and with none the fists do the work.
+    fn strike(&self, rng: &mut Rng) -> Option<ArtStrike> {
+        let mut candidates: Vec<(u64, u8, u32)> = self
             .document
             .arts
             .iter()
-            .filter(|owned| blueprint(owned.art_id).kind == ArtKind::External)
-            .map(|owned| (owned.art_id, owned.rank))
-            .collect();
-        let learned: Vec<(u64, u8)> = self
-            .document
-            .mastered_arts
-            .iter()
-            .filter(|id| blueprint(**id).kind == ArtKind::External)
-            .map(|id| (*id, blueprint(*id).grade.ranks()))
-            .collect();
-        let pick = self
-            .document
-            .selected_art
-            .filter(|id| arts.iter().any(|(art_id, _)| art_id == id))
-            .or_else(|| {
-                arts.iter()
-                    .max_by_key(|(_, rank)| *rank)
-                    .map(|(art_id, _)| *art_id)
+            .filter(|owned| blueprint(owned.art_id).kind == ArtKind::External && owned.rank >= 1)
+            .map(|owned| {
+                let art = blueprint(owned.art_id);
+                (owned.art_id, owned.rank, art.multiplier_permille)
             })
-            .or_else(|| {
-                learned
-                    .iter()
-                    .max_by_key(|(_, rank)| *rank)
-                    .map(|(art_id, _)| *art_id)
-            })?;
-        let art = blueprint(pick);
-        let rank = arts.iter().find(|(art_id, _)| *art_id == pick).map_or_else(
-            || {
-                learned
-                    .iter()
-                    .find(|(art_id, _)| *art_id == pick)
-                    .map_or(1, |(_, rank)| *rank)
-            },
-            |(_, rank)| *rank,
-        );
+            .collect();
+        for id in &self.document.mastered_arts {
+            let art = blueprint(*id);
+            if art.kind == ArtKind::External {
+                candidates.push((
+                    *id,
+                    art.grade.ranks(),
+                    art.multiplier_permille + mastery_permille(art.grade),
+                ));
+            }
+        }
+        if candidates.is_empty() {
+            return None;
+        }
+        candidates.sort_by_key(|&(_, _, strength)| std::cmp::Reverse(strength));
+        candidates.truncate(3);
+        let (art_id, rank, _) = candidates[rng.below(candidates.len() as u64) as usize];
+        let art = blueprint(art_id);
         Some(ArtStrike {
             name: art.name,
             multiplier_permille: art.multiplier_permille,
@@ -1261,7 +1257,8 @@ impl Cultivation {
                     .map(|art| art.name);
             }
             ExplorationOutcome::Victory => {
-                let duel = duel(self.fighter(), wanderer_fighter(self.realm()), &mut rng);
+                let fighter = self.fighter(&mut rng);
+                let duel = duel(fighter, wanderer_fighter(self.realm()), &mut rng);
                 outcome = if duel.won {
                     match roll_victory(&mut rng) {
                         ExplorationOutcome::Art => {
@@ -1406,7 +1403,7 @@ impl Cultivation {
                 )
             })
             .collect();
-        let mastered_arts: Vec<MasteredArtView> = self
+        let mut mastered_arts: Vec<MasteredArtView> = self
             .document
             .mastered_arts
             .iter()
@@ -1415,6 +1412,22 @@ impl Cultivation {
                 ..mastered_art_view(*id)
             })
             .collect();
+        // A book trained to its first 阶 is 已习得 as far as it has gone: it
+        // reports here with the 阶 it stands at and no mastery yet, while the
+        // shelf keeps the training and the selling.
+        for owned in &self.document.arts {
+            if owned.rank == 0 {
+                continue;
+            }
+            mastered_arts.push(MasteredArtView {
+                rank: owned.rank,
+                max_rank: blueprint(owned.art_id).grade.ranks(),
+                complete: false,
+                mastery_permille: 0,
+                sold: false,
+                ..mastered_art_view(owned.art_id)
+            });
+        }
         let mut equipped: [Option<ItemView>; SLOT_COUNT] = array::from_fn(|_| None);
         let mut inventory = Vec::new();
         for item in &self.document.equipment {
@@ -1468,7 +1481,6 @@ impl Cultivation {
                 .document
                 .plots
                 .iter()
-                .take(PLOT_COUNT)
                 .map(|plot| PlotView {
                     crop: plot.crop.map(|crop| CropView {
                         attribute: crop.attribute,
@@ -1477,6 +1489,10 @@ impl Cultivation {
                     }),
                 })
                 .collect(),
+            // What the next plot would cost, and nothing once the garden is
+            // full: the buy button reads this rather than recomputing the
+            // table, so the number on it is the number the domain charges.
+            next_plot_price: plot_price(self.document.plots.len()),
             guardian: self.guardian().map(|guardian| GuardianView {
                 target: guardian.target,
                 power: guardian.power,
@@ -1659,13 +1675,18 @@ impl Cultivation {
         // The goods land the same way a drop's do, so a bought 功法 counts toward
         // 修炼 and a bought herb plants, rather than sitting in a drawer.
         let bought = offer.clone();
-        // The log says what was bought: named when the thing has a name, the
-        // kind when it does not.
+        // The log says what was bought, and what it cost: named when the thing
+        // has a name, the kind when it does not, and the price beside both —
+        // a purchase that does not say what it paid is one the buyer cannot
+        // check against the shelf.
         let what = match &bought {
             ShopOffer::Equipment(item) => SaleKind::Equipment {
                 name: item.name.clone(),
             },
-            ShopOffer::Seed { name, .. } => SaleKind::Seed { name: name.clone() },
+            ShopOffer::Seed { name, tier, .. } => SaleKind::Seed {
+                name: name.clone(),
+                tier: *tier,
+            },
             ShopOffer::Art { art_id } => SaleKind::Art {
                 name: Some(blueprint(*art_id).name),
             },
@@ -1691,7 +1712,13 @@ impl Cultivation {
                 self.grant_art_book(art_id);
             }
         }
-        self.push_event(now_unix, EventDetail::Bought { what });
+        self.push_event(
+            now_unix,
+            EventDetail::Bought {
+                what,
+                stones: price,
+            },
+        );
         Ok(offer)
     }
 
@@ -1809,11 +1836,37 @@ impl Cultivation {
         self.push_event(
             now_unix,
             EventDetail::Sold {
-                what: SaleKind::Seed { name },
+                what: SaleKind::Seed { name, tier },
                 stones,
             },
         );
         Ok(stones)
+    }
+
+    /// Buy one more garden plot with 灵石, past the four the garden starts
+    /// with.
+    ///
+    /// The price doubles with every plot bought, and the garden holds nine at
+    /// most: a plot is a permanent capacity, so the last one costs what a
+    /// season of sessions earns rather than what one afternoon does. A refusal
+    /// is remembered the way every trade's is, so the page can say why.
+    pub fn buy_plot(&mut self, now_unix: i64) -> Result<u32, TradeRefusal> {
+        let Some(price) = plot_price(self.document.plots.len()) else {
+            return Err(TradeRefusal::PlotLimit);
+        };
+        if self.document.stones < price {
+            return Err(TradeRefusal::NotEnoughStones);
+        }
+        self.document.stones -= price;
+        self.document.plots.push(PlotRecord::default());
+        self.push_event(
+            now_unix,
+            EventDetail::Bought {
+                what: SaleKind::Plot,
+                stones: price,
+            },
+        );
+        Ok(price)
     }
 
     /// Roll the shop's day forward if it has not been done yet.

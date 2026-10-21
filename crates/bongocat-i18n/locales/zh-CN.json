@@ -651,7 +651,8 @@
     },
     "mastered": {
       "title": "已习得功法",
-      "empty": "尚无圆满之功法。修习圆满后即已习得，永久生效，也可售出。"
+      "empty": "尚无圆满之功法。修习圆满后即已习得，永久生效，也可售出。",
+      "progress": "已至 %{rank}/%{total} 阶"
     },
     "art": {
       "kind": {
@@ -728,9 +729,12 @@
       "title": "仙草园",
       "empty": "空地",
       "growing": "%{minutes} 分钟后成熟",
-      "ready": "可收获",
       "harvest": "收获",
-      "full": "四块地都已种满。"
+      "full": "灵田都已种满。",
+      "buy_plot": "购置灵田 · %{price} 灵石",
+      "refuse_limit": "灵田已开垦到上限",
+      "growing_hours": "%{hours} 小时后成熟",
+      "growing_days": "%{days} 天后成熟"
     },
     "breakthrough": {
       "title": "破境",
@@ -816,9 +820,10 @@
       "train_mastered": "《%{name}》已至圆满",
       "breakthrough_won": "闯关成功，晋入新境界！",
       "breakthrough_lost": "闯关未成，尚需砥砺。",
-      "bought": "购入 %{what}",
+      "bought": "花 %{stones} 灵石购入 %{what}",
       "sold": "售出 %{what}，得 %{stones} 灵石",
-      "harvest": "仙草园收成了一株。"
+      "harvest": "仙草园收成了一株。",
+      "bought_bare": "购入 %{what}"
     },
     "shop": {
       "title": "集市",
@@ -840,7 +845,9 @@
       "refuse_already": "已有此功法，无需再买",
       "sold": "已售",
       "refuse_sold": "这本功法之书已售过，不可再卖",
-      "detail_sell": "卖出可得 %{stones} 灵石"
+      "detail_sell": "卖出可得 %{stones} 灵石",
+      "seed_tier": "%{tier} 阶仙草",
+      "plot": "一块灵田"
     },
     "hint": {
       "realm_title": "境界：能爬到第几层的硬上限",

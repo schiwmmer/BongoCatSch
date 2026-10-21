@@ -37,6 +37,8 @@ pub enum TradeRefusal {
     /// The learned 功法's sale has been collected once already: what is sold is
     /// the tome, and a tome sold twice is a money printer, not a market.
     AlreadySold,
+    /// The garden already holds every plot it can: nine is the whole estate.
+    PlotLimit,
 }
 
 impl TradeRefusal {
@@ -51,6 +53,7 @@ impl TradeRefusal {
             Self::Training => "cultivation.shop.refuse_training",
             Self::AlreadyOwned => "cultivation.shop.refuse_already",
             Self::AlreadySold => "cultivation.shop.refuse_sold",
+            Self::PlotLimit => "cultivation.garden.refuse_limit",
         }
     }
 }

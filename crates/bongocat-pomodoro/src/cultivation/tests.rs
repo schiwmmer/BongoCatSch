@@ -53,7 +53,7 @@ fn a_fresh_cultivator_starts_at_the_first_layer_of_the_first_realm() {
     assert_eq!(view.growth, 0);
     assert_eq!(view.next, Some(threshold_for(2)));
     assert!(view.inventory.is_empty());
-    assert_eq!(view.plots.len(), PLOT_COUNT);
+    assert_eq!(view.plots.len(), FREE_PLOT_COUNT);
     assert!(view.guardian.is_none());
 }
 
@@ -1242,4 +1242,120 @@ fn an_art_the_cultivator_already_has_is_not_sold_again() {
         .expect_err("the same 功法 is not sold twice");
     assert_eq!(refusal, TradeRefusal::AlreadyOwned, "the refusal says why");
     assert_eq!(cultivation.stones(), before, "and nothing was charged");
+}
+
+/// The garden sells its fifth plot for stones, charges double for each one
+/// after it, and refuses the tenth: nine is the whole estate.
+#[test]
+fn the_garden_sells_plots_up_to_nine() {
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        stones: 10_000,
+        ..CultivationDocument::default()
+    });
+    let mut prices = Vec::new();
+    for _ in FREE_PLOT_COUNT..MAX_PLOT_COUNT {
+        prices.push(cultivation.buy_plot(1_000).expect("a plot to sell"));
+    }
+    assert_eq!(
+        prices,
+        vec![150, 300, 600, 1200, 2400],
+        "each plot dearer than the last"
+    );
+    assert_eq!(
+        cultivation.document().plots.len(),
+        MAX_PLOT_COUNT,
+        "the garden is full"
+    );
+    assert_eq!(
+        cultivation.document().stones,
+        10_000 - 4_650,
+        "the purse paid for exactly the five plots"
+    );
+    assert!(
+        matches!(cultivation.buy_plot(1_000), Err(TradeRefusal::PlotLimit)),
+        "the tenth plot does not exist"
+    );
+}
+
+/// A buy event carries its price and a seed event its tier — while an old
+/// save's events, which carry neither, still read.
+#[test]
+fn an_old_bought_event_still_reads() {
+    use super::events::{EventDetail, EventRecord, SaleKind};
+
+    let old: EventRecord = serde_json::from_str(
+        r#"{"at_unix": 10, "detail": {"Bought": {"what": {"Seed": {"name": "白虎茸"}}}}}"#,
+    )
+    .expect("the old shape parses");
+    match old.detail {
+        EventDetail::Bought {
+            what: SaleKind::Seed { name, tier },
+            stones,
+        } => {
+            assert_eq!(name.as_deref(), Some("白虎茸"));
+            assert_eq!((tier, stones), (0, 0), "the old events carry neither");
+        }
+        other => panic!("the old event read as {other:?}"),
+    }
+    let new: EventRecord = serde_json::from_str(
+        r#"{"at_unix": 10, "detail": {"Bought": {"what": {"Seed": {"name": "白虎茸", "tier": 3}}, "stones": 110}}}"#,
+    )
+    .expect("the new shape parses");
+    match new.detail {
+        EventDetail::Bought {
+            what: SaleKind::Seed { tier, .. },
+            stones,
+        } => assert_eq!((tier, stones), (3, 110), "the new event carries both"),
+        other => panic!("the new event read as {other:?}"),
+    }
+}
+
+/// The fight reaches for one of the three strongest 外功, at random — and an
+/// untrained book stays on the shelf no matter how deep its grade is.
+#[test]
+fn the_fight_picks_among_the_strongest_external_arts() {
+    let external_of = |grade: ArtGrade| {
+        (1..=ART_COUNT)
+            .filter(|id| {
+                let art = blueprint(*id);
+                art.kind == ArtKind::External && art.grade == grade
+            })
+            .take(3)
+            .collect::<Vec<_>>()
+    };
+    let deep = external_of(ArtGrade::Divine);
+    let shallow = external_of(ArtGrade::Yellow);
+    assert!(
+        deep.len() == 3 && shallow.len() == 3,
+        "the five hundred hold enough 外功 of both grades"
+    );
+    let mut document = CultivationDocument::default();
+    for art_id in deep.iter().copied().chain(shallow.iter().copied()) {
+        document.arts.push(OwnedArt {
+            art_id,
+            rank: 1,
+            progress: 0,
+            outcome: None,
+        });
+    }
+    // A fourth deep book, never trained: owning it is not swinging it.
+    document.arts.push(OwnedArt {
+        art_id: external_of(ArtGrade::Heaven)[0],
+        rank: 0,
+        progress: 0,
+        outcome: None,
+    });
+    let cultivation = Cultivation::new(document);
+    let mut rng = super::Rng::seeded(0x5EED_5EED);
+    for _ in 0..50 {
+        let fighter = cultivation.fighter(&mut rng);
+        let strike = fighter.art.expect("an 外功 owner swings one");
+        assert!(
+            deep.iter().any(|id| blueprint(*id).name == strike.name),
+            "the strike is one of the three deep arts, not {}",
+            strike.name
+        );
+        // 神阶 under the new curve: 16 + 4 × 12.
+        assert_eq!(strike.cost, 64, "the 内力 price is the new curve's");
+    }
 }

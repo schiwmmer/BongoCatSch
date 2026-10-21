@@ -721,6 +721,50 @@ fn the_record_shows_five_events_and_offers_the_rest(cx: &mut TestAppContext) {
     });
 }
 
+/// A 功法 trained to its first 阶 is 已习得 as far as it has gone: it shows in
+/// the learned panel with the 阶 it stands at, even though the training is not
+/// finished. A book still at rank zero is not learned at all and shows in the
+/// shelf alone.
+#[gpui_kit::test]
+fn the_learned_panel_lists_a_part_trained_art(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        arts: vec![OwnedArt {
+            art_id: 1,
+            rank: 1,
+            progress: 0,
+            outcome: None,
+        }],
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-mastered-art-1"),
+        "a partly trained 功法 is 已习得 as far as it has gone"
+    );
+}
+
+/// The garden offers the next plot while it has one to sell: the four free
+/// beds come with the garden, and the fifth is the first one 灵石 buys.
+#[gpui_kit::test]
+fn the_garden_offers_the_next_plot_for_sale(cx: &mut TestAppContext) {
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(
+        Cultivation::new(CultivationDocument::default()).view(),
+    ));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-garden"),
+        "the garden is on the page"
+    );
+    assert!(
+        painted(visual, "cultivation-buy-plot"),
+        "the fifth plot is for sale"
+    );
+}
+
 /// The history popup mounted on its own, the way the fight popup is: the
 /// settings frame would put it behind a sidebar and a scroll view, and the
 /// popup is what is under test.

@@ -241,11 +241,27 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             },
         )
         .to_string(),
-        EventDetail::Bought { what } => format_text(
-            locale,
-            "cultivation.event.bought",
-            &[("what", sale_label(what, locale))],
-        ),
+        EventDetail::Bought { what, stones } => {
+            // An old save's purchases predate the price and read as zero; the
+            // bare line is what those events said, so that is what they keep
+            // saying rather than "paid 0".
+            if *stones > 0 {
+                format_text(
+                    locale,
+                    "cultivation.event.bought",
+                    &[
+                        ("what", sale_label(what, locale)),
+                        ("stones", stones.to_string()),
+                    ],
+                )
+            } else {
+                format_text(
+                    locale,
+                    "cultivation.event.bought_bare",
+                    &[("what", sale_label(what, locale))],
+                )
+            }
+        }
         EventDetail::Sold { what, stones } => format_text(
             locale,
             "cultivation.event.sold",
@@ -260,13 +276,34 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
 
 /// What a sold or bought thing is called: its name when it has one, the kind
 /// when it does not.
+///
+/// A seed says which tier it is beside its name, because "bought a seed" is a
+/// line the buyer cannot check against the price; an old save's seeds predate
+/// the tier and fall back to what they always said.
 fn sale_label(what: &SaleKind, locale: &str) -> String {
-    let (name, kind_key) = match what {
-        SaleKind::Equipment { name } => (name.clone(), "cultivation.shop.equipment"),
-        SaleKind::Seed { name } => (name.clone(), "cultivation.shop.seed"),
-        SaleKind::Art { name } => (name.clone(), "cultivation.shop.art"),
-    };
-    name.unwrap_or_else(|| text(locale, kind_key).to_string())
+    match what {
+        SaleKind::Equipment { name } => name
+            .clone()
+            .unwrap_or_else(|| text(locale, "cultivation.shop.equipment").to_string()),
+        SaleKind::Seed { name, tier } => match (name.as_deref(), *tier) {
+            (Some(name), tier) if tier > 0 => format_text(
+                locale,
+                "cultivation.seed.label_named",
+                &[("name", name.to_owned()), ("tier", tier.to_string())],
+            ),
+            (None, tier) if tier > 0 => format_text(
+                locale,
+                "cultivation.shop.seed_tier",
+                &[("tier", tier.to_string())],
+            ),
+            (Some(name), _) => name.to_owned(),
+            (None, _) => text(locale, "cultivation.shop.seed").to_string(),
+        },
+        SaleKind::Art { name } => name
+            .clone()
+            .unwrap_or_else(|| text(locale, "cultivation.shop.art").to_string()),
+        SaleKind::Plot => text(locale, "cultivation.shop.plot").to_string(),
+    }
 }
 
 /// One walk's settlement, as a single line: how it ended and what it turned up.
