@@ -177,6 +177,30 @@ pub struct CultivationDocument {
     /// asked about is a money printer — so the sale is written down here.
     #[serde(default)]
     pub sold_mastered_arts: Vec<u64>,
+    /// The highest 试炼 floor cleared, or zero before the tower is entered.
+    ///
+    /// The tower is climbed once and remembered: a save that fell back to floor
+    /// one after a restart would be re-fighting ground it already holds, and a
+    /// tower that forgot its height would make the daily attempt a chore.
+    #[serde(default)]
+    pub trial_floor: u16,
+    /// The local day the trial attempts belong to.
+    ///
+    /// The count is per local day, so the day it was counted on has to be
+    /// written down: five floors taken at 23:50 are five floors, not five more
+    /// once the clock rolls over unnoticed.
+    #[serde(default)]
+    pub trial_day: Option<i64>,
+    /// How many floors have been attempted on [`Self::trial_day`].
+    #[serde(default)]
+    pub trial_attempts_today: u32,
+    /// How many floors have been attempted in all.
+    ///
+    /// The 战斗 dimension counts wins already; this is the plain count of
+    /// attempts, kept because the surface has to tell a new report from the one
+    /// it has already shown and the snapshot revision cannot say that.
+    #[serde(default)]
+    pub trials: u32,
 }
 
 impl CultivationDocument {
@@ -240,6 +264,11 @@ impl CultivationDocument {
         // A hand-edited or stale document could carry a thousand bought slots for
         // a shelf of ten; the shelf is a window, so is this.
         self.shop_bought.truncate(super::SHOP_MAX_OFFERS);
+        // A tower has a top and a day has five floors: a document carried past
+        // either is cut back here rather than trusted, so the daily allowance
+        // cannot be talked into a sixth attempt by editing the file.
+        self.trial_floor = self.trial_floor.min(super::TRIAL_MAX_FLOOR);
+        self.trial_attempts_today = self.trial_attempts_today.min(super::TRIAL_ATTEMPTS_PER_DAY);
         self.equipped.resize(SLOT_COUNT, None);
         // The garden holds between the four free plots and the nine a save can
         // buy: a hand-edited document with fewer is topped up, one with more

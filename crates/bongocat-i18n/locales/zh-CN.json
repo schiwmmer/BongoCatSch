@@ -743,7 +743,6 @@
       "weak": "战力不足，先寻装备与仙草。",
       "attempt": "闯关",
       "won": "破境成功，晋入%{stage}。",
-      "lost": "闯关失败：战力 %{power} / %{guardian}",
       "max": "已至仙人境圆满。",
       "held": "%{hours} 小时 %{minutes} 分后可再次闯关"
     },
@@ -765,6 +764,7 @@
       "side_foe": "敌方",
       "side_you": "我方",
       "title_breakthrough": "破境之战",
+      "title_trial": "试炼之战",
       "title_exploration": "遭遇战",
       "wanderer": "游荡者",
       "win": "胜利",
@@ -784,10 +784,22 @@
       "title": "探索",
       "victory": "遭遇战胜利，小有斩获。"
     },
+    "trial": {
+      "title": "试炼",
+      "opponent": "试炼守卫",
+      "floor": "第 %{floor} 层 · 守关人战力 %{power}",
+      "attempt": "闯塔",
+      "attempts_left": "今日余 %{left}/%{total} 次",
+      "cleared": "已通关第 %{floor} 层",
+      "top": "试炼塔已通关，再无可攀之层。",
+      "hint": "每层守关人按境界逐级变强，首层同炼气 1 层 1 阶；通关有几率得种子、装备或功法。",
+      "won": "第 %{floor} 层通关。",
+      "lost": "第 %{floor} 层未过。",
+      "refuse_out": "尚在外游历，归来后方可试炼。",
+      "refuse_drained": "今日试炼次数已尽，明日再来。",
+      "refuse_top": "试炼塔已通关，再无可攀之层。"
+    },
     "notice": {
-      "art_failed": "修习《%{name}》未成，进度仍在。",
-      "art_ranked": "《%{name}》进阶至第 %{rank} 阶！",
-      "art_mastered": "《%{name}》已至圆满！",
       "absence": "%{days} 天未修炼，成长值 -%{charged}",
       "drop_equipment": "获得装备 %{item}",
       "drop_seed": "获得种子 %{item}",

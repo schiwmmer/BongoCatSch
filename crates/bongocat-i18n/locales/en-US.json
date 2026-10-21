@@ -743,7 +743,6 @@
       "weak": "Not enough power — find gear and herbs first.",
       "attempt": "Fight",
       "won": "Breakthrough! You have entered %{stage}.",
-      "lost": "Defeated: power %{power} against %{guardian}",
       "max": "The immortal realm is complete.",
       "held": "The next attempt in %{hours}h %{minutes}m"
     },
@@ -764,6 +763,7 @@
       "reward_gear": "Gear gained: %{name}",
       "side_foe": "Their side",
       "side_you": "Your side",
+      "title_trial": "Trial bout",
       "title_breakthrough": "The breakthrough fight",
       "title_exploration": "A chance meeting",
       "wanderer": "the wanderer",
@@ -784,10 +784,22 @@
       "title": "Exploration",
       "victory": "The wanderer was beaten, and paid for it."
     },
+    "trial": {
+      "title": "Trials",
+      "opponent": "Trial Warden",
+      "floor": "Floor %{floor} · warden power %{power}",
+      "attempt": "Climb",
+      "attempts_left": "%{left}/%{total} climbs left today",
+      "cleared": "Cleared through floor %{floor}",
+      "top": "The tower is cleared; no floor is left to climb.",
+      "hint": "Each warden is a level deeper than the last — floor one is a level-one cultivator — and a cleared floor may pay a seed, gear or an art.",
+      "won": "Floor %{floor} cleared.",
+      "lost": "Floor %{floor} was too much.",
+      "refuse_out": "Still out on a walk — the tower opens once you are home.",
+      "refuse_drained": "Today's climbs are spent; come back tomorrow.",
+      "refuse_top": "The tower is cleared; no floor is left to climb."
+    },
     "notice": {
-      "art_failed": "Training in %{name} did not take; the progress is still there.",
-      "art_ranked": "%{name} reaches rank %{rank}!",
-      "art_mastered": "%{name} is mastered!",
       "absence": "%{days} days without practice — growth -%{charged}",
       "drop_equipment": "Found gear: %{item}",
       "drop_seed": "Found a seed: %{item}",

@@ -361,6 +361,7 @@ impl SettingsView {
             "cultivation.garden.title",
             "cultivation.breakthrough.title",
             "cultivation.explore.title",
+            "cultivation.trial.title",
         ] {
             if bongocat_i18n::text(locale, key).is_empty() {
                 return Err(format!(

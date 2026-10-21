@@ -16,7 +16,7 @@ use super::*;
 use bongocat_i18n::{format_text, text};
 use bongocat_pomodoro::{
     ArtStrike, BreakthroughOutcome, DuelReport, DuelRound, ExplorationFindView, ExplorationOutcome,
-    Fighter, GUARDIAN_NAME, PLAYER_NAME, WANDERER_NAME,
+    Fighter, GUARDIAN_NAME, PLAYER_NAME, TRIAL_OPPONENT_NAME, TrialOutcome, WANDERER_NAME,
 };
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::Sizable as _;
@@ -57,6 +57,8 @@ pub(crate) enum CultivationDuelSource {
     Breakthrough,
     /// A walk out of the door.
     Exploration,
+    /// One floor of the 试炼 tower.
+    Trial,
 }
 
 /// What the fight being replayed settled.
@@ -73,6 +75,8 @@ pub(crate) enum CultivationDuelPayload {
         Option<ExplorationFindView>,
         Option<DuelReport>,
     ),
+    /// A 试炼 floor: the fight the warden settled, and what clearing it paid.
+    Trial(TrialOutcome),
 }
 
 /// The fight the cultivation page is replaying.
@@ -102,6 +106,7 @@ impl CultivationDuel {
             CultivationDuelPayload::Exploration(_, _, duel) => {
                 duel.as_ref().map_or(&[], |duel| &duel.rounds)
             }
+            CultivationDuelPayload::Trial(outcome) => &outcome.duel.rounds,
         }
     }
 
@@ -110,6 +115,7 @@ impl CultivationDuel {
         match self.source {
             CultivationDuelSource::Breakthrough => GUARDIAN_NAME,
             CultivationDuelSource::Exploration => WANDERER_NAME,
+            CultivationDuelSource::Trial => TRIAL_OPPONENT_NAME,
         }
     }
 
@@ -118,6 +124,7 @@ impl CultivationDuel {
         match &self.payload {
             CultivationDuelPayload::Breakthrough(outcome) => Some(&outcome.duel),
             CultivationDuelPayload::Exploration(_, _, duel) => duel.as_ref(),
+            CultivationDuelPayload::Trial(outcome) => Some(&outcome.duel),
         }
     }
 
@@ -133,6 +140,9 @@ impl CultivationDuel {
             CultivationDuelPayload::Exploration(_, _, duel) => {
                 duel.as_ref().map(|duel| (&duel.player, &duel.opponent))
             }
+            CultivationDuelPayload::Trial(outcome) => {
+                Some((&outcome.duel.player, &outcome.duel.opponent))
+            }
         }
     }
 
@@ -146,6 +156,7 @@ impl CultivationDuel {
                 ExplorationOutcome::Defeat => false,
                 _ => false,
             },
+            CultivationDuelPayload::Trial(outcome) => outcome.duel.won,
         }
     }
 
@@ -336,6 +347,25 @@ fn title_line(duel: &CultivationDuel, locale: &str) -> String {
             };
             text(locale, key).to_string()
         }
+        // The floor is the whole point of the fight, so it is in the title
+        // beside the name rather than buried in the payoff.
+        CultivationDuelPayload::Trial(outcome) => format!(
+            "{} · {}",
+            text(locale, "cultivation.duel.title_trial"),
+            format_text(
+                locale,
+                "cultivation.trial.floor",
+                &[
+                    ("floor", outcome.floor.to_string()),
+                    (
+                        "power",
+                        bongocat_i18n::compact_number(u64::from(bongocat_pomodoro::warden_power(
+                            outcome.floor
+                        )))
+                    ),
+                ],
+            )
+        ),
     }
 }
 
@@ -664,6 +694,58 @@ fn payoff_lines(duel: &CultivationDuel, locale: &str, tokens: Tokens) -> Vec<gpu
                 ));
             }
         }
+        CultivationDuelPayload::Trial(outcome) => {
+            lines.push(payoff(
+                "cultivation-duel-trial-floor",
+                format_text(
+                    locale,
+                    if outcome.duel.won {
+                        "cultivation.trial.won"
+                    } else {
+                        "cultivation.trial.lost"
+                    },
+                    &[("floor", outcome.floor.to_string())],
+                ),
+                if outcome.duel.won {
+                    tokens.accent
+                } else {
+                    tokens.danger
+                },
+            ));
+            if let Some(seed) = &outcome.found.seed {
+                lines.push(payoff(
+                    "cultivation-duel-trial-seed",
+                    format_text(
+                        locale,
+                        "cultivation.explore.found_seed",
+                        &[("name", seed_label(locale, seed))],
+                    ),
+                    tokens.accent,
+                ));
+            }
+            if let Some(item) = &outcome.found.gear {
+                lines.push(payoff(
+                    "cultivation-duel-trial-gear",
+                    format_text(
+                        locale,
+                        "cultivation.explore.found_gear",
+                        &[("name", item_label(locale, item))],
+                    ),
+                    tokens.accent,
+                ));
+            }
+            if let Some(name) = &outcome.found.art {
+                lines.push(payoff(
+                    "cultivation-duel-trial-art",
+                    format_text(
+                        locale,
+                        "cultivation.explore.found_art",
+                        &[("name", name.clone())],
+                    ),
+                    tokens.accent,
+                ));
+            }
+        }
         CultivationDuelPayload::Exploration(outcome, found, _) => {
             let key = match outcome {
                 ExplorationOutcome::Nothing => Some("cultivation.explore.nothing"),
@@ -744,6 +826,8 @@ fn payoff(id: &'static str, line: String, color: Hsla) -> gpui_kit::AnyElement {
         .text_xs()
         .text_color(color)
         .child(line)
+        // Marked so a frame can be asked what a settled fight paid.
+        .test_support()
         .into_any_element()
 }
 

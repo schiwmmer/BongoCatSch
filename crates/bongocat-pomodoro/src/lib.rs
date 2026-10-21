@@ -74,13 +74,14 @@ pub use cultivation::{
     RANKS_PER_LAYER, Rarity, Realm, Refusal, SEED_DROP_PERMILLE, SEED_RETURN_PERMILLE,
     SESSION_BASE_GROWTH, SESSION_EARNINGS, SHOP_MAX_OFFERS, SHOP_MIN_OFFERS, SLOT_COUNT,
     STONE_FIND_MAX, STONE_FIND_MIN, STONE_FIND_PERMILLE, SaleKind, SeedView, SessionReward,
-    ShopOffer, ShopOfferView, TradeRefusal, TrainingView, WALK_RECORD_CAP, WANDERER_NAME,
+    ShopOffer, ShopOfferView, TRIAL_ATTEMPTS_PER_DAY, TRIAL_MAX_FLOOR, TRIAL_OPPONENT_NAME,
+    TradeRefusal, TrainingView, TrialBlocked, TrialOutcome, WALK_RECORD_CAP, WANDERER_NAME,
     WalkRecord, absence_penalty, art_attributes, art_payout_at, art_price, art_view,
     base_attributes, blueprint, discipline_bonus, discipline_cap, effective_failure_permille,
-    equipment_price, external_damage, growth_permille, guardian_fighter, layer_rank,
+    equipment_price, external_damage, floor_level, growth_permille, guardian_fighter, layer_rank,
     level_for_growth, mastered_art_attributes, mastered_art_payout, mastered_art_view,
     offers_for_day, required_pomodoros, roll_offers, scaled_growth, seed_price, session_earnings,
-    session_growth, threshold_for, wanderer_fighter,
+    session_growth, threshold_for, wanderer_fighter, warden_power,
 };
 pub use document::POMODORO_TASKS_SCHEMA_VERSION;
 pub use service::{

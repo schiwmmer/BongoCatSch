@@ -58,7 +58,26 @@ pub enum EventDetail {
     },
     /// The guardian was fought. A wanderer fight is part of the walk that met
     /// it, so it needs no line of its own.
-    Breakthrough { won: bool },
+    ///
+    /// `stage` is the realm the win opened, so the line can name it: the page
+    /// used to say "破境成功，晋入元婴" in a sticky notice above this log, and
+    /// carrying the realm here is what let that notice go without the log
+    /// losing the name. An old save's events predate the field and read as the
+    /// bare line they always said.
+    Breakthrough {
+        won: bool,
+        #[serde(default)]
+        stage: Option<u8>,
+    },
+    /// A 试炼 floor was climbed. The warden is the tower's own; what the win
+    /// turned up travels by name, the way a walk's finds do.
+    Trial {
+        floor: u16,
+        won: bool,
+        art: Option<String>,
+        gear: Option<String>,
+        seed: Option<String>,
+    },
     /// Something was bought at the market, for this much.
     ///
     /// `stones` is what the purchase paid; an old save's events predate the

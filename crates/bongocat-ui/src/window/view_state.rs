@@ -621,6 +621,13 @@ impl SettingsView {
                     )
                 }),
             ),
+            CultivationDuelSource::Trial => (
+                cultivation.trial_attempts,
+                cultivation
+                    .last_trial
+                    .clone()
+                    .map(cultivation_duel::CultivationDuelPayload::Trial),
+            ),
         };
         if count <= asked_at {
             // Not answered yet: the next tick asks again.
@@ -665,6 +672,7 @@ impl SettingsView {
         let count = match source {
             CultivationDuelSource::Breakthrough => cultivation.breakthrough_attempts,
             CultivationDuelSource::Exploration => cultivation.explorations,
+            CultivationDuelSource::Trial => cultivation.trial_attempts,
         };
         let _ = self.pomodoro.try_publish(command);
         self.cultivation_duel_pending = Some((source, count));

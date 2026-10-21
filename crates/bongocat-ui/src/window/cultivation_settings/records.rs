@@ -232,15 +232,44 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
                 &[("name", name.clone()), ("rank", rank.to_string())],
             )
         }
-        EventDetail::Breakthrough { won } => text(
+        EventDetail::Breakthrough { won, stage } => {
+            // A win names the realm it opened, the way the sticky notice above
+            // this log used to: the notice is gone because the log is the same
+            // line said twice, but the realm it named is not lost.
+            match (*won, *stage) {
+                (true, Some(stage)) => format_text(
+                    locale,
+                    "cultivation.breakthrough.won",
+                    &[(
+                        "stage",
+                        text(locale, Realm::from_index(usize::from(stage)).name_key()).to_string(),
+                    )],
+                ),
+                _ => text(
+                    locale,
+                    if *won {
+                        "cultivation.event.breakthrough_won"
+                    } else {
+                        "cultivation.event.breakthrough_lost"
+                    },
+                )
+                .to_string(),
+            }
+        }
+        EventDetail::Trial {
+            floor,
+            won,
+            art,
+            gear,
+            seed,
+        } => trial_line(
+            *floor,
+            *won,
+            art.as_deref(),
+            gear.as_deref(),
+            seed.as_deref(),
             locale,
-            if *won {
-                "cultivation.event.breakthrough_won"
-            } else {
-                "cultivation.event.breakthrough_lost"
-            },
-        )
-        .to_string(),
+        ),
         EventDetail::Bought { what, stones } => {
             // An old save's purchases predate the price and read as zero; the
             // bare line is what those events said, so that is what they keep
@@ -331,6 +360,59 @@ fn walk_line(
             text(locale, outcome.record_outcome_key()).to_string(),
         )],
     );
+    push_finds(&mut line, art, gear, seed, locale);
+    if let Some(amount) = stones {
+        line.push_str(&format!(
+            " · {}",
+            format_text(
+                locale,
+                "cultivation.record.found_stones",
+                &[("value", amount.to_string())]
+            )
+        ));
+    }
+    line
+}
+
+/// One 试炼 floor, as a single line: whether it was cleared and what it paid.
+///
+/// The finds are named beside the floor for the same reason a walk names them:
+/// the tower pays the three kinds a walk does, and a line that said only "floor
+/// nine cleared" would leave the user guessing what came of it.
+fn trial_line(
+    floor: u16,
+    won: bool,
+    art: Option<&str>,
+    gear: Option<&str>,
+    seed: Option<&str>,
+    locale: &str,
+) -> String {
+    let mut line = format_text(
+        locale,
+        if won {
+            "cultivation.trial.won"
+        } else {
+            "cultivation.trial.lost"
+        },
+        &[("floor", floor.to_string())],
+    );
+    if won {
+        push_finds(&mut line, art, gear, seed, locale);
+    }
+    line
+}
+
+/// Name what a walk or a floor turned up, one segment per find.
+///
+/// Shared by the two lines that can pay all three kinds at once, so the wording
+/// of "found an art" cannot drift between them: one find, one sentence.
+fn push_finds(
+    line: &mut String,
+    art: Option<&str>,
+    gear: Option<&str>,
+    seed: Option<&str>,
+    locale: &str,
+) {
     for found in [
         art.map(|name| ("cultivation.record.found_art", name)),
         gear.map(|name| ("cultivation.record.found_gear", name)),
@@ -344,15 +426,4 @@ fn walk_line(
             format_text(locale, found.0, &[("name", found.1.to_owned())])
         ));
     }
-    if let Some(amount) = stones {
-        line.push_str(&format!(
-            " · {}",
-            format_text(
-                locale,
-                "cultivation.record.found_stones",
-                &[("value", amount.to_string())]
-            )
-        ));
-    }
-    line
 }

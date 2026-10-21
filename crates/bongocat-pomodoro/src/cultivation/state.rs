@@ -35,6 +35,10 @@ use super::{
     mastery_permille, scaled_growth,
     shop::{self, SESSION_EARNINGS, ShopOffer, ShopOfferView},
     trade::TradeRefusal,
+    trial::{
+        TRIAL_ATTEMPTS_PER_DAY, TRIAL_MAX_FLOOR, TrialReward, floor_realm, roll_reward,
+        warden_fighter, warden_power,
+    },
 };
 use crate::CalendarDay;
 
@@ -80,6 +84,52 @@ pub struct BreakthroughOutcome {
     pub lost: Option<String>,
     /// The 功法 a win paid. A win always pays one; a loss never does.
     pub granted_art: Option<String>,
+}
+
+/// What one 试炼 floor came to.
+///
+/// The duel travels whole, the way a breakthrough's does, because the tower is
+/// watched blow by blow like every other fight; what the win turned up travels
+/// as the same find a walk reports, since the three kinds are the same three.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrialOutcome {
+    /// The floor that was climbed, one-based.
+    pub floor: u16,
+    /// Every blow of the fight that settled it.
+    pub duel: DuelReport,
+    /// What clearing the floor turned up. A loss finds nothing but the floor.
+    pub found: ExplorationFindView,
+}
+
+/// Why a 试炼 floor cannot be climbed right now.
+///
+/// The page needs a reason to print beside a dead button, and it is the same
+/// reason the domain refuses with — so the two cannot disagree about whether
+/// the tower is closed or the day is spent.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TrialBlocked {
+    /// The cultivator is still out on a walk: the tower is climbed at home.
+    Out,
+    /// The day's floors are used up.
+    Drained,
+    /// Every floor of the tower is behind the save already.
+    Top,
+}
+
+impl TrialBlocked {
+    /// The domain refusal this state would produce.
+    pub const fn refusal(self) -> Refusal {
+        match self {
+            Self::Out => Refusal::TrialOut,
+            Self::Drained => Refusal::TrialDrained,
+            Self::Top => Refusal::TrialTop,
+        }
+    }
+
+    /// The catalog key saying why the tower is closed.
+    pub const fn key(self) -> &'static str {
+        self.refusal().key()
+    }
 }
 
 /// What a harvest took from a plot.
@@ -275,6 +325,21 @@ pub struct CultivationView {
     pub breakthrough_attempts: u32,
     /// How many walks have been taken so far.
     pub explorations: u32,
+    /// The highest 试炼 floor cleared, zero before the tower is entered.
+    pub trial_floor: u16,
+    /// The floor the next attempt climbs.
+    pub trial_next_floor: u16,
+    /// What that floor's warden is worth, as the panel prints it.
+    pub trial_warden_power: u32,
+    /// How many floors the local day still offers.
+    pub trial_attempts_left: u32,
+    /// Why a floor cannot be climbed right now, or `None` when one can.
+    pub trial_blocked: Option<TrialBlocked>,
+    /// The fight the last floor settled, for the popup that replays it.
+    pub last_trial: Option<TrialOutcome>,
+    /// How many floors have been attempted, so a surface can tell a new report
+    /// from one it has already shown.
+    pub trial_attempts: u32,
     /// What the next finished session pays, in growth.
     ///
     /// A number rather than a percentage: the four disciplines that decide it
@@ -363,6 +428,13 @@ pub struct Cultivation {
     last_exploration: Option<ExplorationOutcome>,
     /// What the last walk turned up, when it turned something up.
     last_exploration_found: Option<ExplorationFindView>,
+    /// The floor the last trial settled, if one was climbed this session.
+    last_trial: Option<TrialOutcome>,
+    /// How many floors have been attempted this session. A surface watches this
+    /// rather than the report, for the same reason it watches
+    /// [`Self::breakthrough_attempts`]: a running pomodoro bumps the revision
+    /// every second.
+    trial_attempts: u32,
     /// How many breakthroughs have been fought. A surface watches this rather
     /// than the report: a pomodoro tick bumps the snapshot revision every
     /// second, so "the revision moved" cannot tell a new fight from a running
@@ -401,6 +473,8 @@ impl Cultivation {
             last_exploration_duel: None,
             last_exploration: None,
             last_exploration_found: None,
+            last_trial: None,
+            trial_attempts: 0,
             breakthrough_attempts: 0,
             last_refusal: None,
             refusal_count: 0,
@@ -1021,7 +1095,15 @@ impl Cultivation {
         // Won fights are what train the 战斗 dimension; a loss is not counted
         // there, and only ever shows up in the record below.
         self.record_duel(duel.won, FightKind::Guardian, now_unix);
-        self.push_event(now_unix, EventDetail::Breakthrough { won: duel.won });
+        self.push_event(
+            now_unix,
+            EventDetail::Breakthrough {
+                won: duel.won,
+                // The realm the win opened, carried so the log can name it the
+                // way the notice above used to.
+                stage: Some(guardian.target.index() as u8),
+            },
+        );
         if !duel.won {
             self.document.breakthrough_failures =
                 self.document.breakthrough_failures.saturating_add(1);
@@ -1348,6 +1430,112 @@ impl Cultivation {
         Some(outcome)
     }
 
+    /// The floor the next attempt climbs.
+    ///
+    /// A trial only ever offers the floor above the highest one cleared: the
+    /// climb is a frontier, not a menu, so re-fighting ground already held
+    /// cannot be used to farm a tier the save has outgrown.
+    pub fn trial_next_floor(&self) -> u16 {
+        self.document.trial_floor.saturating_add(1)
+    }
+
+    /// How many floors the local day still offers.
+    ///
+    /// Reset by the day rather than by elapsed time: five floors belong to a
+    /// date the way the shelf does, so a save that has not played since
+    /// yesterday is owed five today whatever the hour.
+    pub fn trial_attempts_left(&self, day: i64) -> u32 {
+        if self.document.trial_day != Some(day) {
+            return TRIAL_ATTEMPTS_PER_DAY;
+        }
+        TRIAL_ATTEMPTS_PER_DAY.saturating_sub(self.document.trial_attempts_today)
+    }
+
+    /// Why the tower is closed right now, or `None` when a floor can be climbed.
+    ///
+    /// Three different walls, and the page prints which one it hit: out on a
+    /// walk, out of attempts, or past the last floor. A button that went quiet
+    /// without saying which would read as broken.
+    pub fn trial_blocked(&self, now_unix: i64, day: i64) -> Option<TrialBlocked> {
+        if self.trial_next_floor() > TRIAL_MAX_FLOOR {
+            return Some(TrialBlocked::Top);
+        }
+        if !exploration_ready(self.document.last_exploration_unix, now_unix) {
+            return Some(TrialBlocked::Out);
+        }
+        if self.trial_attempts_left(day) == 0 {
+            return Some(TrialBlocked::Drained);
+        }
+        None
+    }
+
+    /// Climb one floor of the 试炼 tower.
+    ///
+    /// The gate is the day's attempts and the cultivator's whereabouts, not a
+    /// cost: a floor is refused while a walk is still out — the tower is climbed
+    /// at home — and while the day's five are spent. A win clears the floor,
+    /// moves the frontier up one and rolls what it turned up; a loss costs
+    /// nothing but the attempt, and leaves the frontier where it stood, so the
+    /// tower is a wall to be worn down rather than a ladder that drops.
+    pub fn trial(&mut self, now_unix: i64, day: i64) -> Option<TrialOutcome> {
+        if let Some(blocked) = self.trial_blocked(now_unix, day) {
+            self.note_refusal(blocked.refusal());
+            return None;
+        }
+        // The day is stamped on the first floor of it, so the count the page
+        // reads and the count the next attempt spends cannot disagree.
+        if self.document.trial_day != Some(day) {
+            self.document.trial_day = Some(day);
+            self.document.trial_attempts_today = 0;
+        }
+        let floor = self.trial_next_floor();
+        self.document.trial_attempts_today = self.document.trial_attempts_today.saturating_add(1);
+        self.document.trials = self.document.trials.saturating_add(1);
+        self.trial_attempts = self.trial_attempts.saturating_add(1);
+        let mut rng = self.rng(now_unix);
+        let fighter = self.fighter(&mut rng);
+        let duel = duel(fighter, warden_fighter(floor), &mut rng);
+        self.record_duel(duel.won, FightKind::Trial, now_unix);
+        let mut found = ExplorationFindView::default();
+        if duel.won {
+            self.document.trial_floor = floor.min(TRIAL_MAX_FLOOR);
+            // The floor is a level, so its goods are that level's realm's goods:
+            // climbing past your own realm is how the tower pays a tier the
+            // garden and the road cannot reach yet.
+            let tier = floor_realm(floor).index() as u8 + 1;
+            match roll_reward(&mut rng) {
+                TrialReward::Seed => {
+                    let attribute =
+                        Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
+                    found.seed = Some(self.push_seed(attribute, tier, &mut rng));
+                }
+                TrialReward::Gear => {
+                    let item = self.push_equipment(tier, &mut rng);
+                    found.gear = Some(self.item_view(&item));
+                }
+                TrialReward::Art => {
+                    found.art = self
+                        .grant_art(art_grade_for_realm(floor_realm(floor)), now_unix)
+                        .map(|art| art.name);
+                }
+                TrialReward::Nothing => {}
+            }
+        }
+        self.push_event(
+            now_unix,
+            EventDetail::Trial {
+                floor,
+                won: duel.won,
+                art: found.art.clone(),
+                gear: found.gear.as_ref().and_then(|item| item.name.clone()),
+                seed: found.seed.as_ref().and_then(|seed| seed.name.clone()),
+            },
+        );
+        let outcome = TrialOutcome { floor, duel, found };
+        self.last_trial = Some(outcome.clone());
+        Some(outcome)
+    }
+
     /// The guardian offered right now, or `None` while the realm still has
     /// layers to climb.
     pub fn guardian(&self) -> Option<Guardian> {
@@ -1533,6 +1721,13 @@ impl Cultivation {
             breakthrough_ready_at: self.document.breakthrough_blocked_until,
             breakthrough_attempts: self.breakthrough_attempts,
             explorations: self.document.explorations,
+            trial_floor: self.document.trial_floor,
+            trial_next_floor: self.trial_next_floor(),
+            trial_warden_power: warden_power(self.trial_next_floor()),
+            trial_attempts_left: self.trial_attempts_left(day),
+            trial_blocked: self.trial_blocked(now_unix, day),
+            last_trial: self.last_trial.clone(),
+            trial_attempts: self.trial_attempts,
             next_session_growth: self.next_session_growth(day),
             derived_breakdowns: derived.breakdowns(attributes),
             duel_record: self.document.duel_record.clone(),
@@ -2150,5 +2345,140 @@ mod tests {
         assert_eq!(discipline_bonus(Discipline::Fight, 0, 5, realm), 250);
         assert_eq!(discipline_bonus(Discipline::Fortune, 0, 3, realm), 150);
         assert_eq!(growth_permille(realm, 0, 7, 5, 3), 1_750);
+    }
+
+    /// A save standing on a level with nothing worn and nothing trained.
+    fn a_bare_save_at(level: u16) -> Cultivation {
+        Cultivation::new(CultivationDocument {
+            growth: threshold_for(level),
+            realm: Realm::from_level(level).index() as u8,
+            ..CultivationDocument::default()
+        })
+    }
+
+    /// The tower is closed for two different reasons, and the page is told
+    /// which: out on a walk, and out of the day's floors.
+    #[test]
+    fn the_tower_opens_only_at_home_and_only_while_the_day_has_floors() {
+        let mut cultivation = a_bare_save_at(20);
+        cultivation.document.last_exploration_unix = Some(1_000);
+        assert_eq!(cultivation.trial_blocked(1_001, 9), Some(TrialBlocked::Out));
+        assert!(
+            cultivation.trial(1_001, 9).is_none(),
+            "a walk that has not come back closes the tower"
+        );
+        assert_eq!(
+            cultivation.view_on(1_001, 9).last_refusal.map(Refusal::key),
+            Some("cultivation.trial.refuse_out")
+        );
+
+        // Home: five floors belong to the day, and the sixth does not.
+        cultivation.document.last_exploration_unix = None;
+        let mut climbed = 0;
+        for step in 0..TRIAL_ATTEMPTS_PER_DAY {
+            let now = 10_000 + i64::from(step) * 60;
+            assert!(cultivation.trial(now, 9).is_some(), "floor {step} was owed");
+            climbed += 1;
+        }
+        assert_eq!(climbed, TRIAL_ATTEMPTS_PER_DAY);
+        assert_eq!(
+            cultivation.trial_blocked(20_000, 9),
+            Some(TrialBlocked::Drained)
+        );
+        assert!(cultivation.trial(20_000, 9).is_none());
+        assert_eq!(
+            cultivation
+                .view_on(20_000, 9)
+                .last_refusal
+                .map(Refusal::key),
+            Some("cultivation.trial.refuse_drained")
+        );
+
+        // The next local day hands out the same five.
+        let view = cultivation.view_on(20_000, 10);
+        assert_eq!(view.trial_attempts_left, TRIAL_ATTEMPTS_PER_DAY);
+        assert!(view.trial_blocked.is_none());
+        assert!(cultivation.trial(20_001, 10).is_some());
+        assert_eq!(
+            cultivation.trial_attempts_left(10),
+            TRIAL_ATTEMPTS_PER_DAY - 1
+        );
+    }
+
+    /// A win moves the frontier up one floor; a loss costs the attempt and
+    /// leaves the frontier where it stood, so the tower is a wall rather than a
+    /// ladder that drops.
+    #[test]
+    fn a_win_moves_the_frontier_and_a_loss_holds_it() {
+        let mut climbing = a_bare_save_at(30);
+        let won = climbing.trial(1_000, 9).expect("the first floor is owed");
+        assert_eq!(won.floor, 1, "the climb starts at the first floor");
+        assert!(won.duel.won, "a level thirty save clears the first floor");
+        assert_eq!(climbing.document.trial_floor, 1);
+        assert_eq!(climbing.trial_next_floor(), 2);
+
+        let mut walled = a_bare_save_at(30);
+        walled.document.trial_floor = TRIAL_MAX_FLOOR - 1;
+        let lost = walled.trial(1_000, 9).expect("the top floor is still owed");
+        assert_eq!(lost.floor, TRIAL_MAX_FLOOR);
+        assert!(
+            !lost.duel.won,
+            "the top of the tower is not cleared by level 30"
+        );
+        assert_eq!(
+            walled.document.trial_floor,
+            TRIAL_MAX_FLOOR - 1,
+            "a loss costs the attempt, not the ground already held"
+        );
+        assert!(lost.found.is_empty(), "a loss finds nothing");
+
+        // Every floor is behind this save now, and the tower says so.
+        walled.document.trial_floor = TRIAL_MAX_FLOOR;
+        assert_eq!(walled.trial_blocked(20_000, 9), Some(TrialBlocked::Top));
+        assert_eq!(
+            walled.view_on(20_000, 9).last_refusal,
+            None,
+            "reading the view is not a refusal"
+        );
+    }
+
+    /// The tower is the ladder read sideways: a floor stands for a level, and
+    /// the warden is that level's cultivator softened. This is the number that
+    /// makes "how far can I climb" a question gear answers, so it is locked
+    /// here — a retune of the attributes or the duel that moves the frontier a
+    /// whole realm away from the save's own level fails this.
+    #[test]
+    fn a_naked_save_holds_its_own_level_and_not_much_past_it() {
+        let win_rate = |level: u16, floor: u16| {
+            let runs = 200;
+            let wins = (0..runs)
+                .filter(|attempt: &usize| {
+                    let mut cultivation = a_bare_save_at(level);
+                    cultivation.document.trial_floor = floor - 1;
+                    cultivation
+                        .trial(1_000 + (*attempt as i64) * 977, 9)
+                        .is_some_and(|outcome| outcome.duel.won)
+                })
+                .count();
+            wins * 100 / runs
+        };
+        for level in [10_u16, 100, 500, 1_000] {
+            let own = win_rate(level, level);
+            assert!(
+                own >= 85,
+                "level {level} holds its own floor only {own}% of the time"
+            );
+        }
+        // The flat base numbers (攻击 ten, 生命 a hundred) dominate the first
+        // realm, so its floors are a notch softer than the ladder's arithmetic
+        // says — that is the on-ramp, and it is only the first realm's.
+        for level in [100_u16, 500, 800] {
+            let past = (u32::from(level) * 125 / 100).min(u32::from(TRIAL_MAX_FLOOR)) as u16;
+            let past_rate = win_rate(level, past);
+            assert!(
+                past_rate <= 15,
+                "level {level} clears floor {past} a quarter past it {past_rate}% of the time"
+            );
+        }
     }
 }

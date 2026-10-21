@@ -46,6 +46,7 @@ mod items;
 mod shop;
 mod state;
 mod trade;
+mod trial;
 
 #[cfg(test)]
 mod tests;
@@ -84,9 +85,12 @@ pub use shop::{
 pub use state::{
     AbsenceCharge, BreakthroughOutcome, CropView, Cultivation, CultivationView, Drop, DropView,
     ExplorationFindView, GuardianView, HarvestOutcome, ItemView, PlotView, SeedView, SessionReward,
-    TrainingView,
+    TrainingView, TrialBlocked, TrialOutcome,
 };
 pub use trade::{TradeRefusal, session_earnings};
+pub use trial::{
+    TRIAL_ATTEMPTS_PER_DAY, TRIAL_MAX_FLOOR, TRIAL_OPPONENT_NAME, floor_level, warden_power,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -106,6 +110,13 @@ pub enum Refusal {
     Trade(TradeRefusal),
     /// A walk was asked for while the last one is still on cooldown.
     ExploreCooldown,
+    /// A trial was asked for while the cultivator is still out on a walk: the
+    /// tower is climbed at home, so an unreturned walk closes it.
+    TrialOut,
+    /// A trial was asked for after the day's floors were used up.
+    TrialDrained,
+    /// A trial was asked for on a save that has already cleared the top floor.
+    TrialTop,
 }
 
 impl Refusal {
@@ -114,6 +125,9 @@ impl Refusal {
         match self {
             Self::Trade(trade) => trade.key(),
             Self::ExploreCooldown => "cultivation.explore.refuse_cooldown",
+            Self::TrialOut => "cultivation.trial.refuse_out",
+            Self::TrialDrained => "cultivation.trial.refuse_drained",
+            Self::TrialTop => "cultivation.trial.refuse_top",
         }
     }
 }

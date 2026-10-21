@@ -232,6 +232,9 @@ pub enum PomodoroCommand {
     SelectArt { art_id: Option<u64> },
     /// Walk out of the door: one exploration, gated by its own cooldown.
     Explore,
+    /// Climb one floor of the 试炼 tower: gated by the day's attempts and by
+    /// being home rather than out on a walk.
+    Trial,
     /// Credit growth for raw keyboard or mouse activity. `count` is how many
     /// interactions happened since the last credit, batched by the caller so a
     /// fast typist does not publish one command per keystroke.
@@ -277,6 +280,7 @@ impl PomodoroCommand {
             | Self::Breakthrough
             | Self::SelectArt { .. }
             | Self::Explore
+            | Self::Trial
             | Self::RecordInput { .. } => true,
             // A trade is the one command that can be refused, and the state knows
             // whether it was: `apply` records the outcome and the writer reads it,
@@ -430,6 +434,10 @@ impl PomodoroState {
             }
             PomodoroCommand::Explore => {
                 self.cultivation.explore(now_unix);
+            }
+            PomodoroCommand::Trial => {
+                let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
+                self.cultivation.trial(now_unix, today.day_number());
             }
             PomodoroCommand::RecordInput { count } => {
                 for _ in 0..count {

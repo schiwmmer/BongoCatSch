@@ -14,9 +14,10 @@ use super::*;
 use crate::window::cultivation_duel;
 use crate::window::cultivation_settings;
 use bongocat_pomodoro::{
-    Cultivation, CultivationDocument, DuelReport, DuelRound, EventDetail, EventRecord,
-    ExplorationOutcome, Fighter, LAYERS_PER_STAGE, OwnedArt, PLAYER_NAME, PomodoroCommand,
-    PomodoroSnapshot, PomodoroState, WANDERER_NAME, threshold_for,
+    ArtOutcome, Cultivation, CultivationDocument, DuelReport, DuelRound, EventDetail, EventRecord,
+    ExplorationFindView, ExplorationOutcome, Fighter, LAYERS_PER_STAGE, OwnedArt, PLAYER_NAME,
+    PomodoroCommand, PomodoroSnapshot, PomodoroState, TrainingView, TrialBlocked, TrialOutcome,
+    WANDERER_NAME, threshold_for,
 };
 
 /// The page mounted on its own.
@@ -430,7 +431,10 @@ fn the_page_draws_the_next_session_worth_and_the_record(cx: &mut TestAppContext)
         events: vec![
             EventRecord {
                 at_unix: 1_000,
-                detail: EventDetail::Breakthrough { won: true },
+                detail: EventDetail::Breakthrough {
+                    won: true,
+                    stage: Some(1),
+                },
             },
             EventRecord {
                 at_unix: 2_000,
@@ -833,5 +837,121 @@ fn the_art_row_shows_the_rank_ladder_and_its_progress(cx: &mut TestAppContext) {
         "cultivation-art-progress-1",
     ] {
         assert!(painted(visual, id), "the page must draw {id}");
+    }
+}
+
+/// The tower is a button like the walk: a click has to reach the worker.
+#[gpui_kit::test]
+fn clicking_the_tower_asks_the_worker_for_a_floor(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        growth: threshold_for(20),
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    for id in [
+        "cultivation-trial",
+        "cultivation-trial-floor",
+        "cultivation-trial-status",
+        "cultivation-trial-attempt",
+    ] {
+        assert!(painted(visual, id), "the tower must draw {id}");
+    }
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-trial-attempt", cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(commands.as_slice(), [PomodoroCommand::Trial]),
+        "the click asks the worker for a floor: {commands:?}"
+    );
+}
+
+/// A closed tower says which wall was hit and cannot be clicked through: the
+/// day's floors and the walk are rules, not suggestions.
+#[gpui_kit::test]
+fn a_closed_tower_says_why_and_publishes_nothing(cx: &mut TestAppContext) {
+    let mut cultivation = Cultivation::default().view();
+    cultivation.trial_attempts_left = 0;
+    cultivation.trial_blocked = Some(TrialBlocked::Drained);
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-trial-status"),
+        "the reason has to be on the page"
+    );
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-trial-attempt", cx);
+    });
+    assert!(
+        published(&sink).is_empty(),
+        "a spent day cannot be clicked past"
+    );
+}
+
+/// The notices above the log are not the log: a 功法 turning over is recorded
+/// once, in the history, and a sticky line saying the same sentence again read
+/// as two events.
+#[gpui_kit::test]
+fn the_log_is_not_repeated_above_itself(cx: &mut TestAppContext) {
+    let mut cultivation = Cultivation::default().view();
+    cultivation.last_training = Some(TrainingView {
+        art_id: 1,
+        name: "a book".to_owned(),
+        outcome: ArtOutcome::RankedUp,
+        rank: 1,
+    });
+    cultivation.events = vec![EventRecord {
+        at_unix: 1_000,
+        detail: EventDetail::Training {
+            name: "a book".to_owned(),
+            outcome: ArtOutcome::RankedUp,
+            rank: 1,
+        },
+    }];
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        !painted(visual, "cultivation-notice-art"),
+        "the training line belongs to the log, not above it"
+    );
+    assert!(
+        painted(visual, "cultivation-event-0"),
+        "the log still has to say it"
+    );
+}
+
+/// A trial floor is replayed like every other fight, and the popup names the
+/// floor and what clearing it paid.
+#[gpui_kit::test]
+fn the_trial_popup_names_the_floor_and_what_it_paid(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let mut duel = CultivationDuel::new(
+        CultivationDuelSource::Trial,
+        cultivation_duel::CultivationDuelPayload::Trial(TrialOutcome {
+            floor: 9,
+            duel: walk_report(),
+            found: ExplorationFindView::default(),
+        }),
+    );
+    // A verdict under a half-read fight spoils it, so the replay is shown to its
+    // end before the payoff is asked for.
+    duel.reveal_all();
+    let (_, visual) =
+        cx.add_window_view(move |window, cx| Root::new(cx.new(|_| DuelPopup(duel)), window, cx));
+    visual.update(|window, cx| window.render_frame(cx));
+    for id in [
+        "cultivation-duel-health-player",
+        "cultivation-duel-side-opponent",
+        "cultivation-duel-log",
+        "cultivation-duel-trial-floor",
+    ] {
+        assert!(painted(visual, id), "the trial popup must paint {id}");
     }
 }

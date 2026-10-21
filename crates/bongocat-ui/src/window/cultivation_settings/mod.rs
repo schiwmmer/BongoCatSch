@@ -17,8 +17,8 @@ use bongocat_i18n::{compact_number, format_text, text};
 use bongocat_pomodoro::{
     ArtKind, ArtOutcome, ArtView, Attribute, Attributes, CultivationView, DropView, EquipSlot,
     EventDetail, EventRecord, ExplorationOutcome, ItemView, MAX_LEVEL, MasteredArtView, PlotView,
-    PomodoroCommand, Realm, SaleKind, ShopOffer, ShopOfferView, art_payout_at, blueprint,
-    mastered_art_payout,
+    PomodoroCommand, Realm, SaleKind, ShopOffer, ShopOfferView, TRIAL_ATTEMPTS_PER_DAY,
+    TrialBlocked, art_payout_at, blueprint, mastered_art_payout,
 };
 
 use gpui_kit::component::Sizable as _;
@@ -35,6 +35,7 @@ mod garden;
 mod gear;
 mod records;
 mod shop;
+mod trial;
 
 pub(super) use attributes::{CombatStats, derived_rows};
 // Only the headless page tests read the formula directly; the lib itself
@@ -51,6 +52,7 @@ use gear::{equipment_panel, inventory_panel};
 pub(super) use records::events_overlay;
 use records::record_section;
 use shop::shop_panel;
+use trial::trial_panel;
 
 /// How wide the growth bar is drawn, and therefore how wide its filled part is.
 const GROWTH_BAR_WIDTH: f32 = 180.0;
@@ -116,6 +118,7 @@ pub(super) fn content(
         .child(garden_panel(&view, &cultivation, locale, tokens))
         .child(breakthrough_panel(&view, &cultivation, locale, tokens))
         .child(exploration_panel(&view, &cultivation, locale, tokens))
+        .child(trial_panel(&view, &cultivation, locale, tokens))
         .child(shop_panel(&view, &cultivation, open_offer, locale, tokens))
         .into_any_element()
 }
@@ -277,11 +280,15 @@ fn growth_bar(tokens: Tokens, fraction: f32) -> impl IntoElement {
         )
 }
 
-/// The last penalty, drop and breakthrough, when this session produced one.
+/// The last penalty and the last thing a fight dropped, when this session
+/// produced one.
 ///
-/// They are sticky rather than a toast: the snapshot carries the most recent
-/// event, so a notice left on the page is the record of what happened last,
-/// which is what a user coming back to the page wants to see.
+/// These three are the notices that survived: a charge, a piece of gear lost and
+/// a seed returned are facts the event log below does not carry, so a sticky
+/// line is the only place the user can read them. What the log *does* carry —
+/// a 功法 turning over, a guardian falling — is no longer repeated here: the
+/// same sentence twice, one above the other, read as two events rather than one,
+/// and the log is the one that keeps them past a restart.
 fn notices(
     cultivation: &CultivationView,
     locale: &str,
@@ -343,49 +350,10 @@ fn notices(
             .into_any_element(),
         );
     }
-    if let Some(training) = &cultivation.last_training {
-        let (key, color) = match training.outcome {
-            ArtOutcome::Failed => ("cultivation.notice.art_failed", tokens.muted),
-            ArtOutcome::Mastered => ("cultivation.notice.art_mastered", tokens.accent),
-            _ => ("cultivation.notice.art_ranked", tokens.accent),
-        };
-        let line = format_text(
-            locale,
-            key,
-            &[
-                ("name", training.name.clone()),
-                ("rank", training.rank.to_string()),
-            ],
-        );
-        notices.push(notice("cultivation-notice-art", line, color).into_any_element());
-    }
-    if let Some(outcome) = &cultivation.last_breakthrough {
-        let line = if outcome.report.won {
-            format_text(
-                locale,
-                "cultivation.breakthrough.won",
-                &[("stage", text(locale, outcome.target.name_key()).to_string())],
-            )
-        } else {
-            format_text(
-                locale,
-                "cultivation.breakthrough.lost",
-                &[
-                    ("power", outcome.report.player_power.to_string()),
-                    ("guardian", outcome.report.guardian_power.to_string()),
-                ],
-            )
-        };
-        let color = if outcome.report.won {
-            tokens.accent
-        } else {
-            tokens.danger
-        };
-        notices.push(notice("cultivation-notice-breakthrough", line, color).into_any_element());
-    }
-    // What a walk turned up is not repeated here: the event log below the
-    // notices records every walk in order, and a find printed twice — once as
-    // a sticky line and once as history — read as two finds.
+    // What a walk turned up, and what a trial floor paid, are not repeated
+    // here: the event log below the notices records every walk and every floor
+    // in order, and a find printed twice — once as a sticky line and once as
+    // history — read as two finds.
     notices
 }
 

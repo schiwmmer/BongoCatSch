@@ -129,6 +129,8 @@ pub enum FightKind {
     Guardian,
     /// Someone met on a walk.
     Wanderer,
+    /// The warden of a 试炼 floor.
+    Trial,
 }
 
 impl FightKind {
@@ -137,6 +139,7 @@ impl FightKind {
         match self {
             Self::Guardian => "cultivation.record.guardian",
             Self::Wanderer => "cultivation.record.wanderer",
+            Self::Trial => "cultivation.trial.title",
         }
     }
 }
