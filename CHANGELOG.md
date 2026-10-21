@@ -31,6 +31,9 @@
 - Every derived figure on the cultivation page carries the formula that computes it, naming the attributes it reads the way the page names them everywhere else.
 - The growth curve is retuned so a realm is a stretch worth remembering: filling the first realm's layer takes about six days of sessions instead of one, and the whole ladder runs about two years. An existing save keeps its level, its free points, its gear and its 功法 — the curve is re-labeled once, underneath them.
 - The cultivation page's event log keeps the last five events on the page and hands the rest to a popup: one click opens the full history the save still remembers, scrollable, with the backdrop or the close button closing it.
+- The garden sells plots: the four beds it starts with are free, and five more can be bought with 灵石, each dearer than the last, up to nine in all, three to a row.
+- Seeds of the third tier take four hours to mature and the fourth twelve, and every tier past that triples again; the wait reads in minutes, hours or days, whichever fits.
+- A fight reaches for one of the three strongest 外功 at random, and a book that has not been trained to its first 阶 stays on the shelf; an 外功's 内力 price has doubled.
 
 ### 🗑️ Removals
 
@@ -50,6 +53,8 @@
 - Free points can be placed ten at a time once ten are banked, beside the single one, and the pomodoro picker's right-click menu gains a jump straight to the cultivation page.
 - The sticky notices under the next-pomodoro line no longer repeat a walk: what a walk found is in the event log alone, so one event is printed once.
 - A 功法 on the shelf says where its training stands under its name: the 阶 the grade has, what the next one costs in pomodoros, and how far into it the book already is. A finished one says it stands complete.
+- A 功法 trained to its first 阶 shows in the learned panel as far as it has gone: the 阶 it stands at beside the name, what it has paid for so far, and no mastery while any is missing.
+- A purchase in the event log says what it cost, and a bought seed says which tier it is.
 
 ### 🌍 Localization
 
