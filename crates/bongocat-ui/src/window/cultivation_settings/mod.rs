@@ -16,8 +16,8 @@ use super::*;
 use bongocat_i18n::{compact_number, format_text, text};
 use bongocat_pomodoro::{
     ArtKind, ArtOutcome, ArtView, Attribute, Attributes, CultivationView, DropView, EquipSlot,
-    EventDetail, ExplorationOutcome, ItemView, MAX_LEVEL, MasteredArtView, PomodoroCommand, Realm,
-    SaleKind, ShopOffer, ShopOfferView, blueprint, mastered_art_payout,
+    EventDetail, EventRecord, ExplorationOutcome, ItemView, MAX_LEVEL, MasteredArtView,
+    PomodoroCommand, Realm, SaleKind, ShopOffer, ShopOfferView, blueprint, mastered_art_payout,
 };
 
 use gpui_kit::component::Sizable as _;
@@ -45,6 +45,9 @@ use attributes::{attributes_panel, derived_panel};
 use explore::{breakthrough_panel, exploration_panel};
 use garden::{garden_panel, seed_panel};
 use gear::{equipment_panel, inventory_panel};
+// The history popup is mounted by the window frame beside the fight, so it
+// has to be visible past this module.
+pub(super) use records::events_overlay;
 use records::record_section;
 use shop::shop_panel;
 
@@ -89,7 +92,7 @@ pub(super) fn content(
         .p_3()
         .child(realm_header(&cultivation, locale, tokens))
         .children(notices(&cultivation, locale, tokens))
-        .child(record_section(&cultivation, locale, tokens))
+        .child(record_section(&view, &cultivation, locale, tokens))
         .child(attributes_panel(&view, &cultivation, locale, tokens))
         .child(derived_panel(&cultivation, locale, tokens))
         .child(equipment_panel(
@@ -379,95 +382,9 @@ fn notices(
         };
         notices.push(notice("cultivation-notice-breakthrough", line, color).into_any_element());
     }
-    // The last walk, and whatever it turned up. A walk that found something
-    // names it; a walk that met someone says who won.
-    if let Some(outcome) = cultivation.last_exploration {
-        let kind = match outcome {
-            ExplorationOutcome::Nothing => Some(("cultivation.explore.nothing", tokens.muted)),
-            ExplorationOutcome::Victory => Some(("cultivation.explore.victory", tokens.accent)),
-            ExplorationOutcome::Defeat => Some(("cultivation.explore.defeat", tokens.danger)),
-            // A quiet find is named by the line under it.
-            ExplorationOutcome::Seed
-            | ExplorationOutcome::Gear
-            | ExplorationOutcome::Art
-            | ExplorationOutcome::Stones => None,
-        };
-        if let Some((key, color)) = kind {
-            notices.push(
-                notice(
-                    "cultivation-notice-exploration",
-                    text(locale, key).to_string(),
-                    color,
-                )
-                .into_any_element(),
-            );
-        }
-        // Each thing the walk turned up gets its own line, because a walk can
-        // turn up more than one: the stones are rolled beside the finding
-        // rather than in place of it, so a herb and a handful of money can
-        // come back together.
-        if let Some(found) = &cultivation.last_exploration_found {
-            if let Some(seed) = &found.seed {
-                notices.push(
-                    notice(
-                        "cultivation-notice-exploration-seed",
-                        format_text(
-                            locale,
-                            "cultivation.explore.found_seed",
-                            &[(
-                                "name",
-                                seed_label(locale, seed.attribute, seed.tier, seed.name.as_deref()),
-                            )],
-                        ),
-                        tokens.accent,
-                    )
-                    .into_any_element(),
-                );
-            }
-            if let Some(item) = &found.gear {
-                notices.push(
-                    notice(
-                        "cultivation-notice-exploration-gear",
-                        format_text(
-                            locale,
-                            "cultivation.explore.found_gear",
-                            &[("name", item_label(locale, item))],
-                        ),
-                        tokens.accent,
-                    )
-                    .into_any_element(),
-                );
-            }
-            if let Some(name) = &found.art {
-                notices.push(
-                    notice(
-                        "cultivation-notice-exploration-art",
-                        format_text(
-                            locale,
-                            "cultivation.explore.found_art",
-                            &[("name", name.clone())],
-                        ),
-                        tokens.accent,
-                    )
-                    .into_any_element(),
-                );
-            }
-            if let Some(amount) = found.stones {
-                notices.push(
-                    notice(
-                        "cultivation-notice-exploration-stones",
-                        format_text(
-                            locale,
-                            "cultivation.explore.found_stones",
-                            &[("value", amount.to_string())],
-                        ),
-                        tokens.accent,
-                    )
-                    .into_any_element(),
-                );
-            }
-        }
-    }
+    // What a walk turned up is not repeated here: the event log below the
+    // notices records every walk in order, and a find printed twice — once as
+    // a sticky line and once as history — read as two finds.
     notices
 }
 

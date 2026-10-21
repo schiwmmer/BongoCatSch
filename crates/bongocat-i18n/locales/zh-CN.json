@@ -671,7 +671,9 @@
       "select": "修习",
       "selected": "修习中",
       "mastery_attribute": "大成 · 每阶属性 +%{value}%",
-      "mastery_damage": "大成 · 附加 %{value}% 攻击力"
+      "mastery_damage": "大成 · 附加 %{value}% 攻击力",
+      "progress": "已至 %{rank}/%{total} 阶 · 下一阶 %{need} 番茄 · 本阶已修 %{progress}/%{need}",
+      "complete": "%{total}/%{total} 阶 · 圆满"
     },
     "derived": "外显属性",
     "derived_hint": "由四项属性算出，不可加点",
@@ -801,7 +803,9 @@
       "found_art": "功法「%{name}」",
       "found_gear": "装备「%{name}」",
       "found_seed": "仙草「%{name}」",
-      "found_stones": "灵石「%{value}」"
+      "found_stones": "灵石「%{value}」",
+      "show_all": "查看全部 %{count} 件事",
+      "history": "全部事件"
     },
     "event": {
       "session": "完成修炼，成长 +%{growth}",

@@ -1823,6 +1823,26 @@ impl Render for SettingsView {
             )
         });
 
+        // The cultivation page's full event history, over the page that asked
+        // for it. The page carries the click and this frame carries the popup,
+        // so the only wiring here is the close action.
+        let cultivation_events_overlay = self.cultivation_events_open.then(|| {
+            let view = cx.entity().downgrade();
+            let events = self.pomodoro.snapshot().cultivation.events;
+            cultivation_settings::events_overlay(
+                &events,
+                language.catalog_locale(),
+                Tokens::from_theme(cx),
+                Rc::new(move |window: &mut Window, cx: &mut App| {
+                    let _ = view.update(cx, |view, cx| {
+                        view.cultivation_events_open = false;
+                        cx.notify();
+                        let _ = window;
+                    });
+                }),
+            )
+        });
+
         div()
             .id("bongocat-settings-root")
             .relative()
@@ -1856,6 +1876,7 @@ impl Render for SettingsView {
             .child(model_drag_exit_listener)
             .children(model_drag_overlay)
             .children(cultivation_duel_overlay)
+            .children(cultivation_events_overlay)
             .into_any_element()
     }
 }

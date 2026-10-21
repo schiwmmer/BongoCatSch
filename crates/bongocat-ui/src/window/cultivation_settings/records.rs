@@ -1,15 +1,35 @@
-//! The event log: the last sixteen things that happened.
+//! The event log: the last five on the page, the full sixteen in the popup.
 
 use super::*;
+use std::rc::Rc;
+
+/// How many events the page lists before the popup takes over.
+///
+/// Five is what fits between the notices and the attributes panel without
+/// pushing the rest of the page off the first screenful; everything older is
+/// one click away rather than always on the page.
+const VISIBLE_EVENT_COUNT: usize = 5;
+
+/// How wide the history popup is drawn.
+const EVENTS_PANEL_WIDTH: f32 = 420.0;
+
+/// How tall the history list may grow before it scrolls.
+const EVENTS_LIST_MAX_HEIGHT: f32 = 360.0;
+
+/// What closing the history popup does.
+pub(in crate::window) type EventsClose = Rc<dyn Fn(&mut Window, &mut App)>;
 
 /// The page's log of what has happened, newest first.
 ///
-/// One line per event and nothing more: sessions, walks and their finds, 功法
-/// turning over, goods bought and sold, crops pulled. The popups that showed
-/// these are forgotten at quit, so this is the only place a save can be asked
-/// what it has been through — and a line that only kept the fights would be a
-/// flatterer's history of a cultivator's week.
+/// The last five events sit on the page and the rest hang behind the
+/// "show all" control: a week of sessions, walks and trades is a wall of text
+/// on a page that is already a ladder, while a history nobody can open is a
+/// record that only kept what fit. The popups that showed these are forgotten
+/// at quit, so this is the only place a save can be asked what it has been
+/// through — and a line that only kept the fights would be a flatterer's
+/// history of a cultivator's week.
 pub(super) fn record_section(
+    view: &Entity<SettingsView>,
     cultivation: &CultivationView,
     locale: &str,
     tokens: Tokens,
@@ -32,7 +52,12 @@ pub(super) fn record_section(
                 .test_support(),
         );
     }
-    for (index, event) in cultivation.events.iter().enumerate() {
+    for (index, event) in cultivation
+        .events
+        .iter()
+        .take(VISIBLE_EVENT_COUNT)
+        .enumerate()
+    {
         column = column.child(
             div()
                 .id(format!("cultivation-event-{index}"))
@@ -42,7 +67,130 @@ pub(super) fn record_section(
                 .test_support(),
         );
     }
+    let total = cultivation.events.len();
+    if total > VISIBLE_EVENT_COUNT {
+        column = column.child(
+            div()
+                .id("cultivation-record-show-all")
+                .text_xs()
+                .text_color(tokens.accent)
+                .child(format_text(
+                    locale,
+                    "cultivation.record.show_all",
+                    &[("count", total.to_string())],
+                ))
+                .test_support()
+                .on_click({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            view.cultivation_events_open = true;
+                            cx.notify();
+                        });
+                    }
+                }),
+        );
+    }
     column
+}
+
+/// The full history, drawn over the settings surface.
+///
+/// The same layout as the fight popup: a backdrop that closes on a click of
+/// its own, a panel that occludes the pointer so a click inside never reaches
+/// the backdrop, and a list that scrolls once it outgrows the window. Every
+/// event the save still remembers is in the list, oldest lines at the bottom,
+/// because a history that hides its own beginning is not full.
+pub(in crate::window) fn events_overlay(
+    events: &[EventRecord],
+    locale: &str,
+    tokens: Tokens,
+    on_close: EventsClose,
+) -> gpui_kit::AnyElement {
+    let close_from_backdrop = on_close.clone();
+    let mut list = div()
+        .id("cultivation-events-list")
+        .flex()
+        .flex_col()
+        .gap_1()
+        .min_h(px(48.0))
+        .max_h(px(EVENTS_LIST_MAX_HEIGHT))
+        .overflow_y_scroll()
+        .p_2()
+        .rounded_md()
+        .bg(tokens.overlay)
+        .test_support();
+    if events.is_empty() {
+        list = list.child(
+            div()
+                .id("cultivation-history-empty")
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(text(locale, "cultivation.record.empty"))
+                .test_support(),
+        );
+    }
+    for (index, event) in events.iter().enumerate() {
+        list = list.child(
+            div()
+                .id(format!("cultivation-history-event-{index}"))
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(event_line(&event.detail, locale))
+                .test_support(),
+        );
+    }
+    div()
+        .id("cultivation-events-overlay")
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .p_6()
+        .bg(tokens.overlay)
+        .on_click(move |_, window, cx| (close_from_backdrop)(window, cx))
+        .child(
+            div()
+                .id("cultivation-events-panel")
+                .w(px(EVENTS_PANEL_WIDTH))
+                .flex()
+                .flex_col()
+                .gap_2()
+                .p_4()
+                .rounded_lg()
+                .bg(tokens.canvas)
+                .border_1()
+                .border_color(tokens.border)
+                .occlude()
+                .child(
+                    div()
+                        .id("cultivation-events-header")
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_semibold()
+                                .text_color(tokens.text)
+                                .child(text(locale, "cultivation.record.history")),
+                        )
+                        .child(
+                            Button::new("cultivation-events-close")
+                                .ghost()
+                                .small()
+                                .label(text(locale, "cultivation.duel.close"))
+                                .on_click(move |_, window, cx| (on_close)(window, cx)),
+                        ),
+                )
+                .child(list)
+                .test_support(),
+        )
+        .into_any_element()
 }
 
 /// One event, as a line the user reads.

@@ -179,12 +179,15 @@ fn mastered_art_payoff(art: &MasteredArtView, locale: &str) -> String {
     format!("{kind} · {}", parts.join(" · "))
 }
 
-/// One 功法, as one line: the name and grade on the left, what it pays on the
-/// right, and the two buttons a book needs beside them.
+/// One 功法, as two lines: the name, grade and payoff with the two buttons a
+/// book needs on the first, and where the training stands on the second.
 ///
-/// One line is the whole row — no second line of 阶 and tomato counts under
-/// it — because the two things a user weighs are which 功法 and what it pays,
-/// and a row that took two lines took twice the scan.
+/// The second line is the 阶 the book asks about: how many the grade has, what
+/// the next one costs in pomodoros, and how far into it the training is. The
+/// row once carried only the first line because which 功法 and what it pays
+/// are what a user weighs — but a ladder that does not say how far along it is
+/// is a ladder the user cannot plan a pomodoro around, so the counts are back
+/// under the numbers they belong to.
 fn art_row(
     view: &Entity<SettingsView>,
     art: &ArtView,
@@ -195,67 +198,100 @@ fn art_row(
     let head = format!("{} · {}", art.name, grade);
     let payoff = art_payoff(art, locale);
     let art_id = art.id;
+    // A finished book has no next 阶 to price, so it says it stands complete
+    // rather than borrowing a cost it does not have.
+    let progress_line = if art.rank >= art.max_rank {
+        format_text(
+            locale,
+            "cultivation.art.complete",
+            &[("total", art.max_rank.to_string())],
+        )
+    } else {
+        format_text(
+            locale,
+            "cultivation.art.progress",
+            &[
+                ("rank", art.rank.to_string()),
+                ("total", art.max_rank.to_string()),
+                ("need", art.required.to_string()),
+                ("progress", art.progress.to_string()),
+            ],
+        )
+    };
     div()
         .id(format!("cultivation-art-{}", art.id))
         .flex()
-        .flex_row()
-        .items_center()
-        .gap_2()
+        .flex_col()
         .py_1()
-        .child(div().flex_1().min_w_0().truncate().text_xs().child(head))
         .child(
             div()
-                .id(format!("cultivation-art-payoff-{}", art.id))
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(div().flex_1().min_w_0().truncate().text_xs().child(head))
+                .child(
+                    div()
+                        .id(format!("cultivation-art-payoff-{}", art.id))
+                        .text_xs()
+                        .text_color(tokens.muted)
+                        .child(payoff)
+                        .test_support(),
+                )
+                .child(
+                    Button::new(format!("cultivation-art-select-{}", art.id))
+                        .ghost()
+                        .small()
+                        .label(text(
+                            locale,
+                            if art.selected {
+                                "cultivation.art.selected"
+                            } else {
+                                "cultivation.art.select"
+                            },
+                        ))
+                        .disabled(art.selected)
+                        .on_click({
+                            let view = view.clone();
+                            move |_, _, cx| {
+                                view.update(cx, |view, cx| {
+                                    let _ = view.pomodoro.try_publish(PomodoroCommand::SelectArt {
+                                        art_id: Some(art_id),
+                                    });
+                                    view.poll_pomodoro(cx);
+                                });
+                            }
+                        }),
+                )
+                .child(
+                    // The trained 功法 is not for sale: 修炼 reads it every session,
+                    // and the button is disabled rather than hidden so that the
+                    // reason it cannot be sold is a thing the user can see.
+                    Button::new(format!("cultivation-sell-art-{}", art.id))
+                        .ghost()
+                        .small()
+                        .label(sell_label(locale, art_sell_price(art.id)))
+                        .disabled(art.selected)
+                        .on_click({
+                            let view = view.clone();
+                            move |_, _, cx| {
+                                view.update(cx, |view, cx| {
+                                    let _ = view
+                                        .pomodoro
+                                        .try_publish(PomodoroCommand::SellArt { art_id });
+                                    view.poll_pomodoro(cx);
+                                });
+                            }
+                        }),
+                ),
+        )
+        .child(
+            div()
+                .id(format!("cultivation-art-progress-{}", art.id))
                 .text_xs()
                 .text_color(tokens.muted)
-                .child(payoff)
+                .child(progress_line)
                 .test_support(),
-        )
-        .child(
-            Button::new(format!("cultivation-art-select-{}", art.id))
-                .ghost()
-                .small()
-                .label(text(
-                    locale,
-                    if art.selected {
-                        "cultivation.art.selected"
-                    } else {
-                        "cultivation.art.select"
-                    },
-                ))
-                .disabled(art.selected)
-                .on_click({
-                    let view = view.clone();
-                    move |_, _, cx| {
-                        view.update(cx, |view, cx| {
-                            let _ = view.pomodoro.try_publish(PomodoroCommand::SelectArt {
-                                art_id: Some(art_id),
-                            });
-                            view.poll_pomodoro(cx);
-                        });
-                    }
-                }),
-        )
-        .child(
-            // The trained 功法 is not for sale: 修炼 reads it every session,
-            // and the button is disabled rather than hidden so that the
-            // reason it cannot be sold is a thing the user can see.
-            Button::new(format!("cultivation-sell-art-{}", art.id))
-                .ghost()
-                .small()
-                .label(sell_label(locale, art_sell_price(art.id)))
-                .disabled(art.selected)
-                .on_click({
-                    let view = view.clone();
-                    move |_, _, cx| {
-                        view.update(cx, |view, cx| {
-                            let _ = view
-                                .pomodoro
-                                .try_publish(PomodoroCommand::SellArt { art_id });
-                            view.poll_pomodoro(cx);
-                        });
-                    }
-                }),
         )
         .test_support()
 }

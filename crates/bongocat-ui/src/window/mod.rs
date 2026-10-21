@@ -326,6 +326,10 @@ pub struct SettingsView {
     /// Clicking a shelf row's name toggles it, the same one-open-at-a-time rule
     /// the inventory rows follow.
     pub(crate) cultivation_open_offer: Option<usize>,
+    /// Whether the cultivation page's full event history is open over the
+    /// page. The page carries the click, the window frame carries the popup,
+    /// so this is all the state there is.
+    pub(crate) cultivation_events_open: bool,
     /// The fight the cultivation page is replaying over the page, if any.
     pub(crate) cultivation_duel: Option<CultivationDuel>,
     /// A fight or a walk the user asked for that the worker has not answered

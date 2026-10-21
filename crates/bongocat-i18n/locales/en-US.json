@@ -671,7 +671,9 @@
       "select": "Train",
       "selected": "Training",
       "mastery_attribute": "Mastered · +%{value}% attributes per rank",
-      "mastery_damage": "Mastered · +%{value}% attack per blow"
+      "mastery_damage": "Mastered · +%{value}% attack per blow",
+      "progress": "Rank %{rank}/%{total} · next rank %{need} pomodoros · %{progress}/%{need} trained",
+      "complete": "%{total}/%{total} ranks · complete"
     },
     "derived": "Shown",
     "derived_hint": "Follows from the four attributes; no point can be placed here",
@@ -801,7 +803,9 @@
       "found_art": "art “%{name}”",
       "found_gear": "gear “%{name}”",
       "found_seed": "herb “%{name}”",
-      "found_stones": "stones “%{value}”"
+      "found_stones": "stones “%{value}”",
+      "show_all": "Show all %{count} events",
+      "history": "Full history"
     },
     "event": {
       "session": "Session finished, +%{growth} growth",

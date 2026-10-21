@@ -15,8 +15,8 @@ use crate::window::cultivation_duel;
 use crate::window::cultivation_settings;
 use bongocat_pomodoro::{
     Cultivation, CultivationDocument, DuelReport, DuelRound, EventDetail, EventRecord,
-    ExplorationOutcome, Fighter, LAYERS_PER_STAGE, PLAYER_NAME, PomodoroCommand, PomodoroSnapshot,
-    PomodoroState, WANDERER_NAME, threshold_for,
+    ExplorationOutcome, Fighter, LAYERS_PER_STAGE, OwnedArt, PLAYER_NAME, PomodoroCommand,
+    PomodoroSnapshot, PomodoroState, WANDERER_NAME, threshold_for,
 };
 
 /// The page mounted on its own.
@@ -677,4 +677,117 @@ fn a_plain_row_is_explained_in_plain_numbers() {
         formula.contains("100"),
         "the base the domain actually starts from is on the card: {formula}"
     );
+}
+
+/// The record keeps the page to five lines and hands the rest to the popup.
+///
+/// Sixteen events on a page that is already a ladder would push everything
+/// below them off the first screenful, so the sixth line on belongs to the
+/// popup: the page draws five rows and the control, and the control's click
+/// opens the history.
+#[gpui_kit::test]
+fn the_record_shows_five_events_and_offers_the_rest(cx: &mut TestAppContext) {
+    let events: Vec<EventRecord> = (0..7)
+        .map(|at| EventRecord {
+            at_unix: at,
+            detail: EventDetail::Session { growth: 500 },
+        })
+        .collect();
+    let cultivation = Cultivation::new(CultivationDocument {
+        events,
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    for id in [
+        "cultivation-event-0",
+        "cultivation-event-4",
+        "cultivation-record-show-all",
+    ] {
+        assert!(painted(visual, id), "the page must draw {id}");
+    }
+    assert!(
+        !painted(visual, "cultivation-event-5"),
+        "the sixth event belongs to the popup, not the page"
+    );
+    visual.update(|window, cx| window.click("cultivation-record-show-all", cx));
+    visual.update(|_, cx| {
+        assert!(
+            view.read(cx).cultivation_events_open,
+            "the control's click opens the history"
+        );
+    });
+}
+
+/// The history popup mounted on its own, the way the fight popup is: the
+/// settings frame would put it behind a sidebar and a scroll view, and the
+/// popup is what is under test.
+struct EventsPopup(Vec<EventRecord>);
+
+impl Render for EventsPopup {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("events-harness")
+            .size_full()
+            .child(cultivation_settings::events_overlay(
+                &self.0,
+                "en-US",
+                Tokens::from_theme(cx),
+                Rc::new(|_, _| {}),
+            ))
+    }
+}
+
+/// The popup carries every event the save remembers, not the five the page
+/// keeps: a history that quietly stopped where the page does is not full, so
+/// the test counts past the cap.
+#[gpui_kit::test]
+fn the_history_popup_lists_every_event(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let events: Vec<EventRecord> = (0..7)
+        .map(|at| EventRecord {
+            at_unix: at,
+            detail: EventDetail::Session { growth: 500 },
+        })
+        .collect();
+    let (_, visual) = cx
+        .add_window_view(move |window, cx| Root::new(cx.new(|_| EventsPopup(events)), window, cx));
+    visual.update(|window, cx| window.render_frame(cx));
+    for id in [
+        "cultivation-events-panel",
+        "cultivation-events-list",
+        "cultivation-history-event-0",
+        "cultivation-history-event-6",
+    ] {
+        assert!(painted(visual, id), "the popup must paint {id}");
+    }
+}
+
+/// A 功法 on the shelf says where its training stands: the 阶 the grade has,
+/// what the next one costs in pomodoros, and how far into it the book is.
+/// A ladder that does not say how far along it is cannot be planned around.
+#[gpui_kit::test]
+fn the_art_row_shows_the_rank_ladder_and_its_progress(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        arts: vec![OwnedArt {
+            art_id: 1,
+            rank: 1,
+            progress: 1,
+            outcome: None,
+        }],
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    for id in [
+        "cultivation-art-1",
+        "cultivation-art-payoff-1",
+        "cultivation-art-progress-1",
+    ] {
+        assert!(painted(visual, id), "the page must draw {id}");
+    }
 }

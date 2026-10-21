@@ -446,6 +446,9 @@ impl SettingsView {
             cultivation_minute_observed: None,
             cultivation_open_item: None,
             cultivation_open_offer: None,
+            // The event history starts closed: the page's five lines are the
+            // record until the user asks for more.
+            cultivation_events_open: false,
             // No fight is being replayed when the window opens, and none is
             // waiting on the worker either.
             cultivation_duel: None,
