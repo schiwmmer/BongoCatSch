@@ -1370,3 +1370,41 @@ fn the_fight_picks_among_the_strongest_external_arts() {
         assert_eq!(strike.cost, 64, "the 内力 price is the new curve's");
     }
 }
+
+/// The page compares every derived number against the same four attributes
+/// spread evenly, so a lopsided build reads as "+X over an even spread" and an
+/// even one reads as exactly on it.
+#[test]
+fn a_lopsided_build_is_measured_against_an_even_spread() {
+    let lopsided = Attributes::new(400, 0, 0, 0);
+    let breakdowns = lopsided.derived().breakdowns(lopsided);
+    let row = |key: &str| {
+        breakdowns
+            .iter()
+            .find(|breakdown| breakdown.key == key)
+            .copied()
+            .expect("a row")
+    };
+    let attack = row("cultivation.attack");
+    assert_eq!(
+        attack.mean_attribute, 100,
+        "400 points over four attributes"
+    );
+    // 攻击力 reads 力量: 10 + 100 × 3 spread evenly, 10 + 0 × 3 poured into 根骨.
+    assert_eq!(attack.balanced, 310);
+    assert_eq!(attack.result, 10);
+    // 内力值 reads 根骨, so the same build is far above its even spread there.
+    let inner = row("cultivation.inner");
+    assert_eq!(inner.balanced, 50 + 100 * 8);
+    assert_eq!(inner.result, 50 + 400 * 8);
+
+    // An even build is on its own reference in every one of the nine numbers.
+    let even = Attributes::new(100, 100, 100, 100);
+    for breakdown in even.derived().breakdowns(even) {
+        assert_eq!(
+            breakdown.result, breakdown.balanced,
+            "{} is off its own even spread",
+            breakdown.key
+        );
+    }
+}

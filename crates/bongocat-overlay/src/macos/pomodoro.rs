@@ -92,6 +92,7 @@ impl PomodoroCountdown {
         // the icon set, and a countdown that reads as text is still a countdown.
         let icon = NSTextField::labelWithString(&NSString::from_str(COUNTDOWN_ICON), mtm);
         icon.setFont(Some(&NSFont::systemFontOfSize(16.0)));
+        set_white_text(&icon);
         apply_text_shadow(&icon);
         content.addSubview(&icon);
 
@@ -103,6 +104,7 @@ impl PomodoroCountdown {
         // for the widest `mm:ss` it will ever show, which keeps it from moving
         // either.
         label.setFont(Some(&NSFont::systemFontOfSize(18.0)));
+        set_white_text(&label);
         apply_text_shadow(&label);
         content.addSubview(&label);
 
@@ -251,13 +253,23 @@ impl Drop for PomodoroCountdown {
 const COUNTDOWN_ICON: &str = "⏱";
 const COUNTDOWN_ICON_PAUSED: &str = "⏸";
 
+/// The countdown's own colour: white, whatever the system appearance is.
+///
+/// The panel is transparent, so the digits sit directly on the wallpaper and on
+/// whatever model is behind them — and a system label colour is black on a light
+/// wallpaper and white on a dark one, which means the timer changes colour as the
+/// user changes appearance. White is the one colour that reads as an overlay
+/// readout in both, and it is what the shadow below was written for.
+fn set_white_text(label: &NSTextField) {
+    label.setTextColor(Some(&NSColor::whiteColor()));
+}
+
 /// A soft dark shadow behind the floating countdown text.
 ///
 /// With the panel background gone the glyphs sit directly on whatever is behind
-/// the cat, and the system label color washes out on a light wallpaper — the
-/// text is only legible over everything if it carries a bit of its own edge.
-/// The label's layer rasterizes the string it draws, so the shadow tracks the
-/// glyph outlines rather than reading as a box behind the text.
+/// the cat, so white text needs an edge of its own or it disappears into a white
+/// wallpaper. The label's layer rasterizes the string it draws, so the shadow
+/// tracks the glyph outlines rather than reading as a box behind the text.
 fn apply_text_shadow(label: &NSTextField) {
     label.setWantsLayer(true);
     let Some(layer) = label.layer() else {

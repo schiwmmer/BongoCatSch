@@ -61,6 +61,8 @@
 - A 功法 trained to its first 阶 shows in the learned panel as far as it has gone: the 阶 it stands at beside the name, what it has paid for so far, and no mastery while any is missing.
 - A purchase in the event log says what it cost, and a bought seed says which tier it is.
 - The learned 功法 panel keeps the three most recently trained and folds the rest behind one click, so it answers "what am I working on" rather than listing every shelf.
+- The floating countdown is white now instead of following the system appearance, and keeps its dark shadow so it still reads on a light wallpaper.
+- Every derived number's hover card gains an even-spread line: what the same four attributes would buy spread evenly, and how far the current build is from it (`+`, `-` or `±0`). The 潜质 card now explains what 潜质 actually decides — how often 功法 training fails — instead of borrowing the generic sentence.
 
 ### 🌍 Localization
 

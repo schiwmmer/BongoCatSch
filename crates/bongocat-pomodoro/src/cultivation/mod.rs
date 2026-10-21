@@ -539,6 +539,21 @@ pub struct DerivedBreakdown {
     pub computed: u32,
     /// What the page shows: the arithmetic, held to the ceiling.
     pub result: u32,
+    /// What the four attributes average out to, as the balanced reference below
+    /// is built from.
+    ///
+    /// The page prints it beside the comparison, because "均分" is only
+    /// readable if it says what it divided: a cultivator with 40, 20, 30 and 10
+    /// has a mean of 25, and every one of the nine numbers is compared against a
+    /// build of 25/25/25/25.
+    pub mean_attribute: i32,
+    /// What this number would be if the four attributes were spread evenly.
+    ///
+    /// The comparison the page shows is against this, not against a second
+    /// table: a lopsided build is read as "+X over an even spread / -X under
+    /// it", and the same four attributes feed both figures, so the difference is
+    /// exactly the shape of the build and nothing else.
+    pub balanced: u32,
     /// Whether the numbers are counted in parts per thousand, as 命中 and 闪避
     /// are. A surface prints those as percentages and the rest as they are.
     pub per_mille: bool,
@@ -730,6 +745,15 @@ impl Derived {
     /// The same order as [`Attributes::derived`] reads, so a surface that walks
     /// the numbers once gets the value and the recipe that made it together.
     pub fn breakdowns(self, attributes: Attributes) -> Vec<DerivedBreakdown> {
+        // The balanced reference: the same total points, spread over the four
+        // attributes equally. Held to non-negative first, because a penalty can
+        // leave a number below zero and "even" has to mean something.
+        let total = i64::from(attributes.root.max(0))
+            + i64::from(attributes.strength.max(0))
+            + i64::from(attributes.mana.max(0))
+            + i64::from(attributes.agility.max(0));
+        let mean = i32::try_from(total / 4).unwrap_or(i32::MAX);
+        let even = Attributes::new(mean, mean, mean, mean);
         DERIVED_SPECS
             .iter()
             .map(|spec| {
@@ -747,6 +771,10 @@ impl Derived {
                     cap: spec.cap.map(scaled),
                     computed: scaled(computed),
                     result: scaled(held),
+                    mean_attribute: mean,
+                    // Read through the same `value` the fight reads, so the
+                    // comparison cannot be computed by a second set of rules.
+                    balanced: spec.value(even),
                     per_mille: spec.per_mille,
                 }
             })

@@ -317,9 +317,17 @@ fn derived_chip(
     // read out here because the hover body outlives this call and cannot borrow
     // `locale`.
     let title = text(locale, "cultivation.hint.derived_title");
-    let body = text(locale, "cultivation.hint.derived_hint_each");
+    // 潜质 is the one number here a fight never reads, so the sentence that says
+    // "it moves when the four move" is the wrong sentence for it: what it
+    // actually decides is how often a 功法 attempt fails, and the card says so.
+    let body = if key == "cultivation.aptitude" {
+        text(locale, "cultivation.hint.aptitude_hint")
+    } else {
+        text(locale, "cultivation.hint.derived_hint_each")
+    };
     // The arithmetic, spelled out with the very numbers the domain computed.
     let formula = breakdown.map(|breakdown| derived_formula(breakdown, locale));
+    let balanced = breakdown.map(|breakdown| derived_balanced_line(breakdown, locale));
     let chip = div()
         // The key carries its own `cultivation.` prefix; the element id drops
         // it so the tree reads `cultivation-derived-attack`.
@@ -345,6 +353,7 @@ fn derived_chip(
     match formula {
         Some(formula) => {
             let formula = formula.clone();
+            let balanced = balanced.unwrap_or_default();
             hover
                 .content(move |_, _, _| {
                     derived_hint_body(
@@ -352,6 +361,7 @@ fn derived_chip(
                         title,
                         body,
                         formula.clone(),
+                        balanced.clone(),
                         tokens,
                     )
                 })
@@ -378,18 +388,7 @@ fn derived_chip(
 /// printed in percent with the percent sign, so the sum on the card is in the
 /// same unit as the chip it explains.
 pub(in crate::window) fn derived_formula(breakdown: &DerivedBreakdown, locale: &str) -> String {
-    let figure = |value: u32| {
-        if !breakdown.per_mille {
-            return value.to_string();
-        }
-        let tenths = value / 10;
-        let tenth = value % 10;
-        if tenth == 0 {
-            tenths.to_string()
-        } else {
-            format!("{tenths}.{tenth}")
-        }
-    };
+    let figure = |value: u32| figure_value(value, breakdown.per_mille);
     let unit = if breakdown.per_mille { "%" } else { "" };
     let formula = format_text(
         locale,
@@ -418,6 +417,77 @@ pub(in crate::window) fn derived_formula(breakdown: &DerivedBreakdown, locale: &
     }
 }
 
+/// A derived number as the page prints it: a plain count, or one decimal of a
+/// percent for the two per-mille numbers.
+fn figure_value(value: u32, per_mille: bool) -> String {
+    if !per_mille {
+        return value.to_string();
+    }
+    let tenths = value / 10;
+    let tenth = value % 10;
+    if tenth == 0 {
+        tenths.to_string()
+    } else {
+        format!("{tenths}.{tenth}")
+    }
+}
+
+/// A figure with its unit on the end, for a line that prints one on its own
+/// rather than inside the formula's sentence.
+fn figure_with_unit(value: u32, per_mille: bool) -> String {
+    let figure = figure_value(value, per_mille);
+    if per_mille {
+        format!("{figure}%")
+    } else {
+        figure
+    }
+}
+
+/// The number against an even spread of the same four attributes, with the
+/// difference spelled out.
+///
+/// The reference is not a second table: it is the same arithmetic run over four
+/// equal attributes, so a build that pours everything into 力量 reads as "力量
+/// 换来的攻击力比均分多 +X" and the two numbers it is compared between are the
+/// same number. The sign is printed rather than implied, because "和均值的差异"
+/// is the question the line answers: `+120` is above the even spread, `-40` is
+/// under it, and `±0` is exactly on it.
+pub(in crate::window) fn derived_balanced_line(
+    breakdown: &DerivedBreakdown,
+    locale: &str,
+) -> String {
+    let delta = i64::from(breakdown.result) - i64::from(breakdown.balanced);
+    let signed = match delta {
+        0 => "±0".to_owned(),
+        delta if delta > 0 => format!(
+            "+{}",
+            figure_with_unit(
+                u32::try_from(delta).unwrap_or(u32::MAX),
+                breakdown.per_mille
+            )
+        ),
+        delta => format!(
+            "-{}",
+            figure_with_unit(
+                u32::try_from(delta.unsigned_abs()).unwrap_or(u32::MAX),
+                breakdown.per_mille
+            )
+        ),
+    };
+    format_text(
+        locale,
+        "cultivation.formula.balanced",
+        &[
+            ("mean", breakdown.mean_attribute.to_string()),
+            (
+                "balanced",
+                figure_with_unit(breakdown.balanced, breakdown.per_mille),
+            ),
+            ("delta", signed),
+        ],
+    )
+}
+
 /// A hover body carrying the arithmetic behind a number.
 ///
 /// The formula is its own line rather than part of the paragraph: it is a sum
@@ -427,6 +497,7 @@ fn derived_hint_body(
     title: &'static str,
     body: &'static str,
     formula: String,
+    balanced: String,
     tokens: Tokens,
 ) -> impl IntoElement {
     div()
@@ -442,6 +513,17 @@ fn derived_hint_body(
                 .text_color(tokens.accent)
                 .whitespace_normal()
                 .child(formula),
+        )
+        // What the same four attributes would buy spread evenly, and which way
+        // this build is off it. Its own line because it is a comparison to read,
+        // not a sentence to skim.
+        .child(
+            div()
+                .id("cultivation-hint-balanced")
+                .text_xs()
+                .text_color(tokens.text)
+                .whitespace_normal()
+                .child(balanced),
         )
         .child(
             div()
@@ -558,6 +640,42 @@ mod tests {
         assert!(
             !line.contains("cultivation."),
             "and never the key it was read through: {line}"
+        );
+    }
+
+    /// The comparison line says which way the build is off an even spread, with
+    /// the sign in front: `+` above, `-` below, `±0` on it, and the two per-mille
+    /// numbers in percent like every other line on the page.
+    #[test]
+    fn the_balanced_line_carries_the_sign_of_the_gap() {
+        let breakdown = |result: u32, balanced: u32, per_mille: bool| DerivedBreakdown {
+            key: "cultivation.attack",
+            attribute: Attribute::Strength,
+            attribute_value: 100,
+            base: 10,
+            per_point: 3,
+            cap: None,
+            computed: result,
+            result,
+            mean_attribute: 100,
+            balanced,
+            per_mille,
+        };
+        let above = derived_balanced_line(&breakdown(310, 250, false), "zh-CN");
+        assert!(
+            above.contains("+60"),
+            "an even spread of 250 against 310: {above}"
+        );
+        let below = derived_balanced_line(&breakdown(250, 310, false), "zh-CN");
+        assert!(below.contains("-60"), "310 against 250: {below}");
+        let even = derived_balanced_line(&breakdown(310, 310, false), "zh-CN");
+        assert!(even.contains("±0"), "the same number twice: {even}");
+        // 命中 is held in parts per thousand, so the gap is printed in percent.
+        let percent = derived_balanced_line(&breakdown(800, 1_000, true), "en-US");
+        assert!(percent.contains("-20%"), "800‰ against 1000‰: {percent}");
+        assert!(
+            percent.contains("100%"),
+            "and the even spread reads 100%: {percent}"
         );
     }
 

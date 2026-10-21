@@ -682,7 +682,8 @@
     "derived_hint": "由四项属性算出，不可加点",
     "formula": {
       "line": "%{base} + %{attribute} %{value} × %{per} = %{result}",
-      "capped": "%{formula}（上限 %{cap}）"
+      "capped": "%{formula}（上限 %{cap}）",
+      "balanced": "均分四项（每项 %{mean}）为 %{balanced} · 你 %{delta}"
     },
     "attack": "攻击力 %{value}",
     "health": "生命值 %{value}",
@@ -871,7 +872,8 @@
       "schools_hint": "法术＝根骨＋仙力，武术＝力量＋身法。同系两项一起练有联动加成，只堆一个更亏。",
       "derived_title": "八项战斗数值：四项属性换算出来的结果，不能直接加点",
       "derived_hint_each": "由四项属性换算，改上面那四项才会变。",
-      "power_hint": "战力＝法术＋武术，是破境时判定胜负用的那一个数。"
+      "power_hint": "战力＝法术＋武术，是破境时判定胜负用的那一个数。",
+      "aptitude_hint": "潜质：每点根骨 +2。它只决定修习功法的成功率——各品阶的基础失败率为黄 8%、玄 12%、地 18%、天 26%、神 35%，每点潜质抵 0.1% 失败率，至多抵 15%；此外不参与战斗。"
     },
     "daily": {
       "ambush": "晨间遇袭，击退来犯",

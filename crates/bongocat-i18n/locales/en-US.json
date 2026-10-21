@@ -682,7 +682,8 @@
     "derived_hint": "Follows from the four attributes; no point can be placed here",
     "formula": {
       "line": "%{base} + %{attribute} %{value} × %{per} = %{result}",
-      "capped": "%{formula} (capped at %{cap})"
+      "capped": "%{formula} (capped at %{cap})",
+      "balanced": "Even spread (%{mean} each): %{balanced} · you: %{delta}"
     },
     "attack": "attack %{value}",
     "health": "health %{value}",
@@ -871,7 +872,8 @@
       "schools_hint": "Spell = root + mana, martial = strength + agility. Pairing one attribute with its partner pays a synergy bonus, so stacking one alone is worse.",
       "derived_title": "The eight combat numbers: what the four attributes turn into, not points you can spend",
       "derived_hint_each": "Read off the four attributes above; only changing those moves this.",
-      "power_hint": "Power = spell + martial, and it is the number that decides a breakthrough."
+      "power_hint": "Power = spell + martial, and it is the number that decides a breakthrough.",
+      "aptitude_hint": "Aptitude: two per point of 根骨, and it only decides how often 功法 training fails — the base failure rate runs 8% (黄), 12% (玄), 18% (地), 26% (天), 35% (神), and each point of aptitude takes 0.1% off it up to 15%. It joins no fight."
     },
     "daily": {
       "ambush": "Ambushed at dawn — the attacker was driven off",
