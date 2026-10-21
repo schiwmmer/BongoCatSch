@@ -14,7 +14,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::Rng;
-use super::explore::{StoneRoll, WANDERER_STONES};
+use super::explore::{StonePurse, WANDERER_STONES};
 
 /// How often the day opens with someone attacking, in parts per thousand.
 pub const DAILY_AMBUSH_PERMILLE: u64 = 280;
@@ -28,22 +28,14 @@ pub const DAILY_GIFT_PERMILLE: u64 = 120;
 
 /// The purse a quiet day leaves: a coin or two, enough that the line on the
 /// page is worth reading and not enough to be a faucet.
-pub(crate) const DAILY_TRINKET_STONES: StoneRoll = StoneRoll {
-    permille: 1_000,
-    min: 1,
-    max: 3,
-};
+pub(crate) const DAILY_TRINKET_STONES: StonePurse = StonePurse { min: 3, max: 6 };
 
 /// The purse a gift event pays when it pays money at all.
-pub(crate) const DAILY_GIFT_STONES: StoneRoll = StoneRoll {
-    permille: 1_000,
-    min: 6,
-    max: 18,
-};
+pub(crate) const DAILY_GIFT_STONES: StonePurse = StonePurse { min: 25, max: 50 };
 
 /// What an ambush pays when it is beaten: the same purse a wanderer met on a
 /// walk carries, because it is the same kind of encounter.
-pub(crate) const DAILY_AMBUSH_STONES: StoneRoll = WANDERER_STONES;
+pub(crate) const DAILY_AMBUSH_STONES: StonePurse = WANDERER_STONES;
 
 /// What a gift hands over, when the day picks a gift at all.
 ///

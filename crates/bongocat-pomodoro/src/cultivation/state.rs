@@ -39,8 +39,8 @@ use super::{
     growth_permille,
     items::roll_equipment,
     mastery_permille, scaled_growth,
-    shop::{self, SESSION_EARNINGS, ShopOffer, ShopOfferView},
-    trade::TradeRefusal,
+    shop::{self, ShopOffer, ShopOfferView},
+    trade::{TradeRefusal, session_earnings},
     trial::{
         TRIAL_ATTEMPTS_PER_DAY, TRIAL_MAX_FLOOR, TrialReward, floor_realm, roll_reward,
         warden_fighter, warden_power,
@@ -1354,7 +1354,11 @@ impl Cultivation {
         // The guardian's purse, drawn after the 功法 and the gear because those
         // are what a breakthrough is *for*: the money is what a realm's treasury
         // adds on top, not the reason to fight.
-        let stones = roll_stones(&mut rng, GUARDIAN_STONES);
+        let stones = Some(roll_stones(
+            &mut rng,
+            GUARDIAN_STONES,
+            target.index() as u8 + 1,
+        ));
         if let Some(amount) = stones {
             self.document.stones = self.document.stones.saturating_add(amount);
         }
@@ -1471,7 +1475,9 @@ impl Cultivation {
         let stones = if outcome == ExplorationOutcome::Defeat {
             None
         } else {
-            roll_stones(&mut rng, purse)
+            // The purse is opened at the realm the walk was taken in: the same
+            // road pays more once the road is a deeper one.
+            Some(roll_stones(&mut rng, purse, self.realm().index() as u8 + 1))
         };
         if let Some(amount) = stones {
             self.document.stones = self.document.stones.saturating_add(amount);
@@ -1611,7 +1617,13 @@ impl Cultivation {
             // The floor's purse, drawn beside the finding: a cleared floor
             // always pays a little, so a run of empty rolls is still a run that
             // bought something.
-            if let Some(amount) = roll_stones(&mut rng, TRIAL_STONES) {
+            // Opened at the floor's own realm, so a deeper floor pays more even
+            // within one realm's climb.
+            if let Some(amount) = Some(roll_stones(
+                &mut rng,
+                TRIAL_STONES,
+                floor_realm(floor).index() as u8 + 1,
+            )) {
                 self.document.stones = self.document.stones.saturating_add(amount);
                 found.stones = Some(amount);
             }
@@ -1665,19 +1677,17 @@ impl Cultivation {
                 outcome.won = duel.won;
                 if duel.won {
                     outcome.found = self.award_wanderer_find(&mut rng, now_unix);
-                    if let Some(amount) = roll_stones(&mut rng, DAILY_AMBUSH_STONES) {
-                        self.document.stones = self.document.stones.saturating_add(amount);
-                        outcome.found.stones = Some(amount);
-                    }
+                    let amount = roll_stones(&mut rng, DAILY_AMBUSH_STONES, tier);
+                    self.document.stones = self.document.stones.saturating_add(amount);
+                    outcome.found.stones = Some(amount);
                 }
                 outcome.duel = Some(duel);
             }
             DailyKind::Gift => match roll_gift(&mut rng) {
                 GiftKind::Stones => {
-                    if let Some(amount) = roll_stones(&mut rng, DAILY_GIFT_STONES) {
-                        self.document.stones = self.document.stones.saturating_add(amount);
-                        outcome.found.stones = Some(amount);
-                    }
+                    let amount = roll_stones(&mut rng, DAILY_GIFT_STONES, tier);
+                    self.document.stones = self.document.stones.saturating_add(amount);
+                    outcome.found.stones = Some(amount);
                 }
                 GiftKind::Seed => {
                     let attribute =
@@ -1690,10 +1700,9 @@ impl Cultivation {
                 }
             },
             DailyKind::Trinket => {
-                if let Some(amount) = roll_stones(&mut rng, DAILY_TRINKET_STONES) {
-                    self.document.stones = self.document.stones.saturating_add(amount);
-                    outcome.found.stones = Some(amount);
-                }
+                let amount = roll_stones(&mut rng, DAILY_TRINKET_STONES, tier);
+                self.document.stones = self.document.stones.saturating_add(amount);
+                outcome.found.stones = Some(amount);
             }
         }
         let found = outcome.found.clone();
@@ -2278,7 +2287,8 @@ impl Cultivation {
     /// walk into something useful, and a faucet that outran the walks would make
     /// the shop a second ladder.
     pub(crate) fn credit_session_earnings(&mut self) {
-        self.document.stones = self.document.stones.saturating_add(SESSION_EARNINGS);
+        let earnings = session_earnings(self.realm());
+        self.document.stones = self.document.stones.saturating_add(earnings);
     }
 
     /// The purse, for a surface.
@@ -2824,10 +2834,13 @@ mod tests {
             };
             if outcome.duel.won {
                 wins += 1;
+                // The purse is opened at the realm the guardian guarded, which
+                // is the one the win entered.
+                let (min, max) = GUARDIAN_STONES.at(outcome.target.index() as u8 + 1);
                 assert!(
-                    outcome.stones.is_some_and(|amount| {
-                        (GUARDIAN_STONES.min..=GUARDIAN_STONES.max).contains(&amount)
-                    }),
+                    outcome
+                        .stones
+                        .is_some_and(|amount| (min..=max).contains(&amount)),
                     "a won breakthrough pays the guardian's purse: {:?}",
                     outcome.stones
                 );
@@ -2847,10 +2860,12 @@ mod tests {
             };
             if outcome.duel.won {
                 floors += 1;
+                let (min, max) = TRIAL_STONES.at(floor_realm(outcome.floor).index() as u8 + 1);
                 assert!(
-                    outcome.found.stones.is_some_and(|amount| {
-                        (TRIAL_STONES.min..=TRIAL_STONES.max).contains(&amount)
-                    }),
+                    outcome
+                        .found
+                        .stones
+                        .is_some_and(|amount| (min..=max).contains(&amount)),
                     "a cleared floor pays the tower's purse"
                 );
                 assert!(cultivation.document.stones > before);
@@ -2864,6 +2879,39 @@ mod tests {
         assert!(
             floors > 0,
             "the reference save never cleared the first floor"
+        );
+    }
+
+    /// The same road pays more once the road is a deeper one: a 化神 walk is
+    /// worth several 炼气 walks, because the shelf it is spent on costs several
+    /// times as much there.
+    #[test]
+    fn a_deeper_realm_pays_a_bigger_purse() {
+        let walked = |realm: Realm| {
+            let mut paid = Vec::new();
+            for step in 0..40_i64 {
+                let mut cultivation = Cultivation::new(CultivationDocument {
+                    growth: threshold_for(realm.cap_level()),
+                    realm: realm.index() as u8,
+                    ..CultivationDocument::default()
+                });
+                let _ = cultivation.explore(1_000 + step * 100_000);
+                if let Some(stones) = cultivation
+                    .view()
+                    .last_exploration_found
+                    .and_then(|found| found.stones)
+                {
+                    paid.push(stones);
+                }
+            }
+            assert!(!paid.is_empty(), "no walk in {realm:?} paid a purse");
+            paid.iter().sum::<u32>() / paid.len() as u32
+        };
+        let shallow = walked(Realm::QiRefining);
+        let deep = walked(Realm::VoidRefinement);
+        assert!(
+            deep >= shallow * 3,
+            "a 化神 walk paid {deep} against a 炼气 {shallow}"
         );
     }
 }

@@ -152,12 +152,17 @@ pub fn art_price(grade: super::ArtGrade) -> u32 {
     equipment_price(tier, Rarity::Common) * ART_OVER_GEAR_NUMERATOR / ART_OVER_GEAR_DENOMINATOR
 }
 
-/// What one finished session pays into the purse.
+/// What one finished session pays into the purse, at the first realm.
 ///
-/// Small on purpose. The currency is a way to sell what a walk turned up, not a
-/// second growth ladder: a session that pays both growth and 灵石 would let a
-/// user sit down for 灵石 and then use the 灵石 to buy the growth they skipped.
-pub const SESSION_EARNINGS: u32 = 12;
+/// The currency is a way to sell what a walk turned up, not a second growth
+/// ladder, so this is the *salary* and not a jackpot: a session pays both growth
+/// and 灵石, which is only safe while the 灵石 cannot buy the growth that was
+/// skipped — and nothing in the shop sells growth.
+///
+/// Multiplied by the realm, the same way growth itself is: a 金丹's afternoon is
+/// worth more than a 炼气's, and the shop's prices climb with the realm too, so
+/// the salary keeps its weight against the shelf instead of shrinking to nothing.
+pub const SESSION_EARNINGS: u32 = 16;
 
 /// How many offers a realm's shop rolls, from the day alone.
 ///

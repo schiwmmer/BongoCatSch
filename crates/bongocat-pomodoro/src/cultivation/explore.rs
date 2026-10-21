@@ -38,68 +38,66 @@ pub const VICTORY_ART_PERMILLE: u64 = 80;
 pub const VICTORY_GEAR_PERMILLE: u64 = 300;
 pub const VICTORY_SEED_PERMILLE: u64 = 220;
 
-/// A purse one outing turns up: how often it is paid at all, and between what.
+/// A purse one source pays, as it stands at the first realm.
 ///
 /// 灵石 travels beside an item rather than in place of it — it is money, not a
-/// finding — so every source has its own purse rather than one shared roll. The
-/// four purses are also the *emphasis* the sources differ by: a walk is about
-/// herbs, a wanderer about their purse, the guardian about the 功法 it guards,
-/// and the tower about drilling. What a source pays most often is what it is
-/// for.
+/// finding — so every source has its own purse rather than one shared roll. Two
+/// things make the purses differ, and both are the design:
+///
+/// * **Which source it is.** A fight pays more than a walk: the walk is the
+///   cheapest thing a save can do, and a save that fights has earned the purse.
+/// * **How deep the ladder is.** The numbers here are the *first realm's*, and
+///   the purse is multiplied by the tier it was paid at — the realm a walk was
+///   taken in, the realm a guardian guarded, the realm a trial floor stands in.
+///   Gear prices climb with the tier too, so the shop keeps roughly its weight
+///   on the page at every depth instead of becoming pocket change at the top.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct StoneRoll {
-    /// How often the purse is paid, in parts per thousand.
-    pub permille: u64,
-    /// The fewest coins in it.
+pub(crate) struct StonePurse {
+    /// The fewest coins it pays at the first realm.
     pub min: u32,
-    /// The most coins in it.
+    /// The most coins it pays at the first realm.
     pub max: u32,
 }
 
-/// What a quiet walk turns up: always a little, because a walk is the cheapest
-/// thing a save can do and a walk that paid nothing would read as a bug.
-///
-/// A handful rather than a fortune: two walks a day are a trickle next to a
-/// finished session's [`SESSION_EARNINGS`](super::SESSION_EARNINGS), so the purse
-/// grows from walking as well as from working rather than instead of it.
-pub(crate) const WALK_STONES: StoneRoll = StoneRoll {
-    permille: 1_000,
-    min: 3,
-    max: 8,
-};
+impl StonePurse {
+    /// The range this purse pays at `tier`, which is a one-based realm.
+    ///
+    /// A zero tier cannot happen on the ladder, but a document read from a hand
+    /// edit can say anything, so it is read as the first realm rather than as a
+    /// purse of nothing.
+    pub(crate) const fn at(self, tier: u8) -> (u32, u32) {
+        let tier = if tier == 0 { 1 } else { tier } as u32;
+        (self.min.saturating_mul(tier), self.max.saturating_mul(tier))
+    }
+}
 
-/// What beating a wanderer pays: the most money of the four sources, because
-/// robbing the road is what an ambush is for. Its finding roll leans the same
-/// way — gear over herbs.
-pub(crate) const WANDERER_STONES: StoneRoll = StoneRoll {
-    permille: 1_000,
-    min: 5,
-    max: 14,
-};
+/// What a quiet walk turns up. The smallest purse of the four: a walk costs
+/// nothing and is owed every twelve hours, so it is a trickle beside a fight —
+/// but it always pays one, because a walk that came home with nothing would read
+/// as a bug rather than as a quiet road.
+pub(crate) const WALK_STONES: StonePurse = StonePurse { min: 6, max: 10 };
 
-/// What beating a realm's guardian pays. The richest purse beside the 功法 the
-/// win always pays, because a guardian guards a realm and its treasury both.
-pub(crate) const GUARDIAN_STONES: StoneRoll = StoneRoll {
-    permille: 1_000,
-    min: 10,
-    max: 24,
-};
+/// What clearing a trial floor pays. Above a walk because the tower is a fight,
+/// and below a wanderer because a floor is a level-matched opponent rather than
+/// someone who has been out on the road longer.
+pub(crate) const TRIAL_STONES: StonePurse = StonePurse { min: 12, max: 18 };
 
-/// What clearing a trial floor pays. The leanest purse: the tower is rationed
-/// by attempts rather than by a cooldown, so five floors a day at a walk's rate
-/// would make it the only purse worth opening.
-pub(crate) const TRIAL_STONES: StoneRoll = StoneRoll {
-    permille: 1_000,
-    min: 2,
-    max: 6,
-};
+/// What beating a wanderer pays — the road's own purse, which is what an ambush
+/// is for. Its finding roll leans the same way: gear over herbs.
+pub(crate) const WANDERER_STONES: StonePurse = StonePurse { min: 20, max: 34 };
 
-/// The four purses are ordered on purpose — the tower the leanest, the guardian
-/// the richest — because that ordering is the emphasis the sources differ by. A
-/// retune that broke it would flatten four sources into one.
-const _: () = assert!(TRIAL_STONES.max < WALK_STONES.max);
-const _: () = assert!(WALK_STONES.max < WANDERER_STONES.max);
-const _: () = assert!(WANDERER_STONES.max < GUARDIAN_STONES.max);
+/// What beating a realm's guardian pays. The richest purse, because a guardian
+/// guards a realm and its treasury both, and because it is the rarest fight on
+/// the ladder.
+pub(crate) const GUARDIAN_STONES: StonePurse = StonePurse { min: 38, max: 66 };
+
+/// The purses are ordered on purpose — a walk under a floor, a floor under a
+/// wanderer, a wanderer under a guardian — because that ordering is both the
+/// difficulty and the emphasis, and a retune that broke it would flatten four
+/// sources into one.
+const _: () = assert!(WALK_STONES.max < TRIAL_STONES.min);
+const _: () = assert!(TRIAL_STONES.max < WANDERER_STONES.min);
+const _: () = assert!(WANDERER_STONES.max < GUARDIAN_STONES.min);
 
 /// What one walk came to.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -231,22 +229,20 @@ pub fn roll_victory(rng: &mut Rng) -> ExplorationOutcome {
     ExplorationOutcome::Nothing
 }
 
-/// How many 灵石 an outing turns up, if it turns any up.
+/// How many 灵石 an outing turns up.
 ///
 /// A roll of its own, beside the finding roll rather than inside it: 灵石 is a
 /// currency, not one of the three things an outing finds, so the same walk can
 /// come back with a herb and a handful of stones both. The amount is a short
 /// range rather than a fixed figure, so two walks in the same day do not pay
-/// the same purse.
+/// the same purse, and it is scaled by the tier the purse was opened at.
 ///
 /// Crate-private like the other rolls: the seeded source it takes is nobody
 /// else's business, and the state machine is the only thing that draws it.
-pub(crate) fn roll_stones(rng: &mut Rng, purse: StoneRoll) -> Option<u32> {
-    if rng.below(1_000) >= purse.permille {
-        return None;
-    }
-    let span = purse.max.saturating_sub(purse.min).saturating_add(1);
-    Some(purse.min + u32::try_from(rng.below(u64::from(span))).unwrap_or(0))
+pub(crate) fn roll_stones(rng: &mut Rng, purse: StonePurse, tier: u8) -> u32 {
+    let (min, max) = purse.at(tier);
+    let span = max.saturating_sub(min).saturating_add(1);
+    min.saturating_add(u32::try_from(rng.below(u64::from(span))).unwrap_or(0))
 }
 
 /// Whether a walk is owed: the cooldown has run out.
@@ -306,6 +302,29 @@ mod tests {
         assert!(ExplorationOutcome::Victory.fought());
         assert!(ExplorationOutcome::Defeat.fought());
         assert!(!ExplorationOutcome::Seed.fought());
+    }
+
+    /// The purse is the tier's: the same walk pays six times as much in the
+    /// sixth realm, which is what keeps the shop's weight at every depth.
+    #[test]
+    fn a_purse_scales_with_the_tier_it_was_opened_at() {
+        assert_eq!(WALK_STONES.at(1), (WALK_STONES.min, WALK_STONES.max));
+        assert_eq!(WALK_STONES.at(6).0, WALK_STONES.min * 6);
+        assert_eq!(WALK_STONES.at(10).1, WALK_STONES.max * 10);
+        assert_eq!(
+            WALK_STONES.at(0),
+            WALK_STONES.at(1),
+            "a hand-edited zero tier reads as the first realm"
+        );
+        // Every purse is opened at the tier of the thing that paid it, so a
+        // deeper fight is a bigger purse by arithmetic and not by a second table.
+        let mut rng = Rng::seeded(11);
+        let shallow = roll_stones(&mut rng, GUARDIAN_STONES, 1);
+        let mut deep = 0;
+        for _ in 0..16 {
+            deep = deep.max(roll_stones(&mut rng, GUARDIAN_STONES, 5));
+        }
+        assert!(deep > shallow * 2, "{deep} against {shallow}");
     }
 
     #[test]

@@ -8,6 +8,7 @@
 //! without touching a save: the reasons a refusal exists, and the one number that
 //! is not a price.
 
+use super::Realm;
 use super::shop::SESSION_EARNINGS;
 
 /// What a purchase or a sale could not do.
@@ -58,9 +59,9 @@ impl TradeRefusal {
     }
 }
 
-/// What one finished session pays into the purse.
-pub fn session_earnings() -> u32 {
-    SESSION_EARNINGS
+/// What one finished session pays into the purse, in that realm.
+pub fn session_earnings(realm: Realm) -> u32 {
+    SESSION_EARNINGS.saturating_mul(realm.index() as u32 + 1)
 }
 
 #[cfg(test)]
@@ -281,7 +282,7 @@ mod tests {
         let mut cultivation = Cultivation::default();
         assert_eq!(cultivation.stones(), 0);
         cultivation.on_session_completed(1_000, crate::CalendarDay::from_day_number(20), 25);
-        assert_eq!(cultivation.stones(), session_earnings());
+        assert_eq!(cultivation.stones(), session_earnings(cultivation.realm()));
     }
 
     /// Worn gear cannot be sold out from under the fight wearing it, and the
