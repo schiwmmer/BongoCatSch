@@ -15,6 +15,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::ArtOutcome;
+use super::daily::DailyKind;
 use super::explore::ExplorationOutcome;
 
 /// How many events the log keeps, newest first.
@@ -68,6 +69,9 @@ pub enum EventDetail {
         won: bool,
         #[serde(default)]
         stage: Option<u8>,
+        /// The purse the win turned up, when it turned one up.
+        #[serde(default)]
+        stones: Option<u32>,
     },
     /// A 试炼 floor was climbed. The warden is the tower's own; what the win
     /// turned up travels by name, the way a walk's finds do.
@@ -77,6 +81,10 @@ pub enum EventDetail {
         art: Option<String>,
         gear: Option<String>,
         seed: Option<String>,
+        /// The floor's purse, when it paid one. An old save's events predate
+        /// the field and read as no money at all, which is what they said.
+        #[serde(default)]
+        stones: Option<u32>,
     },
     /// Something was bought at the market, for this much.
     ///
@@ -91,6 +99,25 @@ pub enum EventDetail {
     Sold { what: SaleKind, stones: u32 },
     /// A crop was pulled.
     Harvest,
+    /// The day opened with something: an ambush, a gift, or a coin in the dust.
+    ///
+    /// One line for all three because it is one thing that happened to the
+    /// user, not three unrelated records: the kind says which, and the finds
+    /// travel beside it the way a walk's do.
+    Daily {
+        kind: DailyKind,
+        /// Whether the ambush was beaten. True for the two kinds that are not
+        /// a fight, so the line never has to ask twice.
+        won: bool,
+        #[serde(default)]
+        art: Option<String>,
+        #[serde(default)]
+        gear: Option<String>,
+        #[serde(default)]
+        seed: Option<String>,
+        #[serde(default)]
+        stones: Option<u32>,
+    },
 }
 
 /// Something sold or bought, named the way the log can carry it.

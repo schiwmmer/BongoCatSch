@@ -37,6 +37,7 @@
 mod arts;
 mod battle;
 mod curve;
+mod daily;
 mod document;
 mod duel;
 mod events;
@@ -53,9 +54,9 @@ mod tests;
 
 pub use arts::{
     ART_COUNT, ArtBlueprint, ArtGrade, ArtKind, ArtOutcome, ArtView, MasteredArtView, OwnedArt,
-    art_attributes, art_payout_at, art_view, blueprint, effective_failure_permille,
-    external_damage, mastered_art_attributes, mastered_art_payout, mastered_art_view,
-    mastery_permille, required_pomodoros,
+    RECENT_ARTS_CAP, art_attributes, art_payout_at, art_view, blueprint,
+    effective_failure_permille, external_damage, mastered_art_attributes, mastered_art_payout,
+    mastered_art_view, mastery_permille, required_pomodoros,
 };
 pub use battle::{BattleReport, Guardian, guardian_fighter, wanderer_fighter};
 // `duel` itself stays crate-private: it takes the seeded `Rng`, which is nobody
@@ -64,6 +65,7 @@ pub use curve::{
     LAYERS_PER_REALM, LAYERS_PER_STAGE, LayerRank, LevelProgress, MAX_LEVEL, RANKS_PER_LAYER,
     layer_rank, level_for_growth, threshold_for,
 };
+pub use daily::DailyKind;
 pub use document::CultivationDocument;
 pub use duel::{
     ArtStrike, DUEL_RECORD_CAP, DUEL_ROUND_CAP, DuelRecord, DuelReport, DuelRound, FightKind,
@@ -72,8 +74,7 @@ pub use duel::{
 pub use events::{EVENT_LOG_CAP, EventDetail, EventRecord, SaleKind};
 pub use explore::{
     BREAKTHROUGH_COOLDOWN_SECONDS, ENCOUNTER_PERMILLE, EXPLORATION_COOLDOWN_SECONDS,
-    ExplorationOutcome, STONE_FIND_MAX, STONE_FIND_MIN, STONE_FIND_PERMILLE, VICTORY_SEED_PERMILLE,
-    WALK_RECORD_CAP, WalkRecord,
+    ExplorationOutcome, VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkRecord,
 };
 pub use garden::{FREE_PLOT_COUNT, MAX_PLOT_COUNT, MAX_SEED_TIER, PlotRecord, SeedStack};
 pub use items::{EquipSlot, EquipmentRecord, Rarity, SLOT_COUNT};
@@ -83,9 +84,9 @@ pub use shop::{
     offers_for_day, roll_offers, seed_price,
 };
 pub use state::{
-    AbsenceCharge, BreakthroughOutcome, CropView, Cultivation, CultivationView, Drop, DropView,
-    ExplorationFindView, GuardianView, HarvestOutcome, ItemView, PlotView, SeedView, SessionReward,
-    TrainingView, TrialBlocked, TrialOutcome,
+    AbsenceCharge, BreakthroughOutcome, CropView, Cultivation, CultivationView, DailyOutcome, Drop,
+    DropView, ExplorationFindView, GuardianView, HarvestOutcome, ItemView, PlotView, SeedView,
+    SessionReward, TrainingView, TrialBlocked, TrialOutcome,
 };
 pub use trade::{TradeRefusal, session_earnings};
 pub use trial::{

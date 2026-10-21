@@ -35,6 +35,8 @@ pub(super) fn trial_panel(
             }
         });
     }
+    // At the top of the tower the floor line already says so, and a second copy
+    // of the sentence beside the button would be the page repeating itself.
     let status = match cultivation.trial_blocked {
         None => format_text(
             locale,
@@ -44,6 +46,7 @@ pub(super) fn trial_panel(
                 ("total", TRIAL_ATTEMPTS_PER_DAY.to_string()),
             ],
         ),
+        Some(TrialBlocked::Top) => String::new(),
         Some(blocked) => text(locale, blocked.key()).to_string(),
     };
     let color = if cultivation.trial_blocked.is_none() {

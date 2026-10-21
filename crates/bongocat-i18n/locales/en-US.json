@@ -652,7 +652,9 @@
     "mastered": {
       "title": "Learned arts",
       "empty": "No art learned through yet. Train one to its last rank and it stays with you for good — or sell it.",
-      "progress": "rank %{rank}/%{total}"
+      "progress": "rank %{rank}/%{total}",
+      "show_all": "Show all %{count}",
+      "show_less": "Show fewer"
     },
     "art": {
       "kind": {
@@ -768,7 +770,9 @@
       "title_exploration": "A chance meeting",
       "wanderer": "the wanderer",
       "win": "Victory",
-      "you": "You"
+      "you": "You",
+      "reward_stones": "%{value} stones",
+      "title_daily": "Morning Encounter"
     },
     "explore": {
       "attempt": "Take a walk",
@@ -792,7 +796,7 @@
       "attempts_left": "%{left}/%{total} climbs left today",
       "cleared": "Cleared through floor %{floor}",
       "top": "The tower is cleared; no floor is left to climb.",
-      "hint": "Each warden is a level deeper than the last — floor one is a level-one cultivator — and a cleared floor may pay a seed, gear or an art.",
+      "hint": "Each warden is a level deeper than the last — floor one is a level-one cultivator. A cleared floor always pays stones, and may pay a seed, gear or an art.",
       "won": "Floor %{floor} cleared.",
       "lost": "Floor %{floor} was too much.",
       "refuse_out": "Still out on a walk — the tower opens once you are home.",
@@ -868,6 +872,12 @@
       "derived_title": "The eight combat numbers: what the four attributes turn into, not points you can spend",
       "derived_hint_each": "Read off the four attributes above; only changing those moves this.",
       "power_hint": "Power = spell + martial, and it is the number that decides a breakthrough."
+    },
+    "daily": {
+      "ambush": "Ambushed at dawn — the attacker was driven off",
+      "ambush_lost": "Ambushed at dawn — driven back, and nothing lost",
+      "gift": "The morning handed something over",
+      "trinket": "A quiet morning, and a few coins in the dust"
     }
   }
 }

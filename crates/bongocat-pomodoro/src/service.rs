@@ -595,6 +595,13 @@ fn tick(shared: &Arc<SharedState>, path: &Path, elapsed: Duration) {
         inner.publish();
         inner.write_document(path);
     }
+    // The day opens once, whichever tick is the first of it: the morning event
+    // is the ladder's one unprompted move, so it hangs off the same tick rather
+    // than off a click the user might never make.
+    if inner.domain.apply_daily_event(now) {
+        inner.publish();
+        inner.write_document(path);
+    }
     if inner.domain.timer().state() != TimerState::Running {
         drop(inner);
         shared.changed.notify_all();

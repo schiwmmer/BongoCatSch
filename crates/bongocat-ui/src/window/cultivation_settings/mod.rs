@@ -15,9 +15,9 @@
 use super::*;
 use bongocat_i18n::{compact_number, format_text, text};
 use bongocat_pomodoro::{
-    ArtKind, ArtOutcome, ArtView, Attribute, Attributes, CultivationView, DropView, EquipSlot,
-    EventDetail, EventRecord, ExplorationOutcome, ItemView, MAX_LEVEL, MasteredArtView, PlotView,
-    PomodoroCommand, Realm, SaleKind, ShopOffer, ShopOfferView, TRIAL_ATTEMPTS_PER_DAY,
+    ArtKind, ArtOutcome, ArtView, Attribute, Attributes, CultivationView, DailyKind, DropView,
+    EquipSlot, EventDetail, EventRecord, ExplorationOutcome, ItemView, MAX_LEVEL, MasteredArtView,
+    PlotView, PomodoroCommand, Realm, SaleKind, ShopOffer, ShopOfferView, TRIAL_ATTEMPTS_PER_DAY,
     TrialBlocked, art_payout_at, blueprint, mastered_art_payout,
 };
 
@@ -86,6 +86,7 @@ pub(super) fn content(
     let cultivation = snapshot.cultivation.clone();
     let open_item = view.read(cx).cultivation_open_item;
     let open_offer = view.read(cx).cultivation_open_offer;
+    let mastered_open = view.read(cx).cultivation_mastered_open;
 
     div()
         .id("cultivation-settings")
@@ -113,7 +114,13 @@ pub(super) fn content(
             open_item,
         ))
         .child(arts_panel(&view, &cultivation, locale, tokens))
-        .child(mastered_panel(&view, &cultivation, locale, tokens))
+        .child(mastered_panel(
+            &view,
+            &cultivation,
+            mastered_open,
+            locale,
+            tokens,
+        ))
         .child(seed_panel(&view, &cultivation, locale, tokens))
         .child(garden_panel(&view, &cultivation, locale, tokens))
         .child(breakthrough_panel(&view, &cultivation, locale, tokens))

@@ -500,6 +500,25 @@ impl PomodoroState {
         true
     }
 
+    /// Open the day, if it has not been opened yet. Returns whether anything
+    /// happened.
+    ///
+    /// Called by the worker's tick beside the absence charge, for the same
+    /// reason: a machine left running over midnight has to open the new day
+    /// itself, and a machine launched at noon has to open it on the first tick.
+    pub fn apply_daily_event(&mut self, now_unix: i64) -> bool {
+        let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
+        if self
+            .cultivation
+            .daily_event(now_unix, today.day_number())
+            .is_none()
+        {
+            return false;
+        }
+        self.sync_cultivation();
+        true
+    }
+
     /// Whether the command would write anything to the document.
     pub fn command_writes_the_document(command: &PomodoroCommand) -> bool {
         command.changes_the_document()

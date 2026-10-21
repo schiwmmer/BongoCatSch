@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     ART_COUNT, Attributes, EquipmentRecord, FREE_PLOT_COUNT, MAX_LEVEL, MAX_PLOT_COUNT, OwnedArt,
-    PlotRecord, SLOT_COUNT, STAGE_COUNT, SeedStack, blueprint,
+    PlotRecord, RECENT_ARTS_CAP, SLOT_COUNT, STAGE_COUNT, SeedStack, blueprint,
     curve::{self, level_for_growth, stage_floor},
     duel::{DUEL_RECORD_CAP, DuelRecord},
     events::{EVENT_LOG_CAP, EventRecord},
@@ -118,6 +118,14 @@ pub struct CultivationDocument {
     /// The 功法 the next finished pomodoro trains, if one is chosen.
     #[serde(default)]
     pub selected_art: Option<u64>,
+    /// The 功法 trained most recently, newest first, by id.
+    ///
+    /// The learned panel shows the few an active cultivator is working on and
+    /// folds the rest away, so "recently trained" has to be written down: a
+    /// shelf's order is when a book was *bought*, which is not the same thing as
+    /// when it was last read. Capped so the ring is a window like every other.
+    #[serde(default)]
+    pub recent_arts: Vec<u64>,
     /// The instant a lost breakthrough can be attempted again.
     #[serde(default)]
     pub breakthrough_blocked_until: Option<i64>,
@@ -194,6 +202,13 @@ pub struct CultivationDocument {
     /// How many floors have been attempted on [`Self::trial_day`].
     #[serde(default)]
     pub trial_attempts_today: u32,
+    /// The local day the morning event belongs to.
+    ///
+    /// One per day and no more: the day is written down when the event fires so
+    /// a relaunch the same afternoon cannot hand out a second one, and a launch
+    /// the next morning always finds the field behind it.
+    #[serde(default)]
+    pub daily_event_day: Option<i64>,
     /// How many floors have been attempted in all.
     ///
     /// The 战斗 dimension counts wins already; this is the plain count of
@@ -333,6 +348,19 @@ impl CultivationDocument {
         {
             self.selected_art = None;
         }
+        // The recent ring is a window and a set, not a list that grows: an id
+        // out of range names no 功法, and one written twice would read as two
+        // trainings of the same book.
+        let mut recent: Vec<u64> = Vec::with_capacity(self.recent_arts.len());
+        for id in self.recent_arts.drain(..) {
+            if (1..=ART_COUNT).contains(&id)
+                && !recent.contains(&id)
+                && recent.len() < RECENT_ARTS_CAP
+            {
+                recent.push(id);
+            }
+        }
+        self.recent_arts = recent;
         self
     }
 }

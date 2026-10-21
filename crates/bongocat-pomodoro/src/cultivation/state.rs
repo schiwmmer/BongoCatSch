@@ -15,19 +15,25 @@ use std::array;
 
 use super::{
     ART_COUNT, ArtGrade, ArtKind, ArtOutcome, ArtStrike, ArtView, Attribute, Attributes,
-    BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport, CultivationDocument, Derived, DerivedBreakdown,
-    DuelReport, EQUIPMENT_DROP_PERMILLE, EXPLORATION_COOLDOWN_SECONDS, EquipSlot, EquipmentRecord,
-    ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, Guardian, MAX_LEVEL, MasteredArtView,
-    OwnedArt, PLAYER_NAME, Rarity, Realm, Refusal, Rng, SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack,
-    VICTORY_SEED_PERMILLE, absence_penalty, art_attributes, art_view,
+    BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport, CultivationDocument, DailyKind, Derived,
+    DerivedBreakdown, DuelReport, EQUIPMENT_DROP_PERMILLE, EXPLORATION_COOLDOWN_SECONDS, EquipSlot,
+    EquipmentRecord, ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, Guardian, MAX_LEVEL,
+    MasteredArtView, OwnedArt, PLAYER_NAME, RECENT_ARTS_CAP, Rarity, Realm, Refusal, Rng,
+    SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack, VICTORY_SEED_PERMILLE, absence_penalty,
+    art_attributes, art_view,
     arts::{blueprint, mastered_art_attributes, mastered_art_view, train},
     base_attributes,
     battle::{guardian_fighter, guardian_for, resolve, wanderer_fighter},
     curve::{layer_rank, level_for_growth, stage_floor, threshold_for},
+    daily::{
+        DAILY_AMBUSH_STONES, DAILY_GIFT_STONES, DAILY_TRINKET_STONES, GiftKind, roll_gift,
+        roll_kind,
+    },
     duel::{DUEL_RECORD_CAP, DuelRecord, FightKind, duel},
     events::{EVENT_LOG_CAP, EventDetail, EventRecord, SaleKind},
     explore::{
-        WalkRecord, breakthrough_ready, exploration_ready, roll_stones, roll_victory, roll_walk,
+        GUARDIAN_STONES, TRIAL_STONES, WALK_STONES, WANDERER_STONES, WalkRecord,
+        breakthrough_ready, exploration_ready, roll_stones, roll_victory, roll_walk,
     },
     garden::{CropRecord, PlotRecord, harvest_points, plot_price, seed_name, seed_return},
     growth_permille,
@@ -84,6 +90,8 @@ pub struct BreakthroughOutcome {
     pub lost: Option<String>,
     /// The 功法 a win paid. A win always pays one; a loss never does.
     pub granted_art: Option<String>,
+    /// The purse a win turned up, beside the 功法 and the gear.
+    pub stones: Option<u32>,
 }
 
 /// What one 试炼 floor came to.
@@ -130,6 +138,21 @@ impl TrialBlocked {
     pub const fn key(self) -> &'static str {
         self.refusal().key()
     }
+}
+
+/// What the day opened with, as a surface reads it.
+///
+/// The three kinds travel as one value because they are one event: whether it
+/// was a fight, what the fight came to, and what any of the three left behind.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DailyOutcome {
+    pub kind: DailyKind,
+    /// Whether the ambush was beaten. True for the kinds that are not a fight.
+    pub won: bool,
+    /// Only an ambush settles a fight, and only a fight is replayed.
+    pub duel: Option<DuelReport>,
+    /// What the day left behind.
+    pub found: ExplorationFindView,
 }
 
 /// What a harvest took from a plot.
@@ -337,6 +360,11 @@ pub struct CultivationView {
     pub trial_blocked: Option<TrialBlocked>,
     /// The fight the last floor settled, for the popup that replays it.
     pub last_trial: Option<TrialOutcome>,
+    /// What the day opened with, for the page and for the popup an ambush earns.
+    pub last_daily_event: Option<DailyOutcome>,
+    /// How many morning events have fired this session, so a surface can tell
+    /// one it has already shown from a new one.
+    pub daily_events: u32,
     /// How many floors have been attempted, so a surface can tell a new report
     /// from one it has already shown.
     pub trial_attempts: u32,
@@ -430,6 +458,11 @@ pub struct Cultivation {
     last_exploration_found: Option<ExplorationFindView>,
     /// The floor the last trial settled, if one was climbed this session.
     last_trial: Option<TrialOutcome>,
+    /// What the day opened with, once it has opened.
+    last_daily_event: Option<DailyOutcome>,
+    /// How many morning events have fired this session. A surface watches this
+    /// rather than the revision, so an ambush opens its fight exactly once.
+    daily_events: u32,
     /// How many floors have been attempted this session. A surface watches this
     /// rather than the report, for the same reason it watches
     /// [`Self::breakthrough_attempts`]: a running pomodoro bumps the revision
@@ -475,6 +508,8 @@ impl Cultivation {
             last_exploration_found: None,
             last_trial: None,
             trial_attempts: 0,
+            last_daily_event: None,
+            daily_events: 0,
             breakthrough_attempts: 0,
             last_refusal: None,
             refusal_count: 0,
@@ -737,6 +772,9 @@ impl Cultivation {
         };
         let outcome = train(art, aptitude, &mut rng);
         let rank = art.rank;
+        // Every attempt counts as training, a failure included: the panel's
+        // question is "what have I been working on", not "what have I won".
+        self.note_recent_art(art_id);
         let max_rank = blueprint(art_id).grade.ranks();
         if outcome == ArtOutcome::Mastered && rank >= max_rank {
             // The book has been read to the end: it stops being a book. The
@@ -863,6 +901,17 @@ impl Cultivation {
     ///
     /// The free points are paid against this rather than the live level, so a
     /// missed week lowers the ladder but never the points already earned.
+    /// Put a 功法 at the front of the recent ring.
+    ///
+    /// The ring is capped and de-duplicated: one book read twice is one entry,
+    /// and the ninth-oldest falls off rather than the list growing with the
+    /// save's age.
+    fn note_recent_art(&mut self, art_id: u64) {
+        self.document.recent_arts.retain(|recent| *recent != art_id);
+        self.document.recent_arts.insert(0, art_id);
+        self.document.recent_arts.truncate(RECENT_ARTS_CAP);
+    }
+
     fn note_peak_level(&mut self) {
         self.document.peak_level = self.document.peak_level.max(self.level());
     }
@@ -1095,15 +1144,6 @@ impl Cultivation {
         // Won fights are what train the 战斗 dimension; a loss is not counted
         // there, and only ever shows up in the record below.
         self.record_duel(duel.won, FightKind::Guardian, now_unix);
-        self.push_event(
-            now_unix,
-            EventDetail::Breakthrough {
-                won: duel.won,
-                // The realm the win opened, carried so the log can name it the
-                // way the notice above used to.
-                stage: Some(guardian.target.index() as u8),
-            },
-        );
         if !duel.won {
             self.document.breakthrough_failures =
                 self.document.breakthrough_failures.saturating_add(1);
@@ -1121,12 +1161,35 @@ impl Cultivation {
                 duel,
                 lost,
                 granted_art: None,
+                stones: None,
             };
             self.last_breakthrough = Some(outcome.clone());
+            // The realm it failed to open is still named: a loss is history
+            // too, and one line with the realm on it beats two kinds of line.
+            self.push_event(
+                now_unix,
+                EventDetail::Breakthrough {
+                    won: false,
+                    stage: Some(guardian.target.index() as u8),
+                    stones: None,
+                },
+            );
             return Some(outcome);
         }
         self.enter_realm(guardian, duel, now_unix);
-        self.last_breakthrough.clone()
+        let outcome = self.last_breakthrough.clone();
+        // The log is written after the settlement so the line carries the
+        // realm that was opened *and* the purse that came with it: the event is
+        // one line about one event, not two half-lines about a fight and a buy.
+        self.push_event(
+            now_unix,
+            EventDetail::Breakthrough {
+                won: true,
+                stage: Some(guardian.target.index() as u8),
+                stones: outcome.as_ref().and_then(|outcome| outcome.stones),
+            },
+        );
+        outcome
     }
 
     /// Write one fought fight into the record, newest first.
@@ -1288,6 +1351,13 @@ impl Cultivation {
             let attribute = Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
             self.push_seed(attribute, target.index() as u8 + 1, &mut rng);
         }
+        // The guardian's purse, drawn after the 功法 and the gear because those
+        // are what a breakthrough is *for*: the money is what a realm's treasury
+        // adds on top, not the reason to fight.
+        let stones = roll_stones(&mut rng, GUARDIAN_STONES);
+        if let Some(amount) = stones {
+            self.document.stones = self.document.stones.saturating_add(amount);
+        }
         let outcome = BreakthroughOutcome {
             report: BattleReport {
                 player_power,
@@ -1299,8 +1369,39 @@ impl Cultivation {
             duel,
             lost: None,
             granted_art,
+            stones,
         };
         self.last_breakthrough = Some(outcome);
+    }
+
+    /// What beating someone on the road pays, handed to the satchel and
+    /// reported.
+    ///
+    /// Shared by the walk and the morning ambush because it is the same
+    /// encounter either way: the same weighting, the same tier, the same three
+    /// kinds. Two copies of this roll would be two chances for one of them to
+    /// drift out of tune with the panel that explains it.
+    fn award_wanderer_find(&mut self, rng: &mut Rng, now_unix: i64) -> ExplorationFindView {
+        let mut found = ExplorationFindView::default();
+        let tier = self.realm().index() as u8 + 1;
+        match roll_victory(rng) {
+            ExplorationOutcome::Art => {
+                found.art = self
+                    .grant_art(art_grade_for_realm(self.realm()), now_unix)
+                    .map(|art| art.name);
+            }
+            ExplorationOutcome::Gear => {
+                let item = self.push_equipment(tier, rng);
+                found.gear = Some(self.item_view(&item));
+            }
+            ExplorationOutcome::Seed => {
+                let attribute =
+                    Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
+                found.seed = Some(self.push_seed(attribute, tier, rng));
+            }
+            _ => {}
+        }
+        found
     }
 
     /// Walk out of the door once every twelve hours.
@@ -1341,31 +1442,11 @@ impl Cultivation {
             ExplorationOutcome::Victory => {
                 let fighter = self.fighter(&mut rng);
                 let duel = duel(fighter, wanderer_fighter(self.realm()), &mut rng);
-                outcome = if duel.won {
-                    match roll_victory(&mut rng) {
-                        ExplorationOutcome::Art => {
-                            found.art = self
-                                .grant_art(art_grade_for_realm(self.realm()), now_unix)
-                                .map(|art| art.name);
-                            ExplorationOutcome::Victory
-                        }
-                        ExplorationOutcome::Gear => {
-                            let item = self.push_equipment(tier, &mut rng);
-                            found.gear = Some(self.item_view(&item));
-                            ExplorationOutcome::Victory
-                        }
-                        ExplorationOutcome::Seed => {
-                            let attribute = Attribute::from_index(
-                                rng.below(Attribute::ALL.len() as u64) as usize,
-                            );
-                            found.seed = Some(self.push_seed(attribute, tier, &mut rng));
-                            ExplorationOutcome::Victory
-                        }
-                        _ => ExplorationOutcome::Victory,
-                    }
+                if duel.won {
+                    found = self.award_wanderer_find(&mut rng, now_unix);
                 } else {
-                    ExplorationOutcome::Defeat
-                };
+                    outcome = ExplorationOutcome::Defeat;
+                }
                 self.record_duel(duel.won, FightKind::Wanderer, now_unix);
                 self.last_exploration_duel = Some(duel);
             }
@@ -1373,17 +1454,24 @@ impl Cultivation {
             | ExplorationOutcome::Nothing
             | ExplorationOutcome::Stones => {}
         }
-        // 灵石 are rolled beside the finding rather than in place of it: a walk
-        // can come back with a herb and a handful of stones both, and the purse
-        // is fed by walking rather than only by working.
+        // 灵石 are rolled beside the finding rather than in place of it: an
+        // outing can come back with a herb and a handful of stones both, and
+        // the purse is fed by going out rather than only by working.
         //
-        // A walk that was beaten pays nothing at all: the fight decided the
-        // walk, and a purse that filled up on a defeat would make being beaten
-        // a way of earning.
+        // Which purse is what tells the two outings apart: a quiet walk pays a
+        // handful for the trouble of walking, and beating a wanderer pays what
+        // a wanderer was carrying. A walk that was beaten pays nothing at all —
+        // a purse that filled up on a defeat would make being beaten a way of
+        // earning.
+        let purse = if outcome == ExplorationOutcome::Victory {
+            WANDERER_STONES
+        } else {
+            WALK_STONES
+        };
         let stones = if outcome == ExplorationOutcome::Defeat {
             None
         } else {
-            roll_stones(&mut rng)
+            roll_stones(&mut rng, purse)
         };
         if let Some(amount) = stones {
             self.document.stones = self.document.stones.saturating_add(amount);
@@ -1520,6 +1608,13 @@ impl Cultivation {
                 }
                 TrialReward::Nothing => {}
             }
+            // The floor's purse, drawn beside the finding: a cleared floor
+            // always pays a little, so a run of empty rolls is still a run that
+            // bought something.
+            if let Some(amount) = roll_stones(&mut rng, TRIAL_STONES) {
+                self.document.stones = self.document.stones.saturating_add(amount);
+                found.stones = Some(amount);
+            }
         }
         self.push_event(
             now_unix,
@@ -1529,10 +1624,91 @@ impl Cultivation {
                 art: found.art.clone(),
                 gear: found.gear.as_ref().and_then(|item| item.name.clone()),
                 seed: found.seed.as_ref().and_then(|seed| seed.name.clone()),
+                stones: found.stones,
             },
         );
         let outcome = TrialOutcome { floor, duel, found };
         self.last_trial = Some(outcome.clone());
+        Some(outcome)
+    }
+
+    /// What the day opened with, once per local day.
+    ///
+    /// Called by the worker's tick, not by a click: the day has to arrive on its
+    /// own, whether the machine was launched this morning or left running over
+    /// midnight. `None` on every tick after the first of a day, so the trick is
+    /// idempotent without the caller having to remember anything.
+    ///
+    /// An ambush is a real fight — the wanderer off the road, the same engine and
+    /// the same record — and a gift or a coin is paid straight into the satchel.
+    /// Nothing is ever taken away: the morning can only add.
+    pub fn daily_event(&mut self, now_unix: i64, day: i64) -> Option<DailyOutcome> {
+        if self.document.daily_event_day == Some(day) {
+            return None;
+        }
+        self.document.daily_event_day = Some(day);
+        self.daily_events = self.daily_events.saturating_add(1);
+        let mut rng = self.rng(now_unix);
+        let kind = roll_kind(&mut rng);
+        let mut outcome = DailyOutcome {
+            kind,
+            won: true,
+            duel: None,
+            found: ExplorationFindView::default(),
+        };
+        let tier = self.realm().index() as u8 + 1;
+        match kind {
+            DailyKind::Ambush => {
+                let fighter = self.fighter(&mut rng);
+                let duel = duel(fighter, wanderer_fighter(self.realm()), &mut rng);
+                self.record_duel(duel.won, FightKind::Wanderer, now_unix);
+                outcome.won = duel.won;
+                if duel.won {
+                    outcome.found = self.award_wanderer_find(&mut rng, now_unix);
+                    if let Some(amount) = roll_stones(&mut rng, DAILY_AMBUSH_STONES) {
+                        self.document.stones = self.document.stones.saturating_add(amount);
+                        outcome.found.stones = Some(amount);
+                    }
+                }
+                outcome.duel = Some(duel);
+            }
+            DailyKind::Gift => match roll_gift(&mut rng) {
+                GiftKind::Stones => {
+                    if let Some(amount) = roll_stones(&mut rng, DAILY_GIFT_STONES) {
+                        self.document.stones = self.document.stones.saturating_add(amount);
+                        outcome.found.stones = Some(amount);
+                    }
+                }
+                GiftKind::Seed => {
+                    let attribute =
+                        Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
+                    outcome.found.seed = Some(self.push_seed(attribute, tier, &mut rng));
+                }
+                GiftKind::Gear => {
+                    let item = self.push_equipment(tier, &mut rng);
+                    outcome.found.gear = Some(self.item_view(&item));
+                }
+            },
+            DailyKind::Trinket => {
+                if let Some(amount) = roll_stones(&mut rng, DAILY_TRINKET_STONES) {
+                    self.document.stones = self.document.stones.saturating_add(amount);
+                    outcome.found.stones = Some(amount);
+                }
+            }
+        }
+        let found = outcome.found.clone();
+        self.push_event(
+            now_unix,
+            EventDetail::Daily {
+                kind,
+                won: outcome.won,
+                art: found.art,
+                gear: found.gear.as_ref().and_then(|item| item.name.clone()),
+                seed: found.seed.as_ref().and_then(|seed| seed.name.clone()),
+                stones: found.stones,
+            },
+        );
+        self.last_daily_event = Some(outcome.clone());
         Some(outcome)
     }
 
@@ -1616,6 +1792,17 @@ impl Cultivation {
                 ..mastered_art_view(owned.art_id)
             });
         }
+        // Most recently trained first, the rest in the order the save met them:
+        // the three on the page are the three the cultivator is working on, and
+        // a stable sort leaves the older ones readable in the order they were
+        // learned rather than in whatever order the two lists were merged.
+        let recent = &self.document.recent_arts;
+        mastered_arts.sort_by_key(|art| {
+            recent
+                .iter()
+                .position(|id| *id == art.id)
+                .unwrap_or(usize::MAX)
+        });
         let mut equipped: [Option<ItemView>; SLOT_COUNT] = array::from_fn(|_| None);
         let mut inventory = Vec::new();
         for item in &self.document.equipment {
@@ -1728,6 +1915,8 @@ impl Cultivation {
             trial_blocked: self.trial_blocked(now_unix, day),
             last_trial: self.last_trial.clone(),
             trial_attempts: self.trial_attempts,
+            last_daily_event: self.last_daily_event.clone(),
+            daily_events: self.daily_events,
             next_session_growth: self.next_session_growth(day),
             derived_breakdowns: derived.breakdowns(attributes),
             duel_record: self.document.duel_record.clone(),
@@ -2480,5 +2669,201 @@ mod tests {
                 "level {level} clears floor {past} a quarter past it {past_rate}% of the time"
             );
         }
+    }
+
+    /// The day opens once, and once only: a relaunch the same afternoon is still
+    /// the same morning.
+    #[test]
+    fn the_day_opens_once_and_only_once() {
+        let mut cultivation = a_bare_save_at(20);
+        let first = cultivation.daily_event(1_000, 9).expect("the day opens");
+        assert!(
+            matches!(
+                first.kind,
+                DailyKind::Ambush | DailyKind::Gift | DailyKind::Trinket
+            ),
+            "the morning has to be one of the three kinds"
+        );
+        assert!(
+            cultivation.daily_event(2_000, 9).is_none(),
+            "a second tick on the same day opens nothing"
+        );
+        assert_eq!(cultivation.document.daily_event_day, Some(9));
+        assert!(
+            matches!(
+                cultivation.view().events.first().map(|event| &event.detail),
+                Some(EventDetail::Daily { .. })
+            ),
+            "the morning is on the page's log"
+        );
+        assert!(
+            cultivation.daily_event(3_000, 10).is_some(),
+            "the next day opens on its own"
+        );
+        assert_eq!(cultivation.view().daily_events, 2);
+    }
+
+    /// The morning can only add. Every kind pays something — a fight only if it
+    /// is won, which is the one branch that can come back empty-handed.
+    #[test]
+    fn a_morning_only_ever_adds() {
+        for day_number in 0..60_i64 {
+            let mut cultivation = a_bare_save_at(20);
+            let before = cultivation.document.stones;
+            let outcome = cultivation
+                .daily_event(1_000 + day_number * 86_400, day_number)
+                .expect("each day opens");
+            assert!(
+                cultivation.document.stones >= before,
+                "the morning took money away"
+            );
+            match outcome.kind {
+                DailyKind::Ambush => {
+                    assert!(outcome.duel.is_some(), "an ambush is a fight to replay");
+                    if outcome.won {
+                        assert!(!outcome.found.is_empty(), "a won ambush pays something");
+                    } else {
+                        assert!(outcome.found.is_empty(), "a lost ambush takes nothing");
+                    }
+                }
+                DailyKind::Gift | DailyKind::Trinket => {
+                    assert!(outcome.duel.is_none(), "only an ambush is a fight");
+                    assert!(
+                        !outcome.found.is_empty(),
+                        "a gift always hands something over"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The learned panel is ordered by the ring, not by the shelf: the three it
+    /// shows have to be the three being worked on.
+    #[test]
+    fn the_learned_panel_puts_the_recently_trained_first() {
+        let mut cultivation = a_bare_save_at(20);
+        cultivation.document.arts = vec![
+            OwnedArt {
+                art_id: 3,
+                rank: 1,
+                progress: 0,
+                outcome: None,
+            },
+            OwnedArt {
+                art_id: 7,
+                rank: 1,
+                progress: 0,
+                outcome: None,
+            },
+        ];
+        cultivation.select_art(Some(3));
+        cultivation.train_selected(1_000);
+        cultivation.select_art(Some(7));
+        cultivation.train_selected(2_000);
+        assert_eq!(
+            cultivation.document.recent_arts.first(),
+            Some(&7),
+            "the last thing trained is at the front"
+        );
+        assert_eq!(
+            cultivation.view().mastered_arts.first().map(|art| art.id),
+            Some(7),
+            "the ring orders the panel"
+        );
+        // Going back to the older book moves it back to the front.
+        cultivation.select_art(Some(3));
+        cultivation.train_selected(3_000);
+        assert_eq!(
+            cultivation.view().mastered_arts.first().map(|art| art.id),
+            Some(3)
+        );
+    }
+
+    /// The ring is a ring: it keeps the few, not every 功法 the save has met.
+    #[test]
+    fn the_recent_ring_forgets_the_oldest() {
+        let mut cultivation = a_bare_save_at(20);
+        for art_id in 1..=(RECENT_ARTS_CAP as u64 + 3) {
+            cultivation.note_recent_art(art_id);
+        }
+        assert_eq!(cultivation.document.recent_arts.len(), RECENT_ARTS_CAP);
+        assert_eq!(
+            cultivation.document.recent_arts.first().copied(),
+            Some(RECENT_ARTS_CAP as u64 + 3)
+        );
+        // Training the same book twice is one entry, not two.
+        cultivation.note_recent_art(2);
+        assert_eq!(
+            cultivation
+                .document
+                .recent_arts
+                .iter()
+                .filter(|id| **id == 2)
+                .count(),
+            1
+        );
+        assert_eq!(cultivation.document.recent_arts.first().copied(), Some(2));
+    }
+
+    /// Every won fight pays a purse, and each source pays its own size: the
+    /// guardian the richest, a trial floor the leanest, a wanderer in between.
+    #[test]
+    fn every_fight_pays_a_purse_of_its_own_size() {
+        // A save at the first realm's cap, far stronger than the guardian needs:
+        // the point is the purse a win pays, not whether it can be won.
+        let mut wins = 0;
+        for attempt in 0..40_i64 {
+            let mut cultivation = Cultivation::new(CultivationDocument {
+                growth: threshold_for(LAYERS_PER_STAGE),
+                allocated: Attributes::new(2_000, 2_000, 2_000, 2_000),
+                ..CultivationDocument::default()
+            });
+            let before = cultivation.document.stones;
+            let Some(outcome) = cultivation.breakthrough(1_000 + attempt * 977) else {
+                break;
+            };
+            if outcome.duel.won {
+                wins += 1;
+                assert!(
+                    outcome.stones.is_some_and(|amount| {
+                        (GUARDIAN_STONES.min..=GUARDIAN_STONES.max).contains(&amount)
+                    }),
+                    "a won breakthrough pays the guardian's purse: {:?}",
+                    outcome.stones
+                );
+                assert!(cultivation.document.stones > before);
+            }
+        }
+        assert!(wins > 0, "the reference save never won a breakthrough");
+
+        // The tower's purse is the leanest of the four, and only a cleared floor
+        // pays it.
+        let mut floors = 0;
+        for attempt in 0..40_i64 {
+            let mut cultivation = a_bare_save_at(30);
+            let before = cultivation.document.stones;
+            let Some(outcome) = cultivation.trial(1_000 + attempt * 977, 9) else {
+                break;
+            };
+            if outcome.duel.won {
+                floors += 1;
+                assert!(
+                    outcome.found.stones.is_some_and(|amount| {
+                        (TRIAL_STONES.min..=TRIAL_STONES.max).contains(&amount)
+                    }),
+                    "a cleared floor pays the tower's purse"
+                );
+                assert!(cultivation.document.stones > before);
+            } else {
+                assert_eq!(
+                    cultivation.document.stones, before,
+                    "a failed floor pays nothing at all"
+                );
+            }
+        }
+        assert!(
+            floors > 0,
+            "the reference save never cleared the first floor"
+        );
     }
 }

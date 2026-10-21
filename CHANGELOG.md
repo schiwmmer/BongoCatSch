@@ -27,6 +27,8 @@
 - Breaking into the next realm is a real fight now: an action bar decides who strikes when, a blow adds whatever spell power gets through the defender's resistance to the attacker's own, and the hit chance falls off as the two sides drift apart — even footing lands four blows in five, a two-to-one edge one in two. Thirty blows settle it either way. Winning advances the realm with a 功法 and a further roll at gear and a seed; losing costs twelve hours and a small chance at one equipped piece.
 - Exploration opens once every twelve hours: a seed, a piece of gear, a 功法, or a wanderer to fight at four fifths of a bare cultivator's strength — the same engine as a breakthrough, and winning that fight rolls again. A third of the time a handful of stones comes back as well.
 - A trial tower sits under the walk: five floors a day, starting at the first and climbing one at a time, its warden the bare cultivator of the level that floor stands for — floor one is a level-one cultivator — so a deeper floor is both harder and worth more. A cleared floor may pay a seed, gear or a 功法; a loss costs the attempt and never the ground already held. The tower is climbed at home: while a walk is still out the door is shut, which makes the tower and the walk one choice rather than two.
+- Every fight and every walk now pays something: spirit stones are the floor under all four sources, and the four differ by what they emphasise — a quiet walk is about herbs, a wanderer about gear and money, a guardian about the 功法 it guards, a trial floor about drilling. The four purses run 3–8 / 5–14 / 10–24 / 2–6, and a walk that comes home never comes back empty.
+- The first launch of a day — or midnight on a machine left running — opens a "morning event": about 28% someone attacks (a real encounter, and winning it pays), about 12% the day simply hands something over (stones, a seed or gear; deliberately rarer than the ambush), and the remaining 60% a coin or two in the dust. All three land in the event log, and an ambush replays its fight.
 - The cultivation page keeps an event log of the last sixteen things that happened — sessions, walks, training, breakthroughs, buys, sales and harvests — right above the attributes.
 - Growth reads as what the cultivator has and what the next layer still asks for, in compact numbers, and the levels inside a layer are called 阶 rather than levels.
 - Every derived figure on the cultivation page carries the formula that computes it, naming the attributes it reads the way the page names them everywhere else.
@@ -57,6 +59,7 @@
 - A 功法 on the shelf says where its training stands under its name: the 阶 the grade has, what the next one costs in pomodoros, and how far into it the book already is. A finished one says it stands complete.
 - A 功法 trained to its first 阶 shows in the learned panel as far as it has gone: the 阶 it stands at beside the name, what it has paid for so far, and no mastery while any is missing.
 - A purchase in the event log says what it cost, and a bought seed says which tier it is.
+- The learned 功法 panel keeps the three most recently trained and folds the rest behind one click, so it answers "what am I working on" rather than listing every shelf.
 
 ### 🌍 Localization
 

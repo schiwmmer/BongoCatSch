@@ -312,6 +312,12 @@ pub struct OwnedArt {
     pub outcome: Option<ArtOutcome>,
 }
 
+/// How many 功法 the recent ring remembers, newest first.
+///
+/// The learned panel draws three, so eight is more than enough to survive the
+/// three being sold, finished or folded away, and short enough to stay a ring.
+pub const RECENT_ARTS_CAP: usize = 8;
+
 /// What one attempt at learning came to.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ArtOutcome {

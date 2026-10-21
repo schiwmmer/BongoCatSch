@@ -232,11 +232,11 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
                 &[("name", name.clone()), ("rank", rank.to_string())],
             )
         }
-        EventDetail::Breakthrough { won, stage } => {
+        EventDetail::Breakthrough { won, stage, stones } => {
             // A win names the realm it opened, the way the sticky notice above
             // this log used to: the notice is gone because the log is the same
             // line said twice, but the realm it named is not lost.
-            match (*won, *stage) {
+            let mut line = match (*won, *stage) {
                 (true, Some(stage)) => format_text(
                     locale,
                     "cultivation.breakthrough.won",
@@ -254,7 +254,9 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
                     },
                 )
                 .to_string(),
-            }
+            };
+            push_stones(&mut line, *stones, locale);
+            line
         }
         EventDetail::Trial {
             floor,
@@ -262,14 +264,44 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             art,
             gear,
             seed,
+            stones,
         } => trial_line(
             *floor,
             *won,
             art.as_deref(),
             gear.as_deref(),
             seed.as_deref(),
+            *stones,
             locale,
         ),
+        EventDetail::Daily {
+            kind,
+            won,
+            art,
+            gear,
+            seed,
+            stones,
+        } => {
+            // One line for the whole morning: how the day opened, then what it
+            // left behind. A lost ambush says so instead of naming the attacker,
+            // because the attacker is a 游荡者 every time.
+            let key = match (kind, won) {
+                (DailyKind::Ambush, true) => "cultivation.daily.ambush",
+                (DailyKind::Ambush, false) => "cultivation.daily.ambush_lost",
+                (DailyKind::Gift, _) => "cultivation.daily.gift",
+                (DailyKind::Trinket, _) => "cultivation.daily.trinket",
+            };
+            let mut line = text(locale, key).to_string();
+            push_finds(
+                &mut line,
+                art.as_deref(),
+                gear.as_deref(),
+                seed.as_deref(),
+                locale,
+            );
+            push_stones(&mut line, *stones, locale);
+            line
+        }
         EventDetail::Bought { what, stones } => {
             // An old save's purchases predate the price and read as zero; the
             // bare line is what those events said, so that is what they keep
@@ -361,16 +393,7 @@ fn walk_line(
         )],
     );
     push_finds(&mut line, art, gear, seed, locale);
-    if let Some(amount) = stones {
-        line.push_str(&format!(
-            " · {}",
-            format_text(
-                locale,
-                "cultivation.record.found_stones",
-                &[("value", amount.to_string())]
-            )
-        ));
-    }
+    push_stones(&mut line, stones, locale);
     line
 }
 
@@ -385,6 +408,7 @@ fn trial_line(
     art: Option<&str>,
     gear: Option<&str>,
     seed: Option<&str>,
+    stones: Option<u32>,
     locale: &str,
 ) -> String {
     let mut line = format_text(
@@ -398,8 +422,26 @@ fn trial_line(
     );
     if won {
         push_finds(&mut line, art, gear, seed, locale);
+        push_stones(&mut line, stones, locale);
     }
     line
+}
+
+/// Name the purse a win turned up, when it turned one up.
+///
+/// Money is not a find — it rides beside one — so it is a segment of its own on
+/// the same line rather than a fourth kind of thing to have found.
+fn push_stones(line: &mut String, stones: Option<u32>, locale: &str) {
+    if let Some(amount) = stones {
+        line.push_str(&format!(
+            " · {}",
+            format_text(
+                locale,
+                "cultivation.record.found_stones",
+                &[("value", amount.to_string())]
+            )
+        ));
+    }
 }
 
 /// Name what a walk or a floor turned up, one segment per find.

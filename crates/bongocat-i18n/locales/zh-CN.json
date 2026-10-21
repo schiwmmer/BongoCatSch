@@ -652,7 +652,9 @@
     "mastered": {
       "title": "已习得功法",
       "empty": "尚无圆满之功法。修习圆满后即已习得，永久生效，也可售出。",
-      "progress": "已至 %{rank}/%{total} 阶"
+      "progress": "已至 %{rank}/%{total} 阶",
+      "show_all": "展开全部 %{count} 部",
+      "show_less": "收起"
     },
     "art": {
       "kind": {
@@ -768,7 +770,9 @@
       "title_exploration": "遭遇战",
       "wanderer": "游荡者",
       "win": "胜利",
-      "you": "你"
+      "you": "你",
+      "reward_stones": "得灵石 %{value} 枚",
+      "title_daily": "晨间遭遇"
     },
     "explore": {
       "attempt": "外出探索",
@@ -792,7 +796,7 @@
       "attempts_left": "今日余 %{left}/%{total} 次",
       "cleared": "已通关第 %{floor} 层",
       "top": "试炼塔已通关，再无可攀之层。",
-      "hint": "每层守关人按境界逐级变强，首层同炼气 1 层 1 阶；通关有几率得种子、装备或功法。",
+      "hint": "每层守关人按境界逐级变强，首层同炼气 1 层 1 阶；通关必得灵石，另有几率得种子、装备或功法。",
       "won": "第 %{floor} 层通关。",
       "lost": "第 %{floor} 层未过。",
       "refuse_out": "尚在外游历，归来后方可试炼。",
@@ -868,6 +872,12 @@
       "derived_title": "八项战斗数值：四项属性换算出来的结果，不能直接加点",
       "derived_hint_each": "由四项属性换算，改上面那四项才会变。",
       "power_hint": "战力＝法术＋武术，是破境时判定胜负用的那一个数。"
+    },
+    "daily": {
+      "ambush": "晨间遇袭，击退来犯",
+      "ambush_lost": "晨间遇袭，不敌而退，所幸未失",
+      "gift": "晨起有得",
+      "trinket": "晨间无事，拾得零碎"
     }
   }
 }

@@ -15,8 +15,9 @@ use super::cultivation_settings::{CombatStats, derived_rows};
 use super::*;
 use bongocat_i18n::{format_text, text};
 use bongocat_pomodoro::{
-    ArtStrike, BreakthroughOutcome, DuelReport, DuelRound, ExplorationFindView, ExplorationOutcome,
-    Fighter, GUARDIAN_NAME, PLAYER_NAME, TRIAL_OPPONENT_NAME, TrialOutcome, WANDERER_NAME,
+    ArtStrike, BreakthroughOutcome, DailyOutcome, DuelReport, DuelRound, ExplorationFindView,
+    ExplorationOutcome, Fighter, GUARDIAN_NAME, PLAYER_NAME, TRIAL_OPPONENT_NAME, TrialOutcome,
+    WANDERER_NAME,
 };
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::Sizable as _;
@@ -59,6 +60,8 @@ pub(crate) enum CultivationDuelSource {
     Exploration,
     /// One floor of the 试炼 tower.
     Trial,
+    /// The morning ambush the day opened with.
+    Daily,
 }
 
 /// What the fight being replayed settled.
@@ -77,6 +80,8 @@ pub(crate) enum CultivationDuelPayload {
     ),
     /// A 试炼 floor: the fight the warden settled, and what clearing it paid.
     Trial(TrialOutcome),
+    /// The morning ambush: the fight, and what driving it off paid.
+    Daily(DailyOutcome),
 }
 
 /// The fight the cultivation page is replaying.
@@ -107,6 +112,9 @@ impl CultivationDuel {
                 duel.as_ref().map_or(&[], |duel| &duel.rounds)
             }
             CultivationDuelPayload::Trial(outcome) => &outcome.duel.rounds,
+            CultivationDuelPayload::Daily(outcome) => {
+                outcome.duel.as_ref().map_or(&[], |duel| &duel.rounds)
+            }
         }
     }
 
@@ -116,6 +124,7 @@ impl CultivationDuel {
             CultivationDuelSource::Breakthrough => GUARDIAN_NAME,
             CultivationDuelSource::Exploration => WANDERER_NAME,
             CultivationDuelSource::Trial => TRIAL_OPPONENT_NAME,
+            CultivationDuelSource::Daily => WANDERER_NAME,
         }
     }
 
@@ -125,6 +134,7 @@ impl CultivationDuel {
             CultivationDuelPayload::Breakthrough(outcome) => Some(&outcome.duel),
             CultivationDuelPayload::Exploration(_, _, duel) => duel.as_ref(),
             CultivationDuelPayload::Trial(outcome) => Some(&outcome.duel),
+            CultivationDuelPayload::Daily(outcome) => outcome.duel.as_ref(),
         }
     }
 
@@ -143,6 +153,10 @@ impl CultivationDuel {
             CultivationDuelPayload::Trial(outcome) => {
                 Some((&outcome.duel.player, &outcome.duel.opponent))
             }
+            CultivationDuelPayload::Daily(outcome) => outcome
+                .duel
+                .as_ref()
+                .map(|duel| (&duel.player, &duel.opponent)),
         }
     }
 
@@ -157,6 +171,7 @@ impl CultivationDuel {
                 _ => false,
             },
             CultivationDuelPayload::Trial(outcome) => outcome.duel.won,
+            CultivationDuelPayload::Daily(outcome) => outcome.won,
         }
     }
 
@@ -366,6 +381,9 @@ fn title_line(duel: &CultivationDuel, locale: &str) -> String {
                 ],
             )
         ),
+        CultivationDuelPayload::Daily(_) => {
+            text(locale, "cultivation.duel.title_daily").to_string()
+        }
     }
 }
 
@@ -682,6 +700,17 @@ fn payoff_lines(duel: &CultivationDuel, locale: &str, tokens: Tokens) -> Vec<gpu
                         tokens.accent,
                     ));
                 }
+                if let Some(amount) = outcome.stones {
+                    lines.push(payoff(
+                        "cultivation-duel-pay-stones",
+                        format_text(
+                            locale,
+                            "cultivation.duel.reward_stones",
+                            &[("value", amount.to_string())],
+                        ),
+                        tokens.accent,
+                    ));
+                }
             } else if let Some(lost) = &outcome.lost {
                 lines.push(payoff(
                     "cultivation-duel-lost-gear",
@@ -741,6 +770,77 @@ fn payoff_lines(duel: &CultivationDuel, locale: &str, tokens: Tokens) -> Vec<gpu
                         locale,
                         "cultivation.explore.found_art",
                         &[("name", name.clone())],
+                    ),
+                    tokens.accent,
+                ));
+            }
+            if let Some(amount) = outcome.found.stones {
+                lines.push(payoff(
+                    "cultivation-duel-trial-stones",
+                    format_text(
+                        locale,
+                        "cultivation.duel.reward_stones",
+                        &[("value", amount.to_string())],
+                    ),
+                    tokens.accent,
+                ));
+            }
+        }
+        CultivationDuelPayload::Daily(outcome) => {
+            let key = if outcome.won {
+                "cultivation.daily.ambush"
+            } else {
+                "cultivation.daily.ambush_lost"
+            };
+            lines.push(payoff(
+                "cultivation-duel-daily-verdict",
+                text(locale, key).to_string(),
+                if outcome.won {
+                    tokens.accent
+                } else {
+                    tokens.danger
+                },
+            ));
+            if let Some(seed) = &outcome.found.seed {
+                lines.push(payoff(
+                    "cultivation-duel-daily-seed",
+                    format_text(
+                        locale,
+                        "cultivation.explore.found_seed",
+                        &[("name", seed_label(locale, seed))],
+                    ),
+                    tokens.accent,
+                ));
+            }
+            if let Some(item) = &outcome.found.gear {
+                lines.push(payoff(
+                    "cultivation-duel-daily-gear",
+                    format_text(
+                        locale,
+                        "cultivation.explore.found_gear",
+                        &[("name", item_label(locale, item))],
+                    ),
+                    tokens.accent,
+                ));
+            }
+            if let Some(name) = &outcome.found.art {
+                lines.push(payoff(
+                    "cultivation-duel-daily-art",
+                    format_text(
+                        locale,
+                        "cultivation.explore.found_art",
+                        &[("name", name.clone())],
+                    ),
+                    tokens.accent,
+                ));
+            }
+            if let Some(amount) = outcome.found.stones {
+                lines.push(payoff(
+                    "cultivation-duel-daily-stones",
+                    format_text(
+                        locale,
+                        "cultivation.duel.reward_stones",
+                        &[("value", amount.to_string())],
                     ),
                     tokens.accent,
                 ));
@@ -1032,6 +1132,7 @@ mod tests {
                 duel: report(3),
                 lost: None,
                 granted_art: Some("一门功法".to_owned()),
+                stones: None,
             }),
         );
         assert_eq!(guardian.opponent(), GUARDIAN_NAME);

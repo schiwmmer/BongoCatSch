@@ -449,6 +449,8 @@ impl SettingsView {
             // The event history starts closed: the page's five lines are the
             // record until the user asks for more.
             cultivation_events_open: false,
+            cultivation_mastered_open: false,
+            cultivation_daily_seen: 0,
             // No fight is being replayed when the window opens, and none is
             // waiting on the worker either.
             cultivation_duel: None,
@@ -557,11 +559,47 @@ impl SettingsView {
         // A fight the user asked for is settled by the worker on its own thread:
         // this is where the page learns it has a report to show.
         self.open_answered_cultivation_duel(cx);
+        // The day's own event opens itself, so it is watched here rather than
+        // asked for: an ambush is the one fight nobody pressed a button for.
+        self.open_daily_event_duel(cx);
         // And this is where a replay being read is paced out.
         self.advance_cultivation_duel(cx);
         // A refused purchase or a walk that is not owed is reported here: the
         // worker says why, and the page says it out loud.
         self.open_cultivation_refusal(cx);
+    }
+
+    /// Show the ambush the day opened with, once.
+    ///
+    /// The domain counts the mornings it has opened, and this watches that
+    /// count: the snapshot revision cannot be used for it, because a running
+    /// pomodoro moves the revision every second. Only an ambush has a fight to
+    /// replay — a gift and a quiet morning are already on the page's log, and a
+    /// popup for them would be a dialog to dismiss for one line of text.
+    fn open_daily_event_duel(&mut self, cx: &mut Context<Self>) {
+        let cultivation = self.pomodoro.snapshot().cultivation;
+        let count = cultivation.daily_events;
+        if count <= self.cultivation_daily_seen {
+            // A count that went backwards means the worker restarted and holds
+            // a new ladder: the baseline moves rather than the same ambush
+            // being replayed on every launch.
+            if count < self.cultivation_daily_seen {
+                self.cultivation_daily_seen = count;
+            }
+            return;
+        }
+        self.cultivation_daily_seen = count;
+        let Some(event) = cultivation
+            .last_daily_event
+            .filter(|event| event.duel.is_some())
+        else {
+            return;
+        };
+        self.cultivation_duel = Some(CultivationDuel::new(
+            CultivationDuelSource::Daily,
+            cultivation_duel::CultivationDuelPayload::Daily(event),
+        ));
+        cx.notify();
     }
 
     /// Show why an action was refused, once.
@@ -628,6 +666,9 @@ impl SettingsView {
                     .clone()
                     .map(cultivation_duel::CultivationDuelPayload::Trial),
             ),
+            // The morning ambush is never asked for: it is opened by the poll
+            // below, which watches the day's own count instead.
+            CultivationDuelSource::Daily => return,
         };
         if count <= asked_at {
             // Not answered yet: the next tick asks again.
@@ -673,6 +714,8 @@ impl SettingsView {
             CultivationDuelSource::Breakthrough => cultivation.breakthrough_attempts,
             CultivationDuelSource::Exploration => cultivation.explorations,
             CultivationDuelSource::Trial => cultivation.trial_attempts,
+            // Nothing asks for the morning event; it asks for the user.
+            CultivationDuelSource::Daily => return,
         };
         let _ = self.pomodoro.try_publish(command);
         self.cultivation_duel_pending = Some((source, count));

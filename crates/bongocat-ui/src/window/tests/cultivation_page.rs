@@ -434,6 +434,7 @@ fn the_page_draws_the_next_session_worth_and_the_record(cx: &mut TestAppContext)
                 detail: EventDetail::Breakthrough {
                     won: true,
                     stage: Some(1),
+                    stones: None,
                 },
             },
             EventRecord {
@@ -953,5 +954,39 @@ fn the_trial_popup_names_the_floor_and_what_it_paid(cx: &mut TestAppContext) {
         "cultivation-duel-trial-floor",
     ] {
         assert!(painted(visual, id), "the trial popup must paint {id}");
+    }
+}
+
+/// The learned panel answers "what am I working on": three rows and a way to
+/// see the rest, rather than a list that grows with the shelf.
+#[gpui_kit::test]
+fn the_learned_panel_shows_three_and_unfolds(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        mastered_arts: vec![11, 12, 13, 14, 15],
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    for id in [
+        "cultivation-mastered-art-11",
+        "cultivation-mastered-art-12",
+        "cultivation-mastered-art-13",
+        "cultivation-mastered-toggle",
+    ] {
+        assert!(painted(visual, id), "the panel must draw {id}");
+    }
+    assert!(
+        !painted(visual, "cultivation-mastered-art-14"),
+        "the fourth 功法 waits behind the fold"
+    );
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-mastered-toggle", cx);
+    });
+    visual.update(|window, cx| window.render_frame(cx));
+    for id in ["cultivation-mastered-art-14", "cultivation-mastered-art-15"] {
+        assert!(painted(visual, id), "unfolding must draw {id}");
     }
 }

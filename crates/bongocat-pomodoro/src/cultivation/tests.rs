@@ -1,6 +1,7 @@
 //! The ladder's rules, exercised without a clock: the tests hand in every
 //! instant and every local day, so a hundred days of absence take microseconds.
 
+use super::explore::WALK_STONES;
 use super::garden::{grow_seconds, harvest_points};
 use super::*;
 use crate::CalendarDay;
@@ -841,10 +842,14 @@ fn one_walk_every_twelve_hours() {
 
 /// A walk that turns something up says what it turned up: the herb, the piece,
 /// the 功法 or the 灵石, not merely that something happened.
+///
+/// Every walk that comes home pays at least its purse, so "nothing at all" is no
+/// longer an outcome a walk can reach: the finding roll still misses most of the
+/// time, and the line then says what the purse held.
 #[test]
 fn a_walk_says_what_it_turned_up() {
-    let mut found = 0;
-    let mut empty = 0;
+    let mut items = 0;
+    let mut purse_only = 0;
     for clock in 0..40_i64 {
         let mut cultivation = Cultivation::default();
         let Some(outcome) = cultivation.explore(1_000 + clock * 100_000) else {
@@ -862,21 +867,27 @@ fn a_walk_says_what_it_turned_up() {
                     "a walk that was beaten turned something up"
                 )
             }
-            // Anything else — a seed, gear, a 功法, stones, or a win that paid —
-            // names it.
             _ => {
-                if turned_up.is_empty() {
-                    empty += 1;
+                assert!(
+                    !turned_up.is_empty(),
+                    "a walk that came home paid nothing at all"
+                );
+                assert!(
+                    turned_up.stones.is_some(),
+                    "every walk that comes home pays a purse"
+                );
+                if turned_up.seed.is_some() || turned_up.gear.is_some() || turned_up.art.is_some() {
+                    items += 1;
                 } else {
-                    found += 1;
+                    purse_only += 1;
                 }
             }
         }
     }
-    assert!(found > 0, "a walk turns something up sometimes: {found}/40");
+    assert!(items > 0, "a walk turns something up sometimes: {items}/40");
     assert!(
-        empty > 0,
-        "and nothing at all the rest of the time: {empty}/40"
+        purse_only > 0,
+        "and comes home with only a purse the rest of the time: {purse_only}/40"
     );
 }
 
@@ -951,7 +962,7 @@ fn a_walk_can_turn_up_stones() {
         };
         turned_up += 1;
         assert!(
-            (STONE_FIND_MIN..=STONE_FIND_MAX).contains(&amount),
+            (WALK_STONES.min..=WALK_STONES.max).contains(&amount),
             "a walk pays a handful, not a fortune: {amount}"
         );
         assert_eq!(cultivation.stones(), amount, "the stones land in the purse");

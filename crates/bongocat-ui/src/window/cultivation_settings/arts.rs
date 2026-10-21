@@ -44,9 +44,13 @@ pub(super) fn arts_panel(
 /// trained and can be sold, while a learned 功法 is kept for good and pays its
 /// mastery for as long as the save lives. Putting them in one list would make
 /// the second look like the first.
+/// How many learned 功法 the panel shows before it is unfolded.
+const MASTERED_VISIBLE_COUNT: usize = 3;
+
 pub(super) fn mastered_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
+    open: bool,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
@@ -66,12 +70,50 @@ pub(super) fn mastered_panel(
                 .child(text(locale, "cultivation.mastered.empty")),
         );
     }
+    // The three most recently trained are the three being worked on; the rest
+    // are one click away rather than always on a page that is already a ladder.
+    let total = cultivation.mastered_arts.len();
+    let shown = if open {
+        total
+    } else {
+        total.min(MASTERED_VISIBLE_COUNT)
+    };
     panel = panel.children(
         cultivation
             .mastered_arts
             .iter()
+            .take(shown)
             .map(|art| mastered_art_row(view, art, locale, tokens)),
     );
+    if total > MASTERED_VISIBLE_COUNT {
+        let key = if open {
+            "cultivation.mastered.show_less"
+        } else {
+            "cultivation.mastered.show_all"
+        };
+        let label = if open {
+            text(locale, key).to_string()
+        } else {
+            format_text(locale, key, &[("count", total.to_string())])
+        };
+        panel = panel.child(
+            div()
+                .id("cultivation-mastered-toggle")
+                .text_xs()
+                .text_color(tokens.accent)
+                .child(label)
+                .test_support()
+                .on_click({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            view.cultivation_mastered_open = !view.cultivation_mastered_open;
+                            cx.notify();
+                        });
+                    }
+                }),
+        );
+    }
     panel
 }
 
