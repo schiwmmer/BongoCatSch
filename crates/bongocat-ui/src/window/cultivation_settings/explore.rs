@@ -102,7 +102,7 @@ pub(super) fn breakthrough_panel(
     panel
 }
 
-/// The walk out of the door: one every twelve hours, whatever it comes to.
+/// The walk out of the door: one every ten hours, whatever it comes to.
 ///
 /// Gated by the cooldown alone — the thing being rationed is the player's
 /// attention, not a cost — and the countdown says when the next one is owed.

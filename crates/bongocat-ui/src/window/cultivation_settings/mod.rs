@@ -156,7 +156,18 @@ fn realm_header(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> 
     // Read out here because the hover body outlives this call and cannot borrow
     // `locale`.
     let power_hint = text(locale, "cultivation.hint.power_hint");
-    let realm_hint = text(locale, "cultivation.hint.realm_title");
+    let realm_hint = text(locale, "cultivation.hint.realm_title").to_string();
+    // The whole ladder, read out here for the same reason: the card lists where
+    // the cultivator stands among the ten, and the one they are in is marked.
+    let realms: Vec<(String, bool)> = Realm::ALL
+        .iter()
+        .map(|row| {
+            (
+                text(locale, row.name_key()).to_string(),
+                *row == cultivation.realm,
+            )
+        })
+        .collect();
 
     div()
         .id("cultivation-realm")
@@ -182,7 +193,12 @@ fn realm_header(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> 
                         )
                         .open_delay(Duration::from_millis(120))
                         .content(move |_, _, _| {
-                            hint_body("cultivation-hint-realm-body", realm_hint, hint_tokens)
+                            realm_ladder_body(
+                                "cultivation-hint-realm-body",
+                                realm_hint.clone(),
+                                realms.clone(),
+                                hint_tokens,
+                            )
                         })
                         .into_any_element(),
                 )
@@ -399,6 +415,49 @@ fn hint_body(
         .text_color(tokens.muted)
         .whitespace_normal()
         .child(body)
+        .test_support()
+}
+
+/// The realm card's body: what the realm name means, then the ten rungs it is
+/// one of, with the one the cultivator stands in marked.
+///
+/// "元婴 · 3 层" alone does not say whether that is near the top of the ladder
+/// or near the bottom. The card lists all ten in climbing order, and the current
+/// one carries the danger colour and a caret — the colour is the page's word for
+/// "this is the one that matters", which on every other row means a penalty and
+/// here means the rung the save is standing on.
+fn realm_ladder_body(
+    id: impl Into<gpui_kit::ElementId>,
+    title: String,
+    realms: Vec<(String, bool)>,
+    tokens: Tokens,
+) -> impl IntoElement {
+    div()
+        .id(id.into())
+        .flex()
+        .flex_col()
+        .gap_1()
+        .w(px(180.0))
+        .text_xs()
+        .text_color(tokens.muted)
+        .whitespace_normal()
+        .child(title)
+        .children(
+            realms
+                .into_iter()
+                .enumerate()
+                .map(move |(index, (name, current))| {
+                    let row = div()
+                        .id(format!("cultivation-realm-rung-{index}"))
+                        .child(if current { format!("▸ {name}") } else { name })
+                        .test_support();
+                    if current {
+                        row.text_color(tokens.danger).font_semibold()
+                    } else {
+                        row.text_color(tokens.muted)
+                    }
+                }),
+        )
         .test_support()
 }
 

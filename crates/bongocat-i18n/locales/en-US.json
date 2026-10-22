@@ -865,6 +865,7 @@
       "sold": "Sold",
       "refuse_sold": "This tome has been sold already",
       "detail_sell": "Sells back for %{stones} stones",
+      "special": "On sale · %{value}/10 of the listed %{list}",
       "seed_tier": "a tier %{tier} herb",
       "plot": "a garden plot"
     },

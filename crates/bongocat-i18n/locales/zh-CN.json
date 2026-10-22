@@ -865,6 +865,7 @@
       "sold": "已售",
       "refuse_sold": "这本功法之书已售过，不可再卖",
       "detail_sell": "卖出可得 %{stones} 灵石",
+      "special": "特价 %{value} 折 · 原价 %{list}",
       "seed_tier": "%{tier} 阶仙草",
       "plot": "一块灵田"
     },

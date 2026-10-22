@@ -40,10 +40,15 @@
 - A fight reaches for one of the three strongest 外功 at random, and a book that has not been trained to its first 阶 stays on the shelf; an 外功's 内力 price has doubled.
 - A harvest no longer says only that a crop was pulled: the line names the herb, the attribute it raised and how many points it paid. A seed keeps its name from the shelf to the plot, so the garden shows which herb is growing in it.
 - A seed can be inspected: click its name on the market shelf, in the satchel or in a plot and it says which attribute it will raise, how much it pays and how long it takes to mature; the shelf and the satchel also say what a sale would bring.
+- The realm name's hover card lists the whole ladder: all ten realms in climbing order, with the one the save stands in marked in red and a caret, so "元婴 · 3 层" finally says how far from the top that is.
+- The market marks two rows a day as specials at 60–80% of the list price. Which two, and how deep the cut, come from the day and the realm, so reopening the page shows the same shelf; each row says the fraction it is cut to and the price it was cut from, and the purchase charges exactly that.
+- Opponents wear gear and swing 功法: a guardian, a wanderer and a warden each roll common, fine, rare or immortal pieces for their realm and a named move they use in the fight log, and a win takes the very gear and book they carried rather than rolling fresh ones. Their strength is held where it was — the gear is a slice of the opponent's own attribute budget and the art's three bursts are paid for out of its own attack, so the power the panel promises is still the power the fight is worth.
+- A walk's cooldown drops from twelve hours to ten: a day still holds two walks, but a morning walk means the afternoon has to be spent on something else first.
 
 ### 🗑️ Removals
 
 - The interaction-count ladder is gone: the thousand level names, the ten-title pacing, the 2,000,000-keystroke ceiling and the chime that fired as the count crossed a threshold. Presses are still counted and stored, but nothing displays them any more; levels now come from the Pomodoro cultivation ladder.
+- A breakthrough no longer rolls an extra piece of gear on top of its trophy: if the drop is the piece the guardian wore, a second piece conjured out of nowhere has no business in the same line.
 
 ### 🎨 Interface
 

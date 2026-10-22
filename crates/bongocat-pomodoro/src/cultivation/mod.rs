@@ -44,6 +44,7 @@ mod events;
 mod explore;
 mod garden;
 mod items;
+mod opponent;
 mod shop;
 mod state;
 mod trade;
@@ -58,7 +59,7 @@ pub use arts::{
     effective_failure_permille, external_damage, mastered_art_attributes, mastered_art_payout,
     mastered_art_view, mastery_permille, required_pomodoros,
 };
-pub use battle::{BattleReport, Guardian, guardian_fighter, wanderer_fighter};
+pub use battle::{BattleReport, Guardian};
 // `duel` itself stays crate-private: it takes the seeded `Rng`, which is nobody
 // else's business. A surface asks the state machine to fight, not the engine.
 pub use curve::{

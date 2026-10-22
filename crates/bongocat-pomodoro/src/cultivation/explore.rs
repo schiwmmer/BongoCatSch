@@ -1,4 +1,4 @@
-//! 探索: one walk out of the door every twelve hours.
+//! 探索: one walk out of the door every ten hours.
 //!
 //! Exploration is the ladder's quiet faucet. A session already pays growth and
 //! may drop gear, and a breakthrough pays a 功法, so walking pays the third thing
@@ -21,7 +21,11 @@ use super::Rng;
 pub const BREAKTHROUGH_COOLDOWN_SECONDS: i64 = 12 * 60 * 60;
 
 /// How long between two walks, in seconds.
-pub const EXPLORATION_COOLDOWN_SECONDS: i64 = 12 * 60 * 60;
+///
+/// Ten hours: a day still holds two walks, but a save that walks in the morning
+/// has to have done something else by the time the afternoon comes round — the
+/// walk is the cheapest faucet on the page and must not become the *only* one.
+pub const EXPLORATION_COOLDOWN_SECONDS: i64 = 10 * 60 * 60;
 
 /// The chance a walk meets someone, in parts per thousand.
 pub const ENCOUNTER_PERMILLE: u64 = 250;
@@ -72,7 +76,7 @@ impl StonePurse {
 }
 
 /// What a quiet walk turns up. The smallest purse of the four: a walk costs
-/// nothing and is owed every twelve hours, so it is a trickle beside a fight —
+/// nothing and is owed every ten hours, so it is a trickle beside a fight —
 /// but it always pays one, because a walk that came home with nothing would read
 /// as a bug rather than as a quiet road.
 pub(crate) const WALK_STONES: StonePurse = StonePurse { min: 6, max: 10 };

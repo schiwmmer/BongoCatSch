@@ -1452,3 +1452,110 @@ fn a_lopsided_build_is_measured_against_an_even_spread() {
         );
     }
 }
+
+/// An opponent is a body plus the gear it wears plus the 功法 it swings, and the
+/// gear is a slice of its own strength rather than a bonus on top of it — the
+/// power the panel promises before a breakthrough has to stay the power the
+/// fight is worth.
+#[test]
+fn every_opponent_walks_in_with_gear_and_a_move() {
+    for (index, realm) in Realm::ALL.iter().enumerate() {
+        let level = realm.cap_level();
+        let tier = index as u8 + 1;
+        let guardian = super::opponent::opponent(
+            super::opponent::Stance::Guardian,
+            level,
+            tier,
+            GUARDIAN_NAME.to_owned(),
+            super::opponent::fixed_seed(super::opponent::Stance::Guardian, index as u32),
+        );
+        // A guardian at a realm's cap has a body big enough to carry a piece, so
+        // it always carries one and always swings an art — which is what makes
+        // "a win always pays a 功法" still true.
+        assert_eq!(
+            guardian.gear.len(),
+            1,
+            "the guardian of {:?} walks in bare-handed",
+            realm
+        );
+        assert!(
+            guardian.art.is_some(),
+            "the guardian of {:?} swings no art",
+            realm
+        );
+        // What the panel promises is what the body and the gear add up to.
+        let budget = base_attributes(level);
+        assert_eq!(
+            guardian.attributes, budget,
+            "the guardian of {:?} is not the rung it guards",
+            realm
+        );
+        assert!(!guardian.fighter.down(), "it has to have health to lose");
+    }
+}
+
+/// The art is paid for out of the opponent's own hand: a guardian that swings a
+/// named move must not be harder than the bare-handed one it replaced, or every
+/// breakthrough on the ladder quietly moved one notch out of reach.
+#[test]
+fn a_named_move_does_not_make_the_fight_harder() {
+    for (index, realm) in Realm::ALL.iter().enumerate() {
+        let level = realm.cap_level();
+        let rival = super::opponent::opponent(
+            super::opponent::Stance::Guardian,
+            level,
+            index as u8 + 1,
+            GUARDIAN_NAME.to_owned(),
+            super::opponent::fixed_seed(super::opponent::Stance::Guardian, index as u32),
+        );
+        // The opponent this one replaced: the same rung, the same multipliers,
+        // no gear and no art.
+        let naked = base_attributes(level).derived();
+        let bare = Fighter::from_derived(
+            GUARDIAN_NAME.to_owned(),
+            Derived {
+                health: naked.health * 3 / 2,
+                attack: naked.attack * 6 / 5,
+                ..naked
+            },
+            None,
+        );
+        // The save that got here: the rung plus the free points it was paid.
+        let free = i32::from(level) / 4;
+        let body = base_attributes(level);
+        let player = Fighter::from_attributes(
+            PLAYER_NAME.to_owned(),
+            Attributes::new(
+                body.root + free,
+                body.strength + free,
+                body.mana + free,
+                body.agility + free,
+            ),
+            None,
+        );
+        let mut before = 0;
+        let mut after = 0;
+        for seed in 0..400_u64 {
+            if super::duel::duel(player.clone(), bare.clone(), &mut Rng::seeded(seed)).won {
+                before += 1;
+            }
+            if super::duel::duel(
+                player.clone(),
+                rival.fighter.clone(),
+                &mut Rng::seeded(seed),
+            )
+            .won
+            {
+                after += 1;
+            }
+        }
+        // A band rather than an equality: the art front-loads its damage, and a
+        // burst is worth a little more than the same damage spread out. Ten
+        // points of four hundred is the room that leaves.
+        let delta = i64::from(after) - i64::from(before);
+        assert!(
+            delta.abs() <= 40,
+            "{realm:?}: the guardian's art moved the win rate from {before} to {after} of 400"
+        );
+    }
+}

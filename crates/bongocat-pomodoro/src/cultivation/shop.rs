@@ -255,9 +255,76 @@ fn shop_art_id(rng: &mut super::Rng, tier: u8) -> u64 {
     }
 }
 
-/// A realm's contribution to the day's seed, so two realms never share a shelf.
+/// How many of the day's offers are cut in price.
+///
+/// Two a day, and never the whole shelf: a shelf where everything is on sale is
+/// a shelf with no price, and one special on a ten-row shelf would be missed by
+/// anyone who did not count. Two is what a user can hold in mind while comparing
+/// the row above with the row below.
+pub const DAILY_SPECIAL_COUNT: usize = 2;
+
+/// The deepest cut a special can be, in parts per thousand of the list price.
+///
+/// Six tenths — 6折 — and no deeper: the shop already sells at half what it buys
+/// for, so a special that went near the sell-back price would be a way to buy
+/// 灵石 rather than goods. The band runs 6折 to 8折, five points of a percent
+/// apart, so a special is worth checking and not always worth clearing the purse
+/// for.
+pub const SPECIAL_DEEPEST_PERMILLE: u32 = 600;
+
+/// The shallowest cut a special can be.
+pub const SPECIAL_SHALLOWEST_PERMILLE: u32 = 800;
+
+/// What a price is cut to at this discount, rounding down.
+///
+/// Down rather than up, so the number on the button is never dearer than the
+/// fraction promises.
+pub fn discounted_price(price: u32, permille: u32) -> u32 {
+    u64::from(price)
+        .saturating_mul(u64::from(permille))
+        .wrapping_div(1_000) as u32
+}
+
+/// Which slots of a day's shelf are on special, and at what cut.
+///
+/// As pure as the shelf itself, and from the same day and realm: a special a save
+/// could reload into is not a special, and the shelf it discounts has to be the
+/// shelf the buyer is looking at. The cut is rolled after the slots, so two
+/// specials on the same day differ as often as not.
+pub fn special_slots(day_number: i64, realm: Realm, offers: usize) -> Vec<(usize, u32)> {
+    if offers == 0 {
+        return Vec::new();
+    }
+    let mut rng = super::Rng::seeded(special_seed(day_number, realm));
+    let count = DAILY_SPECIAL_COUNT.min(offers);
+    let mut picked: Vec<usize> = Vec::with_capacity(count);
+    while picked.len() < count {
+        let slot = rng.below(offers as u64) as usize;
+        if !picked.contains(&slot) {
+            picked.push(slot);
+        }
+    }
+    picked.sort_unstable();
+    let span = u64::from(SPECIAL_SHALLOWEST_PERMILLE - SPECIAL_DEEPEST_PERMILLE + 1);
+    picked
+        .into_iter()
+        .map(|slot| {
+            let permille = SPECIAL_DEEPEST_PERMILLE + rng.below(span) as u32;
+            (slot, permille)
+        })
+        .collect()
+}
+
+/// A realm's contribution to the day's shelf, so two realms never share a shelf.
 fn realm_seed(realm: Realm) -> u64 {
     0x517C_C1B7_2722_0A95u64.wrapping_mul(realm.index() as u64 + 1)
+}
+
+/// The day's seed for the specials, kept apart from the shelf's so a special
+/// never reshuffles the goods it is cutting.
+fn special_seed(day_number: i64, realm: Realm) -> u64 {
+    let day = u64::from(day_number as u32).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
+    day ^ realm_seed(realm).rotate_left(17) ^ 0x0000_5EED_5EED_5EED
 }
 
 /// SplitMix64's finalizer, used only to spread a day's number over the range.
@@ -272,7 +339,13 @@ fn mix(mut value: u64) -> u64 {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ShopOfferView {
     pub offer: ShopOffer,
+    /// What the row asks for it — the list price, or the special's cut of it.
     pub price: u32,
+    /// The price before any special, so a row can say what the cut was worth.
+    pub list_price: u32,
+    /// The cut this row carries in parts per thousand, when it is a special.
+    /// Zero for a row at its list price.
+    pub discount_permille: u32,
     /// The shop's own price for it, so a surface can print "卖 N" without
     /// re-deriving the margin.
     pub sell_price: u32,

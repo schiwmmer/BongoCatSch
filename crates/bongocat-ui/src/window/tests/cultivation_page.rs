@@ -129,6 +129,34 @@ fn hovering_an_attribute_puts_its_explanation_on_screen(cx: &mut TestAppContext)
 }
 
 #[gpui_kit::test]
+fn hovering_the_realm_lists_the_whole_ladder(cx: &mut TestAppContext) {
+    let clock = cx.dispatcher.clone();
+    let (_view, visual) = cultivation_page(cx);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        !painted(visual, "cultivation-realm-rung-0"),
+        "the ladder is not on the page until the pointer asks"
+    );
+
+    visual.update(|window, cx| window.hover(ElementId::from("cultivation-realm-name"), cx));
+    clock.advance_clock(Duration::from_millis(500));
+    visual.run_until_parked();
+    visual.update(|window, cx| window.render_frame(cx));
+
+    // All ten rungs, in climbing order: the card is the ladder, not a hint.
+    for rung in 0..10 {
+        assert!(
+            painted(visual, format!("cultivation-realm-rung-{rung}")),
+            "rung {rung} is missing from the realm card"
+        );
+    }
+    assert!(
+        !painted(visual, "cultivation-realm-rung-10"),
+        "there are ten realms, not eleven"
+    );
+}
+
+#[gpui_kit::test]
 fn the_schools_are_shown_beside_the_attribute_totals(cx: &mut TestAppContext) {
     let (_view, visual) = cultivation_page(cx);
     visual.update(|window, cx| window.render_frame(cx));
@@ -505,6 +533,40 @@ fn the_page_draws_the_market_with_a_shelf(cx: &mut TestAppContext) {
     assert!(
         painted(visual, format!("cultivation-shop-row-{slot}")),
         "and the shelf has a row to click"
+    );
+}
+
+/// The day's specials are marked on the shelf: a row that is cut says so, and a
+/// row that is not carries no badge at all.
+#[gpui_kit::test]
+fn the_shelf_says_which_rows_are_on_special(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        stones: 5_000,
+        ..CultivationDocument::default()
+    })
+    .view();
+    let special = cultivation
+        .shop_offers
+        .iter()
+        .find(|entry| entry.discount_permille > 0)
+        .map(|entry| entry.slot)
+        .expect("a shelf always marks two rows");
+    let plain = cultivation
+        .shop_offers
+        .iter()
+        .find(|entry| entry.discount_permille == 0)
+        .map(|entry| entry.slot)
+        .expect("and leaves the rest at their price");
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, format!("cultivation-shop-special-{special}")),
+        "the cut is marked beside the price it is a cut of"
+    );
+    assert!(
+        !painted(visual, format!("cultivation-shop-special-{plain}")),
+        "a row at its list price says nothing"
     );
 }
 

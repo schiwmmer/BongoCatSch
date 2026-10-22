@@ -23,13 +23,13 @@ use super::{
     art_attributes, art_view,
     arts::{blueprint, mastered_art_attributes, mastered_art_view, train},
     base_attributes,
-    battle::{guardian_fighter, guardian_for, resolve, wanderer_fighter},
+    battle::{guardian_for, resolve},
     curve::{layer_rank, level_for_growth, stage_floor, threshold_for},
     daily::{
         DAILY_AMBUSH_STONES, DAILY_GIFT_STONES, DAILY_TRINKET_STONES, GiftKind, roll_gift,
         roll_kind,
     },
-    duel::{DUEL_RECORD_CAP, DuelRecord, FightKind, duel},
+    duel::{DUEL_RECORD_CAP, DuelRecord, FightKind, GUARDIAN_NAME, WANDERER_NAME, duel},
     events::{EVENT_LOG_CAP, EventDetail, EventRecord, SaleKind},
     explore::{
         GUARDIAN_STONES, TRIAL_STONES, WALK_STONES, WANDERER_STONES, WalkRecord,
@@ -38,12 +38,14 @@ use super::{
     garden::{CropRecord, PlotRecord, harvest_points, plot_price, seed_name, seed_return},
     growth_permille,
     items::roll_equipment,
-    mastery_permille, scaled_growth,
+    mastery_permille,
+    opponent::{self, Opponent, Stance},
+    scaled_growth,
     shop::{self, ShopOffer, ShopOfferView},
     trade::{TradeRefusal, session_earnings},
     trial::{
-        TRIAL_ATTEMPTS_PER_DAY, TRIAL_MAX_FLOOR, TrialReward, floor_realm, roll_reward,
-        warden_fighter, warden_power,
+        TRIAL_ATTEMPTS_PER_DAY, TRIAL_MAX_FLOOR, TRIAL_OPPONENT_NAME, TrialReward, floor_level,
+        floor_realm, roll_reward, warden_power,
     },
 };
 use crate::CalendarDay;
@@ -426,8 +428,6 @@ fn seed_sell_price(attribute: Attribute, tier: u8) -> u32 {
 
 /// How often a lost breakthrough costs a piece of gear, in parts per thousand.
 const LOST_GEAR_PERMILLE: u64 = 250;
-/// How often a won breakthrough pays gear or a seed on top of its 功法.
-const VICTORY_EXTRA_PERMILLE: u64 = 400;
 
 /// The grade of 功法 a realm pays: the deeper the realm, the rarer the art.
 fn art_grade_for_realm(realm: Realm) -> ArtGrade {
@@ -963,6 +963,46 @@ impl Cultivation {
         item
     }
 
+    /// Own one item that already exists — the one a beaten opponent was wearing.
+    ///
+    /// The attributes and the name travel as they were: the piece taken off a
+    /// guardian is the piece the panel showed it wearing, and re-rolling it into
+    /// "a tier's worth of gear" would be a trophy that is not what was won.
+    fn adopt_equipment(&mut self, mut item: EquipmentRecord) -> EquipmentRecord {
+        item.id = self.next_id();
+        self.document.equipment.push(item.clone());
+        item
+    }
+
+    /// Take one piece off a beaten opponent, or roll one if it wore none.
+    fn take_gear(&mut self, rival: &Opponent, tier: u8, rng: &mut Rng) -> EquipmentRecord {
+        let dropped = (!rival.gear.is_empty())
+            .then(|| rival.gear[rng.below(rival.gear.len() as u64) as usize].clone());
+        match dropped {
+            Some(item) => self.adopt_equipment(item),
+            // A bare-handed opponent still pays: a fight that dropped nothing
+            // would read as a bug rather than as a poor opponent.
+            None => self.push_equipment(tier, rng),
+        }
+    }
+
+    /// Take the book a beaten opponent was swinging, or grant one of the grade
+    /// its realm keeps.
+    ///
+    /// The fallback is not a consolation prize: a book the cultivator already
+    /// owns cannot be given twice, and a fight that promised a 功法 has to pay
+    /// one somehow.
+    fn take_art(&mut self, rival: &Opponent, realm: Realm, now_unix: i64) -> Option<String> {
+        rival
+            .art
+            .and_then(|art_id| self.grant_art_book(art_id))
+            .map(|art| art.name)
+            .or_else(|| {
+                self.grant_art(art_grade_for_realm(realm), now_unix)
+                    .map(|art| art.name)
+            })
+    }
+
     /// Own one seed that already has its name.
     ///
     /// The shop names the herbs it sells so a shelf can be read before buying;
@@ -1155,7 +1195,17 @@ impl Cultivation {
         // comparison so the user knows where they stand, and then the two of
         // them actually trade blows.
         let fighter = self.fighter(&mut rng);
-        let duel = duel(fighter, guardian_fighter(current), &mut rng);
+        // The guardian is the same opponent every time it is met: its power is
+        // printed before the fight, so a roll per attempt would make that number
+        // a lie. What it wears is part of that power, not a bonus on top of it.
+        let rival = opponent::opponent(
+            Stance::Guardian,
+            current.cap_level(),
+            guardian.target.index() as u8 + 1,
+            GUARDIAN_NAME.to_owned(),
+            opponent::fixed_seed(Stance::Guardian, current.index() as u32),
+        );
+        let duel = duel(fighter, rival.fighter.clone(), &mut rng);
         // Won fights are what train the 战斗 dimension; a loss is not counted
         // there, and only ever shows up in the record below.
         self.record_duel(duel.won, FightKind::Guardian, now_unix);
@@ -1191,7 +1241,7 @@ impl Cultivation {
             );
             return Some(outcome);
         }
-        self.enter_realm(guardian, duel, now_unix);
+        self.enter_realm(guardian, &rival, duel, now_unix);
         let outcome = self.last_breakthrough.clone();
         // The log is written after the settlement so the line carries the
         // realm that was opened *and* the purse that came with it: the event is
@@ -1340,7 +1390,13 @@ impl Cultivation {
     }
 
     /// Open the realm the guardian defended and pay its trophy.
-    fn enter_realm(&mut self, guardian: Guardian, duel: DuelReport, now_unix: i64) {
+    fn enter_realm(
+        &mut self,
+        guardian: Guardian,
+        rival: &Opponent,
+        duel: DuelReport,
+        now_unix: i64,
+    ) {
         let target = guardian.target;
         // The power that fought, read before anything moves: entering the realm
         // lifts the level ceiling and pays a trophy, so a report read afterwards
@@ -1353,18 +1409,22 @@ impl Cultivation {
         // bought become real levels — and real free points — now.
         self.note_peak_level();
         let mut rng = self.rng(0);
-        let reward = self.push_equipment(target.index() as u8 + 1, &mut rng);
+        let tier = target.index() as u8 + 1;
+        // The trophy is the piece the guardian was wearing, not a fresh roll:
+        // what the fight was against and what it leaves behind are one thing.
+        let reward = match rival.gear.first() {
+            Some(item) => self.adopt_equipment(item.clone()),
+            // A guardian met bare-handed (it can happen at the shallow end,
+            // where a piece of gear would outweigh the whole body) still pays
+            // for the realm it opened.
+            None => self.push_equipment(tier, &mut rng),
+        };
         // A win always pays a 功法 — that is the promise the fight is made for —
-        // and may pay gear or a seed besides.
-        let grade = art_grade_for_realm(target);
-        let granted_art = self.grant_art(grade, now_unix).map(|art| art.name);
-        if rng.below(1_000) < VICTORY_EXTRA_PERMILLE {
-            let tier = target.index() as u8 + 1;
-            let _ = self.push_equipment(tier, &mut rng);
-        }
+        // and it is the book the guardian was swinging.
+        let granted_art = self.take_art(rival, target, now_unix);
         if rng.below(1_000) < VICTORY_SEED_PERMILLE {
             let attribute = Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
-            self.push_seed(attribute, target.index() as u8 + 1, &mut rng);
+            self.push_seed(attribute, tier, &mut rng);
         }
         // The guardian's purse, drawn after the 功法 and the gear because those
         // are what a breakthrough is *for*: the money is what a realm's treasury
@@ -1400,17 +1460,23 @@ impl Cultivation {
     /// encounter either way: the same weighting, the same tier, the same three
     /// kinds. Two copies of this roll would be two chances for one of them to
     /// drift out of tune with the panel that explains it.
-    fn award_wanderer_find(&mut self, rng: &mut Rng, now_unix: i64) -> ExplorationFindView {
+    fn award_wanderer_find(
+        &mut self,
+        rival: &Opponent,
+        rng: &mut Rng,
+        now_unix: i64,
+    ) -> ExplorationFindView {
         let mut found = ExplorationFindView::default();
         let tier = self.realm().index() as u8 + 1;
         match roll_victory(rng) {
+            // What the roll decides is *which* of the beaten fighter's things
+            // comes home with you — the things themselves were never a fresh
+            // roll, they were on the body that lost.
             ExplorationOutcome::Art => {
-                found.art = self
-                    .grant_art(art_grade_for_realm(self.realm()), now_unix)
-                    .map(|art| art.name);
+                found.art = self.take_art(rival, self.realm(), now_unix);
             }
             ExplorationOutcome::Gear => {
-                let item = self.push_equipment(tier, rng);
+                let item = self.take_gear(rival, tier, rng);
                 found.gear = Some(self.item_view(&item));
             }
             ExplorationOutcome::Seed => {
@@ -1423,7 +1489,7 @@ impl Cultivation {
         found
     }
 
-    /// Walk out of the door once every twelve hours.
+    /// Walk out of the door once every ten hours.
     ///
     /// Returns `None` while the walk is still on cooldown, and says why in
     /// [`Self::last_refusal`] so the page can show it: a button that does
@@ -1460,9 +1526,18 @@ impl Cultivation {
             }
             ExplorationOutcome::Victory => {
                 let fighter = self.fighter(&mut rng);
-                let duel = duel(fighter, wanderer_fighter(self.realm()), &mut rng);
+                // A wanderer is rolled per meeting: nobody promised who the road
+                // would send, and its numbers are only ever shown after the fact.
+                let rival = opponent::opponent(
+                    Stance::Wanderer,
+                    self.realm().cap_level(),
+                    tier,
+                    WANDERER_NAME.to_owned(),
+                    rng.below(u64::MAX),
+                );
+                let duel = duel(fighter, rival.fighter.clone(), &mut rng);
                 if duel.won {
-                    found = self.award_wanderer_find(&mut rng, now_unix);
+                    found = self.award_wanderer_find(&rival, &mut rng, now_unix);
                 } else {
                     outcome = ExplorationOutcome::Defeat;
                 }
@@ -1603,7 +1678,16 @@ impl Cultivation {
         self.trial_attempts = self.trial_attempts.saturating_add(1);
         let mut rng = self.rng(now_unix);
         let fighter = self.fighter(&mut rng);
-        let duel = duel(fighter, warden_fighter(floor), &mut rng);
+        // A floor's warden is the same opponent for that floor every day: the
+        // page prints its power next to the floor, so it cannot be a roll.
+        let rival = opponent::opponent(
+            Stance::Warden,
+            floor_level(floor),
+            floor_realm(floor).index() as u8 + 1,
+            TRIAL_OPPONENT_NAME.to_owned(),
+            opponent::fixed_seed(Stance::Warden, u32::from(floor)),
+        );
+        let duel = duel(fighter, rival.fighter.clone(), &mut rng);
         self.record_duel(duel.won, FightKind::Trial, now_unix);
         let mut found = ExplorationFindView::default();
         if duel.won {
@@ -1619,13 +1703,11 @@ impl Cultivation {
                     found.seed = Some(self.push_seed(attribute, tier, &mut rng));
                 }
                 TrialReward::Gear => {
-                    let item = self.push_equipment(tier, &mut rng);
+                    let item = self.take_gear(&rival, tier, &mut rng);
                     found.gear = Some(self.item_view(&item));
                 }
                 TrialReward::Art => {
-                    found.art = self
-                        .grant_art(art_grade_for_realm(floor_realm(floor)), now_unix)
-                        .map(|art| art.name);
+                    found.art = self.take_art(&rival, floor_realm(floor), now_unix);
                 }
                 TrialReward::Nothing => {}
             }
@@ -1687,11 +1769,18 @@ impl Cultivation {
         match kind {
             DailyKind::Ambush => {
                 let fighter = self.fighter(&mut rng);
-                let duel = duel(fighter, wanderer_fighter(self.realm()), &mut rng);
+                let rival = opponent::opponent(
+                    Stance::Wanderer,
+                    self.realm().cap_level(),
+                    tier,
+                    WANDERER_NAME.to_owned(),
+                    rng.below(u64::MAX),
+                );
+                let duel = duel(fighter, rival.fighter.clone(), &mut rng);
                 self.record_duel(duel.won, FightKind::Wanderer, now_unix);
                 outcome.won = duel.won;
                 if duel.won {
-                    outcome.found = self.award_wanderer_find(&mut rng, now_unix);
+                    outcome.found = self.award_wanderer_find(&rival, &mut rng, now_unix);
                     let amount = roll_stones(&mut rng, DAILY_AMBUSH_STONES, tier);
                     self.document.stones = self.document.stones.saturating_add(amount);
                     outcome.found.stones = Some(amount);
@@ -2029,16 +2118,31 @@ impl Cultivation {
         } else {
             &[]
         };
-        shop::roll_offers(today, realm, self.shop_seed(today))
+        let offers = shop::roll_offers(today, realm, self.shop_seed(today));
+        // The day's specials are read off the same day and realm as the shelf,
+        // so the row's cut and the price a purchase charges are one number seen
+        // twice rather than two guesses at the same discount.
+        let specials = shop::special_slots(today, realm, offers.len());
+        offers
             .into_iter()
             .enumerate()
             .map(|(slot, offer)| {
-                let price = offer.price();
-                let sell_price = offer.sell_price();
+                let list_price = offer.price();
+                let discount_permille = specials
+                    .iter()
+                    .find(|(special, _)| *special == slot)
+                    .map_or(0, |(_, permille)| *permille);
+                let price = if discount_permille == 0 {
+                    list_price
+                } else {
+                    shop::discounted_price(list_price, discount_permille)
+                };
                 ShopOfferView {
-                    offer,
+                    offer: offer.clone(),
                     price,
-                    sell_price,
+                    list_price,
+                    discount_permille,
+                    sell_price: offer.sell_price(),
                     bought: bought.contains(&(slot as u8)),
                     slot,
                 }
@@ -2066,7 +2170,15 @@ impl Cultivation {
         if self.document.shop_bought.contains(&(slot as u8)) {
             return Err(TradeRefusal::AlreadyBought);
         }
-        let price = offer.price();
+        // What the shelf asks, special and all: the button's number is the one
+        // the purchase charges, or the cut would be a label on nothing.
+        let price = match shop::special_slots(today, realm, shelf.len())
+            .into_iter()
+            .find(|(special, _)| *special == slot)
+        {
+            Some((_, permille)) => shop::discounted_price(offer.price(), permille),
+            None => offer.price(),
+        };
         if self.document.stones < price {
             return Err(TradeRefusal::NotEnoughStones);
         }
@@ -2417,7 +2529,7 @@ mod tests {
             "and the session pays exactly what the page printed"
         );
 
-        // Twenty walks train 游历 to its cap; each walk is twelve hours apart, and
+        // Twenty walks train 游历 to its cap; each walk is one cooldown apart, and
         // a walk that meets someone may train 战斗 as well — so the number the
         // page shows is read back rather than assumed.
         for step in 0..20 {
@@ -2928,6 +3040,156 @@ mod tests {
         assert!(
             deep >= shallow * 3,
             "a 化神 walk paid {deep} against a 炼气 {shallow}"
+        );
+    }
+
+    /// The trophy is the piece the guardian was wearing, and the 功法 is the one
+    /// it was swinging: a won fight hands over what lost to it, rather than
+    /// rolling two fresh things that were never on the field.
+    #[test]
+    fn a_won_breakthrough_hands_over_what_the_guardian_carried() {
+        let mut cultivation = at_the_first_cap();
+        let guardian = cultivation.guardian().expect("a guardian at the cap");
+        let current = cultivation.realm();
+        let rival = super::opponent::opponent(
+            Stance::Guardian,
+            current.cap_level(),
+            guardian.target.index() as u8 + 1,
+            GUARDIAN_NAME.to_owned(),
+            super::opponent::fixed_seed(Stance::Guardian, current.index() as u32),
+        );
+        let mut rng = Rng::seeded(7);
+        let fighter = cultivation.fighter(&mut rng);
+        let report = duel(fighter, rival.fighter.clone(), &mut rng);
+        cultivation.enter_realm(guardian, &rival, report, 1_000);
+        let outcome = cultivation
+            .last_breakthrough
+            .clone()
+            .expect("the realm was opened");
+        let reward = outcome.reward.expect("a win pays a trophy");
+        assert_eq!(
+            reward.attributes, rival.gear[0].attributes,
+            "the trophy is the piece it wore, not a fresh roll"
+        );
+        assert_eq!(reward.name, rival.gear[0].name);
+        let art_id = rival.art.expect("a guardian always carries an art");
+        assert_eq!(
+            outcome.granted_art.as_deref(),
+            Some(blueprint(art_id).name.as_str()),
+            "the book is the one it swung"
+        );
+        assert!(
+            cultivation
+                .document
+                .arts
+                .iter()
+                .any(|owned| owned.art_id == art_id),
+            "and it lands in the satchel"
+        );
+    }
+
+    /// A beaten wanderer's gear is its own: whatever a walk hands over is one of
+    /// the pieces the loser was wearing.
+    #[test]
+    fn a_beaten_wanderer_hands_over_its_own_gear() {
+        let mut cultivation = a_bare_save_at(30);
+        let rival = super::opponent::opponent(
+            Stance::Wanderer,
+            cultivation.realm().cap_level(),
+            cultivation.realm().index() as u8 + 1,
+            WANDERER_NAME.to_owned(),
+            0x5741_4E44_4552_0000,
+        );
+        assert!(!rival.gear.is_empty(), "the probe needs it to wear gear");
+        let worn: Vec<Attributes> = rival.gear.iter().map(|item| item.attributes).collect();
+        let mut dropped = 0;
+        for seed in 0..60_u64 {
+            let mut rng = Rng::seeded(seed);
+            let found = cultivation.award_wanderer_find(&rival, &mut rng, 1_000);
+            if let Some(gear) = found.gear {
+                assert!(
+                    worn.contains(&gear.attributes),
+                    "a walk paid a piece the wanderer was not wearing"
+                );
+                dropped += 1;
+            }
+        }
+        assert!(dropped > 0, "no wanderer in sixty fights left its gear");
+    }
+
+    /// Two rows a day are cut, both inside the band, and the cut is the one the
+    /// purchase charges: the button's number is the price, or the badge is a
+    /// label on a shelf that never moved.
+    #[test]
+    fn two_rows_of_the_day_are_on_special() {
+        let cultivation = a_bare_save_at(1);
+        let shelf = cultivation.shop(9);
+        let specials: Vec<&ShopOfferView> = shelf
+            .iter()
+            .filter(|row| row.discount_permille > 0)
+            .collect();
+        assert_eq!(specials.len(), 2, "the day marks two rows and no more");
+        for row in &specials {
+            assert!(
+                (600..=800).contains(&row.discount_permille),
+                "a special outside 6-8折: {}",
+                row.discount_permille
+            );
+            assert!(
+                row.price < row.list_price,
+                "a special that costs the list price"
+            );
+            assert_eq!(
+                row.price,
+                row.list_price.saturating_mul(row.discount_permille) / 1_000,
+                "the row's price is its own cut"
+            );
+        }
+        // The same day shows the same shelf, cut and all: a special a reload
+        // could change is not a special.
+        assert_eq!(cultivation.shop(9), shelf);
+        // And the next day rolls its own.
+        let tomorrow = cultivation.shop(10);
+        assert_ne!(
+            tomorrow
+                .iter()
+                .map(|row| (row.slot, row.discount_permille))
+                .collect::<Vec<_>>(),
+            shelf
+                .iter()
+                .map(|row| (row.slot, row.discount_permille))
+                .collect::<Vec<_>>(),
+            "every day would carry the same two cuts"
+        );
+    }
+
+    /// What the purchase charges is what the row asked.
+    #[test]
+    fn a_special_is_charged_at_its_cut() {
+        let mut cultivation = Cultivation::new(CultivationDocument {
+            stones: 100_000,
+            ..CultivationDocument::default()
+        });
+        let today = 9;
+        let shelf = cultivation.shop(today);
+        let row = shelf
+            .iter()
+            .find(|row| row.discount_permille > 0)
+            .expect("a shelf with a special on it");
+        let before = cultivation.document.stones;
+        cultivation
+            .buy_from_shop(row.slot, today, 1_000)
+            .expect("the purse covers it");
+        let paid = before - cultivation.document.stones;
+        assert_eq!(paid, row.price, "the row's number is the price charged");
+        assert!(paid < row.list_price, "and the cut was real");
+        assert_eq!(
+            cultivation
+                .view_on(1_000, today)
+                .last_refusal
+                .map(Refusal::key),
+            None,
+            "nothing was refused"
         );
     }
 }

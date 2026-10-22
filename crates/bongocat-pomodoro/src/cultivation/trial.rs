@@ -14,7 +14,7 @@
 //! reward tier comes from the floor's own realm: climbing is how a save reaches
 //! the goods of a realm it has not entered yet.
 
-use super::{Attributes, MAX_LEVEL, Realm, Rng, base_attributes, duel::Fighter};
+use super::{MAX_LEVEL, Realm, Rng, base_attributes};
 
 /// How many floors one local day offers.
 ///
@@ -44,7 +44,7 @@ pub const TRIAL_OPPONENT_PERMILLE: u32 = 900;
 /// climb.
 ///
 /// Deliberately leaner per attempt than a walk: five attempts a day against one
-/// walk every twelve hours means a per-attempt price near a walk's would make
+/// walk every ten hours means a per-attempt price near a walk's would make
 /// the tower the only faucet worth turning.
 pub const TRIAL_SEED_PERMILLE: u64 = 300;
 pub const TRIAL_GEAR_PERMILLE: u64 = 60;
@@ -75,33 +75,6 @@ pub fn floor_realm(floor: u16) -> Realm {
 pub fn warden_power(floor: u16) -> u32 {
     let naked = base_attributes(floor_level(floor)).power();
     naked.saturating_mul(TRIAL_OPPONENT_PERMILLE) / 1_000
-}
-
-/// The warden as a set of attributes: a naked cultivator of the floor's level,
-/// softened by [`TRIAL_OPPONENT_PERMILLE`].
-///
-/// Scaling the attributes rather than the derived numbers keeps the warden on
-/// the ladder's own shape — the same hit and evade curve, the same health per
-/// 力量 — so a floor is "the same cultivator, a little less of them" instead of
-/// a hand-patched stat block.
-fn warden_attributes(floor: u16) -> Attributes {
-    let naked = base_attributes(floor_level(floor));
-    let scale = |value: i32| value.saturating_mul(TRIAL_OPPONENT_PERMILLE as i32) / 1_000;
-    Attributes::new(
-        scale(naked.root),
-        scale(naked.strength),
-        scale(naked.mana),
-        scale(naked.agility),
-    )
-}
-
-/// The warden of a floor, for the fight that settles it.
-pub fn warden_fighter(floor: u16) -> Fighter {
-    Fighter::from_attributes(
-        TRIAL_OPPONENT_NAME.to_owned(),
-        warden_attributes(floor),
-        None,
-    )
 }
 
 /// What clearing a floor turned up.
@@ -173,9 +146,30 @@ mod tests {
     fn the_warden_stays_on_the_ladder_below_a_naked_save_of_the_same_level() {
         for floor in [1_u16, 50, 100, 500, TRIAL_MAX_FLOOR] {
             let naked = base_attributes(floor_level(floor));
-            let warden = warden_attributes(floor);
-            assert!(warden.power() < naked.power());
-            assert!(warden.root < naked.root);
+            let warden = super::super::opponent::opponent(
+                super::super::opponent::Stance::Warden,
+                floor_level(floor),
+                floor_realm(floor).index() as u8 + 1,
+                TRIAL_OPPONENT_NAME.to_owned(),
+                super::super::opponent::fixed_seed(
+                    super::super::opponent::Stance::Warden,
+                    u32::from(floor),
+                ),
+            );
+            // The body plus the gear is the softened rung itself: the number the
+            // page prints beside the floor is the fighter the duel settles
+            // against, within the rounding of scaling four attributes down.
+            let printed = i64::from(warden_power(floor));
+            let actual = i64::from(warden.attributes.power());
+            assert!(
+                (actual - printed).abs() <= 10,
+                "floor {floor}: printed {printed} but the warden is worth {actual}"
+            );
+            assert!(
+                warden.attributes.power() <= naked.power(),
+                "floor {floor}: the warden walks in stronger than its own rung"
+            );
+            assert!(warden.fighter.health > 0);
         }
     }
 

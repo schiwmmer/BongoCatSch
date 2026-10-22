@@ -26,32 +26,6 @@ pub struct Guardian {
     pub power: u32,
 }
 
-/// The guardian as a fighter, for the fight that actually settles it.
-///
-/// Its numbers are a naked cultivator at the realm's cap read once more, with
-/// more flesh and a harder hand: the power above is the promise the panel makes,
-/// and this is the fighter that keeps it.
-pub fn guardian_fighter(realm: Realm) -> super::duel::Fighter {
-    let naked = base_attributes(realm.cap_level()).derived();
-    let derived = super::Derived {
-        health: naked.health * 3 / 2,
-        attack: naked.attack * 6 / 5,
-        ..naked
-    };
-    super::duel::Fighter::from_derived(super::duel::GUARDIAN_NAME.to_owned(), derived, None)
-}
-
-/// A wanderer met on the road: weaker than a guardian, and worth less.
-pub fn wanderer_fighter(realm: Realm) -> super::duel::Fighter {
-    let naked = base_attributes(realm.cap_level()).derived();
-    let derived = super::Derived {
-        health: naked.health * 4 / 5,
-        attack: naked.attack * 4 / 5,
-        ..naked
-    };
-    super::duel::Fighter::from_derived(super::duel::WANDERER_NAME.to_owned(), derived, None)
-}
-
 /// The guardian gating the realm after `current`, or `None` at the top.
 ///
 /// Its power is measured against a cultivator standing at `current`'s last

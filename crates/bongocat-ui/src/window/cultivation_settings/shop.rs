@@ -120,6 +120,10 @@ fn shop_row(
         .justify_between()
         .gap_2()
         .child(name)
+        // The cut, said beside the price it is a cut of: a row that only showed
+        // the cheaper number would be a row whose discount is invisible, and one
+        // that only showed the old price would be a row that has not moved.
+        .children(special_badge(entry, locale, tokens))
         .child(if entry.bought {
             div()
                 .id(format!("cultivation-shop-bought-{}", slot))
@@ -162,6 +166,47 @@ fn shop_row(
         ));
     }
     row
+}
+
+/// The row's special, when it has one: what fraction of the list price it is cut
+/// to, and the price it was cut from.
+///
+/// Both numbers, because either alone is a half-truth: the fraction without the
+/// price is a discount on a number the user has to go and remember, and the
+/// price without the fraction is a row that looks like it was always this cheap.
+fn special_badge(
+    entry: &ShopOfferView,
+    locale: &str,
+    tokens: Tokens,
+) -> Option<gpui_kit::AnyElement> {
+    (entry.discount_permille > 0).then(|| {
+        div()
+            .id(format!("cultivation-shop-special-{}", entry.slot))
+            .text_xs()
+            .text_color(tokens.accent)
+            .child(format_text(
+                locale,
+                "cultivation.shop.special",
+                &[
+                    ("value", zhe_label(entry.discount_permille)),
+                    ("list", entry.list_price.to_string()),
+                ],
+            ))
+            .test_support()
+            .into_any_element()
+    })
+}
+
+/// A cut as the fraction of the list price it leaves, one decimal at most:
+/// seven tenths reads `7`, six and a half reads `6.5`.
+fn zhe_label(permille: u32) -> String {
+    let whole = permille / 100;
+    let tenth = (permille % 100) / 10;
+    if tenth == 0 {
+        whole.to_string()
+    } else {
+        format!("{whole}.{tenth}")
+    }
 }
 
 /// One offer's detail, shown under its row when the name is clicked: the
