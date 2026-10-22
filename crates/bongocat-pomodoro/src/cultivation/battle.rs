@@ -30,13 +30,20 @@ pub struct Guardian {
 ///
 /// Its power is measured against a cultivator standing at `current`'s last
 /// layer with no equipment at all, so the requirement is fixed by the ladder
-/// rather than by whatever the player happens to own.
+/// rather than by whatever the player happens to own — and then the guardian's
+/// own gear is added on top, because the fight really does send a guardian
+/// wearing it. The percentage is a floor: however light the roll, the guardian
+/// stays stronger than the naked cultivator it gates.
 pub fn guardian_for(current: Realm) -> Option<Guardian> {
     let target = current.next()?;
     let naked = base_attributes(current.cap_level()).power();
+    let floor = naked * GUARDIAN_STRENGTH_PERCENT / 100;
+    // The same opponent the breakthrough will send, read for its attributes:
+    // what the panel prints is the body and the gear that meet the player.
+    let rival = super::opponent::guardian(current, target);
     Some(Guardian {
         target,
-        power: naked * GUARDIAN_STRENGTH_PERCENT / 100,
+        power: rival.attributes.power().max(floor),
     })
 }
 

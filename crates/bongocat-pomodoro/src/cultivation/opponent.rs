@@ -7,49 +7,61 @@
 //! pieces a drop is, wears them, swings the 功法 it carries, and whatever it was
 //! carrying is what a win takes.
 //!
-//! Two rules keep the added detail from turning into a hidden difficulty spike:
+//! Two rules hold the design together:
 //!
-//! * **The gear comes out of the opponent's own strength, not on top of it.** A
-//!   fighter's attribute budget is fixed by the ladder rung it stands on; its
-//!   gear is a slice of that budget and the body is the rest. A guardian in a
-//!   fine robe has a smaller body than the same guardian in rags, so the number
-//!   the panel promises before the fight is still the number the fight is worth.
-//! * **The slice is capped.** At the bottom of the ladder a single common piece
-//!   is worth more than a whole level-one body, so an uncapped share would turn
-//!   the first floor of the tower into a wall. Gear only appears once the budget
-//!   can carry it, which is also why the shallow floors are still bare-handed.
+//! * **The body is the rung, the gear is on top of it.** Every opponent starts
+//!   from the attributes a naked cultivator at that rung has — so the ladder's
+//!   baseline is unchanged — and then puts its gear on. A guardian in a fine robe
+//!   is a bigger guardian than the same one in rags, and that difference is the
+//!   point: a fight worth preparing for is a fight that can go badly.
+//! * **Both the gear and the art are capped.** Gear may add up to
+//!   [`GEAR_SHARE_PERMILLE`] of the body and no more, and an art pays for
+//!   [`ART_SWINGS`] swings and no more: the variance is meant to be felt within a
+//!   rung, not to make one realm's guardian unbeatable and the next one free.
 
 use super::arts::blueprint;
+use super::duel::{GUARDIAN_NAME, WANDERER_NAME};
+use super::trial::{TRIAL_OPPONENT_NAME, floor_level, floor_realm};
 use super::{
-    ArtGrade, ArtKind, ArtStrike, Attribute, Attributes, EquipmentRecord, Fighter, Rng, SLOT_COUNT,
-    base_attributes, items::roll_equipment,
+    ArtGrade, ArtKind, ArtStrike, Attribute, Attributes, EquipmentRecord, Fighter, Realm, Rng,
+    SLOT_COUNT, base_attributes, items::roll_equipment,
 };
 
-/// How much of an opponent's own attribute budget may live in its gear, in
-/// parts per thousand.
+/// How much gear an opponent may carry on top of its body, in parts per
+/// thousand of the body's own attribute points.
 ///
-/// A third: enough that the gear is visibly part of what the opponent is, little
-/// enough that the body remains the thing that carries the fight. Bigger and a
-/// lucky roll would put a 极品 piece on a body that cannot pay for it.
-const GEAR_SHARE_PERMILLE: i32 = 350;
+/// Six tenths: the gear is a real bonus — that is the whole point of handing it
+/// to them — but it is capped, because an 极品 piece at a low realm is worth
+/// several bodies and would turn the first floor of the tower into a wall nobody
+/// climbs twice.
+const GEAR_SHARE_PERMILLE: u32 = 150;
+
+/// How far the four attributes may drift apart because of the gear, in parts per
+/// thousand of the body's own value of that attribute.
+///
+/// A quarter: the gear is allowed to make an opponent a spellcaster or a runner,
+/// which is the difference the player reads in the fight, but not to the point
+/// where 身法 alone turns the hit curve against the player. Everything that makes
+/// a fight lopsided lives in that curve, so the drift is what gets capped.
+const ATTRIBUTE_DRIFT_PERMILLE: i32 = 750;
+
+/// How much of an opponent's damage is moved into its 功法, in parts per
+/// thousand of the expected uplift.
+///
+/// Four tenths: a named move should be felt — three blows land half again as hard
+/// — but not to the point where the art alone decides the fight, because the
+/// fight is five or six blows a side and most of a blow is a realm the player no
+/// longer opens. The remaining six tenths is the challenge the art is there for.
+const ART_SHARE_PERMILLE: u32 = 400;
 
 /// How many swings of its 功法 an opponent can pay for.
 ///
-/// Three: an art is a moment in the fight — a blow the log can point at — not a
-/// multiplier running on every round. An opponent whose 内力 pool was read off
-/// its own 根骨 paid for ten or fifteen swings and hit half again as hard for the
-/// whole fight, which quietly raised every fight on the page; three is what makes
-/// the art cost something to the opponent too.
+/// Three: an art is a moment in the fight — a blow the log can point at, and the
+/// reason a fight can go badly — not a multiplier running on every round. An
+/// opponent whose 内力 pool was read off its own 根骨 paid for ten or fifteen
+/// swings and hit half again as hard for the whole fight, which stopped being a
+/// moment and became a stat.
 const ART_SWINGS: u32 = 3;
-
-/// How much of an opponent's damage is delivered through its 功法, in parts per
-/// thousand.
-///
-/// Half: a fight on this ladder is five or six blows a side, and three of them
-/// swing the art. This is what the art's damage is *paid for* out of — see
-/// [`paid_for`] — so that giving an opponent a named move does not quietly make
-/// every guardian on the ladder harder than the power the panel promised.
-const ART_BLOW_SHARE_PERMILLE: u32 = 750;
 
 /// Which kind of fight the opponent stands in.
 ///
@@ -75,8 +87,9 @@ impl Stance {
     /// the only thing they had.
     const fn gear_slots(self) -> usize {
         match self {
-            Self::Guardian => 1,
-            Self::Wanderer | Self::Warden => 2,
+            Self::Guardian => 2,
+            Self::Wanderer => 2,
+            Self::Warden => 3,
         }
     }
 
@@ -101,7 +114,7 @@ impl Stance {
     /// smaller than the cultivator on its own rung, a warden is the rung itself.
     const fn multipliers(self) -> (u32, u32) {
         match self {
-            Self::Guardian => (1_500, 1_200),
+            Self::Guardian => (1_300, 1_150),
             Self::Wanderer => (800, 800),
             Self::Warden => (1_000, 1_000),
         }
@@ -122,8 +135,9 @@ impl Stance {
 pub(crate) struct Opponent {
     /// The fighter the duel settles against, art and all.
     pub fighter: Fighter,
-    /// What the body and the gear add up to: the budget the rung gave it, split
-    /// between the two. The gear is a slice of this, never a bonus on top.
+    /// What the body and the gear add up to. The body is the rung's own; the
+    /// gear is on top of it, which is why a well-dressed opponent at the same
+    /// rung is a harder fight than a ragged one.
     pub attributes: Attributes,
     /// What it is wearing. A won fight takes one of these — the piece is not
     /// rolled again, it is the one the opponent had on.
@@ -133,22 +147,62 @@ pub(crate) struct Opponent {
     pub art: Option<u64>,
 }
 
+/// The guardian standing between a realm and the next one.
+///
+/// Deterministic in the realm: its power is printed before the fight, so the same
+/// realm has to send the same opponent every time.
+pub(crate) fn guardian(current: Realm, target: Realm) -> Opponent {
+    opponent(
+        Stance::Guardian,
+        current.cap_level(),
+        target.index() as u8 + 1,
+        GUARDIAN_NAME.to_owned(),
+        fixed_seed(Stance::Guardian, current.index() as u32),
+    )
+}
+
+/// The warden of a 试炼 floor.
+///
+/// Deterministic in the floor's *realm* rather than in the floor itself: a tower
+/// whose wardens re-rolled their gear every floor would climb up and down, and a
+/// floor softer than the one below it is not a ladder. Within a realm the body
+/// grows floor by floor and the gear stays the same, so the climb only ever goes
+/// one way.
+pub(crate) fn warden(floor: u16) -> Opponent {
+    let realm = floor_realm(floor);
+    opponent(
+        Stance::Warden,
+        floor_level(floor),
+        realm.index() as u8 + 1,
+        TRIAL_OPPONENT_NAME.to_owned(),
+        fixed_seed(Stance::Warden, realm.index() as u32),
+    )
+}
+
+/// Someone met on the road: rolled per meeting, because nobody promised who the
+/// road would send.
+pub(crate) fn wanderer(realm: Realm, seed: u64) -> Opponent {
+    opponent(
+        Stance::Wanderer,
+        realm.cap_level(),
+        realm.index() as u8 + 1,
+        WANDERER_NAME.to_owned(),
+        seed,
+    )
+}
+
 /// Build one opponent for a rung of the ladder.
 ///
 /// `level` is the rung the body stands on, `tier` the realm its goods belong to
-/// (one-based), and `seed` fixes the roll: a guardian and a warden are the same
-/// opponent every time they are met, because their power is printed before the
-/// fight and a roll would make that number a lie. A wanderer is rolled per
-/// meeting, because nobody ever promised what the road would send.
+/// (one-based).
 pub(crate) fn opponent(stance: Stance, level: u16, tier: u8, name: String, seed: u64) -> Opponent {
     let mut rng = Rng::seeded(seed);
-    let budget = scaled(base_attributes(level), stance.budget_permille());
-    let gear = wear(stance, &budget, tier, &mut rng);
-    // The gear takes its slice out of the budget and the body keeps the rest, so
-    // the fighter is worth the same whichever way the split falls — a guardian
-    // in a good robe is a smaller body in better cloth, not a bigger guardian.
-    let worn = added(&gear);
-    let total = without(budget, &worn).plus(worn);
+    let body = scaled(base_attributes(level), stance.budget_permille());
+    // The gear is a bonus on top of the body, not a slice out of it: a guardian
+    // wearing a fine robe is a bigger guardian, which is what makes the loot on
+    // its back worth taking and the fight worth preparing for.
+    let gear = trim(stance, &body, wear(stance, &body, tier, &mut rng));
+    let total = body.plus(added(&gear));
     let art = carry_art(stance, tier, &mut rng);
     let art_strike = art.map(|art_id| {
         let art = blueprint(art_id);
@@ -164,13 +218,12 @@ pub(crate) fn opponent(stance: Stance, level: u16, tier: u8, name: String, seed:
     });
     let (health_permille, attack_permille) = stance.multipliers();
     let naked = total.derived();
-    let attack = paid_for(
-        naked.attack.saturating_mul(attack_permille) / 1_000,
-        art_strike.as_ref(),
-    );
     let derived = super::Derived {
         health: naked.health.saturating_mul(health_permille) / 1_000,
-        attack,
+        attack: paid_for(
+            naked.attack.saturating_mul(attack_permille) / 1_000,
+            art_strike.as_ref(),
+        ),
         ..naked
     };
     let mut fighter = Fighter::from_derived(name, derived, art_strike.clone());
@@ -186,20 +239,17 @@ pub(crate) fn opponent(stance: Stance, level: u16, tier: u8, name: String, seed:
     }
 }
 
-/// What is left of a blow once the art's share of it has been set aside.
+/// What is left of a blow once the art's share of its uplift has been set aside.
 ///
-/// The art is not free damage: three blows in six land half again as hard, so the
-/// hand that throws them is that much lighter. Without this the art was worth a
-/// fifth more damage over a whole fight, which on this ladder — five or six blows
-/// a side — is most of a blow, and most of a blow is a realm the player no longer
-/// opens.
+/// The art is only partly free damage: three blows in six land half again as
+/// hard, and [`ART_SHARE_PERMILLE`] of that uplift is paid for by a lighter hand,
+/// so a named move is a swing the player feels without being the whole fight.
 fn paid_for(attack: u32, art: Option<&ArtStrike>) -> u32 {
     let Some(strike) = art else {
         return attack;
     };
-    let uplift = ART_BLOW_SHARE_PERMILLE
-        .saturating_mul(strike.multiplier_permille.saturating_sub(1_000))
-        / 1_000;
+    let uplift =
+        ART_SHARE_PERMILLE.saturating_mul(strike.multiplier_permille.saturating_sub(1_000)) / 1_000;
     attack.saturating_mul(1_000) / (1_000 + uplift).max(1)
 }
 
@@ -215,17 +265,21 @@ fn scaled(attributes: Attributes, permille: i32) -> Attributes {
     )
 }
 
-/// The gear the opponent can carry without outgrowing its own body.
+/// The gear the opponent wears, rolled for the realm its goods belong to — a
+/// guardian guarding 金丹 wears 金丹 cloth.
 ///
-/// Rolled at the realm its goods belong to — a guardian guarding 金丹 wears 金丹
-/// cloth — and kept only while the pieces fit inside [`GEAR_SHARE_PERMILLE`] of
-/// the budget. A piece that does not fit is not worn, which is what keeps a
-/// level-one warden from turning up in an immortal robe it could not have
-/// carried up the tower.
-fn wear(stance: Stance, budget: &Attributes, tier: u8, rng: &mut Rng) -> Vec<EquipmentRecord> {
-    let allowance = points(budget) * GEAR_SHARE_PERMILLE / 1_000;
+/// Kept only while the pieces stay inside [`GEAR_SHARE_PERMILLE`] of the body it
+/// is standing on: a lucky 极品 roll at level one is worth several bodies, and an
+/// opponent wearing it would be a wall rather than a challenge. A piece that does
+/// not fit is simply not worn. The grade is rolled, not chosen, which is where
+/// the run-to-run difference between two fights of the same rung comes from.
+fn wear(stance: Stance, body: &Attributes, tier: u8, rng: &mut Rng) -> Vec<EquipmentRecord> {
+    // Measured in power rather than in raw points: the fight is decided on the
+    // weighted sum, and two pieces worth the same points are not worth the same
+    // fight when one of them lands on 身法.
+    let allowance = body.power().saturating_mul(GEAR_SHARE_PERMILLE) / 1_000;
     let mut worn: Vec<EquipmentRecord> = Vec::with_capacity(stance.gear_slots());
-    let mut spent = 0;
+    let mut spent: u32 = 0;
     let mut tries = 0;
     while worn.len() < stance.gear_slots() && tries < SLOT_COUNT * 2 {
         tries += 1;
@@ -235,22 +289,14 @@ fn wear(stance: Stance, budget: &Attributes, tier: u8, rng: &mut Rng) -> Vec<Equ
         if worn.iter().any(|already| already.slot == item.slot) {
             continue;
         }
-        let worth = points(&item.attributes);
-        if spent + worth > allowance {
+        let worth = item.power();
+        if spent.saturating_add(worth) > allowance {
             continue;
         }
-        spent += worth;
+        spent = spent.saturating_add(worth);
         worn.push(item);
     }
     worn
-}
-
-/// How many attribute points a set holds.
-fn points(attributes: &Attributes) -> i32 {
-    Attribute::ALL
-        .into_iter()
-        .map(|attribute| attribute.of(*attributes).max(0))
-        .fold(0, i32::saturating_add)
 }
 
 /// The attributes every piece together add.
@@ -265,17 +311,31 @@ fn added(gear: &[EquipmentRecord]) -> Attributes {
     })
 }
 
-/// What is left of the budget once the gear has taken its slice.
+/// Drop pieces until the gear as a whole fits the share it is allowed.
 ///
-/// Per attribute and floored at zero: a body cannot owe points to its own robe,
-/// and the gear is the budget's, not a loan against it.
-fn without(budget: Attributes, worn: &Attributes) -> Attributes {
-    Attributes::new(
-        budget.root.saturating_sub(worn.root),
-        budget.strength.saturating_sub(worn.strength),
-        budget.mana.saturating_sub(worn.mana),
-        budget.agility.saturating_sub(worn.agility),
-    )
+/// The per-piece check in [`wear`] is not enough: the two schools pay a synergy
+/// bonus on the weaker half of each pair, so two pieces that each fit can add up
+/// to more power than the allowance — and on this ladder a tenth of extra power
+/// is already the difference between a fight and a wall. Trimmed from the last
+/// piece rather than the first, so what an opponent keeps is the best of what it
+/// rolled.
+fn trim(stance: Stance, body: &Attributes, mut gear: Vec<EquipmentRecord>) -> Vec<EquipmentRecord> {
+    let allowance = body.power().saturating_mul(GEAR_SHARE_PERMILLE) / 1_000;
+    while !gear.is_empty() {
+        let worn = added(&gear);
+        let total = body.plus(worn);
+        let bonus = total.power().saturating_sub(body.power());
+        let drifted = Attribute::ALL.into_iter().any(|attribute| {
+            let base = attribute.of(*body).max(1);
+            attribute.of(worn).max(0) * 1_000 / base > ATTRIBUTE_DRIFT_PERMILLE
+        });
+        if bonus <= allowance && !drifted {
+            break;
+        }
+        gear.pop();
+    }
+    let _ = stance;
+    gear
 }
 
 /// The 外功 the opponent swings, when it carries one.

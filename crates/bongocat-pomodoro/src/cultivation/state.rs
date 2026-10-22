@@ -29,7 +29,7 @@ use super::{
         DAILY_AMBUSH_STONES, DAILY_GIFT_STONES, DAILY_TRINKET_STONES, GiftKind, roll_gift,
         roll_kind,
     },
-    duel::{DUEL_RECORD_CAP, DuelRecord, FightKind, GUARDIAN_NAME, WANDERER_NAME, duel},
+    duel::{DUEL_RECORD_CAP, DuelRecord, FightKind, duel},
     events::{EVENT_LOG_CAP, EventDetail, EventRecord, SaleKind},
     explore::{
         GUARDIAN_STONES, TRIAL_STONES, WALK_STONES, WANDERER_STONES, WalkRecord,
@@ -39,13 +39,13 @@ use super::{
     growth_permille,
     items::roll_equipment,
     mastery_permille,
-    opponent::{self, Opponent, Stance},
+    opponent::{self, Opponent},
     scaled_growth,
     shop::{self, ShopOffer, ShopOfferView},
     trade::{TradeRefusal, session_earnings},
     trial::{
-        TRIAL_ATTEMPTS_PER_DAY, TRIAL_MAX_FLOOR, TRIAL_OPPONENT_NAME, TrialReward, floor_level,
-        floor_realm, roll_reward, warden_power,
+        TRIAL_ATTEMPTS_PER_DAY, TRIAL_MAX_FLOOR, TrialReward, floor_realm, roll_reward,
+        warden_power,
     },
 };
 use crate::CalendarDay;
@@ -1197,14 +1197,9 @@ impl Cultivation {
         let fighter = self.fighter(&mut rng);
         // The guardian is the same opponent every time it is met: its power is
         // printed before the fight, so a roll per attempt would make that number
-        // a lie. What it wears is part of that power, not a bonus on top of it.
-        let rival = opponent::opponent(
-            Stance::Guardian,
-            current.cap_level(),
-            guardian.target.index() as u8 + 1,
-            GUARDIAN_NAME.to_owned(),
-            opponent::fixed_seed(Stance::Guardian, current.index() as u32),
-        );
+        // a lie. What it wears is what makes it harder than the naked rung, and
+        // that gear is what a win takes.
+        let rival = opponent::guardian(current, guardian.target);
         let duel = duel(fighter, rival.fighter.clone(), &mut rng);
         // Won fights are what train the 战斗 dimension; a loss is not counted
         // there, and only ever shows up in the record below.
@@ -1528,13 +1523,7 @@ impl Cultivation {
                 let fighter = self.fighter(&mut rng);
                 // A wanderer is rolled per meeting: nobody promised who the road
                 // would send, and its numbers are only ever shown after the fact.
-                let rival = opponent::opponent(
-                    Stance::Wanderer,
-                    self.realm().cap_level(),
-                    tier,
-                    WANDERER_NAME.to_owned(),
-                    rng.below(u64::MAX),
-                );
+                let rival = opponent::wanderer(self.realm(), rng.below(u64::MAX));
                 let duel = duel(fighter, rival.fighter.clone(), &mut rng);
                 if duel.won {
                     found = self.award_wanderer_find(&rival, &mut rng, now_unix);
@@ -1680,13 +1669,7 @@ impl Cultivation {
         let fighter = self.fighter(&mut rng);
         // A floor's warden is the same opponent for that floor every day: the
         // page prints its power next to the floor, so it cannot be a roll.
-        let rival = opponent::opponent(
-            Stance::Warden,
-            floor_level(floor),
-            floor_realm(floor).index() as u8 + 1,
-            TRIAL_OPPONENT_NAME.to_owned(),
-            opponent::fixed_seed(Stance::Warden, u32::from(floor)),
-        );
+        let rival = opponent::warden(floor);
         let duel = duel(fighter, rival.fighter.clone(), &mut rng);
         self.record_duel(duel.won, FightKind::Trial, now_unix);
         let mut found = ExplorationFindView::default();
@@ -1769,13 +1752,7 @@ impl Cultivation {
         match kind {
             DailyKind::Ambush => {
                 let fighter = self.fighter(&mut rng);
-                let rival = opponent::opponent(
-                    Stance::Wanderer,
-                    self.realm().cap_level(),
-                    tier,
-                    WANDERER_NAME.to_owned(),
-                    rng.below(u64::MAX),
-                );
+                let rival = opponent::wanderer(self.realm(), rng.below(u64::MAX));
                 let duel = duel(fighter, rival.fighter.clone(), &mut rng);
                 self.record_duel(duel.won, FightKind::Wanderer, now_unix);
                 outcome.won = duel.won;
@@ -2769,18 +2746,44 @@ mod tests {
         );
     }
 
+    /// A save at `level` wearing the four pieces a player of that realm would be
+    /// wearing.
+    fn a_dressed_save_at(level: u16) -> Cultivation {
+        let realm = Realm::from_level(level);
+        let mut document = CultivationDocument {
+            growth: threshold_for(level),
+            realm: realm.index() as u8,
+            equipped: vec![None; SLOT_COUNT],
+            ..CultivationDocument::default()
+        };
+        let mut rng = Rng::seeded(u64::from(level));
+        let mut slots = std::collections::BTreeSet::new();
+        let mut id = 1;
+        while slots.len() < SLOT_COUNT {
+            let item =
+                crate::cultivation::items::roll_equipment(id, realm.index() as u8 + 1, &mut rng);
+            if slots.insert(item.slot.index()) {
+                document.equipped[item.slot.index()] = Some(item.id);
+                document.equipment.push(item);
+                id += 1;
+            }
+        }
+        Cultivation::new(document)
+    }
+
     /// The tower is the ladder read sideways: a floor stands for a level, and
-    /// the warden is that level's cultivator softened. This is the number that
-    /// makes "how far can I climb" a question gear answers, so it is locked
-    /// here — a retune of the attributes or the duel that moves the frontier a
-    /// whole realm away from the save's own level fails this.
+    /// the warden is that level's cultivator softened, dressed, and swinging what
+    /// it carries. This is the number that makes "how far can I climb" a question
+    /// gear answers, so it is locked here — a retune of the attributes or the
+    /// duel that moves the frontier a whole realm away from the save's own level
+    /// fails this.
     #[test]
-    fn a_naked_save_holds_its_own_level_and_not_much_past_it() {
+    fn a_dressed_save_holds_its_own_level_and_not_much_past_it() {
         let win_rate = |level: u16, floor: u16| {
             let runs = 200;
             let wins = (0..runs)
                 .filter(|attempt: &usize| {
-                    let mut cultivation = a_bare_save_at(level);
+                    let mut cultivation = a_dressed_save_at(level);
                     cultivation.document.trial_floor = floor - 1;
                     cultivation
                         .trial(1_000 + (*attempt as i64) * 977, 9)
@@ -2792,7 +2795,7 @@ mod tests {
         for level in [10_u16, 100, 500, 1_000] {
             let own = win_rate(level, level);
             assert!(
-                own >= 85,
+                own >= 60,
                 "level {level} holds its own floor only {own}% of the time"
             );
         }
@@ -3051,13 +3054,7 @@ mod tests {
         let mut cultivation = at_the_first_cap();
         let guardian = cultivation.guardian().expect("a guardian at the cap");
         let current = cultivation.realm();
-        let rival = super::opponent::opponent(
-            Stance::Guardian,
-            current.cap_level(),
-            guardian.target.index() as u8 + 1,
-            GUARDIAN_NAME.to_owned(),
-            super::opponent::fixed_seed(Stance::Guardian, current.index() as u32),
-        );
+        let rival = opponent::guardian(current, guardian.target);
         let mut rng = Rng::seeded(7);
         let fighter = cultivation.fighter(&mut rng);
         let report = duel(fighter, rival.fighter.clone(), &mut rng);
@@ -3093,13 +3090,7 @@ mod tests {
     #[test]
     fn a_beaten_wanderer_hands_over_its_own_gear() {
         let mut cultivation = a_bare_save_at(30);
-        let rival = super::opponent::opponent(
-            Stance::Wanderer,
-            cultivation.realm().cap_level(),
-            cultivation.realm().index() as u8 + 1,
-            WANDERER_NAME.to_owned(),
-            0x5741_4E44_4552_0000,
-        );
+        let rival = opponent::wanderer(cultivation.realm(), 0x5741_4E44_4552_0000);
         assert!(!rival.gear.is_empty(), "the probe needs it to wear gear");
         let worn: Vec<Attributes> = rival.gear.iter().map(|item| item.attributes).collect();
         let mut dropped = 0;

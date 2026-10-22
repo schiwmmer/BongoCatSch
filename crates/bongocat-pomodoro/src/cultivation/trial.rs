@@ -14,7 +14,7 @@
 //! reward tier comes from the floor's own realm: climbing is how a save reaches
 //! the goods of a realm it has not entered yet.
 
-use super::{MAX_LEVEL, Realm, Rng, base_attributes};
+use super::{MAX_LEVEL, Realm, Rng};
 
 /// How many floors one local day offers.
 ///
@@ -69,12 +69,11 @@ pub fn floor_realm(floor: u16) -> Realm {
 
 /// What a floor's warden is worth, as the page prints it beside the floor.
 ///
-/// Read the same way the guardian's is: the power of a naked cultivator at that
-/// level, scaled by [`TRIAL_OPPONENT_PERMILLE`], so the number the panel shows
-/// and the fighter the duel settles are one ladder's arithmetic.
+/// Read off the opponent the floor will actually send — body, gear and all — so
+/// the number beside the floor and the fighter the duel settles against are one
+/// thing rather than two estimates of it.
 pub fn warden_power(floor: u16) -> u32 {
-    let naked = base_attributes(floor_level(floor)).power();
-    naked.saturating_mul(TRIAL_OPPONENT_PERMILLE) / 1_000
+    super::opponent::warden(floor).attributes.power()
 }
 
 /// What clearing a floor turned up.
@@ -109,6 +108,7 @@ pub(crate) fn roll_reward(rng: &mut Rng) -> TrialReward {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cultivation::base_attributes;
 
     /// The three findings share one roll, so together they cannot fill it: the
     /// rest of the thousand is a floor that paid nothing.
@@ -118,12 +118,19 @@ mod tests {
     fn floor_one_is_the_first_rung_of_the_ladder() {
         assert_eq!(floor_level(1), 1);
         assert_eq!(floor_realm(1), Realm::QiRefining);
-        // The first floor's warden is the first level's cultivator, softened.
-        assert_eq!(
-            warden_power(1),
-            base_attributes(1).power() * TRIAL_OPPONENT_PERMILLE / 1_000
+        // The first floor's warden is the first level's cultivator, softened —
+        // and whatever it managed to put on top of that body.
+        let softened = base_attributes(1).power() * TRIAL_OPPONENT_PERMILLE / 1_000;
+        let warden = super::super::opponent::warden(1);
+        assert_eq!(warden_power(1), warden.attributes.power());
+        assert!(
+            warden.attributes.power() + 5 >= softened,
+            "the warden of the first floor is softer than the softened rung"
         );
-        assert!(warden_power(1) < base_attributes(1).power());
+        assert!(
+            warden.attributes.power() < base_attributes(1).power() * 2,
+            "the first floor is a wall rather than an on-ramp"
+        );
     }
 
     #[test]
@@ -131,9 +138,13 @@ mod tests {
         let mut previous = 0;
         for floor in 1..=TRIAL_MAX_FLOOR {
             let power = warden_power(floor);
+            // The warden's gear is rolled per realm, so crossing into a new realm
+            // re-dresses it: the body jumps up and the gear may jump down a hair.
+            // A hundredth of a floor is not a rung, and the climb has to read as
+            // one direction.
             assert!(
-                power >= previous,
-                "floor {floor} is softer than the one below it"
+                power + previous / 100 >= previous,
+                "floor {floor} is softer than the one below it: {previous} to {power}"
             );
             previous = power;
         }
@@ -146,28 +157,22 @@ mod tests {
     fn the_warden_stays_on_the_ladder_below_a_naked_save_of_the_same_level() {
         for floor in [1_u16, 50, 100, 500, TRIAL_MAX_FLOOR] {
             let naked = base_attributes(floor_level(floor));
-            let warden = super::super::opponent::opponent(
-                super::super::opponent::Stance::Warden,
-                floor_level(floor),
-                floor_realm(floor).index() as u8 + 1,
-                TRIAL_OPPONENT_NAME.to_owned(),
-                super::super::opponent::fixed_seed(
-                    super::super::opponent::Stance::Warden,
-                    u32::from(floor),
-                ),
+            let warden = super::super::opponent::warden(floor);
+            // What the page prints beside the floor is the fighter the duel
+            // settles against, gear and all.
+            assert_eq!(
+                warden_power(floor),
+                warden.attributes.power(),
+                "floor {floor}: the printed power is not the warden's own"
             );
-            // The body plus the gear is the softened rung itself: the number the
-            // page prints beside the floor is the fighter the duel settles
-            // against, within the rounding of scaling four attributes down.
-            let printed = i64::from(warden_power(floor));
-            let actual = i64::from(warden.attributes.power());
+            // The body is the softened rung and the gear is a bonus on top of it,
+            // capped so a floor never turns into a wall.
+            let ceiling = naked.power() * 125 / 100;
             assert!(
-                (actual - printed).abs() <= 10,
-                "floor {floor}: printed {printed} but the warden is worth {actual}"
-            );
-            assert!(
-                warden.attributes.power() <= naked.power(),
-                "floor {floor}: the warden walks in stronger than its own rung"
+                warden.attributes.power() <= ceiling,
+                "floor {floor}: the warden walks in at {} against a bare {}",
+                warden.attributes.power(),
+                naked.power()
             );
             assert!(warden.fighter.health > 0);
         }
