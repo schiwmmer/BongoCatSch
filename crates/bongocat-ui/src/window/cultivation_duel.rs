@@ -108,13 +108,32 @@ impl CultivationDuel {
     fn rounds(&self) -> &[DuelRound] {
         match &self.payload {
             CultivationDuelPayload::Breakthrough(outcome) => &outcome.duel.rounds,
-            CultivationDuelPayload::Exploration(_, _, duel) => {
-                duel.as_ref().map_or(&[], |duel| &duel.rounds)
-            }
+            CultivationDuelPayload::Exploration(_, _, duel) => duel
+                .as_ref()
+                .filter(|_| self.settled_a_fight())
+                .map_or(&[], |duel| &duel.rounds),
             CultivationDuelPayload::Trial(outcome) => &outcome.duel.rounds,
             CultivationDuelPayload::Daily(outcome) => {
                 outcome.duel.as_ref().map_or(&[], |duel| &duel.rounds)
             }
+        }
+    }
+
+    /// Whether this payload settled a fight at all.
+    ///
+    /// A walk that met nobody has no fight, whatever report the payload still
+    /// carries beside it: the outcome is what says whether a fight happened.
+    /// The domain clears the report for a quiet walk and the page refuses to
+    /// pair one with a quiet walk's outcome — this is the same rule read once
+    /// more where the popup draws, so a report that ever slipped through both
+    /// would still draw no fight, no log and no verdict.
+    fn settled_a_fight(&self) -> bool {
+        match &self.payload {
+            CultivationDuelPayload::Exploration(outcome, _, _) => matches!(
+                outcome,
+                ExplorationOutcome::Victory | ExplorationOutcome::Defeat
+            ),
+            _ => true,
         }
     }
 
@@ -132,7 +151,9 @@ impl CultivationDuel {
     fn report(&self) -> Option<&DuelReport> {
         match &self.payload {
             CultivationDuelPayload::Breakthrough(outcome) => Some(&outcome.duel),
-            CultivationDuelPayload::Exploration(_, _, duel) => duel.as_ref(),
+            CultivationDuelPayload::Exploration(_, _, duel) => {
+                duel.as_ref().filter(|_| self.settled_a_fight())
+            }
             CultivationDuelPayload::Trial(outcome) => Some(&outcome.duel),
             CultivationDuelPayload::Daily(outcome) => outcome.duel.as_ref(),
         }
@@ -147,9 +168,10 @@ impl CultivationDuel {
             CultivationDuelPayload::Breakthrough(outcome) => {
                 Some((&outcome.duel.player, &outcome.duel.opponent))
             }
-            CultivationDuelPayload::Exploration(_, _, duel) => {
-                duel.as_ref().map(|duel| (&duel.player, &duel.opponent))
-            }
+            CultivationDuelPayload::Exploration(_, _, duel) => duel
+                .as_ref()
+                .filter(|_| self.settled_a_fight())
+                .map(|duel| (&duel.player, &duel.opponent)),
             CultivationDuelPayload::Trial(outcome) => {
                 Some((&outcome.duel.player, &outcome.duel.opponent))
             }
@@ -161,7 +183,9 @@ impl CultivationDuel {
     }
 
     /// Whether the cultivator came out of it standing. A walk that met nobody is
-    /// neither a win nor a loss, and says so by there being no verdict to draw.
+    /// neither a win nor a loss, and says so by there being no verdict to draw:
+    /// `fought()` is false for it, so the `false` below is never painted as a
+    /// defeat — a quiet walk is not a lost fight.
     fn won(&self) -> bool {
         match &self.payload {
             CultivationDuelPayload::Breakthrough(outcome) => outcome.duel.won,
@@ -354,8 +378,10 @@ fn title_line(duel: &CultivationDuel, locale: &str) -> String {
                 ],
             )
         ),
-        CultivationDuelPayload::Exploration(_, _, fought) => {
-            let key = if fought.is_some() {
+        CultivationDuelPayload::Exploration(_, _, _) => {
+            // The title follows the same rule the log and the verdict do: a
+            // walk that met nobody is an 探索, whatever report rides beside it.
+            let key = if duel.fought() {
                 "cultivation.duel.title_exploration"
             } else {
                 "cultivation.explore.title"
@@ -1082,6 +1108,25 @@ mod tests {
             !duel.reveal_all(),
             "skipping a walk that found nothing does nothing"
         );
+    }
+
+    /// The bug this guards: a quiet walk that arrived carrying an older walk's
+    /// report drew that fight's log and called the afternoon 败北 under it. The
+    /// outcome is what says whether a fight happened, so a report beside a
+    /// quiet walk draws nothing at all.
+    #[test]
+    fn a_quiet_walk_ignores_an_older_walks_report() {
+        let duel = CultivationDuel::new(
+            CultivationDuelSource::Exploration,
+            CultivationDuelPayload::Exploration(ExplorationOutcome::Stones, None, Some(report(6))),
+        );
+        assert!(
+            duel.rounds().is_empty(),
+            "a walk that met nobody has no blows to replay"
+        );
+        assert!(!duel.fought(), "and so no verdict to draw");
+        assert!(duel.report().is_none(), "and no bars to draw");
+        assert!(duel.sides().is_none(), "and no columns to draw");
     }
 
     /// The bars over the log follow the blows that have been shown: a replay

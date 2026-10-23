@@ -660,10 +660,23 @@ impl SettingsView {
             CultivationDuelSource::Exploration => (
                 cultivation.explorations,
                 cultivation.last_exploration.map(|outcome| {
+                    // The fight rides beside the walk only when this walk
+                    // settled one: a quiet walk's popup must not replay an
+                    // older walk's battle under this walk's verdict. The
+                    // domain clears the report for a walk that met nobody;
+                    // this is the same rule read once more, at the one place
+                    // the three fields become one popup.
+                    let duel = matches!(
+                        outcome,
+                        bongocat_pomodoro::ExplorationOutcome::Victory
+                            | bongocat_pomodoro::ExplorationOutcome::Defeat
+                    )
+                    .then(|| cultivation.last_exploration_duel.clone())
+                    .flatten();
                     cultivation_duel::CultivationDuelPayload::Exploration(
                         outcome,
                         cultivation.last_exploration_found.clone(),
-                        cultivation.last_exploration_duel.clone(),
+                        duel,
                     )
                 }),
             ),

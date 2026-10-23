@@ -371,6 +371,10 @@ pub struct CultivationView {
     /// What the last finished session did to the 功法 being trained.
     pub last_training: Option<TrainingView>,
     /// The fight the last walk met, if it met one.
+    ///
+    /// Cleared by every walk that met nobody: a quiet walk's popup must carry
+    /// no fight, or it replays an older walk's battle under this walk's
+    /// verdict.
     pub last_exploration_duel: Option<DuelReport>,
     /// What the last walk came to.
     pub last_exploration: Option<ExplorationOutcome>,
@@ -1716,6 +1720,12 @@ impl Cultivation {
         // Counted here rather than on the outcome: a walk that found nothing is
         // still a walk a surface has not shown yet.
         self.document.explorations = self.document.explorations.saturating_add(1);
+        // The fight the last walk met is forgotten before this one is settled:
+        // a walk that meets nobody must carry no fight into its popup, or the
+        // popup replays an older walk's battle as this walk's verdict — which
+        // is how a quiet afternoon that turned up a handful of stones came to
+        // be announced as 败北 under a won fight's log.
+        self.last_exploration_duel = None;
         let mut rng = self.rng(now_unix);
         let mut outcome = roll_walk(&mut rng);
         let tier = self.realm().index() as u8 + 1;

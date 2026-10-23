@@ -1050,6 +1050,52 @@ fn a_walk_that_was_beaten_pays_nothing() {
     }
 }
 
+/// A walk that met nobody carries no fight into its popup.
+///
+/// The bug this guards: the fight the last walk met stayed on file through a
+/// quiet walk, so the popup replayed an older walk's battle under the new
+/// walk's verdict — a quiet afternoon that turned up a handful of stones,
+/// announced as 败北 beneath a fight it never had. Every walk clears the
+/// report; only a walk that settled a fight carries one.
+#[test]
+fn a_quiet_walk_carries_no_fight_into_its_popup() {
+    let step = EXPLORATION_COOLDOWN_SECONDS + 1;
+    // One save, walked until the road sends someone: the fight that walk met
+    // is what a later quiet walk must not inherit.
+    let mut cultivation = Cultivation::default();
+    let mut met_someone = false;
+    for attempt in 0..300_i64 {
+        if cultivation.explore(attempt * step).is_none() {
+            continue;
+        }
+        if cultivation.view().last_exploration_duel.is_some() {
+            met_someone = true;
+            break;
+        }
+    }
+    assert!(met_someone, "the road sends someone within 300 walks");
+    // The next walk that meets nobody must carry no fight: its popup has
+    // nothing to replay and no verdict to draw.
+    let mut quiet = None;
+    for attempt in 300..600_i64 {
+        let Some(outcome) = cultivation.explore(attempt * step) else {
+            continue;
+        };
+        if !matches!(
+            outcome,
+            ExplorationOutcome::Victory | ExplorationOutcome::Defeat
+        ) {
+            quiet = Some(outcome);
+            break;
+        }
+    }
+    assert!(quiet.is_some(), "a quiet walk came up within 300 more");
+    assert!(
+        cultivation.view().last_exploration_duel.is_none(),
+        "a walk that met nobody leaves no fight on file"
+    );
+}
+
 /// A 功法 that reaches 圆满 leaves the books and becomes one the cultivator
 /// has learned outright.
 #[test]

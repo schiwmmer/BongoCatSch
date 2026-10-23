@@ -657,6 +657,28 @@ pub(crate) fn base_points(tier: u8) -> u32 {
     45 + 25 * (tier - 1)
 }
 
+/// How many attribute lines a quality's piece carries.
+///
+/// A white blade is one number done well; everything from 精良 up carries the
+/// slot's second attribute as well. The count climbing with the quality is
+/// what keeps a 普通 piece a starting point rather than a watered-down copy of
+/// a 绝世 one — and what makes two pieces of the same slot and tier read as
+/// different objects rather than as the same object at two sizes.
+const fn attribute_lines(rarity: Rarity) -> usize {
+    if rarity.index() >= 2 { 2 } else { 1 }
+}
+
+/// How many outright combat lines a quality's piece carries.
+///
+/// The outright numbers — 攻击力, 生命值, 命中 and the rest — are what the
+/// deeper qualities are *for*: white and green gear pays attributes alone, a
+/// 史诗 or 传说 adds one combat number, and 神话 and up add both. Nothing
+/// below 神装 ever carries an effect, whatever else it pays.
+const fn combat_lines(rarity: Rarity) -> usize {
+    let index = rarity.index();
+    (index >= 3) as usize + (index >= 5) as usize
+}
+
 /// Roll one piece of gear for a realm, out of a channel.
 ///
 /// `tier` is the realm's one-based position and `source` is the channel the
@@ -669,29 +691,40 @@ pub fn roll_equipment(id: u64, tier: u8, source: DropSource, rng: &mut Rng) -> E
     let rarity = roll_rarity(rng, source);
     let points = base_points(tier) * rarity.multiplier() / 10;
     let (primary, primary_percent, secondary, secondary_percent) = slot.split();
-    let primary_points = points * primary_percent / 100;
-    let secondary_points = points.saturating_sub(primary_points);
     let mut attributes = Attributes::default();
-    primary.add_to(
-        &mut attributes,
-        i32::try_from(primary_points).unwrap_or(i32::MAX),
-    );
-    secondary.add_to(
-        &mut attributes,
-        i32::try_from(secondary_points).unwrap_or(i32::MAX),
-    );
+    if attribute_lines(rarity) >= 2 {
+        let primary_points = points * primary_percent / 100;
+        let secondary_points = points.saturating_sub(primary_points);
+        primary.add_to(
+            &mut attributes,
+            i32::try_from(primary_points).unwrap_or(i32::MAX),
+        );
+        secondary.add_to(
+            &mut attributes,
+            i32::try_from(secondary_points).unwrap_or(i32::MAX),
+        );
+    } else {
+        // One line, the whole budget: the piece is what it is, said once.
+        primary.add_to(&mut attributes, i32::try_from(points).unwrap_or(i32::MAX));
+    }
     debug_assert!(secondary_percent + primary_percent == 100);
     // The outright combat lines: a third of the points, split the same way the
-    // attributes are, so a piece reads the same shape in a fight as it does on
-    // the attribute panel.
+    // attributes are — when the quality pays them at all. A white robe soaks
+    // nothing outright; a crimson one soaks and strikes both.
     let (combat_primary, combat_primary_percent, combat_secondary, combat_secondary_percent) =
         slot.combat_split();
-    let combat_points = points / 3;
-    let combat_primary_points = combat_points * combat_primary_percent / 100;
-    let combat_secondary_points = combat_points.saturating_sub(combat_primary_points);
     let mut bonus = Derived::default();
-    combat_primary.add_to(&mut bonus, combat_primary_points);
-    combat_secondary.add_to(&mut bonus, combat_secondary_points);
+    match combat_lines(rarity) {
+        0 => {}
+        1 => combat_primary.add_to(&mut bonus, points / 3),
+        _ => {
+            let combat_points = points / 3;
+            let combat_primary_points = combat_points * combat_primary_percent / 100;
+            let combat_secondary_points = combat_points.saturating_sub(combat_primary_points);
+            combat_primary.add_to(&mut bonus, combat_primary_points);
+            combat_secondary.add_to(&mut bonus, combat_secondary_points);
+        }
+    }
     debug_assert!(combat_secondary_percent + combat_primary_percent == 100);
     // A 神装 always carries an effect; nothing below one ever does.
     let effect = if rarity.is_divine() {
@@ -734,8 +767,87 @@ mod tests {
         assert!(item.attributes.power() > 0);
         assert!(!item.star_capped());
         assert_eq!(item.star(), 0);
-        // Every piece adds its attributes and its outright combat numbers both.
-        assert!(item.bonus.attack + item.bonus.health + item.bonus.speed > 0);
+        // What the piece pays beyond its attributes is the quality's to say:
+        // see `the_deeper_qualities_pay_more_lines`.
+    }
+
+    /// How many of the four attributes a piece pays, as a count.
+    fn attribute_lines_of(item: &EquipmentRecord) -> usize {
+        [
+            item.attributes.root,
+            item.attributes.strength,
+            item.attributes.mana,
+            item.attributes.agility,
+        ]
+        .into_iter()
+        .filter(|value| *value > 0)
+        .count()
+    }
+
+    /// How many of the nine combat numbers a piece pays outright, as a count.
+    fn combat_lines_of(item: &EquipmentRecord) -> usize {
+        let bonus = item.bonus;
+        [
+            bonus.attack,
+            bonus.health,
+            bonus.inner,
+            bonus.spell,
+            bonus.resist,
+            bonus.speed,
+            bonus.hit,
+            bonus.evade,
+            bonus.aptitude,
+        ]
+        .into_iter()
+        .filter(|value| *value > 0)
+        .count()
+    }
+
+    /// The ladder the eight qualities are read by: white and green are one
+    /// attribute done well, 精良 and up carry the slot's second, the outright
+    /// combat numbers arrive at 史诗 and the second one at 神话.
+    ///
+    /// Every piece of a quality obeys it, so the roll is walked until each
+    /// quality has been seen and each bucket is checked whole.
+    #[test]
+    fn the_deeper_qualities_pay_more_lines() {
+        let mut attributes: std::collections::BTreeMap<Rarity, usize> =
+            std::collections::BTreeMap::new();
+        let mut combat: std::collections::BTreeMap<Rarity, usize> =
+            std::collections::BTreeMap::new();
+        for seed in 0..8_000_u64 {
+            let item = roll_equipment(seed, 5, DropSource::Combat, &mut Rng::seeded(seed));
+            let attribute_lines = attribute_lines_of(&item);
+            let combat_lines = combat_lines_of(&item);
+            // A quality's pieces never disagree about how many lines they pay.
+            assert_eq!(
+                *attributes.entry(item.rarity).or_insert(attribute_lines),
+                attribute_lines,
+                "{:?} pays a varying number of attributes",
+                item.rarity
+            );
+            assert_eq!(
+                *combat.entry(item.rarity).or_insert(combat_lines),
+                combat_lines,
+                "{:?} pays a varying number of outright lines",
+                item.rarity
+            );
+        }
+        for rarity in Rarity::ALL {
+            let expected_attributes = if rarity.index() >= 2 { 2 } else { 1 };
+            let expected_combat =
+                usize::from(rarity.index() >= 3) + usize::from(rarity.index() >= 5);
+            assert_eq!(
+                attributes.get(&rarity).copied(),
+                Some(expected_attributes),
+                "{rarity:?} pays the wrong number of attributes"
+            );
+            assert_eq!(
+                combat.get(&rarity).copied(),
+                Some(expected_combat),
+                "{rarity:?} pays the wrong number of outright lines"
+            );
+        }
     }
 
     /// The rule the eight qualities exist for: no two adjacent grades are
