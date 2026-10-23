@@ -23,8 +23,8 @@ use super::arts::blueprint;
 use super::duel::{GUARDIAN_NAME, WANDERER_NAME};
 use super::trial::{TRIAL_OPPONENT_NAME, floor_level, floor_realm};
 use super::{
-    ArtGrade, ArtKind, ArtStrike, Attribute, Attributes, EquipmentRecord, Fighter, Realm, Rng,
-    SLOT_COUNT, base_attributes, items::roll_equipment,
+    ArtGrade, ArtKind, ArtStrike, Attribute, Attributes, Derived, EquipmentRecord, Fighter, Realm,
+    Rng, SLOT_COUNT, base_attributes, items::DropSource, items::roll_equipment,
 };
 
 /// How much gear an opponent may carry on top of its body, in parts per
@@ -202,7 +202,7 @@ pub(crate) fn opponent(stance: Stance, level: u16, tier: u8, name: String, seed:
     // wearing a fine robe is a bigger guardian, which is what makes the loot on
     // its back worth taking and the fight worth preparing for.
     let gear = trim(stance, &body, wear(stance, &body, tier, &mut rng));
-    let total = body.plus(added(&gear));
+    let total = body.plus(added_attributes(&gear));
     let art = carry_art(stance, tier, &mut rng);
     let art_strike = art.map(|art_id| {
         let art = blueprint(art_id);
@@ -218,14 +218,19 @@ pub(crate) fn opponent(stance: Stance, level: u16, tier: u8, name: String, seed:
     });
     let (health_permille, attack_permille) = stance.multipliers();
     let naked = total.derived();
-    let derived = super::Derived {
+    // The gear's outright combat lines ride on top of the stance's own
+    // multipliers: a 神装 guardian strikes harder than its robe's attributes
+    // say, the same way a cultivator's does.
+    let flat = added_bonus(&gear);
+    let derived = Derived {
         health: naked.health.saturating_mul(health_permille) / 1_000,
         attack: paid_for(
             naked.attack.saturating_mul(attack_permille) / 1_000,
             art_strike.as_ref(),
         ),
         ..naked
-    };
+    }
+    .plus(flat);
     let mut fighter = Fighter::from_derived(name, derived, art_strike.clone());
     // A fighter carrying an art carries only a few swings of it.
     if let Some(strike) = &art_strike {
@@ -273,34 +278,60 @@ fn scaled(attributes: Attributes, permille: i32) -> Attributes {
 /// opponent wearing it would be a wall rather than a challenge. A piece that does
 /// not fit is simply not worn. The grade is rolled, not chosen, which is where
 /// the run-to-run difference between two fights of the same rung comes from.
+///
+/// The check is the piece's *marginal* worth on the body it would join, not its
+/// standalone worth: the two schools pay a synergy bonus on the weaker half of
+/// each pair, so a piece can be worth more on a body than on its own — and an
+/// allowance read against the standalone number would let a piece through that
+/// the fight then reads at nearly half again as much.
 fn wear(stance: Stance, body: &Attributes, tier: u8, rng: &mut Rng) -> Vec<EquipmentRecord> {
     // Measured in power rather than in raw points: the fight is decided on the
     // weighted sum, and two pieces worth the same points are not worth the same
     // fight when one of them lands on 身法.
     let allowance = body.power().saturating_mul(GEAR_SHARE_PERMILLE) / 1_000;
     let mut worn: Vec<EquipmentRecord> = Vec::with_capacity(stance.gear_slots());
-    let mut spent: u32 = 0;
     let mut tries = 0;
     while worn.len() < stance.gear_slots() && tries < SLOT_COUNT * 2 {
         tries += 1;
-        let item = roll_equipment(0, tier, rng);
+        let item = roll_equipment(0, tier, DropSource::Combat, rng);
         // One piece per slot: two cloaks would be a fighter wearing the same
         // slot twice, which the inventory itself does not allow.
         if worn.iter().any(|already| already.slot == item.slot) {
             continue;
         }
-        let worth = item.power();
-        if spent.saturating_add(worth) > allowance {
+        let mut candidate = worn.clone();
+        candidate.push(item);
+        if marginal_power(body, &candidate) > allowance || drifted(body, &candidate) {
             continue;
         }
-        spent = spent.saturating_add(worth);
-        worn.push(item);
+        worn = candidate;
     }
     worn
 }
 
+/// What the gear as a whole adds to the body it stands on: the attributes' own
+/// power, the pair synergy they earn against the body, and the outright combat
+/// numbers on top.
+fn marginal_power(body: &Attributes, gear: &[EquipmentRecord]) -> u32 {
+    let total = body.plus(added_attributes(gear));
+    total
+        .power()
+        .saturating_add(added_bonus(gear).power())
+        .saturating_sub(body.power())
+}
+
+/// Whether the gear as a whole has pushed one attribute too far past the body's
+/// own value of it.
+fn drifted(body: &Attributes, gear: &[EquipmentRecord]) -> bool {
+    let worn = added_attributes(gear);
+    Attribute::ALL.into_iter().any(|attribute| {
+        let base = attribute.of(*body).max(1);
+        attribute.of(worn).max(0) * 1_000 / base > ATTRIBUTE_DRIFT_PERMILLE
+    })
+}
+
 /// The attributes every piece together add.
-fn added(gear: &[EquipmentRecord]) -> Attributes {
+fn added_attributes(gear: &[EquipmentRecord]) -> Attributes {
     gear.iter().fold(Attributes::default(), |sum, item| {
         sum.plus(Attributes::new(
             item.attributes.root.max(0),
@@ -311,25 +342,30 @@ fn added(gear: &[EquipmentRecord]) -> Attributes {
     })
 }
 
-/// Drop pieces until the gear as a whole fits the share it is allowed.
+/// The combat numbers every piece together adds outright.
 ///
-/// The per-piece check in [`wear`] is not enough: the two schools pay a synergy
-/// bonus on the weaker half of each pair, so two pieces that each fit can add up
-/// to more power than the allowance — and on this ladder a tenth of extra power
-/// is already the difference between a fight and a wall. Trimmed from the last
-/// piece rather than the first, so what an opponent keeps is the best of what it
-/// rolled.
+/// A guardian in a 神装 robe soaks and strikes harder than its attributes say,
+/// exactly as a cultivator's does: the flat lines are worth what the attribute
+/// behind them would have paid, on both sides of the fight.
+fn added_bonus(gear: &[EquipmentRecord]) -> Derived {
+    gear.iter()
+        .fold(Derived::default(), |sum, item| sum.plus(item.bonus))
+}
+
+/// The backstop behind [`wear`]'s own check: drop pieces until the gear as a
+/// whole fits the share it is allowed.
+///
+/// [`wear`] reads each piece's marginal worth before wearing it, so this fires
+/// only when a piece's worth moved after it was put on — and it is trimmed from
+/// the last piece rather than the first, so what an opponent keeps is the best
+/// of what it rolled.
 fn trim(stance: Stance, body: &Attributes, mut gear: Vec<EquipmentRecord>) -> Vec<EquipmentRecord> {
     let allowance = body.power().saturating_mul(GEAR_SHARE_PERMILLE) / 1_000;
     while !gear.is_empty() {
-        let worn = added(&gear);
-        let total = body.plus(worn);
-        let bonus = total.power().saturating_sub(body.power());
-        let drifted = Attribute::ALL.into_iter().any(|attribute| {
-            let base = attribute.of(*body).max(1);
-            attribute.of(worn).max(0) * 1_000 / base > ATTRIBUTE_DRIFT_PERMILLE
-        });
-        if bonus <= allowance && !drifted {
+        // The flat combat lines count toward the share the attributes earned:
+        // the allowance is a power allowance, and a 神装's outright 攻击力 is
+        // power the fight reads.
+        if marginal_power(body, &gear) <= allowance && !drifted(body, &gear) {
             break;
         }
         gear.pop();

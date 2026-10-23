@@ -23,7 +23,7 @@ use bongocat_platform::{
     ModelSourcePickerError, ModelSourcePickerOutcome, pick_model_cover, pick_model_folder,
     validate_model_folder,
 };
-use bongocat_pomodoro::{Attribute, PomodoroClient};
+use bongocat_pomodoro::{Attribute, PomodoroClient, PomodoroCommand};
 use gpui_kit::component::{
     ActiveTheme, Disableable, Icon, IndexPath, Root, Theme, ThemeMode, ThemeStyled, WindowExt,
     button::{Button, ButtonVariant, ButtonVariants},
@@ -341,9 +341,15 @@ pub struct SettingsView {
     /// page. The page carries the click, the window frame carries the popup,
     /// so this is all the state there is.
     pub(crate) cultivation_events_open: bool,
-    /// How many morning events the page has already shown, so the day's ambush
-    /// is opened exactly once.
-    pub(crate) cultivation_daily_seen: u32,
+    /// The local day whose morning event this window has already opened, so
+    /// the day's ambush is shown exactly once.
+    ///
+    /// A day rather than a count: the window is rebuilt on every launch, and a
+    /// count that started from zero would replay the last ambush the save has
+    /// on file as if it had just happened. The day is the one the snapshot was
+    /// read for, and the domain writes the same day down when the popup is
+    /// acknowledged, so a relaunch the same afternoon stays quiet.
+    pub(crate) cultivation_daily_seen_day: Option<i64>,
     /// Whether the learned 功法 panel has been unfolded past the three it shows.
     ///
     /// A save can know a hundred 功法 and still be working on three: the panel

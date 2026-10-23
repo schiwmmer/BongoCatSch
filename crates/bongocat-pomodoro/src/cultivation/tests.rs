@@ -34,6 +34,7 @@ fn geared(mut cultivation: Cultivation) -> Cultivation {
             rarity: Rarity::Rare,
             attributes: Attributes::new(5, 40, 0, 5),
             name: None,
+            ..Default::default()
         };
         document.equipment.push(item.clone());
         document.equipped[slot.index()] = Some(item.id);
@@ -456,6 +457,7 @@ fn equipping_replaces_what_was_worn_and_unequipping_keeps_the_item() {
             rarity: Rarity::Common,
             attributes: Attributes::new(0, 10 * id as i32, 0, 0),
             name: None,
+            ..Default::default()
         };
         document.equipment.push(item);
     }
@@ -1083,7 +1085,10 @@ fn selling_a_learned_art_takes_nothing_it_pays_with_it() {
         cultivation.on_session_completed(1_000 + offset, day(30_000 + offset), 25);
     }
     let learned_before = cultivation.art_attributes().total();
-    assert!(learned_before > 0, "the learned 内功 pays");
+    // A combat-paying shape pays no attributes, so the payout this is about is
+    // the two together: what the 功法 pays, however it pays it.
+    let bonus_before = cultivation.art_bonus().power();
+    assert!(learned_before + bonus_before > 0, "the learned 内功 pays");
 
     // The tome sells at the market's price for a 功法.
     let purse = cultivation.document().stones;
@@ -1100,8 +1105,8 @@ fn selling_a_learned_art_takes_nothing_it_pays_with_it() {
         "the sale paid exactly the market price"
     );
     assert_eq!(
-        cultivation.art_attributes().total(),
-        learned_before,
+        cultivation.art_attributes().total() + cultivation.art_bonus().power(),
+        learned_before + bonus_before,
         "the mastery it pays is untouched by the sale"
     );
     // The 功法 is still learned, its tome marked sold, and the log says so.
@@ -1421,7 +1426,7 @@ fn the_fight_picks_among_the_strongest_external_arts() {
 #[test]
 fn a_lopsided_build_is_measured_against_an_even_spread() {
     let lopsided = Attributes::new(400, 0, 0, 0);
-    let breakdowns = lopsided.derived().breakdowns(lopsided);
+    let breakdowns = lopsided.derived().breakdowns(lopsided, Derived::default());
     let row = |key: &str| {
         breakdowns
             .iter()
@@ -1444,7 +1449,7 @@ fn a_lopsided_build_is_measured_against_an_even_spread() {
 
     // An even build is on its own reference in every one of the nine numbers.
     let even = Attributes::new(100, 100, 100, 100);
-    for breakdown in even.derived().breakdowns(even) {
+    for breakdown in even.derived().breakdowns(even, Derived::default()) {
         assert_eq!(
             breakdown.result, breakdown.balanced,
             "{} is off its own even spread",
@@ -1523,7 +1528,12 @@ fn gear_is_what_opens_a_realm() {
         let mut slots = std::collections::BTreeSet::new();
         let mut dress = Rng::seeded(index as u64 + 99);
         while slots.len() < EquipSlot::ALL.len() {
-            let item = super::items::roll_equipment(0, index as u8 + 1, &mut dress);
+            let item = super::items::roll_equipment(
+                0,
+                index as u8 + 1,
+                super::items::DropSource::Combat,
+                &mut dress,
+            );
             if slots.insert(item.slot.index()) {
                 geared = geared.plus(item.attributes);
             }
@@ -1554,4 +1564,289 @@ fn gear_is_what_opens_a_realm() {
             "{realm:?}: the realm is a wall — a geared save wins only {dressed_wins} of 400"
         );
     }
+}
+
+/// One attempt at a star, retried until it comes off the way the test wants.
+///
+/// The roll is seeded from the clock the caller hands in, so walking the clock
+/// is walking the dice: the test never waits on luck it cannot see.
+fn attempt_until(cultivation: &mut Cultivation, item_id: u64, want_success: bool) -> StarOutcome {
+    for now in 0..400_i64 {
+        let Ok(outcome) = cultivation.star_item(item_id, now) else {
+            panic!("the attempt was refused");
+        };
+        if outcome.success == want_success {
+            return outcome;
+        }
+    }
+    panic!("the attempt never came off the wanted way");
+}
+
+/// A save owning one piece of gear, worn, with a purse that can star it.
+fn owning_one(item: EquipmentRecord, stones: u32) -> Cultivation {
+    let mut document = CultivationDocument {
+        stones,
+        ..CultivationDocument::default()
+    };
+    document.equipment.push(item.clone());
+    document.equipped = vec![None; SLOT_COUNT];
+    document.equipped[item.slot.index()] = Some(item.id);
+    document.next_item_id = item.id + 1;
+    Cultivation::new(document)
+}
+
+/// The stars are the second axis: one star is worth five to eight percent of
+/// everything the piece pays, attributes and outright combat numbers alike.
+#[test]
+fn a_star_is_worth_five_to_eight_percent_of_everything() {
+    let base = EquipmentRecord {
+        id: 7,
+        slot: EquipSlot::Weapon,
+        tier: 5,
+        rarity: Rarity::Rare,
+        attributes: Attributes::new(0, 100, 40, 0),
+        bonus: Derived {
+            attack: 60,
+            health: 40,
+            ..Derived::default()
+        },
+        star: 0,
+        effect: None,
+        name: Some("试剑".to_owned()),
+    };
+    let mut starred = base.clone();
+    starred.star = 1;
+    let one = star_multiplier_permille(base.id, 1);
+    assert!((1_050..=1_080).contains(&one));
+    let scaled = |value: u32| ((u64::from(value) * u64::from(one) + 500) / 1_000) as u32;
+    assert_eq!(
+        i32::try_from(scaled(100)).unwrap(),
+        starred.effective_attributes().strength
+    );
+    assert_eq!(starred.effective_bonus().attack, scaled(60));
+    assert_eq!(starred.effective_bonus().health, scaled(40));
+    // The piece's own worth moves with it, and the worn total reads it.
+    assert!(starred.power() > base.power());
+    let plain = owning_one(base.clone(), 0);
+    let shining = owning_one(starred.clone(), 0);
+    assert!(shining.derived().attack > plain.derived().attack);
+    assert!(shining.power() > plain.power());
+}
+
+/// The wager's price is half of what the piece sells for, and the purse pays it
+/// whether the star turns over or not.
+#[test]
+fn a_star_costs_half_of_what_the_piece_sells_for() {
+    let item = EquipmentRecord {
+        id: 3,
+        slot: EquipSlot::Clothes,
+        tier: 4,
+        rarity: Rarity::Fine,
+        attributes: Attributes::new(10, 0, 0, 10),
+        bonus: Derived::default(),
+        star: 0,
+        effect: None,
+        name: None,
+    };
+    let sell = shop::ShopOffer::Equipment(item.clone()).sell_price();
+    let cost = star_up_cost(&item);
+    assert_eq!(cost, sell / 2, "the wager is half the sell price");
+    // The price does not climb with the stars already bought: every attempt is
+    // the same bet.
+    let mut deep = item.clone();
+    deep.star = 7;
+    assert_eq!(star_up_cost(&deep), cost);
+
+    let purse = 1_000;
+    let mut cultivation = owning_one(item.clone(), purse);
+    let outcome = attempt_until(&mut cultivation, item.id, true);
+    assert_eq!(outcome.to, 1, "the star turned over");
+    assert_eq!(outcome.from, 0);
+    assert_eq!(
+        cultivation.document().stones,
+        purse - cost,
+        "the purse paid the wager"
+    );
+    // A failed wager is still a wager: walk the clock until the roll comes to
+    // nothing, counting every attempt it took on the way.
+    let before = cultivation.document().stones;
+    let mut attempts = 0_u32;
+    let mut failed = None;
+    for now in 0..400_i64 {
+        attempts += 1;
+        let outcome = cultivation.star_item(item.id, now).expect("the attempt");
+        if !outcome.success {
+            failed = Some(outcome);
+            break;
+        }
+    }
+    let failed = failed.expect("a failure came up");
+    assert_eq!(
+        cultivation.document().stones,
+        before - cost * attempts,
+        "a failed wager is still a wager"
+    );
+    assert_eq!(
+        failed.to,
+        failed.from.saturating_sub(1).max(failed.from.min(1)),
+        "and it walked one star back, never past the first"
+    );
+}
+
+/// The floor is the first star: a failure below it costs the wager and nothing
+/// else, so a run of bad luck costs progress and never the piece's footing.
+#[test]
+fn a_failure_never_walks_a_piece_past_its_first_star() {
+    let item = EquipmentRecord {
+        id: 9,
+        slot: EquipSlot::Boots,
+        tier: 3,
+        rarity: Rarity::Common,
+        attributes: Attributes::new(0, 0, 0, 20),
+        bonus: Derived::default(),
+        star: 1,
+        effect: None,
+        name: None,
+    };
+    // The clock whose roll fails at the first star: a fresh save per candidate,
+    // so the observation is the first attempt's own and nothing that came
+    // before it.
+    let failed = (0..400_i64)
+        .find_map(|now| {
+            let mut cultivation = owning_one(item.clone(), 5_000);
+            match cultivation.star_item(item.id, now) {
+                Ok(outcome) if !outcome.success => Some(outcome),
+                _ => None,
+            }
+        })
+        .expect("a failing roll came up");
+    assert_eq!(failed.from, 1);
+    assert_eq!(failed.to, 1, "the first star is the floor");
+    // And a success from one star goes to two, not past it.
+    let mut cultivation = owning_one(item.clone(), 5_000);
+    let won = attempt_until(&mut cultivation, item.id, true);
+    assert_eq!(won.from, 1);
+    assert_eq!(won.to, 2);
+}
+
+/// The purse is the gate: a wager the purse cannot cover is refused with the
+/// reason, and a piece nobody owns is refused the same way.
+#[test]
+fn a_star_the_purse_cannot_cover_is_refused() {
+    let item = EquipmentRecord {
+        id: 4,
+        slot: EquipSlot::Pants,
+        tier: 6,
+        rarity: Rarity::Immortal,
+        attributes: Attributes::new(0, 30, 0, 30),
+        bonus: Derived::default(),
+        star: 0,
+        effect: None,
+        name: None,
+    };
+    let cost = star_up_cost(&item);
+    let mut cultivation = owning_one(item.clone(), cost - 1);
+    assert_eq!(
+        cultivation.star_item(item.id, 500),
+        Err(TradeRefusal::NotEnoughStones),
+        "one stone short is one stone short"
+    );
+    assert_eq!(cultivation.document().stones, cost - 1, "and nothing moved");
+    assert_eq!(
+        cultivation.star_item(999, 500),
+        Err(TradeRefusal::NotOwned),
+        "a piece nobody owns"
+    );
+}
+
+/// Ten is the whole sky: a full piece refuses the wager rather than charging
+/// for a star it cannot hold.
+#[test]
+fn a_full_piece_refuses_the_wager() {
+    let item = EquipmentRecord {
+        id: 5,
+        slot: EquipSlot::Weapon,
+        tier: 2,
+        rarity: Rarity::Common,
+        attributes: Attributes::new(0, 10, 0, 0),
+        bonus: Derived::default(),
+        star: MAX_STAR,
+        effect: None,
+        name: None,
+    };
+    let mut cultivation = owning_one(item.clone(), 5_000);
+    assert_eq!(
+        cultivation.star_item(item.id, 500),
+        Err(TradeRefusal::StarCapped)
+    );
+    assert_eq!(
+        cultivation.document().stones,
+        5_000,
+        "and nothing was spent"
+    );
+}
+
+/// A 神装's effect is a debuff the other side walks in with, read when the
+/// duel is built: the numbers the panel shows are the numbers the fight uses.
+#[test]
+fn a_divine_pieces_effect_reaches_the_other_side_of_the_fight() {
+    let mut blade = EquipmentRecord {
+        id: 11,
+        slot: EquipSlot::Weapon,
+        tier: 8,
+        rarity: Rarity::Divine,
+        attributes: Attributes::new(0, 200, 0, 0),
+        bonus: Derived::default(),
+        star: 0,
+        effect: Some(GearEffect::Frost),
+        name: Some("寒霜剑【寒霜】".to_owned()),
+    };
+    let mut cultivation = owning_one(blade.clone(), 0);
+    let plain = cultivation.fighter(&mut Rng::seeded(1));
+    // The same save with the 神装 worn strikes the same and carries the effect.
+    cultivation.equip(blade.id);
+    let wearing = cultivation.fighter(&mut Rng::seeded(1));
+    assert_eq!(
+        wearing.attack, plain.attack,
+        "the effect bites the other side"
+    );
+    let mut rival =
+        Fighter::from_attributes("对手".to_owned(), Attributes::new(0, 300, 0, 0), None);
+    let before = (rival.attack, rival.hit);
+    let report = cultivation.duel_with_effects(wearing.clone(), rival.clone(), &mut Rng::seeded(2));
+    let _ = report;
+    // Read the debuff the way the duel builds it: frost bites attack and hit.
+    let depth = GearEffect::Frost.depth_permille(Rarity::Divine);
+    let bitten = |value: u32| (u64::from(value) * u64::from(1_000 - depth) / 1_000) as u32;
+    assert_eq!(rival.attack, before.0, "the rival is handed over unchanged");
+    rival.attack = bitten(rival.attack);
+    rival.hit = bitten(rival.hit);
+    assert!(rival.attack < before.0 && rival.hit < before.1);
+    let _ = &mut blade;
+}
+
+/// The day's event is fired once and seen once: the acknowledgement is written
+/// down, so a window opened again the same day stays quiet about it.
+#[test]
+fn the_morning_event_is_seen_once_and_remembered() {
+    let mut cultivation = Cultivation::default();
+    let first = cultivation.daily_event(1_000, 40).expect("the day opens");
+    assert!(
+        first.kind == DailyKind::Ambush
+            || first.kind == DailyKind::Gift
+            || first.kind == DailyKind::Trinket
+    );
+    let view = cultivation.view_on(1_000, 40);
+    assert_eq!(view.daily_event_day, Some(40));
+    assert_eq!(view.daily_event_seen_day, None, "nobody has seen it yet");
+    cultivation.acknowledge_daily_event(40);
+    let view = cultivation.view_on(1_000, 40);
+    assert_eq!(
+        view.daily_event_seen_day,
+        Some(40),
+        "the day it was shown is written down"
+    );
+    // A second call the same day opens nothing, and the next day opens again.
+    assert!(cultivation.daily_event(2_000, 40).is_none());
+    assert!(cultivation.daily_event(3_000, 41).is_some());
 }

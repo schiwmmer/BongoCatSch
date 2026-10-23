@@ -683,7 +683,29 @@
     "formula": {
       "line": "%{base} + %{attribute} %{value} × %{per} = %{result}",
       "capped": "%{formula}（上限 %{cap}）",
-      "balanced": "均分四项（每项 %{mean}）为 %{balanced} · 你 %{delta}"
+      "balanced": "均分四项（每项 %{mean}）为 %{balanced} · 你 %{delta}",
+      "line_bonus": "%{base} + %{attribute} %{value} × %{per} + %{bonus} = %{result}"
+    },
+    "bonus": "外显：%{lines}",
+    "quality": {
+      "common": "普通",
+      "fine": "优秀",
+      "rare": "精良",
+      "immortal": "史诗",
+      "legendary": "传说",
+      "mythic": "神话",
+      "divine": "神装",
+      "transcendent": "绝世"
+    },
+    "effect": {
+      "frost": "寒霜",
+      "thunder": "雷亟",
+      "sunder": "碎甲",
+      "weaken": "蛊蚀",
+      "frost_desc": "敌方攻击力 -%{value}%、命中 -%{value}%",
+      "thunder_desc": "敌方速度 -%{value}%",
+      "sunder_desc": "敌方法抗 -%{value}%",
+      "weaken_desc": "敌方生命值 -%{value}%"
     },
     "attack": "攻击力 %{value}",
     "health": "生命值 %{value}",
@@ -708,8 +730,12 @@
       "empty": "未装备"
     },
     "item": {
-      "label": "%{slot} · %{tier} 阶 · %{stars}",
-      "label_named": "%{name} · %{tier} 阶 %{stars}",
+      "label": "%{slot} · %{tier} 阶 · %{quality}",
+      "label_named": "%{name} · %{tier} 阶 · %{quality}",
+      "quality": "%{quality} %{stars}",
+      "star_line": "%{stars} · 全属性 ×%{percent}%",
+      "star_button": "升星 %{stones}",
+      "effect_line": "特效 %{effect}：%{detail}",
       "details": "根骨 %{root} · 力量 %{strength} · 法力 %{mana} · 身法 %{agility}",
       "schools": "法术 %{spell} · 武术 %{martial} · 战力 %{power}",
       "equip": "装备",
@@ -809,7 +835,9 @@
       "absence": "%{days} 天未修炼，成长值 -%{charged}",
       "drop_equipment": "获得装备 %{item}",
       "drop_seed": "获得种子 %{item}",
-      "seed_return": "收获返得 %{seed}"
+      "seed_return": "收获返得 %{seed}",
+      "star_success": "升星成功：%{name} 升至 %{star} 星",
+      "star_failed": "升星失败：%{name} 降至 %{star} 星"
     },
     "record": {
       "title": "最近事件",
@@ -842,7 +870,9 @@
       "sold": "售出 %{what}，得 %{stones} 灵石",
       "harvest": "仙草园收成了一株。",
       "harvested": "仙草园收成 %{seed}，%{attribute} +%{points}",
-      "bought_bare": "购入 %{what}"
+      "bought_bare": "购入 %{what}",
+      "star_success": "%{name} 升星成功，%{stars}（花 %{stones} 灵石）",
+      "star_failed": "%{name} 升星失败，降至 %{star} 星（花 %{stones} 灵石）"
     },
     "shop": {
       "title": "集市",
@@ -864,6 +894,7 @@
       "refuse_already": "已有此功法，无需再买",
       "sold": "已售",
       "refuse_sold": "这本功法之书已售过，不可再卖",
+      "refuse_star_capped": "这件装备已满 10 星，无法再升",
       "detail_sell": "卖出可得 %{stones} 灵石",
       "special": "特价 %{value} 折 · 原价 %{list}",
       "seed_tier": "%{tier} 阶仙草",

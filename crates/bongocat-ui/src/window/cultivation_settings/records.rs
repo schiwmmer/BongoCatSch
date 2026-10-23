@@ -331,6 +331,33 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
                 ("stones", stones.to_string()),
             ],
         ),
+        // One line for the wager either way: the attempt is the event, and a
+        // failure that left no line would make the purse disagree with its own
+        // history. The cost rides with it because the stones are spent either
+        // way.
+        EventDetail::Star {
+            name,
+            star,
+            success,
+            cost,
+        } => {
+            let key = if *success {
+                "cultivation.event.star_success"
+            } else {
+                "cultivation.event.star_failed"
+            };
+            let stars = "★".repeat((*star).min(MAX_STAR) as usize);
+            format_text(
+                locale,
+                key,
+                &[
+                    ("name", name.clone()),
+                    ("star", star.to_string()),
+                    ("stars", stars),
+                    ("stones", cost.to_string()),
+                ],
+            )
+        }
         // A crop pulled by a save from before the log knew which herb it was:
         // the bare line is what those events said, so that is what they keep
         // saying rather than a line with a blank where the name would go.

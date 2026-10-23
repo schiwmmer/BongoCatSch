@@ -15,10 +15,12 @@
 use super::*;
 use bongocat_i18n::{compact_number, format_text, text};
 use bongocat_pomodoro::{
-    ArtKind, ArtOutcome, ArtView, Attribute, Attributes, CultivationView, DailyKind, DropView,
-    EquipSlot, EventDetail, EventRecord, ExplorationOutcome, ItemView, MAX_LEVEL, MasteredArtView,
-    PlotView, PomodoroCommand, Realm, SaleKind, ShopOffer, ShopOfferView, TRIAL_ATTEMPTS_PER_DAY,
-    TrialBlocked, art_payout_at, blueprint, grow_seconds, harvest_points, mastered_art_payout,
+    ArtKind, ArtOutcome, ArtView, Attribute, Attributes, CultivationView, DailyKind, Derived,
+    DropView, EquipSlot, EventDetail, EventRecord, ExplorationOutcome, GearEffect, ItemView,
+    MAX_LEVEL, MAX_STAR, MasteredArtView, PlotView, PomodoroCommand, Rarity, Realm, SaleKind,
+    ShopOffer, ShopOfferView, TRIAL_ATTEMPTS_PER_DAY, TrialBlocked, art_bonus_at, art_payout_at,
+    blueprint, grow_seconds, harvest_points, mastered_art_bonus_payout, mastered_art_payout,
+    star_multiplier_permille,
 };
 
 use gpui_kit::component::Sizable as _;
@@ -375,6 +377,36 @@ fn notices(
             .into_any_element(),
         );
     }
+    // What the last star attempt came to. One line, and it names the piece: a
+    // wager whose result the user has to infer from the stars on the row is a
+    // wager they cannot check.
+    if let Some(star) = &cultivation.last_star {
+        let key = if star.success {
+            "cultivation.notice.star_success"
+        } else {
+            "cultivation.notice.star_failed"
+        };
+        let name = star
+            .name
+            .clone()
+            .unwrap_or_else(|| text(locale, "cultivation.slot.weapon").to_string());
+        notices.push(
+            notice(
+                "cultivation-notice-star",
+                format_text(
+                    locale,
+                    key,
+                    &[("name", name), ("star", star.to.to_string())],
+                ),
+                if star.success {
+                    tokens.accent
+                } else {
+                    tokens.danger
+                },
+            )
+            .into_any_element(),
+        );
+    }
     // What a walk turned up, and what a trial floor paid, are not repeated
     // here: the event log below the notices records every walk and every floor
     // in order, and a find printed twice — once as a sticky line and once as
@@ -396,6 +428,44 @@ fn sell_label(locale: &str, stones: u32) -> String {
         locale,
         "cultivation.shop.sell",
         &[("stones", stones.to_string())],
+    )
+}
+
+/// The 升星 button: what the wager costs, spelled out, and nothing at all once
+/// the piece holds every star it can.
+///
+/// The price is the domain's own — half of what the piece sells for — so the
+/// number on the button is the number the purse pays. A capped piece offers no
+/// button rather than a disabled one: a button that cannot be pressed is a
+/// button the user has to wonder about.
+fn star_button(
+    view: &Entity<SettingsView>,
+    item: &ItemView,
+    locale: &str,
+) -> Option<gpui_kit::AnyElement> {
+    let cost = item.star_cost?;
+    let item_id = item.id;
+    Some(
+        Button::new(format!("cultivation-star-{item_id}"))
+            .ghost()
+            .small()
+            .label(format_text(
+                locale,
+                "cultivation.item.star_button",
+                &[("stones", cost.to_string())],
+            ))
+            .on_click({
+                let view = view.clone();
+                move |_, _, cx| {
+                    view.update(cx, |view, cx| {
+                        let _ = view
+                            .pomodoro
+                            .try_publish(PomodoroCommand::StarEquipment { item_id });
+                        view.poll_pomodoro(cx);
+                    });
+                }
+            })
+            .into_any_element(),
     )
 }
 
@@ -463,6 +533,10 @@ fn realm_ladder_body(
 
 /// An item's name as a click-to-expand control, or plain text when there is no
 /// item in the slot. Clicking toggles the attribute breakdown under the row.
+///
+/// A worn or owned piece carries the quality's colour chip and is painted in
+/// the quality's own colour: eight grades are only readable if the row says
+/// which one it is before the detail is opened.
 fn item_label_element(
     view: &Entity<SettingsView>,
     item: Option<&ItemView>,
@@ -472,14 +546,25 @@ fn item_label_element(
     match item {
         Some(item) => {
             let id = item.id;
+            let color = quality_color(item.rarity);
             div()
                 .id(format!("cultivation-item-toggle-{id}"))
                 .flex_1()
                 .min_w_0()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_1()
                 .truncate()
-                .text_xs()
-                .text_color(tokens.text)
-                .child(label)
+                .child(
+                    div()
+                        .w(px(8.0))
+                        .h(px(8.0))
+                        .flex_shrink_0()
+                        .rounded_sm()
+                        .bg(color),
+                )
+                .child(div().text_xs().text_color(color).truncate().child(label))
                 .on_click({
                     let view = view.clone();
                     move |_, _, cx| {
@@ -506,14 +591,17 @@ fn item_label_element(
     }
 }
 
-/// One item's attribute breakdown, shown under its row when expanded.
+/// One item's breakdown, shown under its row when expanded.
 ///
-/// Two lines: the four raw numbers, then what they are worth in each school. The
-/// second line is the one that answers "is this a spellcaster's piece or a
-/// brawler's", which the tier and the rarity alone do not say.
+/// The lines each answer a different question the row raises: the four raw
+/// numbers, what they are worth in each school, the combat numbers the piece
+/// adds outright, what its stars have multiplied, and — for a 神装 — the effect
+/// it carries. The schools line is the one that answers "is this a
+/// spellcaster's piece or a brawler's", which the tier and the quality alone do
+/// not say.
 fn item_detail(item: &ItemView, locale: &str, tokens: Tokens) -> impl IntoElement {
     let attributes = item.attributes;
-    div()
+    let mut panel = div()
         .id(format!("cultivation-item-detail-{}", item.id))
         .flex()
         .flex_col()
@@ -538,7 +626,49 @@ fn item_detail(item: &ItemView, locale: &str, tokens: Tokens) -> impl IntoElemen
                 ("martial", attributes.martial_power().to_string()),
                 ("power", item.power.to_string()),
             ],
-        ))
+        ));
+    // The outright combat numbers, when the piece pays any: a robe that soaks
+    // says so here rather than asking the user to work it out from 根骨.
+    if let Some(lines) = bonus_segment(locale, &item.bonus) {
+        panel = panel.child(lines);
+    }
+    // The stars, when the piece holds any: what they are worth together is the
+    // number the fight reads, so the row says it rather than implying it.
+    if item.star > 0 {
+        panel = panel.child(format_text(
+            locale,
+            "cultivation.item.star_line",
+            &[
+                ("stars", "★".repeat(item.star as usize)),
+                (
+                    "percent",
+                    star_percent_label(star_multiplier_permille(item.id, item.star)),
+                ),
+            ],
+        ));
+    }
+    // The effect, when the piece carries one: what it does to the other side of
+    // the fight, named and numbered. The number is the one the duel reads, so
+    // the line and the fight cannot disagree about how deep it bites.
+    if let Some(effect) = item.effect {
+        let depth = effect.depth_permille(item.rarity) / 10;
+        panel = panel.child(format_text(
+            locale,
+            "cultivation.item.effect_line",
+            &[
+                ("effect", text(locale, effect.key()).to_string()),
+                (
+                    "detail",
+                    format_text(
+                        locale,
+                        effect_desc_key(effect),
+                        &[("value", depth.to_string())],
+                    ),
+                ),
+            ],
+        ));
+    }
+    panel
 }
 
 fn section_title(locale: &str, key: &'static str, tokens: Tokens) -> impl IntoElement {
@@ -550,10 +680,15 @@ fn section_title(locale: &str, key: &'static str, tokens: Tokens) -> impl IntoEl
 }
 
 /// An item's display line: its xianxia name when it has one, else the slot, and
-/// in both cases the tier and the grade as stars. The name is what tells two
+/// in both cases the tier, the quality and the stars. The name is what tells two
 /// same-slot, same-tier drops apart, so it leads the line when present.
+///
+/// The quality is the eight-grade colour the row is painted in — white through
+/// crimson — and the stars are the piece's own, bought one wager at a time. A
+/// 神装's effect rides inside the name itself, so the log, the notice and the
+/// shop row all say what the piece does without a second line.
 pub(super) fn item_label(locale: &str, item: &ItemView) -> String {
-    let stars = "★".repeat(item.rarity.stars());
+    let quality = quality_segment(locale, item.rarity, item.star);
     let slot = text(locale, item.slot.name_key()).to_string();
     match item.name.as_deref() {
         Some(name) => format_text(
@@ -563,7 +698,7 @@ pub(super) fn item_label(locale: &str, item: &ItemView) -> String {
                 ("name", name.to_owned()),
                 ("slot", slot),
                 ("tier", item.tier.to_string()),
-                ("stars", stars),
+                ("quality", quality),
             ],
         ),
         None => format_text(
@@ -572,9 +707,121 @@ pub(super) fn item_label(locale: &str, item: &ItemView) -> String {
             &[
                 ("slot", slot),
                 ("tier", item.tier.to_string()),
-                ("stars", stars),
+                ("quality", quality),
             ],
         ),
+    }
+}
+
+/// The quality half of an item's line: its name, and its stars when it has any.
+///
+/// Stars are symbols rather than catalog text — they are the one thing on the
+/// page that is the same in every language — so they are spelled here and the
+/// quality's name is the only translated word in the segment.
+pub(super) fn quality_segment(locale: &str, rarity: Rarity, star: u8) -> String {
+    let stars = "★".repeat(star.min(MAX_STAR) as usize);
+    if stars.is_empty() {
+        text(locale, rarity.name_key()).to_string()
+    } else {
+        format_text(
+            locale,
+            "cultivation.item.quality",
+            &[
+                ("quality", text(locale, rarity.name_key()).to_string()),
+                ("stars", stars),
+            ],
+        )
+    }
+}
+
+/// The quality's colour, as the domain names it.
+///
+/// One conversion, here, so the eight colours live in the domain beside the
+/// eight names and a retune of either moves the row and the chip together.
+pub(super) fn quality_color(rarity: Rarity) -> Hsla {
+    let value = rarity.color();
+    let red = ((value >> 16) & 0xFF) as f32 / 255.0;
+    let green = ((value >> 8) & 0xFF) as f32 / 255.0;
+    let blue = (value & 0xFF) as f32 / 255.0;
+    hsla_from_rgb(red, green, blue)
+}
+
+/// The standard RGB-to-HSL turn, so a colour stored as `0xRRGGBB` can be painted
+/// without a second table of the same eight colours written out by hand.
+fn hsla_from_rgb(red: f32, green: f32, blue: f32) -> Hsla {
+    let max = red.max(green).max(blue);
+    let min = red.min(green).min(blue);
+    let lightness = (max + min) / 2.0;
+    if (max - min).abs() < f32::EPSILON {
+        return gpui_kit::hsla(0.0, 0.0, lightness, 1.0);
+    }
+    let span = max - min;
+    let saturation = if lightness <= 0.5 {
+        span / (max + min)
+    } else {
+        span / (2.0 - max - min)
+    };
+    let hue = if max == red {
+        ((green - blue) / span + if green < blue { 6.0 } else { 0.0 }) / 6.0
+    } else if max == green {
+        ((blue - red) / span + 2.0) / 6.0
+    } else {
+        ((red - green) / span + 4.0) / 6.0
+    };
+    gpui_kit::hsla(hue, saturation, lightness, 1.0)
+}
+
+/// The outright combat numbers a set of them pays, as the page says them.
+///
+/// Each line is the catalog's own name for the number — 攻击力, 生命值, 命中 —
+/// so a bonus and an attribute read the same way wherever they appear.
+pub(super) fn bonus_lines(locale: &str, bonus: &Derived) -> Vec<String> {
+    [
+        ("cultivation.attack", bonus.attack),
+        ("cultivation.health", bonus.health),
+        ("cultivation.inner", bonus.inner),
+        ("cultivation.spell", bonus.spell),
+        ("cultivation.resist", bonus.resist),
+        ("cultivation.speed", bonus.speed),
+        ("cultivation.hit", bonus.hit),
+        ("cultivation.evade", bonus.evade),
+        ("cultivation.aptitude", bonus.aptitude),
+    ]
+    .into_iter()
+    .filter(|(_, value)| *value > 0)
+    .map(|(key, value)| format_text(locale, key, &[("value", value.to_string())]))
+    .collect()
+}
+
+/// The outright combat numbers as one line, or `None` when there are none.
+///
+/// Shared by gear and 功法 rows: a piece that pays 攻击力 outright and an 内功
+/// that pays it outright are the same fact, said the same way.
+pub(super) fn bonus_segment(locale: &str, bonus: &Derived) -> Option<String> {
+    let lines = bonus_lines(locale, bonus);
+    (!lines.is_empty())
+        .then(|| format_text(locale, "cultivation.bonus", &[("lines", lines.join(" · "))]))
+}
+
+/// The catalog key naming what an effect does to the other side of a fight.
+pub(super) fn effect_desc_key(effect: GearEffect) -> &'static str {
+    match effect {
+        GearEffect::Frost => "cultivation.effect.frost_desc",
+        GearEffect::Thunder => "cultivation.effect.thunder_desc",
+        GearEffect::Sunder => "cultivation.effect.sunder_desc",
+        GearEffect::Weaken => "cultivation.effect.weaken_desc",
+    }
+}
+
+/// A star multiplier as the percent it is worth, one decimal at most: 106.7
+/// reads `106.7`, 110 reads `110`.
+fn star_percent_label(permille: u32) -> String {
+    let whole = permille / 10;
+    let tenth = permille % 10;
+    if tenth == 0 {
+        whole.to_string()
+    } else {
+        format!("{whole}.{tenth}")
     }
 }
 

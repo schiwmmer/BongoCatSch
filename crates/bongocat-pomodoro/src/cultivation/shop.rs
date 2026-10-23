@@ -28,7 +28,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::items::base_points;
+use super::items::{DropSource, base_points};
 use super::{ART_COUNT, Attribute, EquipmentRecord, Rarity, Realm};
 
 /// How many goods the shop offers at most in one day.
@@ -127,6 +127,22 @@ pub fn seed_price(tier: u8) -> u32 {
     30 * tier + 20
 }
 
+/// What one attempt at the next star costs: half of what the piece sells for.
+///
+/// Read off the sell price rather than the asking price, so the number on the
+/// button is the number the user can check against the 卖 button on the same
+/// row. It does not climb with the star the piece already holds: every attempt
+/// is the same wager, which is what makes a run of failures readable as a run
+/// of the same bet rather than as an escalating one.
+///
+/// Stars are a sink and never an investment: the sell price is the piece's
+/// tier and quality alone, so a ten-star piece sells for exactly what an
+/// unstarred one does. Buying stars back at a profit would make the 灵石 purse
+/// a slot machine.
+pub fn star_up_cost(item: &EquipmentRecord) -> u32 {
+    ShopOffer::Equipment(item.clone()).sell_price() / 2
+}
+
 /// How much dearer than its own tier of gear a 功法 is, in halves.
 ///
 /// Two and a half times: enough that the shelf still says a 功法 is the bigger
@@ -219,9 +235,14 @@ pub fn roll_offers(day_number: i64, realm: Realm, seed: u64) -> Vec<ShopOffer> {
                     0,
                     tier.saturating_add(u8::try_from(rng.below(2)).unwrap_or(0))
                         .min(10),
+                    DropSource::Shop,
                     &mut rng,
                 );
-                item.name = Some(super::items::equipment_name(item.slot, &mut rng));
+                item.name = Some(super::items::equipment_display_name(
+                    item.slot,
+                    item.effect,
+                    &mut rng,
+                ));
                 ShopOffer::Equipment(item)
             }
             _ => ShopOffer::Art {

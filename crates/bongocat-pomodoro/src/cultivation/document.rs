@@ -209,6 +209,15 @@ pub struct CultivationDocument {
     /// the next morning always finds the field behind it.
     #[serde(default)]
     pub daily_event_day: Option<i64>,
+    /// The local day whose morning event the user has already been shown.
+    ///
+    /// The popup belongs to the window, and a window is rebuilt every launch:
+    /// without this field a relaunch the same afternoon would replay this
+    /// morning's ambush — or an older one — as if it had just happened. The day
+    /// is written down when the surface acknowledges the popup, so the event
+    /// fires once and is *seen* once.
+    #[serde(default)]
+    pub daily_event_seen_day: Option<i64>,
     /// How many floors have been attempted in all.
     ///
     /// The 战斗 dimension counts wins already; this is the plain count of

@@ -212,7 +212,15 @@ fn mastered_art_payoff(art: &MasteredArtView, locale: &str) -> String {
             } else {
                 art_payout_at(art.id, art.rank)
             };
-            Attribute::ALL
+            // The outright combat numbers ride beside the attributes: an 内功
+            // that pays 攻击力 outright pays it however it was paid, and the
+            // panel shows both halves.
+            let bonus = if art.complete {
+                mastered_art_bonus_payout(art.id)
+            } else {
+                art_bonus_at(art.id, art.rank)
+            };
+            let mut parts: Vec<String> = Attribute::ALL
                 .into_iter()
                 .filter_map(|attribute| {
                     let value = attribute.of(payout);
@@ -227,7 +235,9 @@ fn mastered_art_payoff(art: &MasteredArtView, locale: &str) -> String {
                         )
                     })
                 })
-                .collect::<Vec<_>>()
+                .collect();
+            parts.extend(bonus_lines(locale, &bonus));
+            parts
         }
         ArtKind::External => {
             let mut parts = vec![
@@ -384,22 +394,29 @@ fn art_row(
 fn art_payoff(art: &ArtView, locale: &str) -> String {
     let kind = text(locale, art.kind.name_key()).to_string();
     let mut parts = match art.kind {
-        ArtKind::Internal => Attribute::ALL
-            .into_iter()
-            .filter_map(|attribute| {
-                let value = attribute.of(art.gain);
-                (value > 0).then(|| {
-                    format_text(
-                        locale,
-                        "cultivation.art.gain",
-                        &[
-                            ("attribute", text(locale, attribute.name_key()).to_string()),
-                            ("value", value.to_string()),
-                        ],
-                    )
+        ArtKind::Internal => {
+            // The outright combat numbers one 阶 pays, beside the attributes:
+            // a combat-shaped 内功 has no attribute gain at all, and its row
+            // has to say what it pays instead of reading as empty.
+            let mut parts: Vec<String> = Attribute::ALL
+                .into_iter()
+                .filter_map(|attribute| {
+                    let value = attribute.of(art.gain);
+                    (value > 0).then(|| {
+                        format_text(
+                            locale,
+                            "cultivation.art.gain",
+                            &[
+                                ("attribute", text(locale, attribute.name_key()).to_string()),
+                                ("value", value.to_string()),
+                            ],
+                        )
+                    })
                 })
-            })
-            .collect::<Vec<_>>(),
+                .collect();
+            parts.extend(bonus_lines(locale, &art.bonus));
+            parts
+        }
         ArtKind::External => vec![
             format_text(
                 locale,

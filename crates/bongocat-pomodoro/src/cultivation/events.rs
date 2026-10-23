@@ -136,6 +136,23 @@ pub enum EventDetail {
         #[serde(default)]
         stones: Option<u32>,
     },
+    /// A star was attempted on a piece of gear, and came off or did not.
+    ///
+    /// One line for both directions: the attempt is the event, and a failure
+    /// that left no line would make a save's stone purse disagree with its own
+    /// history. The cost travels with it because the stones are spent either
+    /// way.
+    Star {
+        /// The piece's name, the way every other line names a thing.
+        name: String,
+        /// The star the piece stands at now.
+        star: u8,
+        /// Whether the attempt came off.
+        success: bool,
+        /// What the attempt cost, in 灵石.
+        #[serde(default)]
+        cost: u32,
+    },
 }
 
 /// Something sold or bought, named the way the log can carry it.

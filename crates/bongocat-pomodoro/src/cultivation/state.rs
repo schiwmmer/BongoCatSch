@@ -17,11 +17,13 @@ use super::{
     ART_COUNT, ArtGrade, ArtKind, ArtOutcome, ArtStrike, ArtView, Attribute, Attributes,
     BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport, CultivationDocument, DailyKind, Derived,
     DerivedBreakdown, DuelReport, EQUIPMENT_DROP_PERMILLE, EXPLORATION_COOLDOWN_SECONDS, EquipSlot,
-    EquipmentRecord, ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, Guardian, MAX_LEVEL,
-    MasteredArtView, OwnedArt, PLAYER_NAME, RECENT_ARTS_CAP, Rarity, Realm, Refusal, Rng,
-    SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack, VICTORY_SEED_PERMILLE, absence_penalty,
-    art_attributes, art_view,
-    arts::{blueprint, mastered_art_attributes, mastered_art_view, train},
+    EquipmentRecord, ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, GearEffect, Guardian,
+    MAX_LEVEL, MAX_STAR, MasteredArtView, OwnedArt, PLAYER_NAME, RECENT_ARTS_CAP, Rarity, Realm,
+    Refusal, Rng, SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack, VICTORY_SEED_PERMILLE,
+    absence_penalty, art_attributes, art_view,
+    arts::{
+        art_bonus, blueprint, mastered_art_attributes, mastered_art_bonus, mastered_art_view, train,
+    },
     base_attributes,
     battle::{guardian_for, resolve},
     curve::{layer_rank, level_for_growth, stage_floor, threshold_for},
@@ -37,11 +39,12 @@ use super::{
     },
     garden::{CropRecord, PlotRecord, harvest_points, plot_price, seed_name, seed_return},
     growth_permille,
-    items::roll_equipment,
+    items::{DropSource, roll_equipment},
     mastery_permille,
     opponent::{self, Opponent},
     scaled_growth,
-    shop::{self, ShopOffer, ShopOfferView},
+    shop::{self, ShopOffer, ShopOfferView, star_up_cost},
+    star_success_permille,
     trade::{TradeRefusal, session_earnings},
     trial::{
         TRIAL_ATTEMPTS_PER_DAY, TRIAL_MAX_FLOOR, TrialReward, floor_realm, roll_reward,
@@ -167,6 +170,29 @@ pub struct HarvestOutcome {
     pub seed: Option<(Attribute, u8)>,
 }
 
+/// What one attempt at a piece's next star came to.
+///
+/// The stones are spent whether the star turns over or not — a wager is a wager
+/// — so the outcome carries the cost beside the result: a failure that cost
+/// nothing would read as a free reroll, and a run of them would be the whole
+/// ladder's economy in one button.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StarOutcome {
+    /// The item the attempt was made on.
+    pub item_id: u64,
+    /// The item's name, for the line that says what happened.
+    pub name: Option<String>,
+    /// The star the piece stood at before the attempt.
+    pub from: u8,
+    /// The star it stands at now: one up on a success, one down on a failure,
+    /// and never below the first star.
+    pub to: u8,
+    /// Whether the attempt came off.
+    pub success: bool,
+    /// What the attempt cost, in 灵石.
+    pub cost: u32,
+}
+
 /// One owned item, as a surface reads it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ItemView {
@@ -175,8 +201,18 @@ pub struct ItemView {
     pub tier: u8,
     pub rarity: Rarity,
     pub attributes: Attributes,
+    /// The combat numbers this piece adds outright — 攻击力, 生命值, 命中 and the
+    /// rest — with its stars folded in.
+    pub bonus: Derived,
     pub power: u32,
     pub equipped: bool,
+    /// The stars the piece holds. Zero is a piece nobody has starred.
+    pub star: u8,
+    /// The effect a 神装 carries, for the name, the icon and the detail.
+    pub effect: Option<GearEffect>,
+    /// What one more star costs, in 灵石: half of what the piece sells for.
+    /// `None` once the piece holds every star it can.
+    pub star_cost: Option<u32>,
     /// The xianxia-given name the drop carried, if any.
     pub name: Option<String>,
     /// What the 集市 pays for it, in 灵石.
@@ -367,9 +403,27 @@ pub struct CultivationView {
     pub last_trial: Option<TrialOutcome>,
     /// What the day opened with, for the page and for the popup an ambush earns.
     pub last_daily_event: Option<DailyOutcome>,
-    /// How many morning events have fired this session, so a surface can tell
-    /// one it has already shown from a new one.
+    /// The local day the morning event belongs to, or `None` before the first.
+    ///
+    /// Carried so a surface can tell *today's* event from an older one: the
+    /// popup opens for the day's own ambush and never replays last week's.
+    pub daily_event_day: Option<i64>,
+    /// How many mornings have opened since this state was loaded. A count
+    /// rather than a flag because "the day opened" is a fact with a history:
+    /// the tests walk a ladder across several days through it, and a surface
+    /// that ever wants "how many mornings has this save seen" reads it here.
     pub daily_events: u32,
+    /// The local day whose morning event the user has already been shown.
+    ///
+    /// Written down when the surface acknowledges the popup, so a window opened
+    /// again the same day does not replay this morning's ambush as if it had
+    /// just happened. `None` before the first acknowledgement.
+    pub daily_event_seen_day: Option<i64>,
+    /// How many star attempts have been made this session, so a surface can
+    /// tell a new result from the one it has already shown.
+    pub star_attempts: u32,
+    /// What the last star attempt came to, kept for the line that says it.
+    pub last_star: Option<StarOutcome>,
     /// How many floors have been attempted, so a surface can tell a new report
     /// from one it has already shown.
     pub trial_attempts: u32,
@@ -463,9 +517,16 @@ pub struct Cultivation {
     last_trial: Option<TrialOutcome>,
     /// What the day opened with, once it has opened.
     last_daily_event: Option<DailyOutcome>,
-    /// How many morning events have fired this session. A surface watches this
-    /// rather than the revision, so an ambush opens its fight exactly once.
+    /// How many morning events have fired this session. A surface no longer
+    /// watches it to open the popup — the day is written down for that — but
+    /// the count is the ladder's own history of the mornings it has opened.
     daily_events: u32,
+    /// How many star attempts have been made this session. A surface watches
+    /// this rather than the outcome, for the same reason it watches
+    /// [`Self::daily_events`].
+    star_attempts: u32,
+    /// What the last star attempt came to.
+    last_star: Option<StarOutcome>,
     /// How many floors have been attempted this session. A surface watches this
     /// rather than the report, for the same reason it watches
     /// [`Self::breakthrough_attempts`]: a running pomodoro bumps the revision
@@ -513,6 +574,8 @@ impl Cultivation {
             trial_attempts: 0,
             last_daily_event: None,
             daily_events: 0,
+            star_attempts: 0,
+            last_star: None,
             breakthrough_attempts: 0,
             last_refusal: None,
             refusal_count: 0,
@@ -554,9 +617,41 @@ impl Cultivation {
     pub fn equipment_attributes(&self) -> Attributes {
         let mut total = Attributes::default();
         for item in self.equipped_items() {
-            total = total.plus(item.attributes());
+            total = total.plus(item.effective_attributes());
         }
         total
+    }
+
+    /// The combat numbers the worn gear adds outright — 攻击力, 生命值, 命中 and
+    /// the rest — with each piece's stars folded in.
+    ///
+    /// These ride beside the attributes rather than through them: a 神装's
+    /// outright 攻击力 is 攻击力 the fight reads directly, and a surface that
+    /// had to convert it back into 力量 to show it would be showing a number
+    /// nobody wears.
+    pub fn equipment_bonus(&self) -> Derived {
+        let mut total = Derived::default();
+        for item in self.equipped_items() {
+            total = total.plus(item.effective_bonus());
+        }
+        total
+    }
+
+    /// The combat numbers the trained 内功 pay outright.
+    pub fn art_bonus(&self) -> Derived {
+        art_bonus(&self.document.arts).plus(mastered_art_bonus(&self.document.mastered_arts))
+    }
+
+    /// The nine numbers this cultivator fights with: the four attributes read
+    /// through the one table, plus everything gear and 功法 add outright.
+    ///
+    /// The single reader of the fighter's numbers, so the page, the fight and
+    /// the breakdown behind them cannot disagree about what a 神装 is worth.
+    pub fn derived(&self) -> Derived {
+        self.attributes()
+            .derived()
+            .plus(self.equipment_bonus())
+            .plus(self.art_bonus())
     }
 
     /// The attributes the harvests have paid.
@@ -641,8 +736,16 @@ impl Cultivation {
     }
 
     /// The combat power everything together buys.
+    ///
+    /// The attributes' own two schools, plus what the outright combat numbers
+    /// are worth at the rates those same schools pay — a flat 攻击力 stands in
+    /// for the 力量 that would have produced it, so a 神装 moves this number
+    /// exactly as hard as it hits.
     pub fn power(&self) -> u32 {
-        self.attributes().power()
+        self.attributes()
+            .power()
+            .saturating_add(self.equipment_bonus().power())
+            .saturating_add(self.art_bonus().power())
     }
 
     /// The items currently worn, in slot order.
@@ -925,7 +1028,7 @@ impl Cultivation {
         let roll = rng.below(1_000);
         let tier = self.realm().index() as u8 + 1;
         if roll < EQUIPMENT_DROP_PERMILLE {
-            let item = self.push_equipment(tier, &mut rng);
+            let item = self.push_equipment(tier, DropSource::Random, &mut rng);
             return Some(Drop::Equipment(item));
         }
         if roll < EQUIPMENT_DROP_PERMILLE + SEED_DROP_PERMILLE {
@@ -955,10 +1058,10 @@ impl Cultivation {
         id
     }
 
-    /// Own one rolled item.
-    fn push_equipment(&mut self, tier: u8, rng: &mut Rng) -> EquipmentRecord {
+    /// Own one rolled item, out of the channel it came from.
+    fn push_equipment(&mut self, tier: u8, source: DropSource, rng: &mut Rng) -> EquipmentRecord {
         let id = self.next_id();
-        let item = roll_equipment(id, tier, rng);
+        let item = roll_equipment(id, tier, source, rng);
         self.document.equipment.push(item.clone());
         item
     }
@@ -982,7 +1085,7 @@ impl Cultivation {
             Some(item) => self.adopt_equipment(item),
             // A bare-handed opponent still pays: a fight that dropped nothing
             // would read as a bug rather than as a poor opponent.
-            None => self.push_equipment(tier, rng),
+            None => self.push_equipment(tier, DropSource::Combat, rng),
         }
     }
 
@@ -1169,6 +1272,80 @@ impl Cultivation {
         entry.take().is_some()
     }
 
+    /// Spend 灵石 on one attempt at a piece's next star.
+    ///
+    /// The wager is the same shape whatever the piece: the stones are spent
+    /// first, the star turns over at [`star_success_permille`] of the star the
+    /// piece stands at, and a failure drops one star back — never past the
+    /// first, so a run of bad luck costs progress and never the piece's
+    /// footing. Refused with the reason when the purse cannot cover it, the
+    /// piece is not owned, or the piece already holds every star.
+    pub fn star_item(&mut self, item_id: u64, now_unix: i64) -> Result<StarOutcome, TradeRefusal> {
+        let Some(item) = self.item(item_id).map(|mut item| {
+            item.star = item.star.min(MAX_STAR);
+            item
+        }) else {
+            return Err(TradeRefusal::NotOwned);
+        };
+        if item.star >= MAX_STAR {
+            return Err(TradeRefusal::StarCapped);
+        }
+        let cost = star_up_cost(&item);
+        if self.document.stones < cost {
+            return Err(TradeRefusal::NotEnoughStones);
+        }
+        self.document.stones = self.document.stones.saturating_sub(cost);
+        let mut rng = self.rng(now_unix);
+        let success = rng.below(1_000) < u64::from(star_success_permille(item.star));
+        let from = item.star;
+        // One up on a success; one down on a failure, with the first star as
+        // the floor — a piece is never walked back to nothing.
+        let to = if success {
+            from.saturating_add(1).min(MAX_STAR)
+        } else {
+            // The first star is the floor: a failure below it costs the wager
+            // and nothing else, so a piece is never walked back to nothing.
+            from.saturating_sub(1).max(from.min(1))
+        };
+        if let Some(owned) = self
+            .document
+            .equipment
+            .iter_mut()
+            .find(|owned| owned.id == item_id)
+        {
+            owned.star = to;
+        }
+        let outcome = StarOutcome {
+            item_id,
+            name: item.name.clone(),
+            from,
+            to,
+            success,
+            cost,
+        };
+        self.star_attempts = self.star_attempts.saturating_add(1);
+        self.last_star = Some(outcome.clone());
+        self.push_event(
+            now_unix,
+            EventDetail::Star {
+                name: item.name.unwrap_or_default(),
+                star: to,
+                success,
+                cost,
+            },
+        );
+        Ok(outcome)
+    }
+
+    /// Mark the day's morning event as seen, so the window does not replay it.
+    ///
+    /// A moment the surface owns: the popup is dismissed once and the day is
+    /// written down, which is what lets a window opened again the same
+    /// afternoon stay quiet about a fight that was already shown.
+    pub fn acknowledge_daily_event(&mut self, day: i64) {
+        self.document.daily_event_seen_day = Some(day);
+    }
+
     /// Fight the guardian standing at the end of the current realm.
     ///
     /// Returns `None` when there is nothing to fight: the realm is not at its
@@ -1200,7 +1377,7 @@ impl Cultivation {
         // a lie. What it wears is what makes it harder than the naked rung, and
         // that gear is what a win takes.
         let rival = opponent::guardian(current, guardian.target);
-        let duel = duel(fighter, rival.fighter.clone(), &mut rng);
+        let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
         // Won fights are what train the 战斗 dimension; a loss is not counted
         // there, and only ever shows up in the record below.
         self.record_duel(duel.won, FightKind::Guardian, now_unix);
@@ -1306,9 +1483,48 @@ impl Cultivation {
 
     /// The cultivator as a fighter, with the 外功 they would use.
     pub(crate) fn fighter(&self, rng: &mut Rng) -> Fighter {
-        let derived = self.attributes().derived();
+        let derived = self.derived();
         let art = self.strike(rng);
         Fighter::from_derived(PLAYER_NAME.to_owned(), derived, art)
+    }
+
+    /// The duel the cultivator fights, with the effects their 神装 carry.
+    ///
+    /// An effect is a debuff the other side walks in with, read when the duel
+    /// is built: the number the panel shows the user before they press the
+    /// button has to be the number that decides, and a hidden post-fight
+    /// adjustment would make the shown numbers a lie about the fight that
+    /// happened.
+    pub(crate) fn duel_with_effects(
+        &self,
+        fighter: Fighter,
+        mut rival: Fighter,
+        rng: &mut Rng,
+    ) -> DuelReport {
+        if let Some((effect, rarity)) = self.strongest_effect() {
+            let depth = effect.depth_permille(rarity);
+            let bite = |value: u32| -> u32 {
+                (u64::from(value) * u64::from(1_000 - depth) / 1_000) as u32
+            };
+            match effect {
+                GearEffect::Frost => {
+                    rival.attack = bite(rival.attack);
+                    rival.hit = bite(rival.hit);
+                }
+                GearEffect::Thunder => rival.speed = bite(rival.speed),
+                GearEffect::Sunder => rival.resist = bite(rival.resist),
+                GearEffect::Weaken => rival.health = bite(rival.health),
+            }
+        }
+        duel(fighter, rival, rng)
+    }
+
+    /// The effect the worn gear carries, if any: the deepest one, and the
+    /// quality it came from.
+    fn strongest_effect(&self) -> Option<(GearEffect, Rarity)> {
+        self.equipped_items()
+            .filter_map(|item| item.effect.map(|effect| (effect, item.rarity)))
+            .max_by_key(|(_, rarity)| *rarity)
     }
 
     /// The 外功 the cultivator brings to a fight: randomly one of the three
@@ -1412,7 +1628,7 @@ impl Cultivation {
             // A guardian met bare-handed (it can happen at the shallow end,
             // where a piece of gear would outweigh the whole body) still pays
             // for the realm it opened.
-            None => self.push_equipment(tier, &mut rng),
+            None => self.push_equipment(tier, DropSource::Combat, &mut rng),
         };
         // A win always pays a 功法 — that is the promise the fight is made for —
         // and it is the book the guardian was swinging.
@@ -1511,7 +1727,7 @@ impl Cultivation {
                 found.seed = Some(self.push_seed(attribute, tier, &mut rng));
             }
             ExplorationOutcome::Gear => {
-                let item = self.push_equipment(tier, &mut rng);
+                let item = self.push_equipment(tier, DropSource::Random, &mut rng);
                 found.gear = Some(self.item_view(&item));
             }
             ExplorationOutcome::Art => {
@@ -1524,7 +1740,7 @@ impl Cultivation {
                 // A wanderer is rolled per meeting: nobody promised who the road
                 // would send, and its numbers are only ever shown after the fact.
                 let rival = opponent::wanderer(self.realm(), rng.below(u64::MAX));
-                let duel = duel(fighter, rival.fighter.clone(), &mut rng);
+                let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
                 if duel.won {
                     found = self.award_wanderer_find(&rival, &mut rng, now_unix);
                 } else {
@@ -1670,7 +1886,7 @@ impl Cultivation {
         // A floor's warden is the same opponent for that floor every day: the
         // page prints its power next to the floor, so it cannot be a roll.
         let rival = opponent::warden(floor);
-        let duel = duel(fighter, rival.fighter.clone(), &mut rng);
+        let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
         self.record_duel(duel.won, FightKind::Trial, now_unix);
         let mut found = ExplorationFindView::default();
         if duel.won {
@@ -1753,7 +1969,7 @@ impl Cultivation {
             DailyKind::Ambush => {
                 let fighter = self.fighter(&mut rng);
                 let rival = opponent::wanderer(self.realm(), rng.below(u64::MAX));
-                let duel = duel(fighter, rival.fighter.clone(), &mut rng);
+                let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
                 self.record_duel(duel.won, FightKind::Wanderer, now_unix);
                 outcome.won = duel.won;
                 if duel.won {
@@ -1776,7 +1992,7 @@ impl Cultivation {
                     outcome.found.seed = Some(self.push_seed(attribute, tier, &mut rng));
                 }
                 GiftKind::Gear => {
-                    let item = self.push_equipment(tier, &mut rng);
+                    let item = self.push_equipment(tier, DropSource::Random, &mut rng);
                     outcome.found.gear = Some(self.item_view(&item));
                 }
             },
@@ -1843,8 +2059,12 @@ impl Cultivation {
             .plus(crop_attributes)
             .plus(allocated_attributes)
             .plus(art_attributes);
-        let aptitude = attributes.derived().aptitude;
-        let derived = attributes.derived();
+        let bonus = self.equipment_bonus().plus(self.art_bonus());
+        let attribute_derived = attributes.derived();
+        // 潜质 is read with the outright lines folded in as well: an 内功 that
+        // pays 潜质 outright pays it however it was paid.
+        let aptitude = attribute_derived.aptitude.saturating_add(bonus.aptitude);
+        let derived = attribute_derived.plus(bonus);
         let arts: Vec<ArtView> = self
             .document
             .arts
@@ -1938,7 +2158,7 @@ impl Cultivation {
             allocated_attributes,
             art_attributes,
             free_points: self.free_points(),
-            power: attributes.power(),
+            power: self.power(),
             equipped,
             inventory,
             seeds,
@@ -1971,9 +2191,13 @@ impl Cultivation {
                     slot: item.slot,
                     tier: item.tier,
                     rarity: item.rarity,
-                    attributes: item.attributes(),
+                    attributes: item.effective_attributes(),
+                    bonus: item.effective_bonus(),
                     power: item.power(),
                     equipped: false,
+                    star: item.star(),
+                    effect: item.effect,
+                    star_cost: (!item.star_capped()).then(|| star_up_cost(&item)),
                     name: item.name.clone(),
                     sell_price: shop::ShopOffer::Equipment(item.clone()).sell_price(),
                 }),
@@ -2007,9 +2231,13 @@ impl Cultivation {
             last_trial: self.last_trial.clone(),
             trial_attempts: self.trial_attempts,
             last_daily_event: self.last_daily_event.clone(),
+            daily_event_day: self.document.daily_event_day,
             daily_events: self.daily_events,
+            daily_event_seen_day: self.document.daily_event_seen_day,
+            star_attempts: self.star_attempts,
+            last_star: self.last_star.clone(),
             next_session_growth: self.next_session_growth(day),
-            derived_breakdowns: derived.breakdowns(attributes),
+            derived_breakdowns: attribute_derived.breakdowns(attributes, bonus),
             duel_record: self.document.duel_record.clone(),
             last_walk: self.document.last_walk.clone(),
             events: self.document.events.clone(),
@@ -2063,7 +2291,10 @@ impl Cultivation {
             slot: item.slot,
             tier: item.tier,
             rarity: item.rarity,
-            attributes: item.attributes(),
+            // The numbers the piece actually pays, stars folded in: what the
+            // fight reads and what the row prints are the same numbers.
+            attributes: item.effective_attributes(),
+            bonus: item.effective_bonus(),
             power: item.power(),
             equipped: self
                 .document
@@ -2072,6 +2303,12 @@ impl Cultivation {
                 .copied()
                 .flatten()
                 == Some(item.id),
+            star: item.star(),
+            effect: item.effect,
+            // What one more star costs, and nothing once the piece holds every
+            // star it can: a button that asked for a star that cannot be had
+            // would be a button that lies.
+            star_cost: (!item.star_capped()).then(|| star_up_cost(item)),
             name: item.name.clone(),
             sell_price: shop::ShopOffer::Equipment(item.clone()).sell_price(),
         }
@@ -2760,8 +2997,12 @@ mod tests {
         let mut slots = std::collections::BTreeSet::new();
         let mut id = 1;
         while slots.len() < SLOT_COUNT {
-            let item =
-                crate::cultivation::items::roll_equipment(id, realm.index() as u8 + 1, &mut rng);
+            let item = crate::cultivation::items::roll_equipment(
+                id,
+                realm.index() as u8 + 1,
+                crate::cultivation::items::DropSource::Combat,
+                &mut rng,
+            );
             if slots.insert(item.slot.index()) {
                 document.equipped[item.slot.index()] = Some(item.id);
                 document.equipment.push(item);

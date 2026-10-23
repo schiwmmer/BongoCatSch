@@ -14,10 +14,11 @@ use super::*;
 use crate::window::cultivation_duel;
 use crate::window::cultivation_settings;
 use bongocat_pomodoro::{
-    ArtOutcome, Attribute, CropRecord, Cultivation, CultivationDocument, DuelReport, DuelRound,
-    EventDetail, EventRecord, ExplorationFindView, ExplorationOutcome, Fighter, LAYERS_PER_STAGE,
-    OwnedArt, PLAYER_NAME, PlotRecord, PomodoroCommand, PomodoroSnapshot, PomodoroState, SeedStack,
-    TrainingView, TrialBlocked, TrialOutcome, WANDERER_NAME, threshold_for,
+    ArtOutcome, Attribute, Attributes, CropRecord, Cultivation, CultivationDocument, DailyKind,
+    DailyOutcome, Derived, DuelReport, DuelRound, EventDetail, EventRecord, ExplorationFindView,
+    ExplorationOutcome, Fighter, ItemView, LAYERS_PER_STAGE, OwnedArt, PLAYER_NAME, PlotRecord,
+    PomodoroCommand, PomodoroSnapshot, PomodoroState, Rarity, SeedStack, TrainingView,
+    TrialBlocked, TrialOutcome, WANDERER_NAME, threshold_for,
 };
 
 /// The page mounted on its own.
@@ -366,6 +367,144 @@ fn a_derived_number_shows_the_sum_behind_it(cx: &mut TestAppContext) {
         attack.result,
         attack.base + attack.attribute_value.max(0) as u32 * attack.per_point,
         "the card shows the sum the domain ran"
+    );
+}
+
+/// The morning ambush opens once and is remembered.
+///
+/// The popup is a moment the window owns, and a window is rebuilt on every
+/// launch: without the day being written down when the popup is acknowledged,
+/// every relaunch replayed the last ambush the save has on file as if it had
+/// just happened — the bug this guards. Three ways it used to come back: the
+/// window rebuilt, the day rolled over under an old event, and a fight the
+/// user never asked for opening on a page they only came to look at.
+#[gpui_kit::test]
+fn the_morning_ambush_opens_once_and_is_remembered(cx: &mut TestAppContext) {
+    let clock = cx.dispatcher.clone();
+    // A save whose day has already opened with a fight nobody has acknowledged.
+    let mut cultivation = at_the_cap();
+    cultivation.day = 40;
+    cultivation.daily_event_day = Some(40);
+    cultivation.daily_events = 3;
+    cultivation.last_daily_event = Some(DailyOutcome {
+        kind: DailyKind::Ambush,
+        won: true,
+        duel: Some(walk_report()),
+        found: ExplorationFindView::default(),
+    });
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation.clone()));
+    let (view, visual) = cultivation_page_with(cx, pomodoro);
+    // The poll serves the page the user is on, so the harness has to say it is
+    // standing on the ladder.
+    view.update(visual, |view, _| {
+        let memory = SettingsNavigationMemory::new();
+        memory.set_page_index(SettingsNavigationPage::Cultivation.index());
+        view.set_navigation_memory(memory);
+    });
+    visual.update(|window, cx| window.render_frame(cx));
+    clock.advance_clock(Duration::from_millis(600));
+    visual.run_until_parked();
+    let commands = published(&sink);
+    assert!(
+        matches!(
+            commands.as_slice(),
+            [PomodoroCommand::AcknowledgeDailyEvent { day: 40 }]
+        ),
+        "the popup is acknowledged once, with the day it belongs to: {commands:?}"
+    );
+
+    // The window rebuilt — the same save, now with the day written down — says
+    // nothing. This is the relaunch that used to replay the ambush.
+    let mut seen = cultivation;
+    seen.daily_event_seen_day = Some(40);
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(seen.clone()));
+    let (view, visual) = cultivation_page_with(cx, pomodoro);
+    view.update(visual, |view, _| {
+        let memory = SettingsNavigationMemory::new();
+        memory.set_page_index(SettingsNavigationPage::Cultivation.index());
+        view.set_navigation_memory(memory);
+    });
+    visual.update(|window, cx| window.render_frame(cx));
+    clock.advance_clock(Duration::from_millis(600));
+    visual.run_until_parked();
+    assert!(
+        published(&sink).is_empty(),
+        "a day that has been seen is not opened again"
+    );
+
+    // And a later day never replays an older day's ambush: the event has to be
+    // the day's own.
+    let mut older = seen;
+    older.day = 41;
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(older));
+    let (view, visual) = cultivation_page_with(cx, pomodoro);
+    view.update(visual, |view, _| {
+        let memory = SettingsNavigationMemory::new();
+        memory.set_page_index(SettingsNavigationPage::Cultivation.index());
+        view.set_navigation_memory(memory);
+    });
+    visual.update(|window, cx| window.render_frame(cx));
+    clock.advance_clock(Duration::from_millis(600));
+    visual.run_until_parked();
+    assert!(
+        published(&sink).is_empty(),
+        "an older day's ambush is not replayed on a later one"
+    );
+}
+
+/// The wager is a button like any other, and a click on it reaches the worker
+/// with the piece's id: the price on the button is the domain's own — half of
+/// what the piece sells for — so the number the user reads is the number the
+/// purse pays. A capped piece offers no button at all rather than a wager it
+/// cannot hold.
+#[gpui_kit::test]
+fn clicking_a_star_asks_the_worker_for_the_wager(cx: &mut TestAppContext) {
+    let mut cultivation = at_the_cap();
+    let divine = ItemView {
+        id: 42,
+        slot: bongocat_pomodoro::EquipSlot::Weapon,
+        tier: 5,
+        rarity: Rarity::Divine,
+        attributes: Attributes::new(0, 120, 40, 0),
+        bonus: Derived::default(),
+        power: 900,
+        equipped: false,
+        star: 3,
+        effect: Some(bongocat_pomodoro::GearEffect::Frost),
+        star_cost: Some(350),
+        name: Some("玄霜剑【寒霜】".to_owned()),
+        sell_price: 700,
+    };
+    cultivation.inventory = vec![
+        divine.clone(),
+        ItemView {
+            id: 43,
+            star_cost: None,
+            ..divine
+        },
+    ];
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-star-42"),
+        "a piece with a star owed offers the wager"
+    );
+    assert!(
+        !painted(visual, "cultivation-star-43"),
+        "and a full piece offers nothing to wager on"
+    );
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-star-42", cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(
+            commands.as_slice(),
+            [PomodoroCommand::StarEquipment { item_id: 42 }]
+        ),
+        "the click asks the worker for the wager: {commands:?}"
     );
 }
 

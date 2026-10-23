@@ -390,20 +390,42 @@ fn derived_chip(
 pub(in crate::window) fn derived_formula(breakdown: &DerivedBreakdown, locale: &str) -> String {
     let figure = |value: u32| figure_value(value, breakdown.per_mille);
     let unit = if breakdown.per_mille { "%" } else { "" };
-    let formula = format_text(
-        locale,
-        "cultivation.formula.line",
-        &[
-            ("base", figure(breakdown.base)),
-            (
-                "attribute",
-                text(locale, breakdown.attribute.name_key()).to_owned(),
-            ),
-            ("value", figure(breakdown.attribute_value.max(0) as u32)),
-            ("per", figure(breakdown.per_point)),
-            ("result", format!("{}{unit}", figure(breakdown.result))),
-        ],
-    );
+    // What gear and 功法 added outright rides in the sum when they paid any:
+    // the arithmetic the card prints is the arithmetic that ran, and a number
+    // that moved without the sum saying so would be a sum the user cannot
+    // check.
+    let formula = if breakdown.bonus > 0 {
+        format_text(
+            locale,
+            "cultivation.formula.line_bonus",
+            &[
+                ("base", figure(breakdown.base)),
+                (
+                    "attribute",
+                    text(locale, breakdown.attribute.name_key()).to_owned(),
+                ),
+                ("value", figure(breakdown.attribute_value.max(0) as u32)),
+                ("per", figure(breakdown.per_point)),
+                ("bonus", format!("{}{unit}", figure(breakdown.bonus))),
+                ("result", format!("{}{unit}", figure(breakdown.result))),
+            ],
+        )
+    } else {
+        format_text(
+            locale,
+            "cultivation.formula.line",
+            &[
+                ("base", figure(breakdown.base)),
+                (
+                    "attribute",
+                    text(locale, breakdown.attribute.name_key()).to_owned(),
+                ),
+                ("value", figure(breakdown.attribute_value.max(0) as u32)),
+                ("per", figure(breakdown.per_point)),
+                ("result", format!("{}{unit}", figure(breakdown.result))),
+            ],
+        )
+    };
     match breakdown.cap {
         Some(cap) if breakdown.result >= cap => format_text(
             locale,
@@ -657,6 +679,7 @@ mod tests {
             cap: None,
             computed: result,
             result,
+            bonus: 0,
             mean_attribute: 100,
             balanced,
             per_mille,

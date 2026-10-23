@@ -254,6 +254,18 @@ pub enum PomodoroCommand {
         attribute: crate::Attribute,
         tier: u8,
     },
+    /// Spend 灵石 on one attempt at a piece of gear's next star.
+    ///
+    /// The wager is the piece's own: half of what it sells for, a success rate
+    /// that falls as the stars climb, and one star back on a failure — never
+    /// past the first.
+    StarEquipment { item_id: u64 },
+    /// Mark the day's morning event as shown, so the window does not replay it.
+    ///
+    /// `day` is the local day the event belongs to. A surface sends it when it
+    /// dismisses the popup, which is what makes "once per day" survive the
+    /// window being closed and opened again.
+    AcknowledgeDailyEvent { day: i64 },
 }
 
 impl PomodoroCommand {
@@ -289,7 +301,9 @@ impl PomodoroCommand {
             Self::BuyFromShop { .. }
             | Self::SellEquipment { .. }
             | Self::SellArt { .. }
-            | Self::SellSeed { .. } => true,
+            | Self::SellSeed { .. }
+            | Self::StarEquipment { .. }
+            | Self::AcknowledgeDailyEvent { .. } => true,
         }
     }
 }
@@ -467,6 +481,14 @@ impl PomodoroState {
                 if let Err(refusal) = self.cultivation.sell_seed(attribute, tier, now_unix) {
                     self.cultivation.note_refusal(Refusal::Trade(refusal));
                 }
+            }
+            PomodoroCommand::StarEquipment { item_id } => {
+                if let Err(refusal) = self.cultivation.star_item(item_id, now_unix) {
+                    self.cultivation.note_refusal(Refusal::Trade(refusal));
+                }
+            }
+            PomodoroCommand::AcknowledgeDailyEvent { day } => {
+                self.cultivation.acknowledge_daily_event(day);
             }
         }
         self.sync_cultivation();

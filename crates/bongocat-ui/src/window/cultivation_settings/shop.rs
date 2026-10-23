@@ -82,6 +82,14 @@ fn shop_row(
 ) -> impl IntoElement {
     let label = shop_offer_label(&entry.offer, locale);
     let slot = entry.slot;
+    // A piece of gear on the shelf is painted in its quality's colour, the
+    // same colour the same piece wears in the satchel: the shelf and the
+    // inventory are one market, and a grade that read differently on the two
+    // sides would be two grades.
+    let name_color = match &entry.offer {
+        ShopOffer::Equipment(item) if !entry.bought => quality_color(item.rarity),
+        _ => tokens.text,
+    };
     let price = format_text(
         locale,
         "cultivation.shop.price",
@@ -96,7 +104,7 @@ fn shop_row(
         .text_color(if entry.bought {
             tokens.muted
         } else {
-            tokens.text
+            name_color
         })
         .child(label)
         .on_click({
@@ -230,9 +238,15 @@ fn shop_offer_detail(
                 slot: item.slot,
                 tier: item.tier,
                 rarity: item.rarity,
-                attributes: item.attributes(),
+                attributes: item.effective_attributes(),
+                bonus: item.effective_bonus(),
                 power: item.power(),
                 equipped: false,
+                star: item.star(),
+                effect: item.effect,
+                // Nothing on the shelf is starred, and a shelf row cannot be
+                // wagered on: the wager belongs to what the buyer already owns.
+                star_cost: None,
                 name: item.name.clone(),
                 sell_price,
             },
@@ -272,6 +286,7 @@ fn shop_offer_detail(
                     art_numbers(
                         art.kind,
                         &art.gain,
+                        &art.bonus,
                         art.multiplier_permille,
                         art.cost,
                         locale
@@ -284,32 +299,37 @@ fn shop_offer_detail(
 }
 
 /// The numbers one 功法 pays, as the payoff lines spell them: an 内功's per-阶
-/// gains, an 外功's swing and its cost.
+/// gains — attributes and outright combat numbers both — or an 外功's swing and
+/// its cost.
 fn art_numbers(
     kind: ArtKind,
     gain: &Attributes,
+    bonus: &Derived,
     multiplier_permille: u32,
     cost: u32,
     locale: &str,
 ) -> String {
     match kind {
-        ArtKind::Internal => Attribute::ALL
-            .into_iter()
-            .filter_map(|attribute| {
-                let value = attribute.of(*gain);
-                (value > 0).then(|| {
-                    format_text(
-                        locale,
-                        "cultivation.art.gain",
-                        &[
-                            ("attribute", text(locale, attribute.name_key()).to_string()),
-                            ("value", value.to_string()),
-                        ],
-                    )
+        ArtKind::Internal => {
+            let mut parts: Vec<String> = Attribute::ALL
+                .into_iter()
+                .filter_map(|attribute| {
+                    let value = attribute.of(*gain);
+                    (value > 0).then(|| {
+                        format_text(
+                            locale,
+                            "cultivation.art.gain",
+                            &[
+                                ("attribute", text(locale, attribute.name_key()).to_string()),
+                                ("value", value.to_string()),
+                            ],
+                        )
+                    })
                 })
-            })
-            .collect::<Vec<_>>()
-            .join(" · "),
+                .collect();
+            parts.extend(bonus_lines(locale, bonus));
+            parts.join(" · ")
+        }
         ArtKind::External => format!(
             "{} · {}",
             format_text(
@@ -339,9 +359,13 @@ fn shop_offer_label(offer: &ShopOffer, locale: &str) -> String {
                 slot: item.slot,
                 tier: item.tier,
                 rarity: item.rarity,
-                attributes: item.attributes(),
+                attributes: item.effective_attributes(),
+                bonus: item.effective_bonus(),
                 power: item.power(),
                 equipped: false,
+                star: item.star(),
+                effect: item.effect,
+                star_cost: None,
                 name: item.name.clone(),
                 sell_price: offer.sell_price(),
             },

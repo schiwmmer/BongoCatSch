@@ -452,7 +452,7 @@ impl SettingsView {
             // record until the user asks for more.
             cultivation_events_open: false,
             cultivation_mastered_open: false,
-            cultivation_daily_seen: 0,
+            cultivation_daily_seen_day: None,
             // No fight is being replayed when the window opens, and none is
             // waiting on the worker either.
             cultivation_duel: None,
@@ -573,30 +573,36 @@ impl SettingsView {
 
     /// Show the ambush the day opened with, once.
     ///
-    /// The domain counts the mornings it has opened, and this watches that
-    /// count: the snapshot revision cannot be used for it, because a running
-    /// pomodoro moves the revision every second. Only an ambush has a fight to
-    /// replay — a gift and a quiet morning are already on the page's log, and a
-    /// popup for them would be a dialog to dismiss for one line of text.
+    /// Three things have to be true at once, and each one closes a way the
+    /// popup used to come back: the event has to be *today's* — a window that
+    /// opened on a later day never replays an older ambush; it has to be a
+    /// fight — a gift or a quiet morning is a line on the log, not a dialog;
+    /// and it has not to have been seen yet — the domain writes the day down
+    /// when the popup is acknowledged, so a relaunch the same afternoon finds
+    /// the field behind it. The snapshot revision cannot be used for any of
+    /// this, because a running pomodoro moves it every second.
     fn open_daily_event_duel(&mut self, cx: &mut Context<Self>) {
         let cultivation = self.pomodoro.snapshot().cultivation;
-        let count = cultivation.daily_events;
-        if count <= self.cultivation_daily_seen {
-            // A count that went backwards means the worker restarted and holds
-            // a new ladder: the baseline moves rather than the same ambush
-            // being replayed on every launch.
-            if count < self.cultivation_daily_seen {
-                self.cultivation_daily_seen = count;
-            }
+        let today = cultivation.day;
+        if cultivation.daily_event_day != Some(today)
+            || cultivation.daily_event_seen_day == Some(today)
+            || self.cultivation_daily_seen_day == Some(today)
+        {
             return;
         }
-        self.cultivation_daily_seen = count;
         let Some(event) = cultivation
             .last_daily_event
             .filter(|event| event.duel.is_some())
         else {
             return;
         };
+        self.cultivation_daily_seen_day = Some(today);
+        // The acknowledgement is written down before the popup opens: the
+        // domain is the one that remembers, and a popup that was shown but not
+        // recorded would be shown again on the next launch.
+        let _ = self
+            .pomodoro
+            .try_publish(PomodoroCommand::AcknowledgeDailyEvent { day: today });
         self.cultivation_duel = Some(CultivationDuel::new(
             CultivationDuelSource::Daily,
             cultivation_duel::CultivationDuelPayload::Daily(event),

@@ -40,6 +40,8 @@ pub enum TradeRefusal {
     AlreadySold,
     /// The garden already holds every plot it can: nine is the whole estate.
     PlotLimit,
+    /// The piece already holds every star it can: ten is the whole sky.
+    StarCapped,
 }
 
 impl TradeRefusal {
@@ -55,6 +57,7 @@ impl TradeRefusal {
             Self::AlreadyOwned => "cultivation.shop.refuse_already",
             Self::AlreadySold => "cultivation.shop.refuse_sold",
             Self::PlotLimit => "cultivation.garden.refuse_limit",
+            Self::StarCapped => "cultivation.shop.refuse_star_capped",
         }
     }
 }
@@ -83,6 +86,7 @@ mod tests {
                     rarity,
                     attributes: Default::default(),
                     name: None,
+                    ..Default::default()
                 });
                 assert!(
                     offer.sell_price() < offer.price(),
@@ -161,6 +165,7 @@ mod tests {
                     rarity,
                     attributes: Default::default(),
                     name: None,
+                    ..Default::default()
                 });
                 assert_eq!(
                     offer.sell_price(),
@@ -297,6 +302,7 @@ mod tests {
             rarity: Rarity::Common,
             attributes: Default::default(),
             name: None,
+            ..Default::default()
         };
         let mut document = cultivation.document().clone();
         document.equipment.push(item);

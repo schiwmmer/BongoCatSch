@@ -55,9 +55,10 @@ mod tests;
 
 pub use arts::{
     ART_COUNT, ArtBlueprint, ArtGrade, ArtKind, ArtOutcome, ArtView, MasteredArtView, OwnedArt,
-    RECENT_ARTS_CAP, art_attributes, art_payout_at, art_view, blueprint,
-    effective_failure_permille, external_damage, mastered_art_attributes, mastered_art_payout,
-    mastered_art_view, mastery_permille, required_pomodoros,
+    RECENT_ARTS_CAP, art_attributes, art_bonus, art_bonus_at, art_payout_at, art_view, blueprint,
+    effective_failure_permille, external_damage, mastered_art_attributes, mastered_art_bonus,
+    mastered_art_bonus_payout, mastered_art_payout, mastered_art_view, mastery_permille,
+    required_pomodoros,
 };
 pub use battle::{BattleReport, Guardian};
 // `duel` itself stays crate-private: it takes the seeded `Rng`, which is nobody
@@ -81,16 +82,19 @@ pub use garden::{
     CropRecord, FREE_PLOT_COUNT, MAX_PLOT_COUNT, MAX_SEED_TIER, PlotRecord, SeedStack,
     grow_seconds, harvest_points,
 };
-pub use items::{EquipSlot, EquipmentRecord, Rarity, SLOT_COUNT};
+pub use items::{
+    DropSource, EquipSlot, EquipmentRecord, GearEffect, MAX_STAR, Rarity, SLOT_COUNT,
+    STAR_SUCCESS_PERMILLE, star_multiplier_permille, star_success_permille,
+};
 pub use shop::SESSION_EARNINGS;
 pub use shop::{
     SHOP_MAX_OFFERS, SHOP_MIN_OFFERS, ShopOffer, ShopOfferView, art_price, equipment_price,
-    offers_for_day, roll_offers, seed_price,
+    offers_for_day, roll_offers, seed_price, star_up_cost,
 };
 pub use state::{
     AbsenceCharge, BreakthroughOutcome, CropView, Cultivation, CultivationView, DailyOutcome, Drop,
     DropView, ExplorationFindView, GuardianView, HarvestOutcome, ItemView, PlotView, SeedView,
-    SessionReward, TrainingView, TrialBlocked, TrialOutcome,
+    SessionReward, StarOutcome, TrainingView, TrialBlocked, TrialOutcome,
 };
 pub use trade::{TradeRefusal, session_earnings};
 pub use trial::{
@@ -543,6 +547,10 @@ pub struct DerivedBreakdown {
     pub computed: u32,
     /// What the page shows: the arithmetic, held to the ceiling.
     pub result: u32,
+    /// What gear and 功法 added to this number outright, over and above what
+    /// the four attributes bought. Zero on a cultivator wearing nothing: the
+    /// breakdown then reads exactly as the attribute arithmetic alone.
+    pub bonus: u32,
     /// What the four attributes average out to, as the balanced reference below
     /// is built from.
     ///
@@ -687,6 +695,21 @@ impl DerivedSlot {
             Self::Aptitude => 8,
         }
     }
+
+    /// This line's value in a set of the nine numbers.
+    const fn of(self, derived: Derived) -> u32 {
+        match self {
+            Self::Attack => derived.attack,
+            Self::Health => derived.health,
+            Self::Inner => derived.inner,
+            Self::Spell => derived.spell,
+            Self::Resist => derived.resist,
+            Self::Speed => derived.speed,
+            Self::Hit => derived.hit,
+            Self::Evade => derived.evade,
+            Self::Aptitude => derived.aptitude,
+        }
+    }
 }
 
 /// One line of the table above: which number it is and how it is computed.
@@ -719,6 +742,47 @@ impl DerivedSpec {
 }
 
 impl Derived {
+    /// The sum of two sets of the nine numbers.
+    ///
+    /// Saturation rather than wrapping: a number that wrapped would read as a
+    /// penalty on a page that promised a bonus.
+    pub fn plus(self, other: Self) -> Self {
+        Self {
+            attack: self.attack.saturating_add(other.attack),
+            health: self.health.saturating_add(other.health),
+            inner: self.inner.saturating_add(other.inner),
+            spell: self.spell.saturating_add(other.spell),
+            resist: self.resist.saturating_add(other.resist),
+            speed: self.speed.saturating_add(other.speed),
+            hit: self.hit.saturating_add(other.hit),
+            evade: self.evade.saturating_add(other.evade),
+            aptitude: self.aptitude.saturating_add(other.aptitude),
+        }
+    }
+
+    /// What these nine numbers are worth as power, at the rates the attributes
+    /// are worth them.
+    ///
+    /// A flat 攻击力 is read at what the 力量 behind it would have paid, and
+    /// every other line at its own attribute's rate — the same constants the
+    /// table above is built from, so a bonus cannot be worth more (or less)
+    /// than the attribute it stands in for. The synergy the pairs pay is the
+    /// attributes' own and is not counted twice here.
+    pub fn power(self) -> u32 {
+        let attack = i64::from(self.attack) * STRENGTH_WEIGHT * 1_000 / ATTACK_PER_STRENGTH;
+        let health = i64::from(self.health) * STRENGTH_WEIGHT * 1_000 / HEALTH_PER_STRENGTH;
+        let speed = i64::from(self.speed) * AGILITY_WEIGHT * 1_000 / SPEED_PER_AGILITY;
+        let footwork = i64::from(self.hit.saturating_add(self.evade)) * AGILITY_WEIGHT * 1_000
+            / HIT_PER_AGILITY;
+        let spell = i64::from(self.spell) * MANA_WEIGHT * 1_000 / SPELL_PER_MANA;
+        let resist = i64::from(self.resist) * MANA_WEIGHT * 1_000 / RESIST_PER_MANA;
+        let inner = i64::from(self.inner) * ROOT_WEIGHT * 1_000 / INNER_PER_ROOT;
+        let aptitude = i64::from(self.aptitude) * ROOT_WEIGHT * 1_000 / APTITUDE_PER_ROOT;
+        let martial = attack + health + speed + footwork;
+        let spell_half = spell + resist + inner + aptitude;
+        scaled_power((martial + spell_half) / 1_000)
+    }
+
     /// The nine numbers, filled from the one table that says how they are
     /// computed.
     ///
@@ -748,7 +812,11 @@ impl Derived {
     ///
     /// The same order as [`Attributes::derived`] reads, so a surface that walks
     /// the numbers once gets the value and the recipe that made it together.
-    pub fn breakdowns(self, attributes: Attributes) -> Vec<DerivedBreakdown> {
+    ///
+    /// `bonus` is what gear and 功法 added outright: the arithmetic the card
+    /// prints is the attribute recipe *plus* that share, so the sum on the card
+    /// is the sum that ran.
+    pub fn breakdowns(self, attributes: Attributes, bonus: Derived) -> Vec<DerivedBreakdown> {
         // The balanced reference: the same total points, spread over the four
         // attributes equally. Held to non-negative first, because a penalty can
         // leave a number below zero and "even" has to mean something.
@@ -766,6 +834,11 @@ impl Derived {
                     Some(cap) => computed.min(cap),
                     None => computed,
                 };
+                // The flat share gear and 功法 pay outright, read off the set
+                // the caller passed in: the number the page shows is the
+                // attribute arithmetic *and* that share, and the card says so
+                // rather than printing a sum that does not add up.
+                let bonus = spec.slot.of(bonus);
                 DerivedBreakdown {
                     key: spec.key,
                     attribute: spec.attribute,
@@ -774,7 +847,8 @@ impl Derived {
                     per_point: u32::try_from(spec.per_point.max(0)).unwrap_or(u32::MAX),
                     cap: spec.cap.map(scaled),
                     computed: scaled(computed),
-                    result: scaled(held),
+                    result: scaled(held).saturating_add(bonus),
+                    bonus,
                     mean_attribute: mean,
                     // Read through the same `value` the fight reads, so the
                     // comparison cannot be computed by a second set of rules.

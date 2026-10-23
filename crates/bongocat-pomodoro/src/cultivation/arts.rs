@@ -18,7 +18,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{Attribute, Attributes, Rng};
+use super::{Attribute, Attributes, Derived, Rng};
 
 /// How many 功法 the ladder holds: five hundred, graded as below.
 pub const ART_COUNT: u64 = 500;
@@ -119,6 +119,10 @@ pub struct ArtBlueprint {
     pub grade: ArtGrade,
     /// What one 阶 of an 内功 pays. Zero for an 外功, which pays damage instead.
     pub gain: Attributes,
+    /// What one 阶 of an 内功 pays outright in combat numbers — 攻击力, 生命值,
+    /// 命中 and the rest, the figures a fight reads directly. Zero for an 外功
+    /// and for the 内功 whose shape is pure attributes.
+    pub bonus: Derived,
     /// What one 外功 costs in 内力. Zero for an 内功.
     pub cost: u32,
     /// What one 外功 is worth, in parts per thousand of the wielder's 攻击力.
@@ -197,10 +201,14 @@ pub fn blueprint(id: u64) -> ArtBlueprint {
         ART_PREFIXES[(rest / (ART_SUFFIXES.len() * INTERNAL_NOUNS.len())) % ART_PREFIXES.len()];
     let name = format!("{prefix}{noun}{suffix}");
     let mut rng = Rng::seeded(id.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x0005_DEEC_E66D);
-    let (gain, cost, multiplier_permille) = match kind {
-        ArtKind::Internal => (internal_gain(grade, &mut rng), 0, 0),
+    let (gain, bonus, cost, multiplier_permille) = match kind {
+        ArtKind::Internal => {
+            let (gain, bonus) = internal_gain(grade, &mut rng);
+            (gain, bonus, 0, 0)
+        }
         ArtKind::External => (
             Attributes::default(),
+            Derived::default(),
             external_cost(grade),
             external_multiplier(grade),
         ),
@@ -211,27 +219,107 @@ pub fn blueprint(id: u64) -> ArtBlueprint {
         kind,
         grade,
         gain,
+        bonus,
         cost,
         multiplier_permille,
     }
 }
 
-/// What one 阶 of an 内功 pays: a handful of points, in one attribute or two.
+/// What one 阶 of an 内功 pays: a handful of points, in one attribute or two,
+/// in one combat number or two, or in both at once.
 ///
-/// Two attributes rather than four, so an art has a character — "the 寒冰 one
-/// raises 法力" — instead of being four numbers with a name in front of them.
-fn internal_gain(grade: ArtGrade, rng: &mut Rng) -> Attributes {
+/// Three shapes rather than one, so the shelf reads as five hundred different
+/// techniques instead of one bonus with five hundred names: a pure-attribute
+/// art ("the 寒冰 one raises 法力"), a pure-combat art that pays 攻击力 or 命中
+/// outright, and a hybrid that pays a little of each. The combat lines are
+/// sized at the rate the attribute behind them would have paid — a point of
+/// 攻击力 stands in for a third of a point of 力量 — so the three shapes are
+/// worth the same at the same grade and the choice between them is flavour,
+/// not a trap.
+fn internal_gain(grade: ArtGrade, rng: &mut Rng) -> (Attributes, Derived) {
     let magnitude = (grade.index() as i32 + 1) * 2;
-    let primary = Attribute::from_index(rng.below(4) as usize);
+    let shape = rng.below(100);
     let mut gain = Attributes::default();
-    primary.add_to(&mut gain, magnitude);
-    // Every third grade splits the payout, so the deep arts are the versatile
-    // ones rather than more of the same.
-    if grade.index() >= 2 {
-        let secondary = Attribute::from_index(rng.below(4) as usize);
-        secondary.add_to(&mut gain, magnitude / 2);
+    let mut bonus = Derived::default();
+    let pays_attributes = !(40..75).contains(&shape);
+    let pays_combat = shape >= 40;
+    if pays_attributes {
+        let primary = Attribute::from_index(rng.below(4) as usize);
+        primary.add_to(&mut gain, magnitude);
+        // Every third grade splits the payout, so the deep arts are the
+        // versatile ones rather than more of the same.
+        if grade.index() >= 2 {
+            let secondary = Attribute::from_index(rng.below(4) as usize);
+            secondary.add_to(&mut gain, magnitude / 2);
+        }
     }
-    gain
+    if pays_combat {
+        let line = CombatLine::from_index(rng.below(CombatLine::ALL.len() as u64) as usize);
+        line.add_to(&mut bonus, magnitude);
+        // The deep grades split the combat payout the same way the attribute
+        // one is split, so a 神阶 hybrid is the versatile one.
+        if grade.index() >= 2 {
+            let secondary =
+                CombatLine::from_index(rng.below(CombatLine::ALL.len() as u64) as usize);
+            secondary.add_to(&mut bonus, magnitude / 2);
+        }
+    }
+    (gain, bonus)
+}
+
+/// Which of the nine combat numbers one 阶 of an 内功 can pay outright.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CombatLine {
+    Attack,
+    Health,
+    Inner,
+    Spell,
+    Resist,
+    Speed,
+    Hit,
+    Evade,
+    Aptitude,
+}
+
+impl CombatLine {
+    const ALL: [Self; 9] = [
+        Self::Attack,
+        Self::Health,
+        Self::Inner,
+        Self::Spell,
+        Self::Resist,
+        Self::Speed,
+        Self::Hit,
+        Self::Evade,
+        Self::Aptitude,
+    ];
+
+    fn from_index(index: usize) -> Self {
+        Self::ALL[index.min(Self::ALL.len() - 1)]
+    }
+
+    /// Add this line's worth to a set of combat numbers.
+    ///
+    /// The rate is the one the attribute behind the line pays: one 阶's
+    /// `magnitude` points of 力量 are three points of 攻击力 and twenty of
+    /// 生命值, and a combat-paying art pays exactly those outputs. So a
+    /// combat art and an attribute art of the same grade stand on the same
+    /// scale, and neither shape is the trap.
+    fn add_to(self, bonus: &mut Derived, magnitude: i32) {
+        let magnitude = magnitude.max(0);
+        let (slot, rate) = match self {
+            Self::Attack => (&mut bonus.attack, 3),
+            Self::Health => (&mut bonus.health, 20),
+            Self::Inner => (&mut bonus.inner, 8),
+            Self::Spell => (&mut bonus.spell, 3),
+            Self::Resist => (&mut bonus.resist, 2),
+            Self::Speed => (&mut bonus.speed, 2),
+            Self::Hit => (&mut bonus.hit, 10),
+            Self::Evade => (&mut bonus.evade, 10),
+            Self::Aptitude => (&mut bonus.aptitude, 2),
+        };
+        *slot = slot.saturating_add((magnitude * rate) as u32);
+    }
 }
 
 /// What one use of an 外功 costs in 内力: the higher the grade, the dearer.
@@ -455,6 +543,80 @@ pub fn mastered_art_payout(art_id: u64) -> Attributes {
     )
 }
 
+/// The combat numbers one learned 内功 actually pays, every 阶 with its mastery
+/// share folded in.
+///
+/// The twin of [`mastered_art_payout`] for the outright lines: the page prints
+/// it beside the 功法's name the same way, so the card and the arithmetic
+/// cannot disagree.
+pub fn mastered_art_bonus_payout(art_id: u64) -> Derived {
+    let blueprint = blueprint(art_id);
+    let times = i64::from(blueprint.grade.ranks());
+    let mastery = 1_000 + i64::from(mastery_permille(blueprint.grade));
+    scale_bonus(blueprint.bonus, times, mastery)
+}
+
+/// The combat numbers one 内功 pays as it stands, at the 阶 its training has
+/// reached.
+pub fn art_bonus_at(art_id: u64, rank: u8) -> Derived {
+    let blueprint = blueprint(art_id);
+    scale_bonus(blueprint.bonus, i64::from(rank), 1_000)
+}
+
+/// The combat numbers every owned 内功 has paid so far, outright.
+pub fn art_bonus(owned: &[OwnedArt]) -> Derived {
+    let mut total = Derived::default();
+    for art in owned {
+        let blueprint = blueprint(art.art_id);
+        if blueprint.kind != ArtKind::Internal {
+            continue;
+        }
+        let times = i64::from(art.rank);
+        let mastery = if art.rank >= blueprint.grade.ranks() {
+            1_000 + i64::from(mastery_permille(blueprint.grade))
+        } else {
+            1_000
+        };
+        total = total.plus(scale_bonus(blueprint.bonus, times, mastery));
+    }
+    total
+}
+
+/// The combat numbers every **已习得** 内功 pays, for good.
+pub fn mastered_art_bonus(mastered: &[u64]) -> Derived {
+    let mut total = Derived::default();
+    for id in mastered {
+        let blueprint = blueprint(*id);
+        if blueprint.kind != ArtKind::Internal {
+            continue;
+        }
+        let times = i64::from(blueprint.grade.ranks());
+        let mastery = 1_000 + i64::from(mastery_permille(blueprint.grade));
+        total = total.plus(scale_bonus(blueprint.bonus, times, mastery));
+    }
+    total
+}
+
+/// One 阶's outright payout with a mastery multiplier folded in, rounded.
+fn scale_bonus(bonus: Derived, times: i64, mastery: i64) -> Derived {
+    let scale = |value: u32| -> u32 {
+        let product = i64::from(value) * times * mastery;
+        let rounded = (product + 500) / 1_000;
+        u32::try_from(rounded).unwrap_or(u32::MAX)
+    };
+    Derived {
+        attack: scale(bonus.attack),
+        health: scale(bonus.health),
+        inner: scale(bonus.inner),
+        spell: scale(bonus.spell),
+        resist: scale(bonus.resist),
+        speed: scale(bonus.speed),
+        hit: scale(bonus.hit),
+        evade: scale(bonus.evade),
+        aptitude: scale(bonus.aptitude),
+    }
+}
+
 /// The attributes one 内功 pays as it stands, at the 阶 its training has
 /// reached: every 阶 in so far at the blueprint's rate, and no mastery while
 /// any is missing.
@@ -496,6 +658,9 @@ pub struct ArtView {
     pub failure_permille: u32,
     /// What one 阶 pays, for an 内功.
     pub gain: Attributes,
+    /// What one 阶 pays outright in combat numbers, for an 内功: the 攻击力,
+    /// 生命值, 命中 and the rest a fight reads directly. Zero for an 外功.
+    pub bonus: Derived,
     /// What one use costs, for an 外功.
     pub cost: u32,
     /// What one use is worth, for an 外功.
@@ -535,6 +700,9 @@ pub struct MasteredArtView {
     pub mastery_permille: u32,
     /// What one 阶 pays, for an 内功.
     pub gain: Attributes,
+    /// What one 阶 pays outright in combat numbers, for an 内功. Zero for an
+    /// 外功 and for the 内功 whose shape is pure attributes.
+    pub bonus: Derived,
     /// What one use costs, for an 外功.
     pub cost: u32,
     /// What one use is worth, for an 外功.
@@ -560,6 +728,7 @@ pub fn art_view(owned: &OwnedArt, aptitude: u32, selected: bool) -> ArtView {
         required: required_pomodoros(owned.rank),
         failure_permille: effective_failure_permille(art.grade, aptitude),
         gain: art.gain,
+        bonus: art.bonus,
         cost: art.cost,
         multiplier_permille: art.multiplier_permille,
         mastery_permille: if owned.rank >= art.grade.ranks() {
@@ -587,6 +756,7 @@ pub fn mastered_art_view(art_id: u64) -> MasteredArtView {
         complete: true,
         mastery_permille: mastery_permille(art.grade),
         gain: art.gain,
+        bonus: art.bonus,
         cost: art.cost,
         multiplier_permille: art.multiplier_permille,
         // The caller that knows the save marks the collected sales; a view
@@ -741,19 +911,23 @@ mod tests {
 
     #[test]
     fn a_completed_internal_art_pays_more_than_its_ranks_alone() {
-        // Art 1 is 黄阶: three 阶 of a two-point gain, and completing them pays
-        // the fifteen-percent mastery share on top.
-        let art = blueprint(1);
-        assert_eq!(art.kind, ArtKind::Internal, "art 1 is an 内功");
+        // An 内功 whose shape is attributes: the mastery share is paid on every
+        // 阶, so completing the last one is worth more than the 阶 alone. The
+        // combat-paying shapes have no attribute gain to master and are not
+        // what this one is about.
+        let art = (1..=ART_COUNT)
+            .map(blueprint)
+            .find(|art| art.kind == ArtKind::Internal && art.gain.total() > 0)
+            .expect("some 内功 pays attributes");
         let ranks = art.grade.ranks();
         let unfinished = vec![OwnedArt {
-            art_id: 1,
+            art_id: art.id,
             rank: ranks - 1,
             progress: 0,
             outcome: None,
         }];
         let finished = vec![OwnedArt {
-            art_id: 1,
+            art_id: art.id,
             rank: ranks,
             progress: 0,
             outcome: None,

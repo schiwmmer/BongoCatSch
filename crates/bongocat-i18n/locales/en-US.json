@@ -683,7 +683,29 @@
     "formula": {
       "line": "%{base} + %{attribute} %{value} × %{per} = %{result}",
       "capped": "%{formula} (capped at %{cap})",
-      "balanced": "Even spread (%{mean} each): %{balanced} · you: %{delta}"
+      "balanced": "Even spread (%{mean} each): %{balanced} · you: %{delta}",
+      "line_bonus": "%{base} + %{attribute} %{value} × %{per} + %{bonus} = %{result}"
+    },
+    "bonus": "Outright: %{lines}",
+    "quality": {
+      "common": "Common",
+      "fine": "Fine",
+      "rare": "Rare",
+      "immortal": "Epic",
+      "legendary": "Legendary",
+      "mythic": "Mythic",
+      "divine": "Divine",
+      "transcendent": "Transcendent"
+    },
+    "effect": {
+      "frost": "Frost",
+      "thunder": "Thunder",
+      "sunder": "Sunder",
+      "weaken": "Blight",
+      "frost_desc": "enemy attack -%{value}% and hit -%{value}%",
+      "thunder_desc": "enemy speed -%{value}%",
+      "sunder_desc": "enemy resist -%{value}%",
+      "weaken_desc": "enemy health -%{value}%"
     },
     "attack": "attack %{value}",
     "health": "health %{value}",
@@ -708,8 +730,12 @@
       "empty": "Empty"
     },
     "item": {
-      "label": "%{slot} · tier %{tier} · %{stars}",
-      "label_named": "%{name} · tier %{tier} %{stars}",
+      "label": "%{slot} · tier %{tier} · %{quality}",
+      "label_named": "%{name} · tier %{tier} · %{quality}",
+      "quality": "%{quality} %{stars}",
+      "star_line": "%{stars} · all attributes ×%{percent}%",
+      "star_button": "Star up %{stones}",
+      "effect_line": "Effect %{effect}: %{detail}",
       "details": "Constitution %{root} · Strength %{strength} · Mana %{mana} · Agility %{agility}",
       "schools": "spell %{spell} · martial %{martial} · power %{power}",
       "equip": "Equip",
@@ -809,7 +835,9 @@
       "absence": "%{days} days without practice — growth -%{charged}",
       "drop_equipment": "Found gear: %{item}",
       "drop_seed": "Found a seed: %{item}",
-      "seed_return": "The harvest brought back %{seed}"
+      "seed_return": "The harvest brought back %{seed}",
+      "star_success": "Star up: %{name} rose to %{star} stars",
+      "star_failed": "Star up failed: %{name} fell to %{star} stars"
     },
     "record": {
       "title": "Recent events",
@@ -842,7 +870,9 @@
       "sold": "Sold %{what} for %{stones} stones",
       "harvest": "A crop was pulled.",
       "harvested": "Harvested %{seed} — %{attribute} +%{points}",
-      "bought_bare": "Bought %{what}"
+      "bought_bare": "Bought %{what}",
+      "star_success": "%{name} rose a star — %{stars} (%{stones} stones)",
+      "star_failed": "%{name} fell back to %{star} stars (%{stones} stones)"
     },
     "shop": {
       "title": "Market",
@@ -864,6 +894,7 @@
       "refuse_already": "You already have that art",
       "sold": "Sold",
       "refuse_sold": "This tome has been sold already",
+      "refuse_star_capped": "This piece already holds all ten stars",
       "detail_sell": "Sells back for %{stones} stones",
       "special": "On sale · %{value}/10 of the listed %{list}",
       "seed_tier": "a tier %{tier} herb",
