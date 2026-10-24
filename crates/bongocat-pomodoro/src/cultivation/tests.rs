@@ -246,9 +246,13 @@ fn each_school_has_its_heavier_half() {
     );
 }
 
-/// The seven shown numbers follow from the four allocated ones, in the direction
-/// the panel promises: 力量 to 攻击力 and 生命值, 法力 to 法术强度 and 法抗, 身法 to
-/// 速度/命中/闪避, 根骨 to 内力值 and 潜质.
+/// The shown numbers follow from the four allocated ones, in the direction the
+/// panel promises: 力量 to 攻击力 and 生命值, 法力 to 法术强度 and 法抗, 身法 to
+/// 速度/命中/闪避, 根骨 to 内力值.
+///
+/// 潜质 is deliberately *not* on this list any more: it is its own fractional
+/// number, born somewhere on a −10..+10 band and raised only by two herbs, so
+/// pouring points into 根骨 no longer buys it.
 #[test]
 fn every_shown_number_follows_from_the_attribute_that_owns_it() {
     let empty = Attributes::default().derived();
@@ -274,7 +278,10 @@ fn every_shown_number_follows_from_the_attribute_that_owns_it() {
 
     let rooted = Attributes::new(10, 0, 0, 0).derived();
     assert_eq!(rooted.inner, 130, "50 + 根骨×8");
-    assert_eq!(rooted.aptitude, 20);
+    assert_eq!(
+        rooted.aptitude, 0,
+        "根骨 no longer buys 潜质 — only the two herbs do"
+    );
 }
 
 /// 命中 and 闪避 are plain numbers the fight reads as a ratio, so they climb

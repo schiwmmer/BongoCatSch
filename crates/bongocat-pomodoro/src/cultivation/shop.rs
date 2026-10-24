@@ -29,17 +29,45 @@
 use serde::{Deserialize, Serialize};
 
 use super::items::{DropSource, base_points};
-use super::{ART_COUNT, Attribute, EquipmentRecord, Rarity, Realm};
+use super::{ART_COUNT, AptitudeHerb, Attribute, EquipmentRecord, Rarity, Realm};
 
 /// How many goods the shop offers at most in one day.
 ///
-/// Five is the floor a shop needs to look like a shop rather than a slot machine:
-/// below it, a realm that can only use one kind of gear leaves the rest of the
-/// page dead. Ten is the ceiling — past it the day stops being a choice and
-/// becomes a reading list.
-pub const SHOP_MAX_OFFERS: usize = 10;
+/// Five is the floor a shop needs to look like a shop rather than a slot
+/// machine: below it, a realm that can only use one kind of gear leaves the rest
+/// of the page dead. Thirteen is the ceiling — the ten a shelf rolls plus the
+/// three rows the 潜质 items can add — because past it the day stops being a
+/// choice and becomes a reading list. The bought-slot record is cut to this
+/// number, so it has to be the true maximum or a purchase past the cut could be
+/// made twice.
+pub const SHOP_MAX_OFFERS: usize = SHOP_BASE_MAX_OFFERS + 3;
 /// The fewest the shop may offer on a quiet day.
 pub const SHOP_MIN_OFFERS: usize = 5;
+/// The most rows a day's *base* shelf rolls — gear, herbs and 功法 — before the
+/// three 潜质 items are added. Kept apart from [`SHOP_MAX_OFFERS`] so raising the
+/// shelf's ceiling cannot quietly inflate the ordinary stock with it.
+const SHOP_BASE_MAX_OFFERS: usize = 10;
+
+/// How often a day's shelf carries a 悟心草: one day in four.
+///
+/// The herb is the workhorse of a 潜质 build — a hundred points is some hundred
+/// and fifty of them — so it has to appear often enough that the build exists at
+/// all. One day in four keeps it a find without making it a fiction.
+pub const INSIGHT_SHELF_ONE_IN: u64 = 4;
+
+/// How often a day's shelf carries the rarer 慧心草: one day in ten.
+///
+/// Two and a half times rarer than 悟心草 and worth two and a half times as
+/// much per draw, which is what "更稀有" has to mean if the two are to be a
+/// choice rather than a reskin of one another.
+pub const WISDOM_SHELF_ONE_IN: u64 = 10;
+
+/// How often a day's shelf carries a 洗髓丹: one day in ten thousand.
+///
+/// The brief's number, and it is a *day* chance rather than a slot chance: a
+/// pill is one event, and rolling it per slot would quietly multiply the odds
+/// by however many rows the shelf happens to have.
+pub const MARROW_SHELF_ONE_IN: u64 = 10_000;
 
 /// What the shop buys an item for, in tenths of the asking price.
 ///
@@ -64,6 +92,13 @@ pub enum ShopOffer {
     },
     /// One 功法, offered by id out of the catalog.
     Art { art_id: u64 },
+    /// One 潜质 item: 悟心草、慧心草 or 洗髓丹.
+    ///
+    /// Kept apart from [`Self::Seed`] because the two are not the same kind of
+    /// thing: a seed is planted and pays an attribute when it comes up, while
+    /// these are consumed on the spot and move the one number 功法 learning
+    /// turns on.
+    Herb { herb: AptitudeHerb },
 }
 
 impl ShopOffer {
@@ -77,6 +112,7 @@ impl ShopOffer {
             Self::Equipment(item) => equipment_price(item.tier, item.rarity),
             Self::Seed { tier, .. } => seed_price(*tier),
             Self::Art { art_id } => art_price(super::blueprint(*art_id).grade),
+            Self::Herb { herb } => herb.price(),
         }
     }
 
@@ -95,6 +131,7 @@ impl ShopOffer {
             Self::Equipment(_) => "cultivation.shop.equipment",
             Self::Seed { .. } => "cultivation.shop.seed",
             Self::Art { .. } => "cultivation.shop.art",
+            Self::Herb { .. } => "cultivation.shop.herb",
         }
     }
 }
@@ -187,7 +224,7 @@ pub const SESSION_EARNINGS: u32 = 16;
 /// in the same realm see the same shelf.
 pub fn offers_for_day(day_number: i64, realm: Realm) -> usize {
     let seed = u64::from(day_number as u32).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ realm_seed(realm);
-    let span = (SHOP_MAX_OFFERS - SHOP_MIN_OFFERS + 1) as u64;
+    let span = (SHOP_BASE_MAX_OFFERS - SHOP_MIN_OFFERS + 1) as u64;
     SHOP_MIN_OFFERS + (mix(seed) % span) as usize
 }
 
@@ -250,6 +287,18 @@ pub fn roll_offers(day_number: i64, realm: Realm, seed: u64) -> Vec<ShopOffer> {
             },
         };
         offers.push(offer);
+    }
+    // The 潜质 shelf: three separate rolls, one per item, each an extra row
+    // rather than a replacement — a 洗髓丹 that pushed a 功法 off the shelf would
+    // be a find that costs the buyer something else.
+    for (herb, one_in) in [
+        (AptitudeHerb::Insight, INSIGHT_SHELF_ONE_IN),
+        (AptitudeHerb::Wisdom, WISDOM_SHELF_ONE_IN),
+        (AptitudeHerb::Marrow, MARROW_SHELF_ONE_IN),
+    ] {
+        if rng.below(one_in) == 0 {
+            offers.push(ShopOffer::Herb { herb });
+        }
     }
     offers
 }
@@ -373,4 +422,62 @@ pub struct ShopOfferView {
     pub bought: bool,
     /// The slot this offer sits in, which is what a buy command names.
     pub slot: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The 潜质 shelf: a herb finds its way onto the shelf about one day in
+    /// four, the rarer one about one in ten, and the pill about one in ten
+    /// thousand — the brief's numbers, measured rather than asserted from the
+    /// constants.
+    #[test]
+    fn the_aptitude_shelf_is_rare_and_the_pill_is_the_rarest_row() {
+        let days = 20_000_i64;
+        let (mut insight, mut wisdom, mut marrow) = (0_u32, 0_u32, 0_u32);
+        for day in 0..days {
+            for offer in roll_offers(day, Realm::from_index(0), day as u64) {
+                if let ShopOffer::Herb { herb } = offer {
+                    match herb {
+                        AptitudeHerb::Insight => insight += 1,
+                        AptitudeHerb::Wisdom => wisdom += 1,
+                        AptitudeHerb::Marrow => marrow += 1,
+                    }
+                }
+            }
+        }
+        let rate = |count: u32| f64::from(count) / days as f64;
+        assert!(
+            (rate(insight) - 0.25).abs() < 0.02,
+            "悟心草 one day in four: {insight} of {days}"
+        );
+        assert!(
+            (rate(wisdom) - 0.10).abs() < 0.02,
+            "慧心草 one day in ten: {wisdom} of {days}"
+        );
+        assert!(wisdom < insight, "慧心草 must stay the rarer herb");
+        // Twenty thousand days is too short to *observe* a one-in-ten-thousand
+        // draw, so the pill's rate is read off the roll it actually makes: a
+        // million `below(10_000)` draws land one in ten thousand times.
+        assert_eq!(MARROW_SHELF_ONE_IN, 10_000, "万分之一");
+        let mut rng = super::super::Rng::seeded(0x0000_5EED_1234_5678);
+        let hits = (0..1_000_000)
+            .filter(|_| rng.below(MARROW_SHELF_ONE_IN) == 0)
+            .count();
+        assert!(
+            (70..=130).contains(&hits),
+            "one in ten thousand: {hits} of a million"
+        );
+        let _ = marrow;
+    }
+
+    /// The three 潜质 items are priced apart, and the pill is the dearest thing
+    /// the shop sells.
+    #[test]
+    fn the_aptitude_items_are_priced_apart() {
+        assert!(AptitudeHerb::Insight.price() > seed_price(10));
+        assert!(AptitudeHerb::Wisdom.price() > AptitudeHerb::Insight.price());
+        assert_eq!(AptitudeHerb::Marrow.price(), 100_000);
+    }
 }

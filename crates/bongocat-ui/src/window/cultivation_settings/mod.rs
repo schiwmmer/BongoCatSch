@@ -15,12 +15,12 @@
 use super::*;
 use bongocat_i18n::{compact_number, format_text, text};
 use bongocat_pomodoro::{
-    ArtKind, ArtOutcome, ArtView, Attribute, Attributes, CultivationView, DailyKind, Derived,
-    DropView, EquipSlot, EventDetail, EventRecord, ExplorationOutcome, GearEffect, ItemView,
-    MAX_LEVEL, MAX_STAR, MasteredArtView, PlotView, PomodoroCommand, Rarity, Realm, SaleKind,
-    ShopOffer, ShopOfferView, TRIAL_ATTEMPTS_PER_DAY, TrialBlocked, art_bonus_at, art_payout_at,
-    blueprint, grow_seconds, harvest_points, mastered_art_bonus_payout, mastered_art_payout,
-    star_multiplier_permille,
+    AptitudeHerb, ArtGrade, ArtKind, ArtOutcome, ArtView, Attribute, Attributes, CultivationView,
+    DailyKind, Derived, DropView, EquipSlot, EventDetail, EventRecord, ExplorationOutcome,
+    GearEffect, ItemView, LAYERS_PER_STAGE, MAX_LEVEL, MAX_STAR, MarrowSource, MasteredArtView,
+    PlotView, PomodoroCommand, Rarity, Realm, SaleKind, ShopOffer, ShopOfferView,
+    TRIAL_ATTEMPTS_PER_DAY, TrialBlocked, art_bonus_at, art_payout_at, blueprint, grow_seconds,
+    harvest_points, mastered_art_bonus_payout, mastered_art_payout, star_multiplier_permille,
 };
 
 use gpui_kit::component::Sizable as _;
@@ -45,7 +45,7 @@ pub(super) use attributes::{CombatStats, derived_rows};
 use arts::{arts_panel, mastered_panel};
 #[cfg(test)]
 pub(super) use attributes::derived_formula;
-use attributes::{attributes_panel, derived_panel};
+use attributes::{aptitude_panel, attributes_panel, derived_panel};
 use explore::{breakthrough_panel, exploration_panel};
 use garden::{garden_panel, seed_panel};
 use gear::{equipment_panel, inventory_panel};
@@ -58,6 +58,17 @@ use trial::trial_panel;
 
 /// How wide the growth bar is drawn, and therefore how wide its filled part is.
 const GROWTH_BAR_WIDTH: f32 = 180.0;
+
+/// 潜质 is stored in tenths and shown in points: 47 reads as "4.7".
+///
+/// One decimal, never two: every herb pays a tenth of a point at the smallest,
+/// so a second decimal could only ever be a zero the user has to read past.
+pub(super) fn tenths_text(tenths: i32) -> String {
+    format!(
+        "{:.1}",
+        f32::from(i16::try_from(tenths).unwrap_or(0)) / 10.0
+    )
+}
 
 /// Build the search keywords so the page is reachable from the settings search
 /// box even though its title lives under the `navigation` namespace. The keys
@@ -98,11 +109,18 @@ pub(super) fn content(
         .flex_col()
         .gap_3()
         .p_3()
-        .child(realm_header(&cultivation, locale, tokens))
+        .child(realm_header(
+            &view,
+            &cultivation,
+            view.read(cx).cultivation_ladder_open,
+            locale,
+            tokens,
+        ))
         .children(notices(&cultivation, locale, tokens))
         .child(record_section(&view, &cultivation, locale, tokens))
         .child(attributes_panel(&view, &cultivation, locale, tokens))
         .child(derived_panel(&cultivation, locale, tokens))
+        .child(aptitude_panel(&view, &cultivation, locale, tokens))
         .child(equipment_panel(
             &view,
             &cultivation,
@@ -135,7 +153,13 @@ pub(super) fn content(
 }
 
 /// The realm line, the power, and how far through the realm the growth is.
-fn realm_header(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> impl IntoElement {
+fn realm_header(
+    view: &Entity<SettingsView>,
+    cultivation: &CultivationView,
+    ladder_open: bool,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
     let realm = format_text(
         locale,
         "cultivation.realm",
@@ -158,20 +182,37 @@ fn realm_header(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> 
     // Read out here because the hover body outlives this call and cannot borrow
     // `locale`.
     let power_hint = text(locale, "cultivation.hint.power_hint");
-    let realm_hint = text(locale, "cultivation.hint.realm_title").to_string();
-    // The whole ladder, read out here for the same reason: the card lists where
-    // the cultivator stands among the ten, and the one they are in is marked.
-    let realms: Vec<(String, bool)> = Realm::ALL
+    // The whole ladder, read out here for the same reason: the list says where
+    // the cultivator stands among the ten, which level that is on the thousand,
+    // and how the two are converted into one another.
+    let level_line = format_text(
+        locale,
+        "cultivation.level.total",
+        &[
+            ("level", cultivation.level.to_string()),
+            ("total", cultivation.total_levels.to_string()),
+        ],
+    );
+    let rule = text(locale, "cultivation.level.rule").to_string();
+    let realm_rows: Vec<(String, bool, String)> = Realm::ALL
         .iter()
-        .map(|row| {
+        .enumerate()
+        .map(|(index, row)| {
+            let from = index as u32 * u32::from(LAYERS_PER_STAGE) + 1;
+            let to = (index as u32 + 1) * u32::from(LAYERS_PER_STAGE);
             (
                 text(locale, row.name_key()).to_string(),
                 *row == cultivation.realm,
+                format_text(
+                    locale,
+                    "cultivation.level.span",
+                    &[("from", from.to_string()), ("to", to.to_string())],
+                ),
             )
         })
         .collect();
 
-    div()
+    let mut header = div()
         .id("cultivation-realm")
         .flex()
         .flex_col()
@@ -182,27 +223,25 @@ fn realm_header(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> 
                 .flex_row()
                 .items_center()
                 .justify_between()
-                // The realm name is a ceiling, not a title: it is the one thing on
-                // the page that says where the user cannot go yet, so it says so.
+                // The realm name is a control, not a title: clicking it unfolds
+                // the whole thousand-level ladder, so "元婴 · 4 层 7 阶" can be
+                // read against the ten rungs it is one of instead of standing
+                // alone as a name the user has to place from memory.
                 .child(
-                    HoverCard::new("cultivation-hint-realm")
-                        .trigger(
-                            div()
-                                .id("cultivation-realm-name")
-                                .font_semibold()
-                                .child(realm)
-                                .test_support(),
-                        )
-                        .open_delay(Duration::from_millis(120))
-                        .content(move |_, _, _| {
-                            realm_ladder_body(
-                                "cultivation-hint-realm-body",
-                                realm_hint.clone(),
-                                realms.clone(),
-                                hint_tokens,
-                            )
-                        })
-                        .into_any_element(),
+                    div()
+                        .id("cultivation-realm-name")
+                        .font_semibold()
+                        .child(realm)
+                        .test_support()
+                        .on_click({
+                            let view = view.clone();
+                            move |_, _, cx| {
+                                view.update(cx, |view, cx| {
+                                    view.cultivation_ladder_open = !view.cultivation_ladder_open;
+                                    cx.notify();
+                                });
+                            }
+                        }),
                 )
                 // The one number on the page that decides something: the
                 // breakthrough compares it against the guardian's. A bare number
@@ -250,7 +289,17 @@ fn realm_header(cultivation: &CultivationView, locale: &str, tokens: Tokens) -> 
                     )],
                 ))
                 .test_support(),
-        )
+        );
+    if ladder_open {
+        header = header.child(realm_ladder_body(
+            "cultivation-realm-ladder",
+            level_line,
+            rule,
+            realm_rows,
+            tokens,
+        ));
+    }
+    header
 }
 
 /// The growth line and the fraction of the current layer it represents.
@@ -488,18 +537,20 @@ fn hint_body(
         .test_support()
 }
 
-/// The realm card's body: what the realm name means, then the ten rungs it is
-/// one of, with the one the cultivator stands in marked.
+/// The realm ladder: the level on the thousand, the conversion rule that puts it
+/// there, and the ten rungs with the one the cultivator stands in marked.
 ///
-/// "元婴 · 3 层" alone does not say whether that is near the top of the ladder
-/// or near the bottom. The card lists all ten in climbing order, and the current
-/// one carries the danger colour and a caret — the colour is the page's word for
-/// "this is the one that matters", which on every other row means a penalty and
-/// here means the rung the save is standing on.
+/// "元婴 · 4 层 7 阶" alone does not say whether that is level 347 of 1000 or
+/// near the top of the ladder — so the level, the total, the rule that joins
+/// them and all ten rungs are shown together. The current rung carries the
+/// danger colour and a caret: the colour is the page's word for "this is the one
+/// that matters", which on every other row means a penalty and here means the
+/// rung the save is standing on.
 fn realm_ladder_body(
     id: impl Into<gpui_kit::ElementId>,
-    title: String,
-    realms: Vec<(String, bool)>,
+    level_line: String,
+    rule: String,
+    realms: Vec<(String, bool, String)>,
     tokens: Tokens,
 ) -> impl IntoElement {
     div()
@@ -507,19 +558,39 @@ fn realm_ladder_body(
         .flex()
         .flex_col()
         .gap_1()
-        .w(px(180.0))
+        .p_2()
+        .rounded_md()
+        .bg(tokens.overlay)
         .text_xs()
         .text_color(tokens.muted)
         .whitespace_normal()
-        .child(title)
+        .child(
+            div()
+                .id("cultivation-level-total")
+                .text_color(tokens.text)
+                .child(level_line)
+                .test_support(),
+        )
+        .child(
+            div()
+                .id("cultivation-level-rule")
+                .child(rule)
+                .test_support(),
+        )
         .children(
             realms
                 .into_iter()
                 .enumerate()
-                .map(move |(index, (name, current))| {
+                .map(move |(index, (name, current, span))| {
                     let row = div()
                         .id(format!("cultivation-realm-rung-{index}"))
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .gap_2()
                         .child(if current { format!("▸ {name}") } else { name })
+                        .child(span)
                         .test_support();
                     if current {
                         row.text_color(tokens.danger).font_semibold()
@@ -739,7 +810,20 @@ pub(super) fn quality_segment(locale: &str, rarity: Rarity, star: u8) -> String 
 /// One conversion, here, so the eight colours live in the domain beside the
 /// eight names and a retune of either moves the row and the chip together.
 pub(super) fn quality_color(rarity: Rarity) -> Hsla {
-    let value = rarity.color();
+    color_from_rgb(rarity.color())
+}
+
+/// The 功法 grade's colour, as the domain names it: 黄、蓝、紫、橙、红.
+///
+/// Read through the same conversion as the eight gear qualities, so a row of
+/// 功法 is legible before its name is: the grade is the first thing a user
+/// weighs, and five grades that all look alike are five grades nobody checks.
+pub(super) fn grade_color(grade: ArtGrade) -> Hsla {
+    color_from_rgb(grade.color())
+}
+
+/// One `0xRRGGBB` value as a paintable colour.
+fn color_from_rgb(value: u32) -> Hsla {
     let red = ((value >> 16) & 0xFF) as f32 / 255.0;
     let green = ((value >> 8) & 0xFF) as f32 / 255.0;
     let blue = (value & 0xFF) as f32 / 255.0;

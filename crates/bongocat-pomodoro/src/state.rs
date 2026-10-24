@@ -260,6 +260,12 @@ pub enum PomodoroCommand {
     /// that falls as the stars climb, and one star back on a failure — never
     /// past the first.
     StarEquipment { item_id: u64 },
+    /// Feed one 潜质 herb to the body: 悟心草 or 慧心草.
+    ///
+    /// 洗髓丹 is deliberately not a command of its own: it is spent by the herb
+    /// that crosses an even hundred, so a user cannot burn one on a gate they
+    /// are not standing at.
+    UseAptitudeHerb { herb: crate::AptitudeHerb },
     /// Mark the day's morning event as shown, so the window does not replay it.
     ///
     /// `day` is the local day the event belongs to. A surface sends it when it
@@ -303,6 +309,7 @@ impl PomodoroCommand {
             | Self::SellArt { .. }
             | Self::SellSeed { .. }
             | Self::StarEquipment { .. }
+            | Self::UseAptitudeHerb { .. }
             | Self::AcknowledgeDailyEvent { .. } => true,
         }
     }
@@ -484,6 +491,11 @@ impl PomodoroState {
             }
             PomodoroCommand::StarEquipment { item_id } => {
                 if let Err(refusal) = self.cultivation.star_item(item_id, now_unix) {
+                    self.cultivation.note_refusal(Refusal::Trade(refusal));
+                }
+            }
+            PomodoroCommand::UseAptitudeHerb { herb } => {
+                if let Err(refusal) = self.cultivation.use_aptitude_herb(herb, now_unix) {
                     self.cultivation.note_refusal(Refusal::Trade(refusal));
                 }
             }

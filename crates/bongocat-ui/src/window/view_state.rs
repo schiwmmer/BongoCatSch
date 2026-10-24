@@ -452,6 +452,7 @@ impl SettingsView {
             // record until the user asks for more.
             cultivation_events_open: false,
             cultivation_mastered_open: false,
+            cultivation_ladder_open: false,
             cultivation_daily_seen_day: None,
             // No fight is being replayed when the window opens, and none is
             // waiting on the worker either.

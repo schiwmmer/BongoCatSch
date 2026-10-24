@@ -54,6 +54,14 @@ const ATTRIBUTE_DRIFT_PERMILLE: i32 = 750;
 /// longer opens. The remaining six tenths is the challenge the art is there for.
 const ART_SHARE_PERMILLE: u32 = 400;
 
+/// What an opponent's 功法 swing is worth, by grade.
+///
+/// The old, flatter row: 1.2× for 黄, 1.8× for 神. It is deliberately separate
+/// from [`super::arts`]'s blueprint multiplier so that retuning the player's
+/// ladder never moves the height of a guardian in the same breath — the player's
+/// arts got steeper, and the wall they climb has to stay where it was.
+const OPPONENT_ART_MULTIPLIERS: [u32; 5] = [1_200, 1_350, 1_500, 1_650, 1_800];
+
 /// How many swings of its 功法 an opponent can pay for.
 ///
 /// Three: an art is a moment in the fight — a blow the log can point at, and the
@@ -208,7 +216,13 @@ pub(crate) fn opponent(stance: Stance, level: u16, tier: u8, name: String, seed:
         let art = blueprint(art_id);
         ArtStrike {
             name: art.name,
-            multiplier_permille: art.multiplier_permille,
+            // An opponent's 功法 is a move, not a build — which is why this is
+            // *not* the blueprint's multiplier. The player's art ladder was
+            // retuned to be far steeper (a 神阶 art now lands near five blows
+            // for one), and an opponent reading the same table would have every
+            // guardian quietly doubled, raising the wall in the same commit that
+            // raised the reward. Pinned to its own row, the wall stays put.
+            multiplier_permille: OPPONENT_ART_MULTIPLIERS[art.grade.index()],
             cost: art.cost,
             // The opponent is not the one who trained it: a 功法 in a fighter's
             // hands is the multiplier it was printed with, and the mastery share

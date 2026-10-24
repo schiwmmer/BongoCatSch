@@ -225,6 +225,22 @@ pub struct CultivationDocument {
     /// it has already shown and the snapshot revision cannot say that.
     #[serde(default)]
     pub trials: u32,
+    /// 潜质, in tenths: −100 reads as −10.0, 10_000 as 1000.0.
+    ///
+    /// `None` is a body that has not been born yet — a fresh document, or a
+    /// save written before 潜质 was its own number. It is rolled once on load
+    /// and written down from then on, so a relaunch cannot reroll a body.
+    #[serde(default)]
+    pub aptitude_tenths: Option<i32>,
+    /// 悟心草 held, the common 潜质 herb.
+    #[serde(default)]
+    pub insight_herbs: u32,
+    /// 慧心草 held, the rarer 潜质 herb.
+    #[serde(default)]
+    pub wisdom_herbs: u32,
+    /// 洗髓丹 held: the only thing that opens an even-hundred gate.
+    #[serde(default)]
+    pub marrow_pills: u32,
 }
 
 impl CultivationDocument {
@@ -370,6 +386,10 @@ impl CultivationDocument {
             }
         }
         self.recent_arts = recent;
+        // A hand-edited document cannot claim a 潜质 outside the band.
+        if let Some(tenths) = self.aptitude_tenths {
+            self.aptitude_tenths = Some(super::aptitude::clamp_tenths(tenths));
+        }
         self
     }
 }

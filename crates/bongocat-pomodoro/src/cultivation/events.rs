@@ -153,6 +153,37 @@ pub enum EventDetail {
         #[serde(default)]
         cost: u32,
     },
+    /// 潜质 moved: a herb was fed and a gate was paid.
+    ///
+    /// `gained_tenths` is the move the user saw, not the roll: a herb at the top
+    /// of the band pays less than its band, and a line that printed the roll
+    /// would disagree with the number beside it.
+    Aptitude {
+        herb: super::AptitudeHerb,
+        gained_tenths: i32,
+        /// Where 潜质 stands after the move, in tenths.
+        value_tenths: i32,
+        /// How many 洗髓丹 the move crossed.
+        #[serde(default)]
+        marrow: u32,
+    },
+    /// A 洗髓丹 was found, and where.
+    MarrowFound {
+        /// The catalog key of the source: a fight, a walk, or the day's event.
+        source: MarrowSource,
+    },
+}
+
+/// Where a 洗髓丹 came from, as the log says it.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MarrowSource {
+    /// A fight the cultivator won.
+    Combat,
+    /// A walk, or the morning event.
+    Fortune,
+    /// Bought off the shelf — the only channel that names a price.
+    Shop,
 }
 
 /// Something sold or bought, named the way the log can carry it.
@@ -177,4 +208,8 @@ pub enum SaleKind {
     },
     /// A garden plot bought past the four free ones.
     Plot,
+    /// One 潜质 item: 悟心草、慧心草 or 洗髓丹.
+    Herb {
+        herb: super::AptitudeHerb,
+    },
 }

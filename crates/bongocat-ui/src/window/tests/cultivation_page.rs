@@ -20,6 +20,7 @@ use bongocat_pomodoro::{
     PomodoroCommand, PomodoroSnapshot, PomodoroState, Rarity, SeedStack, TrainingView,
     TrialBlocked, TrialOutcome, WANDERER_NAME, threshold_for,
 };
+use gpui_kit::{ScrollDelta, point};
 
 /// The page mounted on its own.
 ///
@@ -31,9 +32,15 @@ struct CultivationPage(Entity<SettingsView>);
 impl Render for CultivationPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let view = self.0.clone();
+        // The page is taller than any window: it is a scrolling column of
+        // panels, and the settlement harness has to reproduce that or the rows
+        // past the fold are squeezed to nothing and cannot be clicked. The
+        // settings frame supplies the same scroll view around this page.
         div()
             .id("cultivation-page-harness")
             .size_full()
+            .overflow_y_scroll()
+            .test_support()
             .child(cultivation_settings::content(
                 view,
                 &RenderOptions::new(),
@@ -130,19 +137,18 @@ fn hovering_an_attribute_puts_its_explanation_on_screen(cx: &mut TestAppContext)
 }
 
 #[gpui_kit::test]
-fn hovering_the_realm_lists_the_whole_ladder(cx: &mut TestAppContext) {
-    let clock = cx.dispatcher.clone();
-    let (_view, visual) = cultivation_page(cx);
+fn clicking_the_realm_lists_the_whole_ladder(cx: &mut TestAppContext) {
+    let (view, visual) = cultivation_page(cx);
     visual.update(|window, cx| window.render_frame(cx));
     assert!(
         !painted(visual, "cultivation-realm-rung-0"),
-        "the ladder is not on the page until the pointer asks"
+        "the ladder is not on the page until the realm is clicked"
     );
 
-    visual.update(|window, cx| window.hover(ElementId::from("cultivation-realm-name"), cx));
-    clock.advance_clock(Duration::from_millis(500));
-    visual.run_until_parked();
+    visual.update(|window, cx| window.click(ElementId::from("cultivation-realm-name"), cx));
     visual.update(|window, cx| window.render_frame(cx));
+    let open = visual.update(|_, cx| view.read(cx).cultivation_ladder_open);
+    assert!(open, "the click must unfold the ladder");
 
     // All ten rungs, in climbing order: the card is the ladder, not a hint.
     for rung in 0..10 {
@@ -158,14 +164,19 @@ fn hovering_the_realm_lists_the_whole_ladder(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
-fn the_schools_are_shown_beside_the_attribute_totals(cx: &mut TestAppContext) {
+fn the_two_art_powers_are_shown_beside_the_attribute_totals(cx: &mut TestAppContext) {
     let (_view, visual) = cultivation_page(cx);
     visual.update(|window, cx| window.render_frame(cx));
-    // A single power number cannot say whether a build is a spellcaster or a
-    // brawler, so the two halves are drawn under the attributes.
+    // 法术 and 武术 used to sit here and said nothing a user could act on: the
+    // two powers that do are the 内功 (a slice of the total) and the 外功 (which
+    // pays no attribute at all and would otherwise be invisible).
     assert!(
-        painted(visual, "cultivation-power-schools"),
-        "the spell and martial halves must be on the page"
+        painted(visual, "cultivation-power-breakdown"),
+        "the level · gear · crop · 内功 · 外功 line must be on the page"
+    );
+    assert!(
+        !painted(visual, "cultivation-power-schools"),
+        "the two schools are gone"
     );
 }
 
@@ -726,7 +737,7 @@ fn the_page_explains_which_layer_each_number_belongs_to(cx: &mut TestAppContext)
     let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
     let (_view, visual) = cultivation_page_with(cx, pomodoro);
     visual.update(|window, cx| window.render_frame(cx));
-    assert!(painted(visual, "cultivation-power-schools"));
+    assert!(painted(visual, "cultivation-power-breakdown"));
     assert!(painted(visual, "cultivation-derived-attack"));
 }
 
@@ -1105,6 +1116,17 @@ fn clicking_the_tower_asks_the_worker_for_a_floor(cx: &mut TestAppContext) {
     ] {
         assert!(painted(visual, id), "the tower must draw {id}");
     }
+    // The tower is the second panel from the bottom of a long column, and the
+    // 潜质 row above it is what pushes its button past the test window's fold.
+    // The real settings frame scrolls here, so the harness does too.
+    visual.update(|window, cx| {
+        window.scroll(
+            ElementId::from("cultivation-page-harness"),
+            ScrollDelta::Lines(point(0.0, -40.0)),
+            cx,
+        );
+        window.render_frame(cx);
+    });
     visual.update(|window, cx| {
         window.render_frame(cx);
         window.click("cultivation-trial-attempt", cx);

@@ -720,7 +720,6 @@
     "power_level": "level %{value}",
     "power_equipment": "gear %{value}",
     "power_crop": "herbs %{value}",
-    "power_schools": "spell %{spell} · martial %{martial}",
     "equipment": "Gear",
     "slot": {
       "weapon": "Weapon",
@@ -872,7 +871,10 @@
       "harvested": "Harvested %{seed} — %{attribute} +%{points}",
       "bought_bare": "Bought %{what}",
       "star_success": "%{name} rose a star — %{stars} (%{stones} stones)",
-      "star_failed": "%{name} fell back to %{star} stars (%{stones} stones)"
+      "star_failed": "%{name} fell back to %{star} stars (%{stones} stones)",
+      "aptitude": "%{herb} · aptitude +%{gain} → %{value}",
+      "aptitude_gate": "%{line} (Marrow Pill ×%{pills})",
+      "marrow_found": "Found a Marrow Pill (%{source})"
     },
     "shop": {
       "title": "Market",
@@ -898,12 +900,13 @@
       "detail_sell": "Sells back for %{stones} stones",
       "special": "On sale · %{value}/10 of the listed %{list}",
       "seed_tier": "a tier %{tier} herb",
-      "plot": "a garden plot"
+      "plot": "a garden plot",
+      "herb": "Aptitude item",
+      "herb_facts": "%{herb} · %{effect}",
+      "herb_gain": "aptitude +%{low} ~ %{high}",
+      "herb_marrow_gain": "opens an even hundred"
     },
     "hint": {
-      "realm_title": "Realm: the hard ceiling on how far you can climb",
-      "schools_title": "Spell and martial: the two halves of the four attributes",
-      "schools_hint": "Spell = root + mana, martial = strength + agility. Pairing one attribute with its partner pays a synergy bonus, so stacking one alone is worse.",
       "derived_title": "The eight combat numbers: what the four attributes turn into, not points you can spend",
       "derived_hint_each": "Read off the four attributes above; only changing those moves this.",
       "power_hint": "Power = spell + martial, and it is the number that decides a breakthrough.",
@@ -914,6 +917,29 @@
       "ambush_lost": "Ambushed at dawn — driven back, and nothing lost",
       "gift": "The morning handed something over",
       "trinket": "A quiet morning, and a few coins in the dust"
+    },
+    "level": {
+      "total": "Level %{level} / %{total}",
+      "rule": "Cumulative level = (realm position − 1) × 100 + layer × 10 + rank, layers counted from 0. Ten realms × one hundred levels = one thousand.",
+      "span": "%{from}–%{to}"
+    },
+    "power_art": "Internal %{value}",
+    "power_external": "External +%{value}",
+    "aptitude_title": "Aptitude",
+    "aptitude_hint": "Aptitude sets how reliably and how fast arts are learned: at 0 an attempt succeeds 50% (yellow) / 42% (profound) / 35% (earth) / 20% (heaven) / 5% (divine) and a rank costs three times the printed pomodoros; each point multiplies the rate by 1.01 and the cost by 0.99 (a fraction up to 0.2 rounds down, above it rounds up). Every hundred needs a Marrow Pill before it can move again.",
+    "aptitude_use": "Feed",
+    "aptitude_refuse_herb": "None of that herb in the bag",
+    "aptitude_refuse_capped": "Aptitude is already at its peak",
+    "aptitude_refuse_marrow": "Not enough Marrow Pills: stuck at the even hundred",
+    "herb": {
+      "insight": "Insight Herb",
+      "wisdom": "Wisdom Herb",
+      "marrow": "Marrow Pill"
+    },
+    "marrow_source": {
+      "combat": "a fight",
+      "fortune": "a stroke of luck",
+      "shop": "the market"
     }
   }
 }

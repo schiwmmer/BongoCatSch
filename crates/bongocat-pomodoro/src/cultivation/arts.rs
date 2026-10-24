@@ -77,16 +77,20 @@ impl ArtGrade {
         }
     }
 
-    /// The chance one attempt at the next 阶 comes to nothing, in parts per
-    /// thousand. Higher grades are harder to learn, which is the whole reason a
-    /// 潜质 build is a choice rather than a trap.
-    pub const fn failure_permille(self) -> u32 {
+    /// The grade's colour, as `0xRRGGBB`: 黄、蓝、紫、橙、红.
+    ///
+    /// One hue per grade and none repeated, because the colour is the only
+    /// thing that tells two rows apart before the name is read: a shelf of five
+    /// 功法 whose grades all look the same is a shelf the user has to read word
+    /// by word. The ramp runs the way the grade does — the warmest, reddest
+    /// grade is the rarest one.
+    pub const fn color(self) -> u32 {
         match self {
-            Self::Yellow => 80,
-            Self::Profound => 120,
-            Self::Earth => 180,
-            Self::Heaven => 260,
-            Self::Divine => 350,
+            Self::Yellow => 0xE0_B0_20,
+            Self::Profound => 0x3B_82_F6,
+            Self::Earth => 0xA8_55_F7,
+            Self::Heaven => 0xF9_7316,
+            Self::Divine => 0xEF_44_44,
         }
     }
 }
@@ -236,8 +240,16 @@ pub fn blueprint(id: u64) -> ArtBlueprint {
 /// 攻击力 stands in for a third of a point of 力量 — so the three shapes are
 /// worth the same at the same grade and the choice between them is flavour,
 /// not a trap.
+/// The per-阶 payout by grade: 2, 6, 9, 14, 21.
+///
+/// 玄 is one and a half times the old four — the brief's own anchor — and every
+/// step after it is at least half again as large as the one below, so a 神阶
+/// 内功 is not a 黄阶 one with a longer climb. Neighbouring grades are never
+/// "about the same": the 玄→地 step is the shallowest at ×1.5.
+const INTERNAL_MAGNITUDES: [i32; 5] = [2, 6, 9, 14, 21];
+
 fn internal_gain(grade: ArtGrade, rng: &mut Rng) -> (Attributes, Derived) {
-    let magnitude = (grade.index() as i32 + 1) * 2;
+    let magnitude = INTERNAL_MAGNITUDES[grade.index()];
     let shape = rng.below(100);
     let mut gain = Attributes::default();
     let mut bonus = Derived::default();
@@ -331,19 +343,35 @@ fn external_cost(grade: ArtGrade) -> u32 {
 }
 
 /// What an 外功 is worth, in parts per thousand of the 攻击力 behind it.
+///
+/// The grade is the whole difference: 1.2× for 黄, 2.0× for 玄 — the brief's
+/// "玄 is one and a half times what it was" applied to the old 1_350‰ — then a
+/// third more per grade after that. A 神阶 strike at 4.8× is a different act
+/// from a 黄阶 one at 1.2×, which is what makes finding one worth the ten-
+/// thousandth chance it takes.
 fn external_multiplier(grade: ArtGrade) -> u32 {
-    1_200 + grade.index() as u32 * 150
+    const MULTIPLIERS: [u32; 5] = [1_200, 2_025, 2_700, 3_600, 4_800];
+    MULTIPLIERS[grade.index()]
 }
 
-/// How many pomodoros the given 阶 takes: 1, 2, 3, 4, 5, 7, 10, 14, 20, 29.
+/// How many pomodoros the given 阶 prints: 1, 2, 3, 4, 5, 7, 10, 14, 20, 29.
 ///
 /// Geometric, because the alternative is either a 10-阶 art that finishes in an
 /// afternoon or a flat cost that makes the tenth 阶 no more of an achievement
 /// than the first. The ratio is 1.45: steep enough to be felt, shallow enough
 /// that a 神阶 art is a season rather than a decade.
-pub fn required_pomodoros(rank: u8) -> u32 {
+///
+/// This is the **printed** cost, the one a body with no 潜质 pays three times
+/// over — see [`super::aptitude::required_pomodoros`] for what a session
+/// actually has to buy.
+pub fn printed_pomodoros(rank: u8) -> u32 {
     let exponent = f64::from(rank.saturating_sub(1));
     (1.45_f64.powf(exponent)).ceil() as u32
+}
+
+/// How many pomodoros the given 阶 asks of *this* body, after 潜质.
+pub fn required_pomodoros(rank: u8, aptitude_tenths: i32) -> u32 {
+    super::aptitude::required_pomodoros(printed_pomodoros(rank), aptitude_tenths)
 }
 
 /// What reaching the last 阶 of a 功法 pays on top, in parts per thousand, by
@@ -373,17 +401,31 @@ fn paid(value: i32, times: i64, mastery: i64) -> i32 {
     i32::try_from(rounded).unwrap_or(i32::MAX)
 }
 
-/// How much a failed attempt is softened by 潜质, at most.
-const APTITUDE_DISCOUNT_CAP: u32 = 150;
-
-/// The chance one attempt fails, as this cultivator faces it.
+/// How often each grade is met on the road, in parts per million.
 ///
-/// 潜质 takes a point off the failure rate per point, up to a hundred and fifty
-/// — enough to make a 根骨 build the better learner without making 神阶 trivial.
-pub fn effective_failure_permille(grade: ArtGrade, aptitude: u32) -> u32 {
-    grade
-        .failure_permille()
-        .saturating_sub(aptitude.min(APTITUDE_DISCOUNT_CAP))
+/// The ladder of *discovery* is steeper than the ladder of power on purpose:
+/// 黄六成、玄两成五、地一成、天四成不足、神万分之一. A 神阶 art is not a lottery
+/// with a good prize, it is an event a save may never see — which is what makes
+/// seeing one worth a story. The five add up to exactly one million, so the
+/// last grade's share is the brief's ten-thousandth and not a rounding of it.
+pub const ART_GRADE_WEIGHTS_PER_MILLION: [u32; 5] = [600_000, 250_000, 110_000, 39_900, 100];
+
+/// Which grade a found 功法 carries.
+///
+/// One roll for every channel that hands out an art — a breakthrough, a walk, a
+/// tower floor — so the odds a user reads are the odds that ran. Nothing here
+/// looks at the realm: a beginner can meet a 神阶 art, and that is the point of
+/// the ten-thousandth.
+pub(crate) fn roll_art_grade(rng: &mut Rng) -> ArtGrade {
+    let roll = rng.below(1_000_000);
+    let mut seen = 0u64;
+    for (index, weight) in ART_GRADE_WEIGHTS_PER_MILLION.iter().enumerate() {
+        seen += u64::from(*weight);
+        if roll < seen {
+            return ArtGrade::ALL[index];
+        }
+    }
+    ArtGrade::Divine
 }
 
 /// A 功法 the cultivator owns.
@@ -424,19 +466,23 @@ pub enum ArtOutcome {
 /// A failure costs the session and nothing else: progress already banked is the
 /// user's, and a rule that took it back would turn a run of bad luck into a
 /// punishment for having tried.
-pub fn train(owned: &mut OwnedArt, aptitude: u32, rng: &mut Rng) -> ArtOutcome {
+pub fn train(owned: &mut OwnedArt, aptitude_tenths: i32, rng: &mut Rng) -> ArtOutcome {
     let art = blueprint(owned.art_id);
     let max_rank = art.grade.ranks();
     if owned.rank >= max_rank {
         owned.outcome = Some(ArtOutcome::Mastered);
         return ArtOutcome::Mastered;
     }
-    if rng.below(1_000) < u64::from(effective_failure_permille(art.grade, aptitude)) {
+    // 潜质 sets the chance the session lands at all: one roll against the rate
+    // this grade carries at this body's 潜质. A failure costs the session and
+    // nothing else.
+    let success = super::aptitude::success_permille(art.grade, aptitude_tenths);
+    if rng.below(1_000) >= u64::from(success) {
         owned.outcome = Some(ArtOutcome::Failed);
         return ArtOutcome::Failed;
     }
     owned.progress = owned.progress.saturating_add(1);
-    let needed = required_pomodoros(owned.rank);
+    let needed = required_pomodoros(owned.rank, aptitude_tenths);
     if owned.progress < needed {
         owned.outcome = Some(ArtOutcome::Progressed);
         return ArtOutcome::Progressed;
@@ -642,6 +688,19 @@ pub fn external_damage(attack: u32, multiplier_permille: u32) -> u32 {
         .saturating_div(1_000) as u32
 }
 
+/// What one 外功 is worth as *power*: the extra damage it lands per blow over a
+/// bare hand, read at the rate 攻击力 is worth power.
+///
+/// The same conversion [`super::Derived::power`] uses — one point of 攻击力 is
+/// `STRENGTH_WEIGHT` power per `ATTACK_PER_STRENGTH` points — so the figure the
+/// page prints as "外功 +N" is the figure the fight would actually move by, not
+/// a second scale invented for the panel.
+pub fn external_power_gain(attack: u32, multiplier_permille: u32) -> u32 {
+    let extra = external_damage(attack, multiplier_permille.saturating_sub(1_000));
+    let rate = super::STRENGTH_WEIGHT * 1_000 / super::ATTACK_PER_STRENGTH;
+    u32::try_from(u64::from(extra) * u64::try_from(rate).unwrap_or(0) / 1_000).unwrap_or(u32::MAX)
+}
+
 /// One 功法 as a surface reads it, with the blueprint folded in.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArtView {
@@ -654,8 +713,9 @@ pub struct ArtView {
     pub progress: u32,
     /// What the next 阶 asks for.
     pub required: u32,
-    /// The failure chance as this cultivator faces it, in parts per thousand.
-    pub failure_permille: u32,
+    /// The chance one attempt lands, as this body faces it, in parts per
+    /// thousand.
+    pub success_permille: u32,
     /// What one 阶 pays, for an 内功.
     pub gain: Attributes,
     /// What one 阶 pays outright in combat numbers, for an 内功: the 攻击力,
@@ -715,7 +775,7 @@ pub struct MasteredArtView {
 }
 
 /// Fold an owned art and its blueprint into what a surface draws.
-pub fn art_view(owned: &OwnedArt, aptitude: u32, selected: bool) -> ArtView {
+pub fn art_view(owned: &OwnedArt, aptitude_tenths: i32, selected: bool) -> ArtView {
     let art = blueprint(owned.art_id);
     ArtView {
         id: art.id,
@@ -725,8 +785,8 @@ pub fn art_view(owned: &OwnedArt, aptitude: u32, selected: bool) -> ArtView {
         rank: owned.rank,
         max_rank: art.grade.ranks(),
         progress: owned.progress,
-        required: required_pomodoros(owned.rank),
-        failure_permille: effective_failure_permille(art.grade, aptitude),
+        required: required_pomodoros(owned.rank, aptitude_tenths),
+        success_permille: super::aptitude::success_permille(art.grade, aptitude_tenths),
         gain: art.gain,
         bonus: art.bonus,
         cost: art.cost,
@@ -803,31 +863,123 @@ mod tests {
 
     #[test]
     fn the_rank_costs_climb_geometrically() {
-        let costs: Vec<u32> = (1..=10).map(required_pomodoros).collect();
+        let costs: Vec<u32> = (1..=10).map(printed_pomodoros).collect();
         assert_eq!(costs, vec![1, 2, 3, 4, 5, 7, 10, 14, 20, 29]);
         // A 黄阶 art is six sessions; a 神阶 one is a season, not a decade.
         assert_eq!(costs[..3].iter().sum::<u32>(), 6);
         assert_eq!(costs.iter().sum::<u32>(), 95);
     }
 
+    /// The printed cost is what a body with no 潜质 pays three times over; the
+    /// two are the same function, so the arithmetic a surface prints and the
+    /// arithmetic a session charges cannot disagree.
     #[test]
-    fn aptitude_softens_the_failure_and_only_so_far() {
-        let base = ArtGrade::Divine.failure_permille();
-        assert_eq!(effective_failure_permille(ArtGrade::Divine, 0), base);
+    fn the_printed_cost_is_the_zero_aptitude_cost_over_three() {
+        for rank in 1..=10u8 {
+            let printed = printed_pomodoros(rank);
+            let asked = required_pomodoros(rank, 0);
+            assert_eq!(
+                asked,
+                super::super::aptitude::required_pomodoros(printed, 0),
+                "rank {rank}"
+            );
+            assert!(asked >= printed * 2, "a bare body pays the threefold");
+        }
+    }
+
+    #[test]
+    fn aptitude_sets_the_success_rate_and_saturates() {
         assert_eq!(
-            effective_failure_permille(ArtGrade::Divine, 100),
-            base - 100
+            super::super::aptitude::success_permille(ArtGrade::Divine, 0),
+            50,
+            "a 神阶 art is a one-in-twenty read at no 潜质"
+        );
+        assert!(
+            super::super::aptitude::success_permille(ArtGrade::Divine, 1_000)
+                > super::super::aptitude::success_permille(ArtGrade::Divine, 0),
+            "潜质 is the lever"
         );
         assert_eq!(
-            effective_failure_permille(ArtGrade::Divine, 10_000),
-            base - APTITUDE_DISCOUNT_CAP,
-            "潜质 cannot make a 神阶 art safe"
+            super::super::aptitude::success_permille(ArtGrade::Yellow, 10_000),
+            super::super::aptitude::SUCCESS_CAP_PERMILLE,
+            "a rate past certainty is held to certainty"
         );
-        assert_eq!(
-            effective_failure_permille(ArtGrade::Yellow, 999),
-            0,
-            "a 黄阶 art is within reach of a gifted beginner"
-        );
+    }
+
+    /// Every grade's per-阶 payout is clearly larger than the one below, and 玄
+    /// is exactly one and a half times the old figure of four.
+    #[test]
+    fn the_grade_payouts_are_far_apart_and_anchor_on_profound() {
+        let magnitudes = INTERNAL_MAGNITUDES;
+        assert_eq!(magnitudes[1], 6, "玄阶 is the old 4 × 1.5");
+        for pair in magnitudes.windows(2) {
+            assert!(
+                pair[1] * 2 >= pair[0] * 3,
+                "adjacent grades must be half again apart: {magnitudes:?}"
+            );
+        }
+        // Each grade's arts actually carry that magnitude: the 内功 of a grade
+        // pays one attribute by it, so the blueprint says the table ran.
+        for (index, grade) in ArtGrade::ALL.into_iter().enumerate() {
+            let art = (1..=ART_COUNT)
+                .map(blueprint)
+                .find(|art| {
+                    art.grade == grade && art.kind == ArtKind::Internal && art.gain.total() > 0
+                })
+                .expect("every grade has an attribute-paying 内功");
+            let primary = [
+                art.gain.root,
+                art.gain.strength,
+                art.gain.mana,
+                art.gain.agility,
+            ]
+            .into_iter()
+            .max()
+            .unwrap_or(0);
+            assert!(
+                primary >= magnitudes[index],
+                "{:?} pays at least its magnitude: {primary}",
+                grade
+            );
+        }
+        // An 外功's multiplier rises with the grade just as steeply.
+        let multipliers: Vec<u32> = ArtGrade::ALL
+            .into_iter()
+            .filter_map(|grade| {
+                (1..=ART_COUNT)
+                    .map(blueprint)
+                    .find(|art| art.grade == grade && art.kind == ArtKind::External)
+                    .map(|art| art.multiplier_permille)
+            })
+            .collect();
+        assert_eq!(multipliers.len(), 5);
+        assert_eq!(multipliers[1], 2_025, "玄阶 外功 is 1350 × 1.5");
+        for pair in multipliers.windows(2) {
+            assert!(pair[1] * 10 >= pair[0] * 13, "显著差异: {multipliers:?}");
+        }
+    }
+
+    /// The five discovery weights add up to exactly one million and the 神阶
+    /// share is the brief's ten-thousandth.
+    #[test]
+    fn the_grades_are_found_far_apart_and_divine_is_one_in_ten_thousand() {
+        let total: u32 = ART_GRADE_WEIGHTS_PER_MILLION.iter().sum();
+        assert_eq!(total, 1_000_000, "the roll must always answer");
+        assert_eq!(ART_GRADE_WEIGHTS_PER_MILLION[4], 100, "神阶 万分之一");
+        for pair in ART_GRADE_WEIGHTS_PER_MILLION.windows(2) {
+            assert!(
+                pair[0] >= pair[1] * 2,
+                "neighbouring grades must not be near-equal: {:?}",
+                ART_GRADE_WEIGHTS_PER_MILLION
+            );
+        }
+        // Every grade is reachable from the roll.
+        let mut seen = [0u32; 5];
+        let mut rng = Rng::seeded(0xC0FF_EE12_3456_789A);
+        for _ in 0..200_000 {
+            seen[roll_art_grade(&mut rng).index()] += 1;
+        }
+        assert!(seen.iter().all(|count| *count > 0), "{seen:?}");
     }
 
     #[test]
@@ -862,8 +1014,8 @@ mod tests {
             progress: 0,
             outcome: None,
         };
-        // 黄阶 fails 80‰ of the time; a seed that never draws below it is a
-        // cultivator whose training keeps landing.
+        // 潜质 100 leaves a 黄阶 art at the success cap; a body that good is a
+        // body whose training keeps landing.
         let mut rng = Rng::seeded(0xABCD);
         let mut ranked = false;
         for _ in 0..200 {
@@ -952,6 +1104,34 @@ mod tests {
         assert!(
             bonuses[0] < bonuses[4],
             "a 神阶 art is the one worth finishing"
+        );
+    }
+
+    /// Five grades, five colours: 黄、蓝、紫、橙、红 and none repeated, so a
+    /// shelf of five 功法 is readable before a word of it is read.
+    #[test]
+    fn every_grade_has_its_own_colour() {
+        let colours: Vec<u32> = ArtGrade::ALL
+            .into_iter()
+            .map(|grade| grade.color())
+            .collect();
+        let unique: std::collections::BTreeSet<u32> = colours.iter().copied().collect();
+        assert_eq!(
+            unique.len(),
+            5,
+            "each grade paints differently: {colours:?}"
+        );
+        // The ladder runs warmer at the top: the 神阶 colour leans on its red
+        // far harder than the 黄阶 one does, so "the red one is the rare one" is
+        // true to look at and not just to read.
+        let warmth = |value: u32| {
+            let red = i32::try_from((value >> 16) & 0xFF).unwrap_or(0);
+            let green = i32::try_from((value >> 8) & 0xFF).unwrap_or(0);
+            red - green
+        };
+        assert!(
+            warmth(colours[4]) > warmth(colours[0]),
+            "神阶 must read hotter than 黄阶"
         );
     }
 

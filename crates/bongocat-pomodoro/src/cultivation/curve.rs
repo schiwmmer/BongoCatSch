@@ -245,6 +245,23 @@ mod tests {
         assert_eq!(rank(101), LayerRank { layer: 0, rank: 1 });
     }
 
+    /// The one worked example the brief gives, checked end to end: 元婴 is the
+    /// fourth realm, so its 4 层 7 阶 is level 347 of 1000. The conversion is
+    /// `(realm − 1) × 100 + layer × 10 + rank`, with the layer counted from 0
+    /// exactly as the page prints it.
+    #[test]
+    fn a_realm_layer_and_rank_add_up_to_the_level_the_brief_names() {
+        let level = 3 * 100 + 4 * 10 + 7;
+        assert_eq!(level, 347);
+        assert_eq!(super::super::Realm::from_level(level).index(), 3);
+        let said = layer_rank(level);
+        assert_eq!((said.layer, said.rank), (4, 7), "元婴 · 4 层 7 阶");
+        // And the level is what the growth curve says it is.
+        assert_eq!(level_for_growth(threshold_for(level)).level, level);
+        // The whole ladder is ten realms of a hundred levels.
+        assert_eq!(MAX_LEVEL, 1_000);
+    }
+
     #[test]
     fn the_ladder_opens_where_the_realm_table_says() {
         assert_eq!(threshold_for(1), 0);

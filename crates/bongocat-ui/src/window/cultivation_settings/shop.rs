@@ -88,6 +88,9 @@ fn shop_row(
     // sides would be two grades.
     let name_color = match &entry.offer {
         ShopOffer::Equipment(item) if !entry.bought => quality_color(item.rarity),
+        // A 功法 on the shelf wears its grade's colour too: 黄、蓝、紫、橙、红
+        // is how a buyer tells five books apart before reading five names.
+        ShopOffer::Art { art_id } if !entry.bought => grade_color(blueprint(*art_id).grade),
         _ => tokens.text,
     };
     let price = format_text(
@@ -295,6 +298,39 @@ fn shop_offer_detail(
                 ))
                 .into_any_element()
         }
+        ShopOffer::Herb { herb } => div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .text_xs()
+            .text_color(tokens.muted)
+            // What the herb does, then what a sale would bring: the same two
+            // facts every row carries, in the terms 潜质 is bought in.
+            .child(format_text(
+                locale,
+                "cultivation.shop.herb_facts",
+                &[
+                    ("herb", text(locale, herb.name_key()).to_string()),
+                    ("effect", herb_effect(*herb, locale)),
+                ],
+            ))
+            .child(resale)
+            .into_any_element(),
+    }
+}
+
+/// What one 潜质 item does, as the shelf says it.
+fn herb_effect(herb: AptitudeHerb, locale: &str) -> String {
+    match herb.gain_tenths() {
+        Some((low, high)) => format_text(
+            locale,
+            "cultivation.shop.herb_gain",
+            &[
+                ("low", super::tenths_text(low)),
+                ("high", super::tenths_text(high)),
+            ],
+        ),
+        None => text(locale, "cultivation.shop.herb_marrow_gain").to_string(),
     }
 }
 
@@ -376,5 +412,6 @@ fn shop_offer_label(offer: &ShopOffer, locale: &str) -> String {
             name,
         } => seed_label(locale, *attribute, *tier, name.as_deref()),
         ShopOffer::Art { art_id } => blueprint(*art_id).name.clone(),
+        ShopOffer::Herb { herb } => text(locale, herb.name_key()).to_string(),
     }
 }

@@ -4,6 +4,12 @@
 
 ### ✨ Features
 
+- The realm line is a control now: clicking it unfolds the whole ladder — the level on the thousand ("347 / 1000"), the rule that converts a realm, layer and rank into it (`(realm − 1) × 100 + layer × 10 + rank`, layers counted from 0), and all ten rungs with the current one marked.
+- The attribute panel drops the two school figures that decided nothing and shows the two halves that do: 内功 power, what the inner arts are worth at the same scale as the four attributes, and 外功 power, what the best outer art adds per blow over a bare hand.
+- 潜质 is rebuilt as its own fractional number — born somewhere on a −10..+10 band, capped at 1000, stored in tenths — and it now sets both how reliably and how fast an art is learned: at 0 an attempt succeeds 50 / 42 / 35 / 20 / 5% by grade and a rank costs three times the printed pomodoros, with every point multiplying the rate by 1.01 and the cost by 0.99. Two herbs are the only way up (悟心草 +0.1–1.2, 慧心草 +0.5–2.0), and every even hundred needs its own number of 洗髓丹 — the hundredth one pill, the two-hundredth two — before it can move again.
+- 洗髓丹 is the rarest thing a save can find: one day in ten thousand on the shelf at 100 000 灵石, one quiet walk or morning event in ten thousand, and a fight drop that climbs from one in a hundred thousand at even odds to one in a thousand against something three times as strong.
+- 功法 get steeper by grade: each 阶 of an 内功 pays 2 / 6 / 9 / 14 / 21 by grade (玄 is one and a half times what it was), an 外功 lands 1.2 / 2.03 / 2.7 / 3.6 / 4.8 times a bare hand, and discovery is far rarer at the top — 60% / 25% / 11% / 4% / one in ten thousand. Every grade also carries its own colour — 黄, 蓝, 紫, 橙, 红 — on the shelf, in the training list and on every learned row.
+
 - A Pomodoro timer, started from the "Start Pomodoro" menu entry on macOS: name a task, set how many focus sessions it needs, and a countdown floats above the cat as the session runs. A finished session plays a short chime, and a right-click on the countdown pauses or abandons it. Tasks are kept in a separate `pomodoro-tasks.json`, and a countdown does not survive a restart.
 - A "Pomodoro" settings page with a task list and a month calendar: tick a task done as you finish it, and see each day's finished focus sessions laid out on a calendar. The whole feature is localized into both supported languages.
 - The "Pomodoro" settings page grows a "New Task" button beside its title, so a first task can be created without hunting for the list.

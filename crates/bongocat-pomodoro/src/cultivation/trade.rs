@@ -42,6 +42,16 @@ pub enum TradeRefusal {
     PlotLimit,
     /// The piece already holds every star it can: ten is the whole sky.
     StarCapped,
+    /// The 潜质 herb asked for is not in the bag.
+    HerbNotHeld,
+    /// 潜质 has reached the top of its band: 1000 is the whole body.
+    AptitudeCapped,
+    /// The move crosses an even hundred and the purse has no 洗髓丹 for it.
+    ///
+    /// The herb is not spent: being stuck at 100 is the brief's whole point,
+    /// and a herb burned against a gate it did not open would be a tax on
+    /// trying.
+    NotEnoughMarrow,
 }
 
 impl TradeRefusal {
@@ -58,6 +68,9 @@ impl TradeRefusal {
             Self::AlreadySold => "cultivation.shop.refuse_sold",
             Self::PlotLimit => "cultivation.garden.refuse_limit",
             Self::StarCapped => "cultivation.shop.refuse_star_capped",
+            Self::HerbNotHeld => "cultivation.aptitude_refuse_herb",
+            Self::AptitudeCapped => "cultivation.aptitude_refuse_capped",
+            Self::NotEnoughMarrow => "cultivation.aptitude_refuse_marrow",
         }
     }
 }

@@ -32,7 +32,7 @@ use super::{
         roll_kind,
     },
     duel::{DUEL_RECORD_CAP, DuelRecord, FightKind, duel},
-    events::{EVENT_LOG_CAP, EventDetail, EventRecord, SaleKind},
+    events::{EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind},
     explore::{
         GUARDIAN_STONES, TRIAL_STONES, WALK_STONES, WANDERER_STONES, WalkRecord,
         breakthrough_ready, exploration_ready, roll_stones, roll_victory, roll_walk,
@@ -191,6 +191,24 @@ pub struct StarOutcome {
     pub success: bool,
     /// What the attempt cost, in 灵石.
     pub cost: u32,
+}
+
+/// What one 潜质 herb did.
+///
+/// Carried rather than left to the event log because the popup that says "潜质
+/// 4.7 → 5.3" has to know the move, and a surface reading the log would have to
+/// match a line by timestamp to find it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AptitudeUse {
+    /// Which herb was fed.
+    pub herb: super::AptitudeHerb,
+    /// How much it actually moved the total, in tenths: less than the roll when
+    /// the band's top clipped it.
+    pub gained_tenths: i32,
+    /// Where 潜质 stands now, in tenths.
+    pub aptitude_tenths: i32,
+    /// How many 洗髓丹 the move cost.
+    pub marrow_spent: u32,
 }
 
 /// One owned item, as a surface reads it.
@@ -366,6 +384,22 @@ pub struct CultivationView {
     pub mastered_arts: Vec<MasteredArtView>,
     /// What the trained 内功 have paid in total.
     pub art_attributes: Attributes,
+    /// What those 内功 are worth as battle power, at the same scale the total
+    /// power uses: a slice of it, not a second number.
+    pub art_power: u32,
+    /// What the best 外功 the cultivator knows would add per blow, as power.
+    ///
+    /// An 外功 pays no attribute, so it cannot show up in any of the totals
+    /// above; this is the figure that says what having one is worth.
+    pub external_power: u32,
+    /// 潜质, in tenths: 47 reads as 4.7. Fractional on purpose — every herb
+    /// pays a tenth of a point at the smallest.
+    pub aptitude_tenths: i32,
+    /// The 潜质 items held, in [`AptitudeHerb::ALL`] order.
+    pub aptitude_herbs: [u32; 3],
+    /// How many levels the ladder holds in all: [`MAX_LEVEL`], carried so a
+    /// surface can print "347 / 1000" without importing the ladder's size.
+    pub total_levels: u16,
     /// The 功法 the next finished pomodoro trains.
     pub selected_art: Option<u64>,
     /// What the last finished session did to the 功法 being trained.
@@ -487,17 +521,6 @@ fn seed_sell_price(attribute: Attribute, tier: u8) -> u32 {
 /// How often a lost breakthrough costs a piece of gear, in parts per thousand.
 const LOST_GEAR_PERMILLE: u64 = 250;
 
-/// The grade of 功法 a realm pays: the deeper the realm, the rarer the art.
-fn art_grade_for_realm(realm: Realm) -> ArtGrade {
-    match realm.index() {
-        0..=1 => ArtGrade::Yellow,
-        2..=3 => ArtGrade::Profound,
-        4..=5 => ArtGrade::Earth,
-        6..=7 => ArtGrade::Heaven,
-        _ => ArtGrade::Divine,
-    }
-}
-
 /// The cultivation ladder of one user.
 #[derive(Clone, Debug)]
 pub struct Cultivation {
@@ -560,11 +583,38 @@ impl Default for Cultivation {
     }
 }
 
+/// A seed for the one roll a new body gets: its 潜质.
+///
+/// Read from the clock once, at birth. Every other roll in this module is seeded
+/// from the caller's `now_unix`; this is the single exception, because a body
+/// rolled from a determinable seed would hand every fresh save the same 潜质,
+/// which is the one thing "初始值为 −10～10 的随机值" rules out. The value is
+/// written down by the next save, so it is only ever read once.
+fn birth_seed() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0x5EED_1E55_1234_5678, |elapsed| {
+            (elapsed.as_nanos() as u64) ^ 0x9E37_79B9_7F4A_7C15
+        })
+}
+
 impl Cultivation {
     /// The state a stored document produces.
+    ///
+    /// A body that has never been born is born here, once: the only wall-clock
+    /// read in this module, and it exists because 潜质 starts on a −10..+10
+    /// band rather than at zero. The number is written into the document
+    /// immediately by the caller's next write, so every later read is the
+    /// stored value and nothing is rerolled by a relaunch.
     pub fn new(document: CultivationDocument) -> Self {
+        let mut document = document.normalized();
+        if document.aptitude_tenths.is_none() {
+            let mut rng = Rng::seeded(birth_seed());
+            document.aptitude_tenths = Some(super::aptitude::birth_aptitude(&mut rng));
+        }
         Self {
-            document: document.normalized(),
+            document,
             roll_sequence: 0,
             last_absence: None,
             last_drop: None,
@@ -739,6 +789,107 @@ impl Cultivation {
             .plus(self.art_attributes())
     }
 
+    /// 潜质, in tenths: the born band plus the whole points gear and 内功 pay
+    /// outright.
+    ///
+    /// One reader for the number every surface and every learning roll uses, so
+    /// the rate a row prints, the pomodoros a 阶 asks for and the roll that
+    /// decides an attempt are all the same value.
+    pub fn aptitude_tenths(&self) -> i32 {
+        let born = self.document.aptitude_tenths.unwrap_or(0);
+        let outright = i32::try_from(self.equipment_bonus().aptitude)
+            .unwrap_or(i32::MAX)
+            .saturating_add(i32::try_from(self.art_bonus().aptitude).unwrap_or(i32::MAX));
+        super::aptitude::clamp_tenths(born.saturating_add(outright.saturating_mul(10)))
+    }
+
+    /// 潜质 as a point value: 47 tenths reads as 4.7.
+    pub fn aptitude(&self) -> f32 {
+        super::aptitude::points(self.aptitude_tenths())
+    }
+
+    /// The 潜质 items the cultivator is holding, in [`super::AptitudeHerb::ALL`]
+    /// order.
+    pub fn aptitude_herbs(&self) -> [u32; 3] {
+        [
+            self.document.insight_herbs,
+            self.document.wisdom_herbs,
+            self.document.marrow_pills,
+        ]
+    }
+
+    /// Feed one 潜质 herb to the body.
+    ///
+    /// The herb pays a roll inside its own band, the gate it crosses is paid in
+    /// 洗髓丹, and nothing is spent unless both halves can be paid: a herb that
+    /// purchased half a move would be a consumable the user cannot account for.
+    ///
+    /// The gain is measured against the total 潜质 the page shows — born band
+    /// plus the whole points gear and 内功 pay — so "stuck at 100" means the
+    /// number on the page, not a hidden base behind it.
+    pub fn use_aptitude_herb(
+        &mut self,
+        herb: super::AptitudeHerb,
+        now_unix: i64,
+    ) -> Result<AptitudeUse, TradeRefusal> {
+        let Some((low, high)) = herb.gain_tenths() else {
+            // The pill opens a gate; it does not feed the body, so there is
+            // nothing for it to do on its own.
+            return Err(TradeRefusal::HerbNotHeld);
+        };
+        let held = match herb {
+            super::AptitudeHerb::Insight => self.document.insight_herbs,
+            super::AptitudeHerb::Wisdom => self.document.wisdom_herbs,
+            super::AptitudeHerb::Marrow => 0,
+        };
+        if held == 0 {
+            return Err(TradeRefusal::HerbNotHeld);
+        }
+        let total = self.aptitude_tenths();
+        if total >= super::APTITUDE_MAX_TENTHS {
+            return Err(TradeRefusal::AptitudeCapped);
+        }
+        let outright = total.saturating_sub(self.document.aptitude_tenths.unwrap_or(0));
+        let mut rng = self.rng(now_unix);
+        let span = u64::try_from(high - low + 1).unwrap_or(1);
+        let gained = low.saturating_add(i32::try_from(rng.below(span)).unwrap_or(0));
+        let target = total.saturating_add(gained).min(super::APTITUDE_MAX_TENTHS);
+        let marble = super::aptitude::marrow_needed(total, target);
+        if self.document.marrow_pills < marble {
+            return Err(TradeRefusal::NotEnoughMarrow);
+        }
+        match herb {
+            super::AptitudeHerb::Insight => {
+                self.document.insight_herbs = self.document.insight_herbs.saturating_sub(1);
+            }
+            super::AptitudeHerb::Wisdom => {
+                self.document.wisdom_herbs = self.document.wisdom_herbs.saturating_sub(1);
+            }
+            super::AptitudeHerb::Marrow => {}
+        }
+        self.document.marrow_pills = self.document.marrow_pills.saturating_sub(marble);
+        self.document.aptitude_tenths = Some(super::aptitude::clamp_tenths(
+            target.saturating_sub(outright),
+        ));
+        let aptitude_tenths = self.aptitude_tenths();
+        let gained_tenths = aptitude_tenths.saturating_sub(total);
+        self.push_event(
+            now_unix,
+            EventDetail::Aptitude {
+                herb,
+                gained_tenths,
+                value_tenths: aptitude_tenths,
+                marrow: marble,
+            },
+        );
+        Ok(AptitudeUse {
+            herb,
+            gained_tenths,
+            aptitude_tenths,
+            marrow_spent: marble,
+        })
+    }
+
     /// The combat power everything together buys.
     ///
     /// The attributes' own two schools, plus what the outright combat numbers
@@ -750,6 +901,45 @@ impl Cultivation {
             .power()
             .saturating_add(self.equipment_bonus().power())
             .saturating_add(self.art_bonus().power())
+    }
+
+    /// What the 内功 alone are worth as power.
+    ///
+    /// Their attributes at the very scale the four attributes are read at, plus
+    /// the outright combat lines they pay — so "内功 +N" is a slice of the total
+    /// above and not a second, incomparable number.
+    pub fn art_power(&self) -> u32 {
+        self.art_attributes()
+            .power()
+            .saturating_add(self.art_bonus().power())
+    }
+
+    /// What the best 外功 the cultivator knows would add per blow, as power.
+    ///
+    /// The *best* one rather than the sum: a fight swings one 外功 at a time, so
+    /// adding four of them up would print a number no fight could ever reach.
+    /// Each candidate is priced off the 攻击力 the cultivator actually carries,
+    /// which is the number the strike scales from.
+    pub fn external_power(&self) -> u32 {
+        let attack = self.derived().attack;
+        let known = self
+            .document
+            .arts
+            .iter()
+            .map(|art| art.art_id)
+            .chain(self.document.mastered_arts.iter().copied());
+        let mut best = 0;
+        for id in known {
+            let art = blueprint(id);
+            if art.kind != ArtKind::External {
+                continue;
+            }
+            best = best.max(super::arts::external_power_gain(
+                attack,
+                art.multiplier_permille,
+            ));
+        }
+        best
     }
 
     /// The items currently worn, in slot order.
@@ -870,7 +1060,7 @@ impl Cultivation {
         let Some(art_id) = self.document.selected_art else {
             return;
         };
-        let aptitude = self.attributes().derived().aptitude;
+        let aptitude_tenths = self.aptitude_tenths();
         let mut rng = self.rng(now_unix);
         let Some(art) = self
             .document
@@ -880,7 +1070,7 @@ impl Cultivation {
         else {
             return;
         };
-        let outcome = train(art, aptitude, &mut rng);
+        let outcome = train(art, aptitude_tenths, &mut rng);
         let rank = art.rank;
         // Every attempt counts as training, a failure included: the panel's
         // question is "what have I been working on", not "what have I won".
@@ -965,7 +1155,7 @@ impl Cultivation {
             }
             return Some(art_view(
                 self.document.arts.last()?,
-                self.attributes().derived().aptitude,
+                self.aptitude_tenths(),
                 true,
             ));
         }
@@ -1002,7 +1192,7 @@ impl Cultivation {
         }
         Some(art_view(
             self.document.arts.last()?,
-            self.attributes().derived().aptitude,
+            self.aptitude_tenths(),
             true,
         ))
     }
@@ -1099,15 +1289,20 @@ impl Cultivation {
     /// The fallback is not a consolation prize: a book the cultivator already
     /// owns cannot be given twice, and a fight that promised a 功法 has to pay
     /// one somehow.
-    fn take_art(&mut self, rival: &Opponent, realm: Realm, now_unix: i64) -> Option<String> {
-        rival
-            .art
-            .and_then(|art_id| self.grant_art_book(art_id))
-            .map(|art| art.name)
-            .or_else(|| {
-                self.grant_art(art_grade_for_realm(realm), now_unix)
-                    .map(|art| art.name)
-            })
+    fn take_art(&mut self, rival: &Opponent, _realm: Realm, now_unix: i64) -> Option<String> {
+        if let Some(art_id) = rival.art
+            && let Some(art) = self.grant_art_book(art_id)
+        {
+            return Some(art.name);
+        }
+        // Which grade the fallback book carries is the discovery roll: the realm
+        // no longer decides it, because a 神阶 art is meant to be an event a
+        // beginner can meet rather than a reward for finishing the ladder.
+        let grade = {
+            let mut rng = self.rng(now_unix);
+            super::arts::roll_art_grade(&mut rng)
+        };
+        self.grant_art(grade, now_unix).map(|art| art.name)
     }
 
     /// Own one seed that already has its name.
@@ -1417,6 +1612,11 @@ impl Cultivation {
             );
             return Some(outcome);
         }
+        // The guardian is the strongest thing on the page, so a win here is
+        // where the pill's odds are best — and it is rolled before the realm
+        // opens, so the newest line in the log is the find rather than the
+        // breakthrough it came with.
+        self.roll_marrow_from_combat(guardian.power, &mut rng, now_unix);
         self.enter_realm(guardian, &rival, duel, now_unix);
         let outcome = self.last_breakthrough.clone();
         // The log is written after the settlement so the line carries the
@@ -1433,8 +1633,45 @@ impl Cultivation {
         outcome
     }
 
-    /// Write one fought fight into the record, newest first.
+    /// Roll one 洗髓丹 after a won fight.
     ///
+    /// The odds climb with the opponent's power relative to the cultivator's —
+    /// one in a hundred thousand at parity, one in a thousand against something
+    /// three times as strong — so the pill is the reward for punching up rather
+    /// than for farming the easiest thing on the page.
+    fn roll_marrow_from_combat(&mut self, rival_power: u32, rng: &mut Rng, now_unix: i64) -> bool {
+        let player = self.power();
+        let ppm = super::aptitude::marrow_combat_ppm(rival_power, player);
+        if rng.below(1_000_000) >= ppm {
+            return false;
+        }
+        self.document.marrow_pills = self.document.marrow_pills.saturating_add(1);
+        self.push_event(
+            now_unix,
+            EventDetail::MarrowFound {
+                source: MarrowSource::Combat,
+            },
+        );
+        true
+    }
+
+    /// Roll one 洗髓丹 out of a quiet source: a walk that met nobody, or the
+    /// day's own event. One in ten thousand, the same number the shelf uses.
+    fn roll_marrow_from_fortune(&mut self, rng: &mut Rng, now_unix: i64) -> bool {
+        if rng.below(super::aptitude::MARROW_FORTUNE_ONE_IN) != 0 {
+            return false;
+        }
+        self.document.marrow_pills = self.document.marrow_pills.saturating_add(1);
+        self.push_event(
+            now_unix,
+            EventDetail::MarrowFound {
+                source: MarrowSource::Fortune,
+            },
+        );
+        true
+    }
+
+    /// Write one fought fight into the record, newest first.
     /// A win is also what trains the 战斗 dimension, so the count and the line of
     /// history are written together: a record that disagreed with the dimension
     /// would be two truths about the same fight.
@@ -1741,9 +1978,14 @@ impl Cultivation {
                 found.gear = Some(self.item_view(&item));
             }
             ExplorationOutcome::Art => {
-                found.art = self
-                    .grant_art(art_grade_for_realm(self.realm()), now_unix)
-                    .map(|art| art.name);
+                // Which grade turns up is the discovery roll, not the realm's
+                // band: a walk can hand a beginner a 神阶 book, at the same
+                // ten-thousandth the shelf and the guardian use.
+                let grade = {
+                    let mut grade_rng = self.rng(now_unix);
+                    super::arts::roll_art_grade(&mut grade_rng)
+                };
+                found.art = self.grant_art(grade, now_unix).map(|art| art.name);
             }
             ExplorationOutcome::Victory => {
                 let fighter = self.fighter(&mut rng);
@@ -1753,6 +1995,9 @@ impl Cultivation {
                 let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
                 if duel.won {
                     found = self.award_wanderer_find(&rival, &mut rng, now_unix);
+                    // A beaten wanderer can leave a 洗髓丹 behind: the odds are
+                    // read off how far it outclassed the cultivator.
+                    self.roll_marrow_from_combat(rival.attributes.power(), &mut rng, now_unix);
                 } else {
                     outcome = ExplorationOutcome::Defeat;
                 }
@@ -1762,6 +2007,15 @@ impl Cultivation {
             ExplorationOutcome::Defeat
             | ExplorationOutcome::Nothing
             | ExplorationOutcome::Stones => {}
+        }
+        // A quiet walk is a random event like the morning's: one in ten thousand
+        // turns up a 洗髓丹. A fight's own roll is above, and a loss finds
+        // nothing — the pill is not a consolation prize.
+        if !matches!(
+            outcome,
+            ExplorationOutcome::Victory | ExplorationOutcome::Defeat
+        ) {
+            self.roll_marrow_from_fortune(&mut rng, now_unix);
         }
         // 灵石 are rolled beside the finding rather than in place of it: an
         // outing can come back with a herb and a handful of stones both, and
@@ -1984,6 +2238,10 @@ impl Cultivation {
                 outcome.won = duel.won;
                 if duel.won {
                     outcome.found = self.award_wanderer_find(&rival, &mut rng, now_unix);
+                    // The ambush is a fight like any other, so it rolls the
+                    // pill on the same odds: the stronger the ambusher, the
+                    // better the chance it was carrying one.
+                    self.roll_marrow_from_combat(rival.attributes.power(), &mut rng, now_unix);
                     let amount = roll_stones(&mut rng, DAILY_AMBUSH_STONES, tier);
                     self.document.stones = self.document.stones.saturating_add(amount);
                     outcome.found.stones = Some(amount);
@@ -2011,6 +2269,12 @@ impl Cultivation {
                 self.document.stones = self.document.stones.saturating_add(amount);
                 outcome.found.stones = Some(amount);
             }
+        }
+        // A gift or a trinket is a random event, so it carries the same one in
+        // ten thousand the shelf does. An ambush rolls its own odds above, and a
+        // lost ambush finds nothing.
+        if !matches!(kind, DailyKind::Ambush) {
+            self.roll_marrow_from_fortune(&mut rng, now_unix);
         }
         let found = outcome.found.clone();
         self.push_event(
@@ -2071,9 +2335,10 @@ impl Cultivation {
             .plus(art_attributes);
         let bonus = self.equipment_bonus().plus(self.art_bonus());
         let attribute_derived = attributes.derived();
-        // 潜质 is read with the outright lines folded in as well: an 内功 that
-        // pays 潜质 outright pays it however it was paid.
-        let aptitude = attribute_derived.aptitude.saturating_add(bonus.aptitude);
+        // 潜质 is its own fractional number now, not a slice of 根骨: the
+        // outright lines are folded into it by the one reader, so the rate a
+        // row prints and the roll a session makes are the same value.
+        let aptitude_tenths = self.aptitude_tenths();
         let derived = attribute_derived.plus(bonus);
         let arts: Vec<ArtView> = self
             .document
@@ -2082,7 +2347,7 @@ impl Cultivation {
             .map(|art| {
                 art_view(
                     art,
-                    aptitude,
+                    aptitude_tenths,
                     self.document.selected_art == Some(art.art_id),
                 )
             })
@@ -2216,6 +2481,11 @@ impl Cultivation {
             last_seed_return: self.last_seed_return.clone(),
             arts,
             mastered_arts,
+            art_power: self.art_power(),
+            external_power: self.external_power(),
+            aptitude_tenths,
+            aptitude_herbs: self.aptitude_herbs(),
+            total_levels: MAX_LEVEL,
             selected_art: self.document.selected_art,
             last_training: self.last_training.clone(),
             last_exploration_duel: self.last_exploration_duel.clone(),
@@ -2435,6 +2705,7 @@ impl Cultivation {
             ShopOffer::Art { art_id } => SaleKind::Art {
                 name: Some(blueprint(*art_id).name),
             },
+            ShopOffer::Herb { herb } => SaleKind::Herb { herb: *herb },
         };
         match bought {
             ShopOffer::Equipment(item) => {
@@ -2455,6 +2726,27 @@ impl Cultivation {
                 // the shelf names the 功法, and buying a different one would be
                 // a market that sells what it does not show.
                 self.grant_art_book(art_id);
+            }
+            ShopOffer::Herb { herb } => {
+                // The herbs go straight into the bag: nothing here is planted
+                // or worn, so the purchase is the whole transaction.
+                match herb {
+                    super::AptitudeHerb::Insight => {
+                        self.document.insight_herbs = self.document.insight_herbs.saturating_add(1);
+                    }
+                    super::AptitudeHerb::Wisdom => {
+                        self.document.wisdom_herbs = self.document.wisdom_herbs.saturating_add(1);
+                    }
+                    super::AptitudeHerb::Marrow => {
+                        self.document.marrow_pills = self.document.marrow_pills.saturating_add(1);
+                        self.push_event(
+                            now_unix,
+                            EventDetail::MarrowFound {
+                                source: MarrowSource::Shop,
+                            },
+                        );
+                    }
+                }
             }
         }
         self.push_event(
@@ -2652,15 +2944,91 @@ impl Cultivation {
 #[cfg(test)]
 mod tests {
     use super::super::{
-        DISCIPLINE_STEP_CAP, DISCIPLINE_STEP_PERMILLE, Discipline, GROWTH_MULTIPLIER_CAP_PERMILLE,
-        LAYERS_PER_STAGE, STAGE_COUNT, discipline_bonus, discipline_cap, growth_permille,
-        scaled_growth, session_growth, threshold_for,
+        AptitudeHerb, DISCIPLINE_STEP_CAP, DISCIPLINE_STEP_PERMILLE, Discipline,
+        GROWTH_MULTIPLIER_CAP_PERMILLE, LAYERS_PER_STAGE, STAGE_COUNT, discipline_bonus,
+        discipline_cap, growth_permille, scaled_growth, session_growth, threshold_for,
     };
     use super::*;
     use crate::CalendarDay;
 
     fn day(number: i64) -> CalendarDay {
         CalendarDay::from_day_number(number)
+    }
+
+    /// An even hundred holds a body until its 洗髓丹 are paid: the herb is not
+    /// burned against a gate it did not open, and the pill count is the number
+    /// the brief names — 200 costs two, 300 three.
+    #[test]
+    fn an_even_hundred_holds_a_body_until_its_pills_are_paid() {
+        let make = |pills: u32| {
+            Cultivation::new(CultivationDocument {
+                aptitude_tenths: Some(1_999),
+                insight_herbs: 1,
+                marrow_pills: pills,
+                ..CultivationDocument::default()
+            })
+        };
+        // 199.9 plus any 悟心草 crosses 200, which the brief prices at two pills.
+        let mut poor = make(1);
+        assert_eq!(
+            poor.use_aptitude_herb(AptitudeHerb::Insight, 10),
+            Err(TradeRefusal::NotEnoughMarrow)
+        );
+        assert_eq!(poor.aptitude_tenths(), 1_999, "still stuck at 199.9");
+        assert_eq!(poor.aptitude_herbs()[0], 1, "the herb is not burned");
+
+        let mut rich = make(2);
+        let used = rich
+            .use_aptitude_herb(AptitudeHerb::Insight, 10)
+            .expect("two pills open the two-hundredth");
+        assert_eq!(used.marrow_spent, 2);
+        assert!(used.aptitude_tenths > 2_000, "the body crossed 200");
+        assert_eq!(used.gained_tenths, used.aptitude_tenths - 1_999);
+        assert_eq!(rich.aptitude_herbs()[0], 0);
+        assert_eq!(rich.aptitude_herbs()[2], 0, "the pills were spent");
+    }
+
+    /// A body with no herb in the bag is refused, and the refusal costs nothing.
+    #[test]
+    fn a_herb_nobody_holds_is_refused_rather_than_faked() {
+        let mut cultivation = Cultivation::new(CultivationDocument {
+            aptitude_tenths: Some(0),
+            ..CultivationDocument::default()
+        });
+        assert_eq!(
+            cultivation.use_aptitude_herb(AptitudeHerb::Insight, 10),
+            Err(TradeRefusal::HerbNotHeld)
+        );
+        // The pill is not a herb: there is no command that burns one on its own.
+        assert_eq!(
+            cultivation.use_aptitude_herb(AptitudeHerb::Marrow, 10),
+            Err(TradeRefusal::HerbNotHeld)
+        );
+        assert_eq!(cultivation.aptitude_tenths(), 0);
+    }
+
+    /// The 潜质 an art asks of the body is the one the page shows, and it is
+    /// three times the printed cost at zero.
+    #[test]
+    fn aptitude_sets_what_a_rank_asks_of_the_body() {
+        let cultivation = Cultivation::new(CultivationDocument {
+            aptitude_tenths: Some(0),
+            arts: vec![OwnedArt {
+                art_id: 1,
+                rank: 1,
+                progress: 0,
+                outcome: None,
+            }],
+            ..CultivationDocument::default()
+        });
+        let view = cultivation.view();
+        let art = view.arts.first().expect("the book is on the shelf");
+        assert_eq!(art.required, 3, "the printed 1 costs a zero-潜质 body 3");
+        assert_eq!(
+            art.success_permille,
+            super::super::aptitude::base_success_permille(art.grade),
+            "the rate is the grade's own at zero 潜质"
+        );
     }
 
     /// A cultivator at the first realm's last layer, so a guardian is offered.

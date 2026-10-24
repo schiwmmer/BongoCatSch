@@ -2,7 +2,7 @@
 //! the free points go, and the two power lines every fight reads.
 
 use super::*;
-use bongocat_pomodoro::{Derived, DerivedBreakdown, Fighter};
+use bongocat_pomodoro::{AptitudeHerb, Derived, DerivedBreakdown, Fighter};
 
 /// The four attributes, what each source contributes, and the free points the
 /// levels have paid.
@@ -73,8 +73,12 @@ pub(super) fn attributes_panel(
                 attribute_hint(attribute.index(), name, explanation, hint_tokens)
             })
     });
+    // What the level, the gear, the crops and the two 功法 halves are each
+    // worth. The 内功 and 外功 lines are the two an art build reads: an 内功 pays
+    // attributes (and so is a slice of the total), while an 外功 pays no
+    // attribute at all and would otherwise be invisible.
     let breakdown = format!(
-        "{} · {} · {}",
+        "{} · {} · {} · {} · {}",
         format_text(
             locale,
             "cultivation.power_level",
@@ -93,20 +97,16 @@ pub(super) fn attributes_panel(
             "cultivation.power_crop",
             &[("value", cultivation.crop_attributes.power().to_string())],
         ),
-    );
-    // The two schools the four attributes feed. Shown beside the totals because
-    // a lopsided build is invisible in a single power number: two cultivators at
-    // the same power can be one spellcaster and one brawler.
-    let schools = format_text(
-        locale,
-        "cultivation.power_schools",
-        &[
-            ("spell", cultivation.attributes.spell_power().to_string()),
-            (
-                "martial",
-                cultivation.attributes.martial_power().to_string(),
-            ),
-        ],
+        format_text(
+            locale,
+            "cultivation.power_art",
+            &[("value", cultivation.art_power.to_string())],
+        ),
+        format_text(
+            locale,
+            "cultivation.power_external",
+            &[("value", cultivation.external_power.to_string())],
+        ),
     );
 
     let panel = div()
@@ -133,35 +133,14 @@ pub(super) fn attributes_panel(
                 )),
         )
     };
-    // The two schools are the panel most likely to read as two more attributes,
-    // so their line carries the sentence that says they are a cut of the four
-    // above rather than two things of their own. The strings are read out here
-    // because the hover body outlives this call and cannot borrow `locale`.
-    let schools_hint_title = text(locale, "cultivation.hint.schools_title");
-    let schools_hint_body = text(locale, "cultivation.hint.schools_hint");
-    panel
-        .child(
-            HoverCard::new("cultivation-hint-schools")
-                .trigger(
-                    div()
-                        .id("cultivation-power-schools")
-                        .text_xs()
-                        .text_color(tokens.muted)
-                        .child(schools)
-                        .test_support(),
-                )
-                .open_delay(Duration::from_millis(120))
-                .content(move |_, _, _| {
-                    hint_body_with_title(
-                        "cultivation-hint-schools-body",
-                        schools_hint_title,
-                        schools_hint_body,
-                        tokens,
-                    )
-                })
-                .into_any_element(),
-        )
-        .child(div().text_xs().text_color(tokens.muted).child(breakdown))
+    panel.child(
+        div()
+            .id("cultivation-power-breakdown")
+            .text_xs()
+            .text_color(tokens.muted)
+            .child(breakdown)
+            .test_support(),
+    )
 }
 
 /// The seven numbers the four attributes turn into, and the two schools they
@@ -186,15 +165,19 @@ pub(super) fn derived_panel(
         format_text(
             locale,
             "cultivation.aptitude",
-            &[("value", cultivation.derived.aptitude.to_string())],
+            &[("value", super::tenths_text(cultivation.aptitude_tenths))],
         ),
     ));
     // The arithmetic behind each number, matched to the number by its catalog
     // key: the chip that prints the value also prints the sum that produced
     // it, so the two cannot be read as two different numbers.
+    // 潜质 has no attribute recipe behind it — it is born on its own band and
+    // raised by herbs — so it carries no breakdown: a formula reading "根骨 × 0"
+    // would be a sum that explains nothing.
     let breakdowns: std::collections::HashMap<&'static str, &DerivedBreakdown> = cultivation
         .derived_breakdowns
         .iter()
+        .filter(|breakdown| breakdown.key != "cultivation.aptitude")
         .map(|breakdown| (breakdown.key, breakdown))
         .collect();
     let chips = rows.into_iter().map(|(key, line)| {
@@ -639,6 +622,118 @@ fn attribute_hint(
                 .child(explanation),
         )
         .test_support()
+}
+
+/// 潜质 and the three things that move it.
+///
+/// One panel rather than three chips scattered around, because the number and
+/// its only three sources are one decision: a user reading "潜质 4.7" has to be
+/// able to see, in the same glance, that the way up is a herb and that every
+/// hundred is a gate a pill opens.
+pub(super) fn aptitude_panel(
+    view: &Entity<SettingsView>,
+    cultivation: &CultivationView,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    let herbs = AptitudeHerb::ALL
+        .into_iter()
+        .zip(cultivation.aptitude_herbs)
+        .map(|(herb, held)| {
+            let mut chip = div()
+                .id(format!("cultivation-herb-{}", herb_index(herb)))
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_1()
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .bg(tokens.overlay)
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(tokens.muted)
+                        .child(text(locale, herb.name_key())),
+                )
+                .child(div().text_xs().child(format!("×{held}")));
+            // Only the two herbs can be fed: a 洗髓丹 is spent by the move that
+            // crosses an even hundred, so a button of its own would be a button
+            // that has nothing to do until the herb beside it is pressed.
+            if herb.gain_tenths().is_some() {
+                chip = chip.child(
+                    Button::new(format!("cultivation-use-herb-{}", herb_index(herb)))
+                        .ghost()
+                        .small()
+                        .label(text(locale, "cultivation.aptitude_use"))
+                        .disabled(held == 0)
+                        .on_click({
+                            let view = view.clone();
+                            move |_, _, cx| {
+                                view.update(cx, |view, cx| {
+                                    let _ = view
+                                        .pomodoro
+                                        .try_publish(PomodoroCommand::UseAptitudeHerb { herb });
+                                    view.poll_pomodoro(cx);
+                                });
+                            }
+                        }),
+                );
+            }
+            chip.test_support()
+        });
+    // The number, the three items and the sentence that explains them are one
+    // row rather than four: this panel sits under a long column of others, and a
+    // block of its own height would push the fight and the walk off the fold.
+    // The explanation hangs off the number instead of taking a line of its own.
+    let hint_title = text(locale, "cultivation.aptitude_title");
+    let hint_body = text(locale, "cultivation.aptitude_hint");
+    div()
+        .id("cultivation-aptitude")
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .items_center()
+                .gap_2()
+                .child(
+                    HoverCard::new("cultivation-hint-aptitude")
+                        .trigger(
+                            div()
+                                .id("cultivation-aptitude-value")
+                                .text_xs()
+                                .child(format_text(
+                                    locale,
+                                    "cultivation.aptitude",
+                                    &[("value", super::tenths_text(cultivation.aptitude_tenths))],
+                                ))
+                                .test_support(),
+                        )
+                        .open_delay(Duration::from_millis(120))
+                        .content(move |_, _, _| {
+                            hint_body_with_title(
+                                "cultivation-hint-aptitude-body",
+                                hint_title,
+                                hint_body,
+                                tokens,
+                            )
+                        })
+                        .into_any_element(),
+                )
+                .children(herbs),
+        )
+}
+
+/// Where a 潜质 item sits in the panel's row: the enum's own order.
+fn herb_index(herb: AptitudeHerb) -> usize {
+    AptitudeHerb::ALL
+        .iter()
+        .position(|candidate| *candidate == herb)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

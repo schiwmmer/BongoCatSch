@@ -215,6 +215,42 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             *stones,
             locale,
         ),
+        EventDetail::Aptitude {
+            herb,
+            gained_tenths,
+            value_tenths,
+            marrow,
+        } => {
+            let mut line = format_text(
+                locale,
+                "cultivation.event.aptitude",
+                &[
+                    ("herb", text(locale, herb.name_key()).to_string()),
+                    ("gain", super::tenths_text(*gained_tenths)),
+                    ("value", super::tenths_text(*value_tenths)),
+                ],
+            );
+            if *marrow > 0 {
+                line = format_text(
+                    locale,
+                    "cultivation.event.aptitude_gate",
+                    &[("line", line), ("pills", marrow.to_string())],
+                );
+            }
+            line
+        }
+        EventDetail::MarrowFound { source } => {
+            let key = match source {
+                MarrowSource::Combat => "cultivation.marrow_source.combat",
+                MarrowSource::Fortune => "cultivation.marrow_source.fortune",
+                MarrowSource::Shop => "cultivation.marrow_source.shop",
+            };
+            format_text(
+                locale,
+                "cultivation.event.marrow_found",
+                &[("source", text(locale, key).to_string())],
+            )
+        }
         EventDetail::Training {
             name,
             outcome,
@@ -411,6 +447,7 @@ fn sale_label(what: &SaleKind, locale: &str) -> String {
             .clone()
             .unwrap_or_else(|| text(locale, "cultivation.shop.art").to_string()),
         SaleKind::Plot => text(locale, "cultivation.shop.plot").to_string(),
+        SaleKind::Herb { herb } => text(locale, herb.name_key()).to_string(),
     }
 }
 

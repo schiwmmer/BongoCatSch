@@ -34,6 +34,7 @@
 //!   [`SEED_RETURN_PERMILLE`] for a seed of the same attribute, the same tier
 //!   or one higher, which is what lets a garden keep running.
 
+mod aptitude;
 mod arts;
 mod battle;
 mod curve;
@@ -53,12 +54,13 @@ mod trial;
 #[cfg(test)]
 mod tests;
 
+pub use aptitude::{APTITUDE_MAX_TENTHS, AptitudeHerb, HerbView};
 pub use arts::{
     ART_COUNT, ArtBlueprint, ArtGrade, ArtKind, ArtOutcome, ArtView, MasteredArtView, OwnedArt,
     RECENT_ARTS_CAP, art_attributes, art_bonus, art_bonus_at, art_payout_at, art_view, blueprint,
-    effective_failure_permille, external_damage, mastered_art_attributes, mastered_art_bonus,
+    external_damage, external_power_gain, mastered_art_attributes, mastered_art_bonus,
     mastered_art_bonus_payout, mastered_art_payout, mastered_art_view, mastery_permille,
-    required_pomodoros,
+    printed_pomodoros, required_pomodoros,
 };
 pub use battle::{BattleReport, Guardian};
 // `duel` itself stays crate-private: it takes the seeded `Rng`, which is nobody
@@ -73,7 +75,7 @@ pub use duel::{
     ArtStrike, DUEL_RECORD_CAP, DUEL_ROUND_CAP, DuelRecord, DuelReport, DuelRound, FightKind,
     Fighter, GUARDIAN_NAME, PLAYER_NAME, WANDERER_NAME,
 };
-pub use events::{EVENT_LOG_CAP, EventDetail, EventRecord, SaleKind};
+pub use events::{EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind};
 pub use explore::{
     BREAKTHROUGH_COOLDOWN_SECONDS, ENCOUNTER_PERMILLE, EXPLORATION_COOLDOWN_SECONDS,
     ExplorationOutcome, VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkRecord,
@@ -92,9 +94,9 @@ pub use shop::{
     offers_for_day, roll_offers, seed_price, star_up_cost,
 };
 pub use state::{
-    AbsenceCharge, BreakthroughOutcome, CropView, Cultivation, CultivationView, DailyOutcome, Drop,
-    DropView, ExplorationFindView, GuardianView, HarvestOutcome, ItemView, PlotView, SeedView,
-    SessionReward, StarOutcome, TrainingView, TrialBlocked, TrialOutcome,
+    AbsenceCharge, AptitudeUse, BreakthroughOutcome, CropView, Cultivation, CultivationView,
+    DailyOutcome, Drop, DropView, ExplorationFindView, GuardianView, HarvestOutcome, ItemView,
+    PlotView, SeedView, SessionReward, StarOutcome, TrainingView, TrialBlocked, TrialOutcome,
 };
 pub use trade::{TradeRefusal, session_earnings};
 pub use trial::{
@@ -655,8 +657,12 @@ const DERIVED_SPECS: [DerivedSpec; 9] = [
         key: "cultivation.aptitude",
         slot: DerivedSlot::Aptitude,
         attribute: Attribute::Root,
+        // 潜质 no longer follows 根骨: it is its own fractional number, born
+        // somewhere between −10 and +10 and raised only by the two herbs. What
+        // this line carries is the *outright* share gear and 内功 pay — a fixed
+        // number of whole points on top of the herb-fed band.
         base: 0,
-        per_point: APTITUDE_PER_ROOT,
+        per_point: 0,
         cap: None,
         per_mille: false,
     },
@@ -888,7 +894,9 @@ const BASE_HIT: i64 = 100;
 const HIT_PER_AGILITY: i64 = 10;
 const BASE_EVADE: i64 = 100;
 const EVADE_PER_AGILITY: i64 = 10;
-/// What one point of 根骨 is worth to 潜质.
+/// What one point of 根骨 *would* be worth to 潜质, used only to price the whole
+/// points gear and 功法 pay outright: the herb-fed band has no attribute behind
+/// it, so the conversion exists only for what is added on top.
 const APTITUDE_PER_ROOT: i64 = 2;
 
 /// Turn a weighted sum into a whole non-negative number.

@@ -720,7 +720,6 @@
     "power_level": "境界 %{value}",
     "power_equipment": "装备 %{value}",
     "power_crop": "仙草 %{value}",
-    "power_schools": "法术 %{spell} · 武术 %{martial}",
     "equipment": "装备",
     "slot": {
       "weapon": "武器",
@@ -872,7 +871,10 @@
       "harvested": "仙草园收成 %{seed}，%{attribute} +%{points}",
       "bought_bare": "购入 %{what}",
       "star_success": "%{name} 升星成功，%{stars}（花 %{stones} 灵石）",
-      "star_failed": "%{name} 升星失败，降至 %{star} 星（花 %{stones} 灵石）"
+      "star_failed": "%{name} 升星失败，降至 %{star} 星（花 %{stones} 灵石）",
+      "aptitude": "%{herb} · 潜质 +%{gain} → %{value}",
+      "aptitude_gate": "%{line}（耗洗髓丹 %{pills}）",
+      "marrow_found": "得洗髓丹 ×1（%{source}）"
     },
     "shop": {
       "title": "集市",
@@ -898,12 +900,13 @@
       "detail_sell": "卖出可得 %{stones} 灵石",
       "special": "特价 %{value} 折 · 原价 %{list}",
       "seed_tier": "%{tier} 阶仙草",
-      "plot": "一块灵田"
+      "plot": "一块灵田",
+      "herb": "潜质之物",
+      "herb_facts": "%{herb} · %{effect}",
+      "herb_gain": "潜质 +%{low} ~ %{high}",
+      "herb_marrow_gain": "突破整百所需"
     },
     "hint": {
-      "realm_title": "境界：能爬到第几层的硬上限",
-      "schools_title": "法术与武术：四项属性切成的两半",
-      "schools_hint": "法术＝根骨＋仙力，武术＝力量＋身法。同系两项一起练有联动加成，只堆一个更亏。",
       "derived_title": "八项战斗数值：四项属性换算出来的结果，不能直接加点",
       "derived_hint_each": "由四项属性换算，改上面那四项才会变。",
       "power_hint": "战力＝法术＋武术，是破境时判定胜负用的那一个数。",
@@ -914,6 +917,29 @@
       "ambush_lost": "晨间遇袭，不敌而退，所幸未失",
       "gift": "晨起有得",
       "trinket": "晨间无事，拾得零碎"
+    },
+    "level": {
+      "total": "当前等级 %{level} / %{total}",
+      "rule": "累计等级 =（境界位次 − 1）× 100 + 层数 × 10 + 阶数，层数自 0 起算。十境界 × 一百级 = 一千级。",
+      "span": "%{from}–%{to} 级"
+    },
+    "power_art": "内功 %{value}",
+    "power_external": "外功 +%{value}",
+    "aptitude_title": "潜质",
+    "aptitude_hint": "潜质决定功法研习的成功率与速度：潜质为 0 时，成功率按品阶为黄 50%、玄 42%、地 35%、天 20%、神 5%，每阶所需番茄钟为印数的三倍；此后每 1 点潜质把成功率乘 1.01、把所需番茄钟乘 0.99（小数部分不超过 0.2 向下取整，超过则向上取整）。每满一百须服洗髓丹方能继续提升。",
+    "aptitude_use": "服用",
+    "aptitude_refuse_herb": "没有这件灵草",
+    "aptitude_refuse_capped": "潜质已至圆满",
+    "aptitude_refuse_marrow": "洗髓丹不足，潜质卡在整百",
+    "herb": {
+      "insight": "悟心草",
+      "wisdom": "慧心草",
+      "marrow": "洗髓丹"
+    },
+    "marrow_source": {
+      "combat": "战斗",
+      "fortune": "机缘",
+      "shop": "集市"
     }
   }
 }

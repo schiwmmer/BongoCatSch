@@ -355,6 +355,12 @@ pub struct SettingsView {
     /// A save can know a hundred 功法 and still be working on three: the panel
     /// answers "what am I training", and the full list is one click away.
     pub(crate) cultivation_mastered_open: bool,
+    /// Whether the realm ladder is unfolded under the realm line.
+    ///
+    /// Closed by default: the page is one scrolling column, and the ten-realm
+    /// list is reference material rather than something to read every launch.
+    /// Clicking the realm line opens it, and the same click closes it.
+    pub(crate) cultivation_ladder_open: bool,
     /// The fight the cultivation page is replaying over the page, if any.
     pub(crate) cultivation_duel: Option<CultivationDuel>,
     /// A fight or a walk the user asked for that the worker has not answered

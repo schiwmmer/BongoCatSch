@@ -134,24 +134,23 @@ fn mastered_art_row(
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
-    let grade = text(locale, art.grade.name_key());
     // An unfinished book says where it stands, so "已习得" cannot be read as
-    // "已圆满": the name carries the 阶 the training has reached.
-    let head = if art.complete {
-        format!("{} · {}", art.name, grade)
+    // "已圆满": the name carries the 阶 the training has reached. The grade is a
+    // separate element so it can keep its own colour while the 阶 share stays
+    // muted.
+    let grade_text = text(locale, art.grade.name_key());
+    let grade_paint = grade_color(art.grade);
+    let art_name = art.name.clone();
+    let tail = if art.complete {
+        String::new()
     } else {
-        format!(
-            "{} · {} · {}",
-            art.name,
-            grade,
-            format_text(
-                locale,
-                "cultivation.mastered.progress",
-                &[
-                    ("rank", art.rank.to_string()),
-                    ("total", art.max_rank.to_string()),
-                ],
-            )
+        format_text(
+            locale,
+            "cultivation.mastered.progress",
+            &[
+                ("rank", art.rank.to_string()),
+                ("total", art.max_rank.to_string()),
+            ],
         )
     };
     let payoff = mastered_art_payoff(art, locale);
@@ -162,7 +161,21 @@ fn mastered_art_row(
         .items_center()
         .gap_2()
         .py_1()
-        .child(div().flex_1().min_w_0().truncate().text_xs().child(head))
+        .child(
+            div()
+                .id(format!("cultivation-mastered-art-name-{}", art.id))
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_1()
+                .text_xs()
+                .child(div().min_w_0().truncate().child(art_name))
+                .child(div().text_color(grade_paint).child(grade_text))
+                .child(div().text_color(tokens.muted).child(tail))
+                .test_support(),
+        )
         .child(
             div()
                 .id(format!("cultivation-mastered-art-payoff-{}", art.id))
@@ -283,8 +296,12 @@ fn art_row(
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
-    let grade = text(locale, art.grade.name_key());
-    let head = format!("{} · {}", art.name, grade);
+    // The grade is painted its own colour, so five grades on a shelf are five
+    // colours before they are five words: 黄、蓝、紫、橙、红, in the order the
+    // ladder runs.
+    let grade_text = text(locale, art.grade.name_key());
+    let grade_paint = grade_color(art.grade);
+    let art_name = art.name.clone();
     let payoff = art_payoff(art, locale);
     let art_id = art.id;
     // A finished book has no next 阶 to price, so it says it stands complete
@@ -318,7 +335,20 @@ fn art_row(
                 .flex_row()
                 .items_center()
                 .gap_2()
-                .child(div().flex_1().min_w_0().truncate().text_xs().child(head))
+                .child(
+                    div()
+                        .id(format!("cultivation-art-name-{}", art.id))
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_1()
+                        .text_xs()
+                        .child(div().min_w_0().truncate().child(art_name))
+                        .child(div().text_color(grade_paint).child(grade_text))
+                        .test_support(),
+                )
                 .child(
                     div()
                         .id(format!("cultivation-art-payoff-{}", art.id))
