@@ -137,6 +137,21 @@ pub(crate) struct StonePurse {
 }
 
 impl StonePurse {
+    /// The purse as a walk of a given length opens it, in parts per thousand.
+    ///
+    /// The walk's purse is the one purse that has to be widened by the length:
+    /// six short walks a day would otherwise collect two and a half times the
+    /// money two long ones do, and the shortest length would be the money
+    /// button rather than one of three equal choices. A fight's purse is not
+    /// scaled — a wanderer carries what they carry whatever time it is.
+    pub(crate) const fn scaled(self, permille: u64) -> Self {
+        let scale = permille as u32;
+        Self {
+            min: self.min.saturating_mul(scale) / 1_000,
+            max: self.max.saturating_mul(scale) / 1_000,
+        }
+    }
+
     /// The range this purse pays at `tier`, which is a one-based realm.
     ///
     /// A zero tier cannot happen on the ladder, but a document read from a hand
@@ -148,11 +163,15 @@ impl StonePurse {
     }
 }
 
-/// What a quiet walk turns up. The smallest purse of the four: a walk costs
-/// nothing and is owed every ten hours, so it is a trickle beside a fight —
-/// but it always pays one, because a walk that came home with nothing would read
-/// as a bug rather than as a quiet road.
-pub(crate) const WALK_STONES: StonePurse = StonePurse { min: 6, max: 10 };
+/// What a quiet walk turns up, as the *four-hour* walk opens it. The smallest
+/// purse of the four: a walk costs nothing but time, so it is a trickle beside a
+/// fight — but it always pays one, because a walk that came home with nothing
+/// would read as a bug rather than as a quiet road.
+///
+/// Read per walk and then widened by the length: a day holds six of these or two
+/// twelve-hour ones, and the two have to come to about the same purse or the
+/// shortest length is simply the better button.
+pub(crate) const WALK_STONES: StonePurse = StonePurse { min: 2, max: 4 };
 
 /// What clearing a trial floor pays. Above a walk because the tower is a fight,
 /// and below a wanderer because a floor is a level-matched opponent rather than
@@ -454,6 +473,22 @@ mod tests {
             "twelve hours is 3.2×: {twelve} against {four}"
         );
         assert!(twelve > eight && eight > four);
+    }
+
+    /// A day's quiet walks pay about the same whatever their length: six short
+    /// ones, three middling, two long. The purse follows the length for exactly
+    /// this reason — otherwise the shortest chip would be the money button.
+    #[test]
+    fn a_days_walks_pay_about_the_same_whatever_their_length() {
+        let per_day = |hours: ExplorationHours| {
+            let walks = 24 / i64::from(hours.hours());
+            let purse = WALK_STONES.scaled(hours.multiplier_permille());
+            (walks * i64::from(purse.min), walks * i64::from(purse.max))
+        };
+        let four = per_day(ExplorationHours::Four);
+        assert_eq!(four, (12, 24), "six short walks");
+        assert_eq!(per_day(ExplorationHours::Eight), four, "three middling");
+        assert_eq!(per_day(ExplorationHours::Twelve), four, "two long");
     }
 
     #[test]

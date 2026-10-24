@@ -1024,8 +1024,11 @@ fn a_walk_can_turn_up_stones() {
             continue;
         };
         turned_up += 1;
+        // The walk was taken at twelve hours, so its purse is that length's:
+        // the base purse widened by the same multiplier every chance is.
+        let purse = WALK_STONES.scaled(ExplorationHours::Twelve.multiplier_permille());
         assert!(
-            (WALK_STONES.min..=WALK_STONES.max).contains(&amount),
+            (purse.min..=purse.max).contains(&amount),
             "a walk pays a handful, not a fortune: {amount}"
         );
         assert_eq!(cultivation.stones(), amount, "the stones land in the purse");

@@ -2075,7 +2075,10 @@ impl Cultivation {
         let purse = if outcome == ExplorationOutcome::Victory {
             WANDERER_STONES
         } else {
-            WALK_STONES
+            // The quiet road's purse is the one that follows the length: a
+            // day's six short walks and its two long ones have to come to the
+            // same money, or the shortest chip is simply the money button.
+            WALK_STONES.scaled(hours.multiplier_permille())
         };
         let stones = if outcome == ExplorationOutcome::Defeat {
             None
