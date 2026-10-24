@@ -313,16 +313,17 @@ fn art_row(
     // this attempt lands one time in two" is the pair the user is actually
     // weighing, and a percentage on a line of its own would be a second row
     // for a number that only means anything beside its cost.
+    //
+    // The rate is held in parts per thousand, and it is read through the one
+    // percent conversion the page uses everywhere: 405‰ prints `40.5`. Dividing
+    // the *integer* by ten first — which is what the row used to do — printed a
+    // 40.5% rate as `4.0`, ten times too small, and swallowed the failure
+    // compensation with it: 405‰ and 409‰ both truncated to 40, so a run of
+    // failures looked like it had bought nothing.
     let success_line = format_text(
         locale,
         "cultivation.art.success",
-        &[(
-            "rate",
-            format!(
-                "{:.1}",
-                f32::from(u16::try_from(art.success_permille / 10).unwrap_or(0)) / 10.0
-            ),
-        )],
+        &[("rate", permille_percent_label(art.success_permille))],
     );
     let progress_line = if art.rank >= art.max_rank {
         format_text(
@@ -538,4 +539,49 @@ fn aptitude_line(locale: &str, tenths: i32) -> Option<String> {
 /// on the button is the number the sale pays even if the catalog is retuned.
 fn art_sell_price(art_id: u64) -> u32 {
     ShopOffer::Art { art_id }.sell_price()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bug this guards: the rate is held in parts per thousand and the row
+    /// used to divide the *integer* by ten before dividing by ten again, so a
+    /// 40.5% attempt printed as `4.0` — ten times too small — and the failure
+    /// compensation vanished behind the truncation, because 405‰ and 409‰ both
+    /// lost their half-percent in the same integer division.
+    #[test]
+    fn the_rate_prints_as_the_percent_it_is() {
+        // 玄阶 at 潜质 −3.6: 420‰ × 1.01^−3.6.
+        assert_eq!(permille_percent_label(405), "40.5");
+        // The same attempt after one failure on this 阶: ×1.01 more.
+        assert_eq!(permille_percent_label(409), "40.9");
+        assert_ne!(
+            permille_percent_label(405),
+            permille_percent_label(409),
+            "a run of failures has to be readable on the line"
+        );
+        // A whole percent drops its decimal, the way the star line does.
+        assert_eq!(permille_percent_label(420), "42");
+        assert_eq!(permille_percent_label(995), "99.5");
+        assert_eq!(permille_percent_label(1), "0.1");
+    }
+
+    /// The two numbers the screenshot in the bug report read, checked against
+    /// the domain's own arithmetic rather than against the row: a 玄阶 book at
+    /// 潜质 −3.6 fails 59.5% of the time, and one failure in it lifts the next
+    /// attempt by about four parts in a thousand.
+    #[test]
+    fn the_profound_rate_at_negative_aptitude_is_what_the_row_says() {
+        let base = bongocat_pomodoro::success_permille(bongocat_pomodoro::ArtGrade::Profound, -36);
+        assert_eq!(base, 405, "420‰ × 1.01^-3.6");
+        let after = bongocat_pomodoro::compensated_success_permille(base, 1);
+        assert_eq!(after, 409, "one failure on this 阶");
+        assert!(
+            permille_percent_label(after) != permille_percent_label(base),
+            "the row has to show the compensation: {} vs {}",
+            permille_percent_label(after),
+            permille_percent_label(base)
+        );
+    }
 }

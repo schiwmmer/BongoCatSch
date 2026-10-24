@@ -740,7 +740,7 @@ fn item_detail(item: &ItemView, locale: &str, tokens: Tokens) -> impl IntoElemen
                 ("stars", "★".repeat(item.star as usize)),
                 (
                     "percent",
-                    star_percent_label(star_multiplier_permille(item.id, item.star)),
+                    permille_percent_label(star_multiplier_permille(item.id, item.star)),
                 ),
             ],
         ));
@@ -930,9 +930,12 @@ pub(super) fn effect_desc_key(effect: GearEffect) -> &'static str {
     }
 }
 
-/// A star multiplier as the percent it is worth, one decimal at most: 106.7
-/// reads `106.7`, 110 reads `110`.
-fn star_percent_label(permille: u32) -> String {
+/// A parts-per-thousand figure as the percent it is worth, one decimal at most:
+/// 106.7 reads `106.7`, 110 reads `110`.
+///
+/// The one conversion every percent on the page reads through, so a 405‰ rate
+/// and a 1067‰ star cannot be printed by two rules that disagree.
+pub(super) fn permille_percent_label(permille: u32) -> String {
     let whole = permille / 10;
     let tenth = permille % 10;
     if tenth == 0 {
