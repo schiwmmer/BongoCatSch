@@ -598,21 +598,21 @@ pub struct DerivedBreakdown {
     /// the four attributes bought. Zero on a cultivator wearing nothing: the
     /// breakdown then reads exactly as the attribute arithmetic alone.
     pub bonus: u32,
-    /// What the four attributes average out to, as the balanced reference below
-    /// is built from.
+    /// The level the reference below was read at.
     ///
-    /// The page prints it beside the comparison, because "均分" is only
-    /// readable if it says what it divided: a cultivator with 40, 20, 30 and 10
-    /// has a mean of 25, and every one of the nine numbers is compared against a
-    /// build of 25/25/25/25.
-    pub mean_attribute: i32,
-    /// What this number would be if the four attributes were spread evenly.
+    /// The page prints it beside the comparison, because "同级基础" is only
+    /// readable if it says which level: a 元婴 cultivator wearing nothing is not
+    /// the yardstick a 炼气 one is measured against.
+    pub level: u16,
+    /// What this number comes to at that level with **only** the level's own
+    /// attributes — no gear, no crops, no allocated points, no 功法.
     ///
-    /// The comparison the page shows is against this, not against a second
-    /// table: a lopsided build is read as "+X over an even spread / -X under
-    /// it", and the same four attributes feed both figures, so the difference is
-    /// exactly the shape of the build and nothing else.
-    pub balanced: u32,
+    /// This is the comparison the page shows: a build is read as "＋X over what
+    /// my level alone is worth / −X under it", which is the question a number
+    /// on a sheet actually raises. Comparing against the mean of the four
+    /// attributes answered a different one — how lopsided the build is — and
+    /// said nothing about whether the number was any *good* for the level.
+    pub baseline: u32,
     /// Whether the numbers are counted in parts per thousand, as 命中 and 闪避
     /// are. A surface prints those as percentages and the rest as they are.
     pub per_mille: bool,
@@ -867,16 +867,21 @@ impl Derived {
     /// `bonus` is what gear and 功法 added outright: the arithmetic the card
     /// prints is the attribute recipe *plus* that share, so the sum on the card
     /// is the sum that ran.
-    pub fn breakdowns(self, attributes: Attributes, bonus: Derived) -> Vec<DerivedBreakdown> {
-        // The balanced reference: the same total points, spread over the four
-        // attributes equally. Held to non-negative first, because a penalty can
-        // leave a number below zero and "even" has to mean something.
-        let total = i64::from(attributes.root.max(0))
-            + i64::from(attributes.strength.max(0))
-            + i64::from(attributes.mana.max(0))
-            + i64::from(attributes.agility.max(0));
-        let mean = i32::try_from(total / 4).unwrap_or(i32::MAX);
-        let even = Attributes::new(mean, mean, mean, mean);
+    ///
+    /// `level` is the cultivator's own level, and it is what builds the
+    /// reference each row is compared against: [`base_attributes`] of that
+    /// level, read through the same table. A naked body at level `level` lands
+    /// exactly on every one of those nine numbers, which is what makes the
+    /// comparison mean "over and above what the level alone is worth".
+    pub fn breakdowns(
+        self,
+        attributes: Attributes,
+        bonus: Derived,
+        level: u16,
+    ) -> Vec<DerivedBreakdown> {
+        // The reference: the attributes the level itself carries, nothing worn
+        // and nothing trained.
+        let bare = base_attributes(level);
         DERIVED_SPECS
             .iter()
             .map(|spec| {
@@ -900,10 +905,10 @@ impl Derived {
                     computed: scaled(computed),
                     result: scaled(held).saturating_add(bonus),
                     bonus,
-                    mean_attribute: mean,
+                    level: level.clamp(1, MAX_LEVEL),
                     // Read through the same `value` the fight reads, so the
                     // comparison cannot be computed by a second set of rules.
-                    balanced: spec.value(even),
+                    baseline: spec.value(bare),
                     per_mille: spec.per_mille,
                 }
             })

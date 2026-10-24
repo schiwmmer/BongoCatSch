@@ -368,28 +368,22 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             // An old save's purchases predate the price and read as zero; the
             // bare line is what those events said, so that is what they keep
             // saying rather than "paid 0".
+            let what = sale_line_label(what, locale);
             if *stones > 0 {
                 format_text(
                     locale,
                     "cultivation.event.bought",
-                    &[
-                        ("what", sale_label(what, locale)),
-                        ("stones", stones.to_string()),
-                    ],
+                    &[("what", what), ("stones", stones.to_string())],
                 )
             } else {
-                format_text(
-                    locale,
-                    "cultivation.event.bought_bare",
-                    &[("what", sale_label(what, locale))],
-                )
+                format_text(locale, "cultivation.event.bought_bare", &[("what", what)])
             }
         }
         EventDetail::Sold { what, stones } => format_text(
             locale,
             "cultivation.event.sold",
             &[
-                ("what", sale_label(what, locale)),
+                ("what", sale_line_label(what, locale)),
                 ("stones", stones.to_string()),
             ],
         ),
@@ -481,10 +475,12 @@ fn bonus_find_label(find: &BonusFind, locale: &str) -> String {
 /// the tier and fall back to what they always said.
 fn sale_label(what: &SaleKind, locale: &str) -> String {
     match what {
-        SaleKind::Equipment { name } => name
+        SaleKind::Equipment { name, .. } => name
             .clone()
             .unwrap_or_else(|| text(locale, "cultivation.shop.equipment").to_string()),
-        SaleKind::Seed { name, tier, grade } => {
+        SaleKind::Seed {
+            name, tier, grade, ..
+        } => {
             let grade_name = text(locale, grade.name_key()).to_string();
             match (name.as_deref(), *tier) {
                 (Some(name), tier) if tier > 0 => format_text(
@@ -505,11 +501,82 @@ fn sale_label(what: &SaleKind, locale: &str) -> String {
                 (None, _) => text(locale, "cultivation.shop.seed").to_string(),
             }
         }
-        SaleKind::Art { name } => name
+        SaleKind::Art { name, .. } => name
             .clone()
             .unwrap_or_else(|| text(locale, "cultivation.shop.art").to_string()),
         SaleKind::Plot => text(locale, "cultivation.shop.plot").to_string(),
         SaleKind::Herb { herb } => text(locale, herb.name_key()).to_string(),
+    }
+}
+
+/// A bought or sold thing with what it is worth beside its name.
+///
+/// The name alone answers "what did I pay for", and the user's next question is
+/// always "and what did I get": a herb's name says which attribute it raises
+/// only if the reader already knows the catalog, and a garment's name says
+/// nothing about its numbers. So the thing's own figures ride in brackets after
+/// the name — the same figures the shelf and the satchel print, read through the
+/// same catalog.
+fn sale_line_label(what: &SaleKind, locale: &str) -> String {
+    let name = sale_label(what, locale);
+    match sale_effect(what, locale) {
+        Some(effect) => format_text(
+            locale,
+            "cultivation.event.with_effect",
+            &[("what", name), ("effect", effect)],
+        ),
+        None => name,
+    }
+}
+
+/// What a bought or sold thing is worth, as a phrase a line can carry.
+///
+/// `None` where the event predates the field or the thing has no numbers: an old
+/// save's purchase line then reads exactly as it did before.
+fn sale_effect(what: &SaleKind, locale: &str) -> Option<String> {
+    match what {
+        SaleKind::Equipment {
+            attributes: Some(attributes),
+            ..
+        } => Some(format_text(
+            locale,
+            "cultivation.item.details",
+            &[
+                ("root", attributes.root.to_string()),
+                ("strength", attributes.strength.to_string()),
+                ("mana", attributes.mana.to_string()),
+                ("agility", attributes.agility.to_string()),
+            ],
+        )),
+        SaleKind::Seed {
+            attribute: Some(attribute),
+            tier,
+            grade,
+            ..
+        } => Some(format_text(
+            locale,
+            "cultivation.seed.harvest_line",
+            &[
+                ("attribute", text(locale, attribute.name_key()).to_string()),
+                ("value", harvest_points(*tier, *grade).to_string()),
+            ],
+        )),
+        SaleKind::Art {
+            art_id: Some(art_id),
+            ..
+        } => {
+            let art = blueprint(*art_id);
+            Some(super::shop::art_numbers(
+                art.kind,
+                &art.gain,
+                &art.bonus,
+                art.multiplier_permille,
+                art.cost,
+                locale,
+            ))
+        }
+        SaleKind::Herb { herb } => Some(super::shop::herb_effect(*herb, locale)),
+        _ => None,
     }
 }
 
@@ -613,5 +680,63 @@ fn push_finds(
             " · {}",
             format_text(locale, found.0, &[("name", found.1.to_owned())])
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A bought herb says what a harvest of it pays — the attribute and the
+    /// points — beside its name: a purchase line that only named the herb left
+    /// the user to work the numbers out from the grade.
+    #[test]
+    fn a_bought_seed_says_what_a_harvest_pays() {
+        let what = SaleKind::Seed {
+            name: Some("青芝".to_owned()),
+            tier: 3,
+            grade: SeedGrade::Earth,
+            attribute: Some(Attribute::Mana),
+        };
+        let line = sale_line_label(&what, "zh-CN");
+        assert!(line.contains("青芝"), "the herb is named: {line}");
+        assert!(line.contains("法力"), "the attribute it raises: {line}");
+        assert!(
+            line.contains(&harvest_points(3, SeedGrade::Earth).to_string()),
+            "and how much: {line}"
+        );
+    }
+
+    /// A bought garment prints its four numbers, read off the same line the
+    /// satchel prints them on.
+    #[test]
+    fn a_bought_garment_prints_its_attributes() {
+        let what = SaleKind::Equipment {
+            name: Some("风矛".to_owned()),
+            attributes: Some(Attributes::new(3, 5, 0, 2)),
+        };
+        let line = sale_line_label(&what, "zh-CN");
+        assert!(line.contains("风矛"), "the piece is named: {line}");
+        for value in ["3", "5", "2"] {
+            assert!(line.contains(value), "an attribute reads {value}: {line}");
+        }
+    }
+
+    /// An old save's purchase carried none of this, and its line still reads as
+    /// the bare name it always did.
+    #[test]
+    fn an_old_purchase_line_keeps_its_bare_name() {
+        let what = SaleKind::Seed {
+            name: Some("白虎茸".to_owned()),
+            tier: 0,
+            grade: SeedGrade::Earth,
+            attribute: None,
+        };
+        assert_eq!(sale_line_label(&what, "zh-CN"), "白虎茸");
+        let old = SaleKind::Equipment {
+            name: Some("玄铁剑".to_owned()),
+            attributes: None,
+        };
+        assert_eq!(sale_line_label(&old, "zh-CN"), "玄铁剑");
     }
 }

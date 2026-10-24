@@ -2886,7 +2886,7 @@ impl Cultivation {
             star_attempts: self.star_attempts,
             last_star: self.last_star.clone(),
             next_session_growth: self.next_session_growth(day),
-            derived_breakdowns: attribute_derived.breakdowns(attributes, bonus),
+            derived_breakdowns: attribute_derived.breakdowns(attributes, bonus, level),
             duel_record: self.document.duel_record.clone(),
             last_walk: self.document.last_walk.clone(),
             events: self.document.events.clone(),
@@ -3066,16 +3066,25 @@ impl Cultivation {
         let what = match &bought {
             ShopOffer::Equipment(item) => SaleKind::Equipment {
                 name: item.name.clone(),
+                attributes: Some(item.effective_attributes()),
             },
             ShopOffer::Seed {
-                name, tier, grade, ..
+                attribute,
+                name,
+                tier,
+                grade,
             } => SaleKind::Seed {
                 name: name.clone(),
                 tier: *tier,
                 grade: *grade,
+                // The herb's own attribute, kept beside its name: the log line
+                // prints what a harvest of it pays, and that needs the attribute
+                // rather than the words in the name.
+                attribute: Some(*attribute),
             },
             ShopOffer::Art { art_id } => SaleKind::Art {
                 name: Some(blueprint(*art_id).name),
+                art_id: Some(*art_id),
             },
             ShopOffer::Herb { herb } => SaleKind::Herb { herb: *herb },
         };
@@ -3157,7 +3166,10 @@ impl Cultivation {
         self.push_event(
             now_unix,
             EventDetail::Sold {
-                what: SaleKind::Equipment { name: item.name },
+                what: SaleKind::Equipment {
+                    name: item.name.clone(),
+                    attributes: Some(item.effective_attributes()),
+                },
                 stones,
             },
         );
@@ -3201,7 +3213,10 @@ impl Cultivation {
         self.push_event(
             now_unix,
             EventDetail::Sold {
-                what: SaleKind::Art { name: Some(name) },
+                what: SaleKind::Art {
+                    name: Some(name),
+                    art_id: Some(art_id),
+                },
                 stones,
             },
         );
@@ -3245,7 +3260,12 @@ impl Cultivation {
         self.push_event(
             now_unix,
             EventDetail::Sold {
-                what: SaleKind::Seed { name, tier, grade },
+                what: SaleKind::Seed {
+                    name,
+                    tier,
+                    grade,
+                    attribute: Some(attribute),
+                },
                 stones,
             },
         );

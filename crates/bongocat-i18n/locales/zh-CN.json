@@ -686,8 +686,8 @@
     "formula": {
       "line": "%{base} + %{attribute} %{value} × %{per} = %{result}",
       "capped": "%{formula}（上限 %{cap}）",
-      "balanced": "均分四项（每项 %{mean}）为 %{balanced} · 你 %{delta}",
-      "line_bonus": "%{base} + %{attribute} %{value} × %{per} + %{bonus} = %{result}"
+      "line_bonus": "%{base} + %{attribute} %{value} × %{per} + %{bonus} = %{result}",
+      "baseline": "等级 %{level} 的基础为 %{baseline} · 你为 %{result} · 相差 %{delta}"
     },
     "bonus": "外显：%{lines}",
     "quality": {
@@ -886,7 +886,8 @@
       "aptitude_gate": "%{line}（耗洗髓丹 %{pills}）",
       "marrow_found": "得洗髓丹 ×1（%{source}）",
       "bonus": "意外之财：%{find}",
-      "bonus_stones": "%{stones} 灵石"
+      "bonus_stones": "%{stones} 灵石",
+      "with_effect": "%{what}（%{effect}）"
     },
     "shop": {
       "title": "集市",
@@ -922,7 +923,7 @@
       "derived_title": "八项战斗数值：四项属性换算出来的结果，不能直接加点",
       "derived_hint_each": "由四项属性换算，改上面那四项才会变。",
       "power_hint": "战力＝法术＋武术，是破境时判定胜负用的那一个数。",
-      "aptitude_hint": "潜质：每点根骨 +2。它只决定修习功法的成功率——各品阶的基础失败率为黄 8%、玄 12%、地 18%、天 26%、神 35%，每点潜质抵 0.1% 失败率，至多抵 15%；此外不参与战斗。"
+      "aptitude_hint": "潜质决定功法研习的成功率与速度：潜质为 0 时成功率按品阶为黄 50%、玄 42%、地 35%、天 20%、神 5%，每 1 点潜质把成功率乘 1.01、把所需番茄钟乘 0.99。它不参与战斗。"
     },
     "daily": {
       "ambush": "晨间遇袭，击退来犯",

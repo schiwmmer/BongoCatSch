@@ -686,8 +686,8 @@
     "formula": {
       "line": "%{base} + %{attribute} %{value} × %{per} = %{result}",
       "capped": "%{formula} (capped at %{cap})",
-      "balanced": "Even spread (%{mean} each): %{balanced} · you: %{delta}",
-      "line_bonus": "%{base} + %{attribute} %{value} × %{per} + %{bonus} = %{result}"
+      "line_bonus": "%{base} + %{attribute} %{value} × %{per} + %{bonus} = %{result}",
+      "baseline": "level %{level} base: %{baseline} · yours: %{result} · %{delta}"
     },
     "bonus": "Outright: %{lines}",
     "quality": {
@@ -886,7 +886,8 @@
       "aptitude_gate": "%{line} (Marrow Pill ×%{pills})",
       "marrow_found": "Found a Marrow Pill (%{source})",
       "bonus": "Unexpected gain: %{find}",
-      "bonus_stones": "%{stones} stones"
+      "bonus_stones": "%{stones} stones",
+      "with_effect": "%{what} (%{effect})"
     },
     "shop": {
       "title": "Market",
@@ -922,7 +923,7 @@
       "derived_title": "The eight combat numbers: what the four attributes turn into, not points you can spend",
       "derived_hint_each": "Read off the four attributes above; only changing those moves this.",
       "power_hint": "Power = spell + martial, and it is the number that decides a breakthrough.",
-      "aptitude_hint": "Aptitude: two per point of 根骨, and it only decides how often 功法 training fails — the base failure rate runs 8% (黄), 12% (玄), 18% (地), 26% (天), 35% (神), and each point of aptitude takes 0.1% off it up to 15%. It joins no fight."
+      "aptitude_hint": "Aptitude sets how reliably and how fast arts are learned — 50% (黄) / 42% (玄) / 35% (地) / 20% (天) / 5% (神) at zero, and each point multiplies the rate by 1.01 and the cost by 0.99. It joins no fight."
     },
     "daily": {
       "ambush": "Ambushed at dawn — the attacker was driven off",

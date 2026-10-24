@@ -91,6 +91,10 @@ fn shop_row(
         // A 功法 on the shelf wears its grade's colour too: 黄、蓝、紫、橙、红
         // is how a buyer tells five books apart before reading five names.
         ShopOffer::Art { art_id } if !entry.bought => grade_color(blueprint(*art_id).grade),
+        // And a herb the same: 黄/玄/地/天/神 is the ladder its numbers are read
+        // on, so a shelf that printed it in the plain text colour would be the
+        // one place in the game where the grade was only a word.
+        ShopOffer::Seed { grade, .. } if !entry.bought => seed_grade_color(*grade),
         _ => tokens.text,
     };
     let price = format_text(
@@ -98,7 +102,7 @@ fn shop_row(
         "cultivation.shop.price",
         &[("stones", entry.price.to_string())],
     );
-    let name = div()
+    let mut name = div()
         .id(format!("cultivation-shop-name-{}", slot))
         .flex_1()
         .min_w_0()
@@ -109,7 +113,15 @@ fn shop_row(
         } else {
             name_color
         })
-        .child(label)
+        .child(label);
+    // A bought row keeps its place — a shelf that reshuffles under the cursor is
+    // a shelf where the wrong thing gets bought — so the row says "已购" and the
+    // name is struck through. A name left unmarked beside a bought badge reads
+    // as a line that is still for sale.
+    if entry.bought {
+        name = name.line_through();
+    }
+    let name = name
         .on_click({
             let view = view.clone();
             move |_, _, cx| {
@@ -321,7 +333,7 @@ fn shop_offer_detail(
 }
 
 /// What one 潜质 item does, as the shelf says it.
-fn herb_effect(herb: AptitudeHerb, locale: &str) -> String {
+pub(super) fn herb_effect(herb: AptitudeHerb, locale: &str) -> String {
     match herb.gain_tenths() {
         Some((low, high)) => format_text(
             locale,
@@ -338,7 +350,7 @@ fn herb_effect(herb: AptitudeHerb, locale: &str) -> String {
 /// The numbers one 功法 pays, as the payoff lines spell them: an 内功's per-阶
 /// gains — attributes and outright combat numbers both — or an 外功's swing and
 /// its cost.
-fn art_numbers(
+pub(super) fn art_numbers(
     kind: ArtKind,
     gain: &Attributes,
     bonus: &Derived,

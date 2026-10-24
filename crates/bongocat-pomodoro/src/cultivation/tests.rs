@@ -1427,12 +1427,19 @@ fn an_old_bought_event_still_reads() {
     .expect("the old shape parses");
     match old.detail {
         EventDetail::Bought {
-            what: SaleKind::Seed { name, tier, grade },
+            what:
+                SaleKind::Seed {
+                    name,
+                    tier,
+                    grade,
+                    attribute,
+                },
             stones,
         } => {
             assert_eq!(name.as_deref(), Some("白虎茸"));
             assert_eq!((tier, stones), (0, 0), "the old events carry neither");
             assert_eq!(grade, SeedGrade::Earth, "and no grade reads as 地阶");
+            assert_eq!(attribute, None, "nor an attribute to print");
         }
         other => panic!("the old event read as {other:?}"),
     }
@@ -1501,13 +1508,30 @@ fn the_fight_picks_among_the_strongest_external_arts() {
     }
 }
 
-/// The page compares every derived number against the same four attributes
-/// spread evenly, so a lopsided build reads as "+X over an even spread" and an
-/// even one reads as exactly on it.
+/// The page compares every derived number against what the level alone is
+/// worth — not against the four attributes spread evenly. A naked body at its
+/// own level sits exactly on the reference in all nine, and anything worn,
+/// trained or allocated is read as "over what my level pays".
 #[test]
-fn a_lopsided_build_is_measured_against_an_even_spread() {
-    let lopsided = Attributes::new(400, 0, 0, 0);
-    let breakdowns = lopsided.derived().breakdowns(lopsided, Derived::default());
+fn a_build_is_measured_against_what_its_level_alone_pays() {
+    let level = 10;
+    let bare = base_attributes(level);
+    for breakdown in bare.derived().breakdowns(bare, Derived::default(), level) {
+        assert_eq!(
+            breakdown.result, breakdown.baseline,
+            "{} is off what level {level} alone pays",
+            breakdown.key
+        );
+        assert_eq!(breakdown.level, level, "the row says which level it read");
+    }
+
+    // 力量 poured on top of the same level: 攻击力 climbs over the reference by
+    // exactly the points added, and 内力值 stays on it — the reference is the
+    // level's, not the build's own mean, so an untouched number is unmoved.
+    let stronger = bare.plus(Attributes::new(0, 100, 0, 0));
+    let breakdowns = stronger
+        .derived()
+        .breakdowns(stronger, Derived::default(), level);
     let row = |key: &str| {
         breakdowns
             .iter()
@@ -1516,27 +1540,18 @@ fn a_lopsided_build_is_measured_against_an_even_spread() {
             .expect("a row")
     };
     let attack = row("cultivation.attack");
-    assert_eq!(
-        attack.mean_attribute, 100,
-        "400 points over four attributes"
-    );
-    // 攻击力 reads 力量: 10 + 100 × 3 spread evenly, 10 + 0 × 3 poured into 根骨.
-    assert_eq!(attack.balanced, 310);
-    assert_eq!(attack.result, 10);
-    // 内力值 reads 根骨, so the same build is far above its even spread there.
+    assert_eq!(attack.baseline, 10 + bare.strength as u32 * 3);
+    assert_eq!(attack.result, 10 + (bare.strength as u32 + 100) * 3);
     let inner = row("cultivation.inner");
-    assert_eq!(inner.balanced, 50 + 100 * 8);
-    assert_eq!(inner.result, 50 + 400 * 8);
-
-    // An even build is on its own reference in every one of the nine numbers.
-    let even = Attributes::new(100, 100, 100, 100);
-    for breakdown in even.derived().breakdowns(even, Derived::default()) {
-        assert_eq!(
-            breakdown.result, breakdown.balanced,
-            "{} is off its own even spread",
-            breakdown.key
-        );
-    }
+    assert_eq!(inner.result, inner.baseline, "根骨 was not touched");
+    // A deep realm's reference is its own: the same bare body at level 10 read
+    // against level 200 would look gigantic, which is the bug this replaces.
+    let deep = base_attributes(200);
+    let deep_rows = deep.derived().breakdowns(deep, Derived::default(), 200);
+    assert!(
+        deep_rows[0].baseline > attack.baseline,
+        "a higher level is a higher yardstick"
+    );
 }
 
 /// An opponent is the rung's own body plus the gear it wears plus the 功法 it

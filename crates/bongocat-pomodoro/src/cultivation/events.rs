@@ -239,10 +239,19 @@ pub enum MarrowSource {
 /// carries its tier beside the name, because a purchase that says "a seed"
 /// without saying which tier bought what is a line the buyer cannot check
 /// against the price; an old save's seeds predate the field and read as zero.
+///
+/// Each variant also carries the thing's own numbers where they can be had —
+/// the four attributes a garment adds, the attribute a herb raises, the id of a
+/// book — so a purchase line can say what was gained rather than only what was
+/// paid. They are optional because an old save's events predate them, and a
+/// line that cannot say more says exactly what it used to.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum SaleKind {
     Equipment {
         name: Option<String>,
+        /// The four attributes the piece carried, star multiplier and all.
+        #[serde(default)]
+        attributes: Option<super::Attributes>,
     },
     Seed {
         name: Option<String>,
@@ -252,14 +261,18 @@ pub enum SaleKind {
         /// 地阶, the grade their numbers were the anchor for.
         #[serde(default)]
         grade: super::SeedGrade,
+        /// Which attribute the herb raises when it is harvested.
+        #[serde(default)]
+        attribute: Option<super::Attribute>,
     },
     Art {
         name: Option<String>,
+        /// The book's id, so the line can print what one 阶 of it pays.
+        #[serde(default)]
+        art_id: Option<u64>,
     },
     /// A garden plot bought past the four free ones.
     Plot,
     /// One 潜质 item: 悟心草、慧心草 or 洗髓丹.
-    Herb {
-        herb: super::AptitudeHerb,
-    },
+    Herb { herb: super::AptitudeHerb },
 }

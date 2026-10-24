@@ -310,7 +310,7 @@ fn derived_chip(
     };
     // The arithmetic, spelled out with the very numbers the domain computed.
     let formula = breakdown.map(|breakdown| derived_formula(breakdown, locale));
-    let balanced = breakdown.map(|breakdown| derived_balanced_line(breakdown, locale));
+    let baseline = breakdown.map(|breakdown| derived_baseline_line(breakdown, locale));
     let chip = div()
         // The key carries its own `cultivation.` prefix; the element id drops
         // it so the tree reads `cultivation-derived-attack`.
@@ -336,7 +336,7 @@ fn derived_chip(
     match formula {
         Some(formula) => {
             let formula = formula.clone();
-            let balanced = balanced.unwrap_or_default();
+            let baseline = baseline.unwrap_or_default();
             hover
                 .content(move |_, _, _| {
                     derived_hint_body(
@@ -344,7 +344,7 @@ fn derived_chip(
                         title,
                         body,
                         formula.clone(),
-                        balanced.clone(),
+                        baseline.clone(),
                         tokens,
                     )
                 })
@@ -448,20 +448,20 @@ fn figure_with_unit(value: u32, per_mille: bool) -> String {
     }
 }
 
-/// The number against an even spread of the same four attributes, with the
+/// The number against what the cultivator's own level is worth, with the
 /// difference spelled out.
 ///
-/// The reference is not a second table: it is the same arithmetic run over four
-/// equal attributes, so a build that pours everything into 力量 reads as "力量
-/// 换来的攻击力比均分多 +X" and the two numbers it is compared between are the
-/// same number. The sign is printed rather than implied, because "和均值的差异"
-/// is the question the line answers: `+120` is above the even spread, `-40` is
-/// under it, and `±0` is exactly on it.
-pub(in crate::window) fn derived_balanced_line(
+/// The reference is not a second table: it is the same arithmetic run over the
+/// attributes the level itself carries — nothing worn, nothing trained, nothing
+/// allocated — so "等级 40 的基础是 X，你是 Y" is a sentence that can be checked
+/// against the nine chips beside it. The sign is printed rather than implied,
+/// because "比同级基础多/少" is the question the line answers: `+120` is above a
+/// naked body of this level, `-40` is under it, and `±0` is exactly on it.
+pub(in crate::window) fn derived_baseline_line(
     breakdown: &DerivedBreakdown,
     locale: &str,
 ) -> String {
-    let delta = i64::from(breakdown.result) - i64::from(breakdown.balanced);
+    let delta = i64::from(breakdown.result) - i64::from(breakdown.baseline);
     let signed = match delta {
         0 => "±0".to_owned(),
         delta if delta > 0 => format!(
@@ -481,12 +481,16 @@ pub(in crate::window) fn derived_balanced_line(
     };
     format_text(
         locale,
-        "cultivation.formula.balanced",
+        "cultivation.formula.baseline",
         &[
-            ("mean", breakdown.mean_attribute.to_string()),
+            ("level", breakdown.level.to_string()),
             (
-                "balanced",
-                figure_with_unit(breakdown.balanced, breakdown.per_mille),
+                "baseline",
+                figure_with_unit(breakdown.baseline, breakdown.per_mille),
+            ),
+            (
+                "result",
+                figure_with_unit(breakdown.result, breakdown.per_mille),
             ),
             ("delta", signed),
         ],
@@ -502,7 +506,7 @@ fn derived_hint_body(
     title: &'static str,
     body: &'static str,
     formula: String,
-    balanced: String,
+    baseline: String,
     tokens: Tokens,
 ) -> impl IntoElement {
     div()
@@ -519,16 +523,16 @@ fn derived_hint_body(
                 .whitespace_normal()
                 .child(formula),
         )
-        // What the same four attributes would buy spread evenly, and which way
-        // this build is off it. Its own line because it is a comparison to read,
-        // not a sentence to skim.
+        // What the same level would stand at with nothing worn or trained, and
+        // which way this build is off it. Its own line because it is a
+        // comparison to read, not a sentence to skim.
         .child(
             div()
-                .id("cultivation-hint-balanced")
+                .id("cultivation-hint-baseline")
                 .text_xs()
                 .text_color(tokens.text)
                 .whitespace_normal()
-                .child(balanced),
+                .child(baseline),
         )
         .child(
             div()
@@ -760,12 +764,12 @@ mod tests {
         );
     }
 
-    /// The comparison line says which way the build is off an even spread, with
-    /// the sign in front: `+` above, `-` below, `±0` on it, and the two per-mille
-    /// numbers in percent like every other line on the page.
+    /// The comparison line says which way the build is off what its level alone
+    /// pays, with the sign in front: `+` above, `-` below, `±0` on it, and the
+    /// two per-mille numbers in percent like every other line on the page.
     #[test]
-    fn the_balanced_line_carries_the_sign_of_the_gap() {
-        let breakdown = |result: u32, balanced: u32, per_mille: bool| DerivedBreakdown {
+    fn the_baseline_line_carries_the_sign_of_the_gap() {
+        let breakdown = |result: u32, baseline: u32, per_mille: bool| DerivedBreakdown {
             key: "cultivation.attack",
             attribute: Attribute::Strength,
             attribute_value: 100,
@@ -775,25 +779,29 @@ mod tests {
             computed: result,
             result,
             bonus: 0,
-            mean_attribute: 100,
-            balanced,
+            level: 40,
+            baseline,
             per_mille,
         };
-        let above = derived_balanced_line(&breakdown(310, 250, false), "zh-CN");
+        let above = derived_baseline_line(&breakdown(310, 250, false), "zh-CN");
         assert!(
             above.contains("+60"),
-            "an even spread of 250 against 310: {above}"
+            "250 of level 40 against a build of 310: {above}"
         );
-        let below = derived_balanced_line(&breakdown(250, 310, false), "zh-CN");
+        assert!(
+            above.contains("40") && above.contains("250"),
+            "the line names the level and its base: {above}"
+        );
+        let below = derived_baseline_line(&breakdown(250, 310, false), "zh-CN");
         assert!(below.contains("-60"), "310 against 250: {below}");
-        let even = derived_balanced_line(&breakdown(310, 310, false), "zh-CN");
+        let even = derived_baseline_line(&breakdown(310, 310, false), "zh-CN");
         assert!(even.contains("±0"), "the same number twice: {even}");
         // 命中 is held in parts per thousand, so the gap is printed in percent.
-        let percent = derived_balanced_line(&breakdown(800, 1_000, true), "en-US");
+        let percent = derived_baseline_line(&breakdown(800, 1_000, true), "en-US");
         assert!(percent.contains("-20%"), "800‰ against 1000‰: {percent}");
         assert!(
             percent.contains("100%"),
-            "and the even spread reads 100%: {percent}"
+            "and the level's own base reads 100%: {percent}"
         );
     }
 
