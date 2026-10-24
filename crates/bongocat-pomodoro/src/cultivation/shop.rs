@@ -509,14 +509,16 @@ mod tests {
         );
     }
 
-    /// The three 潜质 items are priced apart, and the pill sits *between* the
-    /// two herbs: a gate key a build saves for is not the dearest row on the
-    /// shelf, it is the scheduled one.
+    /// The three 潜质 items are priced apart, and the pill is the dearest thing
+    /// the shop sells: five times the rarer herb, because it is the one row a
+    /// build saves for rather than buys on a whim.
     #[test]
     fn the_aptitude_items_are_priced_apart() {
         assert!(AptitudeHerb::Insight.price() > seed_price(10, SeedGrade::Divine));
-        assert!(AptitudeHerb::Wisdom.price() > AptitudeHerb::Marrow.price());
-        assert!(AptitudeHerb::Marrow.price() > AptitudeHerb::Insight.price());
+        assert!(AptitudeHerb::Marrow.price() > AptitudeHerb::Wisdom.price());
+        assert!(AptitudeHerb::Wisdom.price() > AptitudeHerb::Insight.price());
         assert_eq!(AptitudeHerb::Marrow.price(), 10_000);
+        assert_eq!(AptitudeHerb::Insight.price(), 1_200);
+        assert_eq!(AptitudeHerb::Wisdom.price(), 2_000);
     }
 }
