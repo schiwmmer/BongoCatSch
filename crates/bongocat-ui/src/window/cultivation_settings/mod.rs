@@ -15,12 +15,13 @@
 use super::*;
 use bongocat_i18n::{compact_number, format_text, text};
 use bongocat_pomodoro::{
-    AptitudeHerb, ArtGrade, ArtKind, ArtOutcome, ArtView, Attribute, Attributes, CultivationView,
-    DailyKind, Derived, DropView, EquipSlot, EventDetail, EventRecord, ExplorationHours,
-    ExplorationOutcome, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR, MarrowSource,
-    MasteredArtView, PlotView, PomodoroCommand, Rarity, Realm, SaleKind, ShopOffer, ShopOfferView,
-    TRIAL_ATTEMPTS_PER_DAY, TrialBlocked, art_bonus_at, art_payout_at, blueprint, grow_seconds,
-    harvest_points, mastered_art_bonus_payout, mastered_art_payout, star_multiplier_permille,
+    AptitudeHerb, ArtGrade, ArtKind, ArtOutcome, ArtView, Attribute, Attributes, BonusFind,
+    CultivationView, DailyKind, Derived, DropView, EquipSlot, EventDetail, EventRecord,
+    ExplorationHours, ExplorationOutcome, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR,
+    MarrowSource, MasteredArtView, PlotView, PomodoroCommand, Rarity, Realm, SaleKind, SeedGrade,
+    ShopOffer, ShopOfferView, TRIAL_ATTEMPTS_PER_DAY, TrialBlocked, art_bonus_at, art_payout_at,
+    blueprint, grow_seconds, harvest_points, mastered_art_bonus_payout, mastered_art_payout,
+    star_multiplier_permille,
 };
 
 use gpui_kit::component::Sizable as _;
@@ -405,10 +406,20 @@ fn notices(
                 "cultivation.notice.drop_equipment",
                 item_label(locale, &item),
             ),
-            DropView::Seed { attribute, tier } => (
+            DropView::Seed {
+                attribute,
+                tier,
+                grade,
+            } => (
                 "cultivation.notice.drop_seed",
-                seed_label(locale, attribute, tier, None),
+                seed_label(locale, attribute, tier, grade, None),
             ),
+            DropView::Art { name } => ("cultivation.notice.drop_art", name),
+            DropView::Herb { herb } => (
+                "cultivation.notice.drop_herb",
+                text(locale, herb.name_key()).to_string(),
+            ),
+            DropView::Stones(stones) => ("cultivation.notice.drop_stones", stones.to_string()),
         };
         notices.push(
             notice(
@@ -428,7 +439,13 @@ fn notices(
                     "cultivation.notice.seed_return",
                     &[(
                         "seed",
-                        seed_label(locale, seed.attribute, seed.tier, seed.name.as_deref()),
+                        seed_label(
+                            locale,
+                            seed.attribute,
+                            seed.tier,
+                            seed.grade,
+                            seed.name.as_deref(),
+                        ),
                     )],
                 ),
                 tokens.accent,
@@ -832,6 +849,12 @@ pub(super) fn grade_color(grade: ArtGrade) -> Hsla {
     color_from_rgb(grade.color())
 }
 
+/// The same ramp for a herb's grade: the two ladders share their five colours,
+/// so a 天阶 herb and a 天阶 功法 read as the same rank at a glance.
+pub(super) fn seed_grade_color(grade: SeedGrade) -> Hsla {
+    color_from_rgb(grade.color())
+}
+
 /// One `0xRRGGBB` value as a paintable colour.
 fn color_from_rgb(value: u32) -> Hsla {
     let red = ((value >> 16) & 0xFF) as f32 / 255.0;
@@ -925,13 +948,19 @@ pub(super) fn seed_label(
     locale: &str,
     attribute: Attribute,
     tier: u8,
+    grade: SeedGrade,
     name: Option<&str>,
 ) -> String {
+    let grade_name = text(locale, grade.name_key()).to_string();
     match name {
         Some(name) => format_text(
             locale,
             "cultivation.seed.label_named",
-            &[("name", name.to_owned()), ("tier", tier.to_string())],
+            &[
+                ("name", name.to_owned()),
+                ("tier", tier.to_string()),
+                ("grade", grade_name),
+            ],
         ),
         None => format_text(
             locale,
@@ -939,6 +968,7 @@ pub(super) fn seed_label(
             &[
                 ("attribute", text(locale, attribute.name_key()).to_string()),
                 ("tier", tier.to_string()),
+                ("grade", grade_name),
             ],
         ),
     }

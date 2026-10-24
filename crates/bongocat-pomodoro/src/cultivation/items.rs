@@ -212,76 +212,6 @@ impl Rarity {
     pub const fn is_divine(self) -> bool {
         self.index() >= Self::Divine.index()
     }
-
-    /// How often this quality appears from one source, in parts per thousand.
-    ///
-    /// Every source's row adds up to a thousand, and the rows are not the same
-    /// row: a shelf is where good gear is *bought*, so it leans richer than the
-    /// road does, and the day's free gift leans poorest of the three — a gift
-    /// that paid like a shop would make the shop pointless.
-    pub(crate) const fn drop_permille(self, source: DropSource) -> u32 {
-        use DropSource::{Combat, Random, Shop};
-        match source {
-            Random => match self {
-                Self::Common => 620,
-                Self::Fine => 220,
-                Self::Rare => 95,
-                Self::Immortal => 40,
-                Self::Legendary => 17,
-                Self::Mythic => 6,
-                Self::Divine => 1,
-                Self::Transcendent => 1,
-            },
-            Combat => match self {
-                Self::Common => 540,
-                Self::Fine => 250,
-                Self::Rare => 125,
-                Self::Immortal => 55,
-                Self::Legendary => 22,
-                Self::Mythic => 6,
-                Self::Divine => 1,
-                Self::Transcendent => 1,
-            },
-            Shop => match self {
-                Self::Common => 399,
-                Self::Fine => 250,
-                Self::Rare => 180,
-                Self::Immortal => 95,
-                Self::Legendary => 50,
-                Self::Mythic => 20,
-                Self::Divine => 4,
-                Self::Transcendent => 2,
-            },
-        }
-    }
-}
-
-/// Which channel a piece of gear came out of.
-///
-/// Three channels, three tables: the day's own gift, the fights, and the shelf.
-/// Buying reads the shelf's table — a purchase takes what the refresh rolled —
-/// so the four ways a piece arrives are covered by these three rows.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DropSource {
-    /// The day's free event: a gift, or the quiet day's trinket.
-    Random,
-    /// A fight that was won: a wanderer, a guardian, a trial floor.
-    Combat,
-    /// The shop's daily refresh, and therefore every purchase off it.
-    Shop,
-}
-
-/// Roll one quality for a source.
-pub(crate) fn roll_rarity(rng: &mut Rng, source: DropSource) -> Rarity {
-    let roll = rng.below(1_000);
-    let mut acc = 0;
-    for rarity in Rarity::ALL {
-        acc += rarity.drop_permille(source);
-        if roll < u64::from(acc) {
-            return rarity;
-        }
-    }
-    Rarity::Common
 }
 
 /// The extra attack effect a 神装 carries.
@@ -679,16 +609,15 @@ const fn combat_lines(rarity: Rarity) -> usize {
     (index >= 3) as usize + (index >= 5) as usize
 }
 
-/// Roll one piece of gear for a realm, out of a channel.
+/// Roll one piece of gear at a tier, at an already-rolled quality.
 ///
-/// `tier` is the realm's one-based position and `source` is the channel the
-/// piece came out of, which is what decides how good the quality roll leans.
-/// The slot, the quality, the effect, the attributes and the outright combat
-/// numbers are all rolled here, so a caller only decides which realm the drop
-/// belongs to and where it came from.
-pub fn roll_equipment(id: u64, tier: u8, source: DropSource, rng: &mut Rng) -> EquipmentRecord {
+/// `tier` is the rung the piece stands on and `rarity` is the quality the
+/// source's roll landed on — both decided by the caller, because both are read
+/// off the strength the piece came from (see [`super::drop`]). The slot, the
+/// effect, the attributes and the outright combat numbers are rolled here, so a
+/// caller only decides how deep and how good the find is.
+pub fn roll_equipment(id: u64, tier: u8, rarity: Rarity, rng: &mut Rng) -> EquipmentRecord {
     let slot = EquipSlot::from_index(rng.below(SLOT_COUNT as u64) as usize);
-    let rarity = roll_rarity(rng, source);
     let points = base_points(tier) * rarity.multiplier() / 10;
     let (primary, primary_percent, secondary, secondary_percent) = slot.split();
     let mut attributes = Attributes::default();
@@ -759,11 +688,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_drop_lands_in_a_slot_and_carries_a_quality() {
+    fn a_drop_lands_in_a_slot_and_carries_the_quality_it_was_handed() {
         let mut rng = Rng::seeded(7);
-        let item = roll_equipment(1, 3, DropSource::Combat, &mut rng);
+        let item = roll_equipment(1, 3, Rarity::Fine, &mut rng);
         assert_eq!(item.id, 1);
         assert_eq!(item.tier, 3);
+        assert_eq!(item.rarity, Rarity::Fine, "the roll does not re-roll it");
         assert!(item.attributes.power() > 0);
         assert!(!item.star_capped());
         assert_eq!(item.star(), 0);
@@ -816,7 +746,8 @@ mod tests {
         let mut combat: std::collections::BTreeMap<Rarity, usize> =
             std::collections::BTreeMap::new();
         for seed in 0..8_000_u64 {
-            let item = roll_equipment(seed, 5, DropSource::Combat, &mut Rng::seeded(seed));
+            let rarity = Rarity::from_index(seed as usize % Rarity::ALL.len());
+            let item = roll_equipment(seed, 5, rarity, &mut Rng::seeded(seed));
             let attribute_lines = attribute_lines_of(&item);
             let combat_lines = combat_lines_of(&item);
             // A quality's pieces never disagree about how many lines they pay.
@@ -863,75 +794,34 @@ mod tests {
         }
     }
 
-    /// Every channel's row is a whole row, and the three channels are not the
-    /// same row: the shelf leans richer than the road, the day's gift poorest.
+    /// The eight qualities travel as themselves through a save, and an older
+    /// one's best grade still reads: the ladder grew, the old names stayed.
     #[test]
-    fn every_channel_rolls_a_whole_thousand_and_the_channels_differ() {
-        for source in [DropSource::Random, DropSource::Combat, DropSource::Shop] {
-            let total: u32 = Rarity::ALL
-                .iter()
-                .map(|rarity| rarity.drop_permille(source))
-                .sum();
-            assert_eq!(total, 1_000, "{source:?} does not roll a whole thousand");
-        }
-        // The shop is where good gear is bought, so it beats the road on the
-        // two 神装 grades and on 传说.
-        for rarity in [
-            Rarity::Legendary,
-            Rarity::Mythic,
-            Rarity::Divine,
-            Rarity::Transcendent,
-        ] {
+    fn the_quality_ladder_is_bottom_heavy_and_every_grade_has_a_colour() {
+        let mut colours = std::collections::BTreeSet::new();
+        for rarity in Rarity::ALL {
             assert!(
-                rarity.drop_permille(DropSource::Shop) > rarity.drop_permille(DropSource::Combat),
-                "{rarity:?} is not commoner on the shelf than on the road"
-            );
-            assert!(
-                rarity.drop_permille(DropSource::Combat)
-                    >= rarity.drop_permille(DropSource::Random),
-                "{rarity:?} is not commoner in a fight than in a gift"
+                colours.insert(rarity.color()),
+                "{rarity:?} repeats a colour"
             );
         }
-        assert!(
-            Rarity::Common.drop_permille(DropSource::Random)
-                > Rarity::Common.drop_permille(DropSource::Combat)
-                && Rarity::Common.drop_permille(DropSource::Combat)
-                    > Rarity::Common.drop_permille(DropSource::Shop),
-            "white gear has to be the road's usual and the shelf's floor"
-        );
-    }
-
-    #[test]
-    fn every_quality_is_reachable_from_every_channel() {
-        for source in [DropSource::Random, DropSource::Combat, DropSource::Shop] {
-            let mut seen = std::collections::BTreeSet::new();
-            for seed in 0..2_000_u64 {
-                seen.insert(roll_rarity(&mut Rng::seeded(seed), source));
-            }
-            assert_eq!(seen.len(), Rarity::ALL.len(), "{source:?} lost a quality");
-        }
+        assert_eq!(colours.len(), Rarity::ALL.len());
     }
 
     /// Only a 神装 carries an effect, and every 神装 does.
     #[test]
     fn only_a_divine_piece_carries_an_effect() {
-        let mut divine_without = 0;
-        let mut mortal_with = 0;
         for seed in 0..4_000_u64 {
+            let rarity = Rarity::from_index(seed as usize % Rarity::ALL.len());
             let mut rng = Rng::seeded(seed);
-            let item = roll_equipment(seed, 5, DropSource::Combat, &mut rng);
-            match (item.rarity.is_divine(), item.effect) {
-                (true, None) => divine_without += 1,
-                (false, Some(_)) => mortal_with += 1,
-                _ => {}
-            }
-        }
-        assert_eq!(divine_without, 0, "a 神装 without its effect");
-        assert_eq!(mortal_with, 0, "an effect below 神装");
-        // A 神装's effect rides in its name: the log prints the name.
-        for seed in 0..4_000_u64 {
-            let mut rng = Rng::seeded(seed);
-            let item = roll_equipment(seed, 5, DropSource::Shop, &mut rng);
+            let item = roll_equipment(seed, 5, rarity, &mut rng);
+            assert_eq!(
+                item.rarity.is_divine(),
+                item.effect.is_some(),
+                "{:?} and its effect disagree",
+                item.rarity
+            );
+            // A 神装's effect rides in its name: the log prints the name.
             if let Some(effect) = item.effect {
                 let name = item.name.as_deref().unwrap_or_default();
                 assert!(

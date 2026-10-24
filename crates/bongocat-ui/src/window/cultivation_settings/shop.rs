@@ -260,6 +260,7 @@ fn shop_offer_detail(
         ShopOffer::Seed {
             attribute,
             tier,
+            grade,
             name,
         } => div()
             .flex()
@@ -270,10 +271,10 @@ fn shop_offer_detail(
             // What the seed pays when it comes up, then what a sale would bring:
             // the two numbers a buyer is choosing between when they look at the
             // price on the button.
-            .child(seed_facts(locale, *attribute, *tier))
+            .child(seed_facts(locale, *attribute, *tier, *grade))
             .child(format!(
                 "{} · {}",
-                seed_label(locale, *attribute, *tier, name.as_deref()),
+                seed_label(locale, *attribute, *tier, *grade, name.as_deref()),
                 resale
             ))
             .into_any_element(),
@@ -409,8 +410,9 @@ fn shop_offer_label(offer: &ShopOffer, locale: &str) -> String {
         ShopOffer::Seed {
             attribute,
             tier,
+            grade,
             name,
-        } => seed_label(locale, *attribute, *tier, name.as_deref()),
+        } => seed_label(locale, *attribute, *tier, *grade, name.as_deref()),
         ShopOffer::Art { art_id } => blueprint(*art_id).name.clone(),
         ShopOffer::Herb { herb } => text(locale, herb.name_key()).to_string(),
     }

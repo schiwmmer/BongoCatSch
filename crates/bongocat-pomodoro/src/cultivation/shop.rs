@@ -28,9 +28,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::items::{DropSource, base_points};
-use super::{ART_COUNT, AptitudeHerb, Attribute, EquipmentRecord, Rarity, Realm};
-
+use super::items::base_points;
+use super::{
+    ART_COUNT, AptitudeHerb, ArtGrade, Attribute, EquipmentRecord, Rarity, Realm, SeedGrade,
+};
 /// How many goods the shop offers at most in one day.
 ///
 /// Five is the floor a shop needs to look like a shop rather than a slot
@@ -88,6 +89,9 @@ pub enum ShopOffer {
     Seed {
         attribute: Attribute,
         tier: u8,
+        /// The herb's grade. A shelf keeps the grade it rolled, so the row a
+        /// buyer reads is the herb that lands in their satchel.
+        grade: SeedGrade,
         name: Option<String>,
     },
     /// One 功法, offered by id out of the catalog.
@@ -110,7 +114,7 @@ impl ShopOffer {
     pub fn price(&self) -> u32 {
         match self {
             Self::Equipment(item) => equipment_price(item.tier, item.rarity),
-            Self::Seed { tier, .. } => seed_price(*tier),
+            Self::Seed { tier, grade, .. } => seed_price(*tier, *grade),
             Self::Art { art_id } => art_price(super::blueprint(*art_id).grade),
             Self::Herb { herb } => herb.price(),
         }
@@ -158,10 +162,13 @@ pub fn equipment_price(tier: u8, rarity: Rarity) -> u32 {
 ///
 /// Linear in the tier, and under a garment of the same tier at every step: a
 /// herb is repeatable and a garment is not, so the same 灵石 should not buy the
-/// same amount of either.
-pub fn seed_price(tier: u8) -> u32 {
+/// same amount of either. The grade multiplies it, the same way the grade
+/// multiplies the harvest — a 神阶 seed at a 地阶 price would be the one row on
+/// the shelf that pays for itself.
+pub fn seed_price(tier: u8, grade: SeedGrade) -> u32 {
     let tier = u32::from(tier.clamp(1, 10));
-    30 * tier + 20
+    let base = 30 * tier + 20;
+    (base * grade.multiplier_permille() / 1_000).max(1)
 }
 
 /// What one attempt at the next star costs: half of what the piece sells for.
@@ -198,7 +205,7 @@ const ART_OVER_GEAR_DENOMINATOR: u32 = 2;
 ///
 /// It stays above the gear and the herbs because it is worth more: a garment is
 /// one of four slots and a herb is one planting, while a 功法 is permanent.
-pub fn art_price(grade: super::ArtGrade) -> u32 {
+pub fn art_price(grade: ArtGrade) -> u32 {
     // The grade's own band: 黄 sits with the second tier, 神 with the tenth, so
     // a 功法 is compared against the gear a cultivator of its grade would wear.
     let tier = u8::try_from((grade.index() + 1) * 2).unwrap_or(10).min(10);
@@ -238,6 +245,11 @@ pub fn roll_offers(day_number: i64, realm: Realm, seed: u64) -> Vec<ShopOffer> {
     let count = offers_for_day(day_number, realm);
     let tier = u8::try_from(realm.index()).unwrap_or(0).saturating_add(1);
     let mut rng = super::Rng::seeded(seed ^ realm_seed(realm));
+    // The shelf has no opponent, so its strength is the realm it stocks for:
+    // a garment on the shelf is rolled at what a body of that realm is worth,
+    // which is the same ruler a fight's drop is read against.
+    let strength = super::drop::realm_power(realm);
+    let factor = super::drop::power_factor_permille(strength);
     let mut offers = Vec::with_capacity(count);
     for slot in 0..count {
         // The shelf is mostly what this realm can use, with one slot given to
@@ -265,6 +277,9 @@ pub fn roll_offers(day_number: i64, realm: Realm, seed: u64) -> Vec<ShopOffer> {
                     .saturating_add(1)
                     .saturating_sub(u8::try_from(rng.below(3)).unwrap_or(0))
                     .clamp(1, 10),
+                // The grade is the discovery roll, the same five-grade ladder a
+                // dropped seed reads: a shelf sells what the garden grows.
+                grade: super::garden::roll_seed_grade(&mut rng),
                 name: None,
             },
             1 => {
@@ -272,7 +287,7 @@ pub fn roll_offers(day_number: i64, realm: Realm, seed: u64) -> Vec<ShopOffer> {
                     0,
                     tier.saturating_add(u8::try_from(rng.below(2)).unwrap_or(0))
                         .min(10),
-                    DropSource::Shop,
+                    super::drop::roll_quality(&mut rng, factor).unwrap_or(Rarity::Common),
                     &mut rng,
                 );
                 item.name = Some(super::items::equipment_display_name(
@@ -307,7 +322,9 @@ pub fn roll_offers(day_number: i64, realm: Realm, seed: u64) -> Vec<ShopOffer> {
 ///
 /// Weighted toward the realm's own grade band, exactly where [`ArtGrade`] is
 /// graded for breakthroughs, and never the rarest band: 神级 belongs to walks
-/// that get lucky, not to a shelf.
+/// that get lucky, not to a shelf. Inside the band the pick is weighted the way
+/// every other pick is — a 潜质 book at half the odds of any other — so the
+/// shelf cannot become the cheap way into the one scarce number.
 fn shop_art_id(rng: &mut super::Rng, tier: u8) -> u64 {
     let grade = match tier {
         0 | 1 => 0,
@@ -319,10 +336,21 @@ fn shop_art_id(rng: &mut super::Rng, tier: u8) -> u64 {
         .filter(|id| super::blueprint(*id).grade.index() == grade)
         .collect();
     if band.is_empty() {
-        1
-    } else {
-        band[rng.below(band.len() as u64) as usize]
+        return 1;
     }
+    let total: u64 = band
+        .iter()
+        .map(|id| super::arts::art_pick_weight(*id))
+        .sum();
+    let mut roll = rng.below(total.max(1));
+    for id in band {
+        let weight = super::arts::art_pick_weight(id);
+        if roll < weight {
+            return id;
+        }
+        roll -= weight;
+    }
+    1
 }
 
 /// How many of the day's offers are cut in price.
@@ -476,7 +504,7 @@ mod tests {
     /// the shop sells.
     #[test]
     fn the_aptitude_items_are_priced_apart() {
-        assert!(AptitudeHerb::Insight.price() > seed_price(10));
+        assert!(AptitudeHerb::Insight.price() > seed_price(10, SeedGrade::Divine));
         assert!(AptitudeHerb::Wisdom.price() > AptitudeHerb::Insight.price());
         assert_eq!(AptitudeHerb::Marrow.price(), 100_000);
     }

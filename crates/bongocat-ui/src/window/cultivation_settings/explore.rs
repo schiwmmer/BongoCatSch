@@ -282,7 +282,7 @@ fn multiplier_text(hours: ExplorationHours) -> String {
 /// the page owns the clock, so the subtraction happens here rather than in the
 /// domain. An ended cooldown reads as zero rather than as a negative, and a
 /// cooldown that was never started falls back to the bare key.
-fn cooldown_line(owed_at: Option<i64>, key: &'static str, locale: &str) -> String {
+pub(super) fn cooldown_line(owed_at: Option<i64>, key: &'static str, locale: &str) -> String {
     let Some(owed_at) = owed_at else {
         return text(locale, key).to_string();
     };

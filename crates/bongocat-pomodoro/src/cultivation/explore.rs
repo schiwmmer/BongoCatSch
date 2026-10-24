@@ -187,6 +187,13 @@ pub(crate) const WANDERER_STONES: StonePurse = StonePurse { min: 20, max: 34 };
 /// the ladder.
 pub(crate) const GUARDIAN_STONES: StonePurse = StonePurse { min: 38, max: 66 };
 
+/// What one pomodoro's thousandth pays when the purse is the shape it took.
+///
+/// Above the guardian's on purpose: this is not a source that pays for work, it
+/// is a jackpot that pays for luck, so it has to read as one — a purse the size
+/// of a road's walk would be a strange thing to be a thousandth.
+pub(crate) const BONUS_STONES: StonePurse = StonePurse { min: 50, max: 90 };
+
 /// The purses are ordered on purpose — a walk under a floor, a floor under a
 /// wanderer, a wanderer under a guardian — because that ordering is both the
 /// difficulty and the emphasis, and a retune that broke it would flatten four

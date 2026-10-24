@@ -427,6 +427,7 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
         EventDetail::Harvested {
             attribute,
             tier,
+            grade,
             name,
             points,
         } => format_text(
@@ -435,11 +436,39 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             &[
                 (
                     "seed",
-                    seed_label(locale, *attribute, *tier, name.as_deref()),
+                    seed_label(locale, *attribute, *tier, *grade, name.as_deref()),
                 ),
                 ("attribute", text(locale, attribute.name_key()).to_string()),
                 ("points", points.to_string()),
             ],
+        ),
+        // 千分之一: what the pomodoro paid beside its growth. One line, and it
+        // names the shape the luck took rather than saying "something".
+        EventDetail::Bonus { find } => format_text(
+            locale,
+            "cultivation.event.bonus",
+            &[("find", bonus_find_label(find, locale))],
+        ),
+    }
+}
+
+/// What one 千分之一 handed over, as a phrase a line can carry.
+fn bonus_find_label(find: &BonusFind, locale: &str) -> String {
+    match find {
+        BonusFind::Equipment { name } => name
+            .clone()
+            .unwrap_or_else(|| text(locale, "cultivation.shop.equipment").to_string()),
+        BonusFind::Seed {
+            attribute,
+            tier,
+            grade,
+        } => seed_label(locale, *attribute, *tier, *grade, None),
+        BonusFind::Art { name } => name.clone(),
+        BonusFind::Herb { herb } => text(locale, herb.name_key()).to_string(),
+        BonusFind::Stones { stones } => format_text(
+            locale,
+            "cultivation.event.bonus_stones",
+            &[("stones", stones.to_string())],
         ),
     }
 }
@@ -455,20 +484,27 @@ fn sale_label(what: &SaleKind, locale: &str) -> String {
         SaleKind::Equipment { name } => name
             .clone()
             .unwrap_or_else(|| text(locale, "cultivation.shop.equipment").to_string()),
-        SaleKind::Seed { name, tier } => match (name.as_deref(), *tier) {
-            (Some(name), tier) if tier > 0 => format_text(
-                locale,
-                "cultivation.seed.label_named",
-                &[("name", name.to_owned()), ("tier", tier.to_string())],
-            ),
-            (None, tier) if tier > 0 => format_text(
-                locale,
-                "cultivation.shop.seed_tier",
-                &[("tier", tier.to_string())],
-            ),
-            (Some(name), _) => name.to_owned(),
-            (None, _) => text(locale, "cultivation.shop.seed").to_string(),
-        },
+        SaleKind::Seed { name, tier, grade } => {
+            let grade_name = text(locale, grade.name_key()).to_string();
+            match (name.as_deref(), *tier) {
+                (Some(name), tier) if tier > 0 => format_text(
+                    locale,
+                    "cultivation.seed.label_named",
+                    &[
+                        ("name", name.to_owned()),
+                        ("tier", tier.to_string()),
+                        ("grade", grade_name),
+                    ],
+                ),
+                (None, tier) if tier > 0 => format_text(
+                    locale,
+                    "cultivation.shop.seed_tier",
+                    &[("tier", tier.to_string()), ("grade", grade_name)],
+                ),
+                (Some(name), _) => name.to_owned(),
+                (None, _) => text(locale, "cultivation.shop.seed").to_string(),
+            }
+        }
         SaleKind::Art { name } => name
             .clone()
             .unwrap_or_else(|| text(locale, "cultivation.shop.art").to_string()),

@@ -9,6 +9,7 @@
 //! banked is not offered: the count beside it says zero, and a button that
 //! silently did nothing would read as broken rather than as empty.
 
+use super::explore::cooldown_line;
 use super::*;
 
 /// The 试炼 panel, under the walk.
@@ -23,7 +24,11 @@ pub(super) fn proving_panel(
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
-    let ready = cultivation.proving_tokens > 0;
+    // Two gates: a banked chance, and being home. A cultivator still out on a
+    // walk has the chance but not the courtyard, and the status line says which
+    // of the two is missing rather than leaving the button quietly dead.
+    let home = cultivation.exploration_ready;
+    let ready = home && cultivation.proving_tokens > 0;
     let mut button = Button::new("cultivation-proving-attempt")
         .small()
         .label(text(locale, "cultivation.proving.attempt"));
@@ -41,14 +46,22 @@ pub(super) fn proving_panel(
             }
         });
     }
-    let status = format_text(
-        locale,
-        "cultivation.proving.chances",
-        &[
-            ("left", cultivation.proving_tokens.to_string()),
-            ("total", cultivation.proving_token_cap.to_string()),
-        ],
-    );
+    let status = if home {
+        format_text(
+            locale,
+            "cultivation.proving.chances",
+            &[
+                ("left", cultivation.proving_tokens.to_string()),
+                ("total", cultivation.proving_token_cap.to_string()),
+            ],
+        )
+    } else {
+        cooldown_line(
+            cultivation.exploration_ready_at,
+            "cultivation.proving.away",
+            locale,
+        )
+    };
     let color = if ready { tokens.text } else { tokens.muted };
     let hint = text(locale, "cultivation.proving.hint");
     div()

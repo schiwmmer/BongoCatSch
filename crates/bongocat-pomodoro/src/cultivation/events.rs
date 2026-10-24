@@ -120,6 +120,11 @@ pub enum EventDetail {
         attribute: Attribute,
         #[serde(default)]
         tier: u8,
+        /// The grade the crop was planted at, which is what its points were
+        /// multiplied by. An old save's harvests predate the field and read as
+        /// 地阶 — the numbers they already paid.
+        #[serde(default)]
+        grade: super::SeedGrade,
         #[serde(default)]
         name: Option<String>,
         /// What the harvest added to that attribute, permanently.
@@ -180,6 +185,39 @@ pub enum EventDetail {
         /// The catalog key of the source: a fight, a walk, or the day's event.
         source: MarrowSource,
     },
+    /// 千分之一: one finished pomodoro paid something beside its growth — a
+    /// purse, a herb, a book or a piece of gear, in whatever shape the roll took.
+    ///
+    /// A line of its own rather than a note on the session, because it is the
+    /// rarer of the two things the same pomodoro did and the one a user will go
+    /// looking for later.
+    Bonus { find: BonusFind },
+}
+
+/// What one 千分之一 paid, in the shape it came.
+///
+/// The same five shapes a session's drop can take, told in the terms the log
+/// already speaks: a name where the thing has one, and the numbers a herb needs
+/// to be planted or priced.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum BonusFind {
+    Equipment {
+        name: Option<String>,
+    },
+    Seed {
+        attribute: Attribute,
+        tier: u8,
+        grade: super::SeedGrade,
+    },
+    Art {
+        name: String,
+    },
+    Herb {
+        herb: super::AptitudeHerb,
+    },
+    Stones {
+        stones: u32,
+    },
 }
 
 /// Where a 洗髓丹 came from, as the log says it.
@@ -210,6 +248,10 @@ pub enum SaleKind {
         name: Option<String>,
         #[serde(default)]
         tier: u8,
+        /// The herb's grade. An old save's sales predate the field and read as
+        /// 地阶, the grade their numbers were the anchor for.
+        #[serde(default)]
+        grade: super::SeedGrade,
     },
     Art {
         name: Option<String>,

@@ -23,6 +23,45 @@ use super::{Attribute, Attributes, Derived, Rng};
 /// How many 功法 the ladder holds: five hundred, graded as below.
 pub const ART_COUNT: u64 = 500;
 
+/// The 潜质 a book of each grade pays per 阶, in tenths: 0.2 / 0.5 / 0.8 /
+/// 1.2 / 2.0.
+///
+/// 潜质 is the one number a build can be built around, so a book that raises it
+/// has to be worth the rank it costs: a 黄阶 one is a slow trickle, a 神阶 one
+/// pays a whole point a rank. The span is the brief's own — two tenths to two
+/// points — and the grade is the whole difference between them.
+pub const APTITUDE_ART_TENTHS_PER_RANK: [i32; 5] = [2, 5, 8, 12, 20];
+
+/// The ten 功法 whose study raises 潜质 — two per grade, and no others.
+///
+/// 潜质 is the ladder's scarcest number, so only the books written for it move
+/// it: ten out of five hundred, which is what makes finding one an event rather
+/// than a rounding difference. Every id here is an 内功 (an odd id, so the book
+/// is trained rather than swung) and every one sits inside its grade's band.
+pub const APTITUDE_ART_IDS: [u64; 10] = [17, 93, 233, 307, 371, 425, 447, 479, 491, 499];
+
+/// What one 阶 of this 功法 pays in 潜质, in tenths — zero for the four hundred
+/// and ninety that are not written for it.
+pub fn aptitude_tenths_per_rank(art_id: u64) -> i32 {
+    if !APTITUDE_ART_IDS.contains(&art_id) {
+        return 0;
+    }
+    APTITUDE_ART_TENTHS_PER_RANK[grade_for_id(art_id).index()]
+}
+
+/// The weight an unowned 功法 carries when one is picked out of its grade's band.
+///
+/// An aptitude book is worth half of any other: the brief's "掉落概率比其他功法低
+/// 一倍". Two numbers rather than a percentage so the pick stays integer
+/// arithmetic, and so the ratio is exactly a half rather than a rounding of it.
+pub(crate) fn art_pick_weight(art_id: u64) -> u64 {
+    if aptitude_tenths_per_rank(art_id) > 0 {
+        1
+    } else {
+        2
+    }
+}
+
 /// The five grades, weakest first: 黄阶、玄阶、地阶、天阶、神阶.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum ArtGrade {
@@ -131,6 +170,9 @@ pub struct ArtBlueprint {
     pub cost: u32,
     /// What one 外功 is worth, in parts per thousand of the wielder's 攻击力.
     pub multiplier_permille: u32,
+    /// What one 阶 pays in 潜质, in tenths. Zero for every book but the ten
+    /// written for it — see [`APTITUDE_ART_IDS`].
+    pub aptitude_tenths: i32,
 }
 
 /// The grade a given id carries.
@@ -226,6 +268,7 @@ pub fn blueprint(id: u64) -> ArtBlueprint {
         bonus,
         cost,
         multiplier_permille,
+        aptitude_tenths: aptitude_tenths_per_rank(id),
     }
 }
 
@@ -279,7 +322,11 @@ fn internal_gain(grade: ArtGrade, rng: &mut Rng) -> (Attributes, Derived) {
     (gain, bonus)
 }
 
-/// Which of the nine combat numbers one 阶 of an 内功 can pay outright.
+/// Which of the eight combat numbers one 阶 of an 内功 can pay outright.
+///
+/// 潜质 is deliberately not among them: it is the number a whole build turns on,
+/// and the brief rations it to the ten books written for it — a hybrid art that
+/// rolled a point of it would be a second, quiet way into the same ladder.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CombatLine {
     Attack,
@@ -290,11 +337,10 @@ enum CombatLine {
     Speed,
     Hit,
     Evade,
-    Aptitude,
 }
 
 impl CombatLine {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 8] = [
         Self::Attack,
         Self::Health,
         Self::Inner,
@@ -303,7 +349,6 @@ impl CombatLine {
         Self::Speed,
         Self::Hit,
         Self::Evade,
-        Self::Aptitude,
     ];
 
     fn from_index(index: usize) -> Self {
@@ -328,7 +373,6 @@ impl CombatLine {
             Self::Speed => (&mut bonus.speed, 2),
             Self::Hit => (&mut bonus.hit, 10),
             Self::Evade => (&mut bonus.evade, 10),
-            Self::Aptitude => (&mut bonus.aptitude, 2),
         };
         *slot = slot.saturating_add((magnitude * rate) as u32);
     }
@@ -550,6 +594,81 @@ pub fn art_attributes(owned: &[OwnedArt]) -> Attributes {
     total
 }
 
+/// What every book on the shelf has paid in 潜质 so far, in tenths.
+///
+/// The counterpart of [`art_attributes`] for the one number that is not an
+/// attribute: a 阶 of one of the ten books written for it pays its grade's
+/// tenths, a completed one pays the mastery share on every 阶, and everything
+/// else pays nothing at all.
+pub fn art_aptitude_tenths(owned: &[OwnedArt]) -> i32 {
+    let mut total: i32 = 0;
+    for art in owned {
+        let blueprint = blueprint(art.art_id);
+        if blueprint.aptitude_tenths == 0 {
+            continue;
+        }
+        let mastery = if art.rank >= blueprint.grade.ranks() {
+            1_000 + i64::from(mastery_permille(blueprint.grade))
+        } else {
+            1_000
+        };
+        total = total.saturating_add(paid(
+            blueprint.aptitude_tenths,
+            i64::from(art.rank),
+            mastery,
+        ));
+    }
+    total
+}
+
+/// What the learned 功法 pay in 潜质, in tenths: every 阶 of the grade, with the
+/// mastery share folded in.
+pub fn mastered_art_aptitude_tenths(mastered: &[u64]) -> i32 {
+    let mut total: i32 = 0;
+    for id in mastered {
+        let blueprint = blueprint(*id);
+        if blueprint.aptitude_tenths == 0 {
+            continue;
+        }
+        let mastery = 1_000 + i64::from(mastery_permille(blueprint.grade));
+        total = total.saturating_add(paid(
+            blueprint.aptitude_tenths,
+            i64::from(blueprint.grade.ranks()),
+            mastery,
+        ));
+    }
+    total
+}
+
+/// What one book has paid in 潜质 at a given 阶, in tenths — the figure a row
+/// prints beside the art it belongs to.
+pub fn art_aptitude_tenths_at(art_id: u64, rank: u8) -> i32 {
+    let blueprint = blueprint(art_id);
+    if blueprint.aptitude_tenths == 0 {
+        return 0;
+    }
+    let mastery = if rank >= blueprint.grade.ranks() {
+        1_000 + i64::from(mastery_permille(blueprint.grade))
+    } else {
+        1_000
+    };
+    paid(blueprint.aptitude_tenths, i64::from(rank), mastery)
+}
+
+/// What a learned book pays in 潜质 in all, in tenths.
+pub fn mastered_art_aptitude_payout(art_id: u64) -> i32 {
+    let blueprint = blueprint(art_id);
+    if blueprint.aptitude_tenths == 0 {
+        return 0;
+    }
+    let mastery = 1_000 + i64::from(mastery_permille(blueprint.grade));
+    paid(
+        blueprint.aptitude_tenths,
+        i64::from(blueprint.grade.ranks()),
+        mastery,
+    )
+}
+
 /// The attributes every **已习得** 内功 pays, for good.
 ///
 /// A learned 功法 is complete: it sits at its grade's last 阶 and pays the
@@ -745,6 +864,9 @@ pub struct ArtView {
     pub cost: u32,
     /// What one use is worth, for an 外功.
     pub multiplier_permille: u32,
+    /// What one 阶 pays in 潜质, in tenths: zero for every book but the ten
+    /// written for it.
+    pub aptitude_tenths: i32,
     /// What the art's last 阶 pays on top, in parts per thousand: zero until
     /// every 阶 is in. An 内功 pays its attributes multiplied by this, an 外功
     /// adds this share of 攻击力 to every blow.
@@ -787,6 +909,9 @@ pub struct MasteredArtView {
     pub cost: u32,
     /// What one use is worth, for an 外功.
     pub multiplier_permille: u32,
+    /// What one 阶 pays in 潜质, in tenths: zero for every book but the ten
+    /// written for it.
+    pub aptitude_tenths: i32,
     /// Whether the tome's sale has been collected: the 功法 itself is not for
     /// sale a second time, though nothing it pays is ever taken away. A book
     /// still being trained has no collected sale and no sale here — its row is
@@ -815,6 +940,7 @@ pub fn art_view(owned: &OwnedArt, aptitude_tenths: i32, selected: bool) -> ArtVi
         bonus: art.bonus,
         cost: art.cost,
         multiplier_permille: art.multiplier_permille,
+        aptitude_tenths: art.aptitude_tenths,
         mastery_permille: if owned.rank >= art.grade.ranks() {
             mastery_permille(art.grade)
         } else {
@@ -843,6 +969,7 @@ pub fn mastered_art_view(art_id: u64) -> MasteredArtView {
         bonus: art.bonus,
         cost: art.cost,
         multiplier_permille: art.multiplier_permille,
+        aptitude_tenths: art.aptitude_tenths,
         // The caller that knows the save marks the collected sales; a view
         // built from the id alone has nothing sold to speak of.
         sold: false,
@@ -1213,5 +1340,99 @@ mod tests {
     fn an_external_art_hits_harder_than_a_bare_hand() {
         assert_eq!(external_damage(100, 1_200), 120);
         assert_eq!(external_damage(0, 3_000), 0);
+    }
+
+    /// The brief's list: ten books and no more, two per grade, every one of them
+    /// an 内功 sitting inside its own grade's band.
+    #[test]
+    fn only_ten_books_raise_aptitude_and_two_of_each_grade() {
+        assert_eq!(APTITUDE_ART_IDS.len(), 10);
+        let unique: std::collections::BTreeSet<u64> = APTITUDE_ART_IDS.iter().copied().collect();
+        assert_eq!(
+            unique.len(),
+            APTITUDE_ART_IDS.len(),
+            "a book is listed twice"
+        );
+        let mut per_grade = [0_usize; 5];
+        for id in APTITUDE_ART_IDS {
+            assert!((1..=ART_COUNT).contains(&id), "{id} is off the catalog");
+            let art = blueprint(id);
+            per_grade[art.grade.index()] += 1;
+            assert_eq!(art.kind, ArtKind::Internal, "{id} is swung, not trained");
+            assert!(art.aptitude_tenths > 0);
+        }
+        assert_eq!(
+            per_grade,
+            [2, 2, 2, 2, 2],
+            "two books a grade: {per_grade:?}"
+        );
+        // Every other book pays nothing at all: 潜质 has one source and ten
+        // names, and a hybrid shape that rolled it would be a second source.
+        let others_with_aptitude = (1..=ART_COUNT)
+            .filter(|id| !APTITUDE_ART_IDS.contains(id))
+            .filter(|id| blueprint(*id).aptitude_tenths != 0)
+            .count();
+        assert_eq!(others_with_aptitude, 0);
+    }
+
+    /// The band runs 0.2 to 2.0 a 阶, and the grade alone decides where in it a
+    /// book sits.
+    #[test]
+    fn an_aptitude_book_pays_two_tenths_to_two_points_a_rank() {
+        assert_eq!(APTITUDE_ART_TENTHS_PER_RANK[0], 2, "0.2 a rank");
+        assert_eq!(APTITUDE_ART_TENTHS_PER_RANK[4], 20, "2.0 a rank");
+        for pair in ArtGrade::ALL.windows(2) {
+            assert!(
+                APTITUDE_ART_TENTHS_PER_RANK[pair[1].index()]
+                    > APTITUDE_ART_TENTHS_PER_RANK[pair[0].index()],
+                "{:?} pays no more than {:?}",
+                pair[1],
+                pair[0]
+            );
+        }
+        // What a book has actually paid grows with the 阶 it has reached, and a
+        // completed one pays its mastery share on top.
+        let id = APTITUDE_ART_IDS[4];
+        let ranks = blueprint(id).grade.ranks();
+        let mut previous = 0;
+        for rank in 0..=ranks {
+            let paid = art_aptitude_tenths_at(id, rank);
+            assert!(
+                paid >= previous,
+                "rank {rank} paid less than the one before"
+            );
+            previous = paid;
+        }
+        assert_eq!(
+            art_aptitude_tenths_at(1, 3),
+            0,
+            "an ordinary book pays nothing"
+        );
+        assert_eq!(mastered_art_aptitude_tenths(&[id]), previous);
+    }
+
+    /// The books are found at half the odds of any other: the weight that picks
+    /// one out of its grade's band is one against two.
+    #[test]
+    fn an_aptitude_book_is_found_half_as_often() {
+        assert_eq!(art_pick_weight(APTITUDE_ART_IDS[0]), 1);
+        assert_eq!(art_pick_weight(1), 2);
+        // Measured on the pick itself: a grade's band, drawn with those weights,
+        // hands out aptitude books at half the rate a flat pick would.
+        let grade = ArtGrade::Yellow;
+        let band: Vec<u64> = (1..=ART_COUNT)
+            .filter(|id| blueprint(*id).grade == grade)
+            .collect();
+        let aptitude = band
+            .iter()
+            .filter(|id| aptitude_tenths_per_rank(**id) > 0)
+            .count();
+        let flat = aptitude as f64 / band.len() as f64;
+        let weighted =
+            (aptitude as f64 * 1.0) / (aptitude as f64 + (band.len() - aptitude) as f64 * 2.0);
+        assert!(
+            (weighted / flat - 0.5).abs() < 0.01,
+            "weighted {weighted} against flat {flat}"
+        );
     }
 }

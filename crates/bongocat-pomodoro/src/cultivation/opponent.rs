@@ -25,7 +25,7 @@ use super::duel::{GUARDIAN_NAME, WANDERER_NAME};
 use super::trial::{TRIAL_OPPONENT_NAME, floor_level, floor_realm};
 use super::{
     ArtGrade, ArtKind, ArtStrike, Attribute, Attributes, Derived, EquipmentRecord, Fighter, Realm,
-    Rng, SLOT_COUNT, base_attributes, items::DropSource, items::roll_equipment,
+    Rng, SLOT_COUNT, base_attributes, items::roll_equipment,
 };
 
 /// How much gear an opponent may carry on top of its body, in parts per
@@ -320,11 +320,28 @@ fn wear(stance: Stance, body: &Attributes, tier: u8, rng: &mut Rng) -> Vec<Equip
     // weighted sum, and two pieces worth the same points are not worth the same
     // fight when one of them lands on 身法.
     let allowance = body.power().saturating_mul(GEAR_SHARE_PERMILLE) / 1_000;
+    // The wardrobe is rolled at the *realm's* strength rather than at the body's
+    // own: two floors of one realm have to dress out of one pool, or a slightly
+    // stronger body would roll a slightly different threshold and the deeper
+    // floor could come out softer. The allowance below is what lets a stronger
+    // body carry more of that one pool.
+    let factor = super::drop::power_factor_permille(super::drop::realm_power(Realm::from_index(
+        usize::from(tier).saturating_sub(1),
+    )));
+    // The wardrobe is drawn whole, before any of it is judged: the number of
+    // draws must not depend on what the body can carry, or two floors of one
+    // realm would dress out of two different pools and the climb could go
+    // *down* — which is the one thing the tower's wardens are built not to do.
+    let mut wardrobe: Vec<EquipmentRecord> = Vec::with_capacity(SLOT_COUNT * 2);
+    for _ in 0..SLOT_COUNT * 2 {
+        let rarity = super::drop::roll_quality(rng, factor).unwrap_or(super::Rarity::Common);
+        wardrobe.push(roll_equipment(0, tier, rarity, rng));
+    }
     let mut worn: Vec<EquipmentRecord> = Vec::with_capacity(stance.gear_slots());
-    let mut tries = 0;
-    while worn.len() < stance.gear_slots() && tries < SLOT_COUNT * 2 {
-        tries += 1;
-        let item = roll_equipment(0, tier, DropSource::Combat, rng);
+    for item in wardrobe {
+        if worn.len() >= stance.gear_slots() {
+            break;
+        }
         // One piece per slot: two cloaks would be a fighter wearing the same
         // slot twice, which the inventory itself does not allow.
         if worn.iter().any(|already| already.slot == item.slot) {

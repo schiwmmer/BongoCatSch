@@ -114,6 +114,7 @@ mod tests {
             let offer = ShopOffer::Seed {
                 attribute: crate::cultivation::Attribute::Root,
                 tier,
+                grade: crate::cultivation::SeedGrade::Earth,
                 name: None,
             };
             assert!(offer.sell_price() < offer.price(), "seed tier {tier}");
@@ -149,16 +150,29 @@ mod tests {
         }
     }
 
-    /// A herb costs less than a garment of its own tier: one is repeatable and
-    /// the other is not.
+    /// A herb costs less than a garment at its own rung of the two ladders: a
+    /// 黄阶 herb under plain cloth, a 地阶 one under 精良 cloth, a 神阶 one under
+    /// 传说. One is repeatable and the other is not, so the herb never wins its
+    /// own comparison — but a 神阶 herb may well cost more than the plainest
+    /// garment, and that is the grade being worth something rather than a bug.
     #[test]
-    fn a_herb_costs_less_than_a_garment_of_its_tier() {
+    fn a_herb_costs_less_than_the_garment_of_its_own_rung() {
+        use crate::cultivation::Rarity;
+        let rungs = [
+            (crate::cultivation::SeedGrade::Yellow, Rarity::Common),
+            (crate::cultivation::SeedGrade::Profound, Rarity::Fine),
+            (crate::cultivation::SeedGrade::Earth, Rarity::Rare),
+            (crate::cultivation::SeedGrade::Heaven, Rarity::Immortal),
+            (crate::cultivation::SeedGrade::Divine, Rarity::Legendary),
+        ];
         for tier in 1..=10u8 {
-            assert!(
-                crate::cultivation::seed_price(tier)
-                    < crate::cultivation::equipment_price(tier, Rarity::Common),
-                "seed tier {tier} costs more than the garment beside it"
-            );
+            for (grade, rarity) in rungs {
+                assert!(
+                    crate::cultivation::seed_price(tier, grade)
+                        < crate::cultivation::equipment_price(tier, rarity),
+                    "seed tier {tier} {grade:?} costs more than the {rarity:?} garment beside it"
+                );
+            }
         }
     }
 
@@ -191,6 +205,7 @@ mod tests {
             let herb = ShopOffer::Seed {
                 attribute: crate::cultivation::Attribute::Root,
                 tier,
+                grade: crate::cultivation::SeedGrade::Earth,
                 name: None,
             };
             assert_eq!(
@@ -354,10 +369,16 @@ mod tests {
         document.seeds.push(crate::cultivation::SeedStack::single(
             crate::cultivation::Attribute::Root,
             2,
+            crate::cultivation::SeedGrade::Earth,
         ));
         let mut cultivation = Cultivation::new(document);
         let paid = cultivation
-            .sell_seed(crate::cultivation::Attribute::Root, 2, 1_000)
+            .sell_seed(
+                crate::cultivation::Attribute::Root,
+                2,
+                crate::cultivation::SeedGrade::Earth,
+                1_000,
+            )
             .expect("a seed was sold");
         assert!(paid > 0);
         assert_eq!(cultivation.stones(), paid);

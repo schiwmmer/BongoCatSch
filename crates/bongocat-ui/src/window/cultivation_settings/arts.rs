@@ -250,6 +250,9 @@ fn mastered_art_payoff(art: &MasteredArtView, locale: &str) -> String {
                 })
                 .collect();
             parts.extend(bonus_lines(locale, &bonus));
+            if let Some(line) = aptitude_line(locale, art.aptitude_tenths) {
+                parts.push(line);
+            }
             parts
         }
         ArtKind::External => {
@@ -492,6 +495,12 @@ fn art_payoff(art: &ArtView, locale: &str) -> String {
             ),
         ],
     };
+    // The ten 潜质 books say so on their own row: it is the one number a build
+    // is built around, and a reader who had to divine it from the fact that the
+    // book is one of ten would never find it.
+    if let Some(line) = aptitude_line(locale, art.aptitude_tenths) {
+        parts.push(line);
+    }
     // A completed 功法 pays its mastery bonus on top of what its 阶 already
     // bought, and the row says so: "圆满" beside the same numbers as an
     // unfinished art reads as a label rather than as a reward.
@@ -507,6 +516,20 @@ fn art_payoff(art: &ArtView, locale: &str) -> String {
         ));
     }
     format!("{kind} · {}", parts.join(" · "))
+}
+
+/// What one 阶 of a 潜质 book pays, as a line — `None` for every other book.
+///
+/// Tenths are printed the way the panel prints 潜质: one decimal, so 0.8 reads
+/// as the eight tenths it is rather than as a rounded point.
+fn aptitude_line(locale: &str, tenths: i32) -> Option<String> {
+    (tenths > 0).then(|| {
+        format_text(
+            locale,
+            "cultivation.art.aptitude",
+            &[("value", format!("{}.{}", tenths / 10, tenths % 10))],
+        )
+    })
 }
 
 /// What the 集市 pays for a 功法 of that id.

@@ -370,7 +370,7 @@ fn growth_beyond_the_cap_is_kept_but_buys_no_layers() {
 fn a_planted_seed_ripens_on_the_clock_and_pays_an_attribute() {
     let mut cultivation = Cultivation::default();
     document_seeds(&mut cultivation, Attribute::Root, 1, 1);
-    assert!(cultivation.plant(Attribute::Root, 1, 1_000));
+    assert!(cultivation.plant(Attribute::Root, 1, SeedGrade::Earth, 1_000));
     let planted = cultivation.view().plots[0]
         .crop
         .clone()
@@ -381,7 +381,7 @@ fn a_planted_seed_ripens_on_the_clock_and_pays_an_attribute() {
         "an unripe crop is not pickable"
     );
     assert!(
-        !cultivation.plant(Attribute::Strength, 1, 1_000),
+        !cultivation.plant(Attribute::Strength, 1, SeedGrade::Earth, 1_000),
         "a seed the cultivator does not own cannot be planted"
     );
     let harvested = cultivation
@@ -390,7 +390,7 @@ fn a_planted_seed_ripens_on_the_clock_and_pays_an_attribute() {
     assert_eq!(harvested.crop.attribute, Attribute::Root);
     assert_eq!(
         cultivation.crop_attributes().root,
-        harvest_points(1),
+        harvest_points(1, SeedGrade::Earth),
         "the harvest is permanent"
     );
     assert_eq!(
@@ -409,11 +409,12 @@ fn a_harvest_is_logged_with_its_herb_and_its_points() {
     document.seeds.push(SeedStack {
         attribute: Attribute::Mana,
         tier: 3,
+        grade: SeedGrade::Earth,
         count: 1,
         name: Some("青芝".to_owned()),
     });
     let mut cultivation = Cultivation::new(document);
-    assert!(cultivation.plant(Attribute::Mana, 3, 0));
+    assert!(cultivation.plant(Attribute::Mana, 3, SeedGrade::Earth, 0));
     assert_eq!(
         cultivation.view().plots[0]
             .crop
@@ -437,8 +438,9 @@ fn a_harvest_is_logged_with_its_herb_and_its_points() {
         EventDetail::Harvested {
             attribute: Attribute::Mana,
             tier: 3,
+            grade: SeedGrade::Earth,
             name: Some("青芝".to_owned()),
-            points: harvest_points(3),
+            points: harvest_points(3, SeedGrade::Earth),
         }
     );
 }
@@ -447,10 +449,10 @@ fn a_harvest_is_logged_with_its_herb_and_its_points() {
 fn a_seed_stack_is_spent_one_planting_at_a_time() {
     let mut cultivation = Cultivation::default();
     document_seeds(&mut cultivation, Attribute::Mana, 1, 2);
-    assert!(cultivation.plant(Attribute::Mana, 1, 0));
-    assert!(cultivation.plant(Attribute::Mana, 1, 0));
+    assert!(cultivation.plant(Attribute::Mana, 1, SeedGrade::Earth, 0));
+    assert!(cultivation.plant(Attribute::Mana, 1, SeedGrade::Earth, 0));
     assert!(
-        !cultivation.plant(Attribute::Mana, 1, 0),
+        !cultivation.plant(Attribute::Mana, 1, SeedGrade::Earth, 0),
         "the stack is empty"
     );
     assert!(cultivation.view().seeds.is_empty());
@@ -535,6 +537,7 @@ fn document_seeds(cultivation: &mut Cultivation, attribute: Attribute, tier: u8,
     document.seeds.push(SeedStack {
         attribute,
         tier,
+        grade: SeedGrade::Earth,
         count,
         name: None,
     });
@@ -642,7 +645,10 @@ fn a_harvest_gives_a_seed_back_about_one_time_in_seven() {
     let mut returns = 0u32;
     let mut upgraded = 0u32;
     for _ in 0..10_000 {
-        if let Some((attribute, tier)) = super::garden::seed_return(Attribute::Root, 3, &mut rng) {
+        if let Some((attribute, tier, grade)) =
+            super::garden::seed_return(Attribute::Root, 3, &mut rng)
+        {
+            let _ = grade;
             returns += 1;
             assert_eq!(attribute, Attribute::Root, "the seed keeps its attribute");
             assert!(
@@ -672,7 +678,7 @@ fn a_harvest_that_gives_a_seed_back_puts_it_in_the_satchel() {
     for step in 0..200i64 {
         let planted_at = step * 10_000;
         document_seeds(&mut cultivation, Attribute::Mana, 2, 1);
-        assert!(cultivation.plant(Attribute::Mana, 2, planted_at));
+        assert!(cultivation.plant(Attribute::Mana, 2, SeedGrade::Earth, planted_at));
         let outcome = cultivation
             .harvest(0, planted_at + grow_seconds(2))
             .expect("a ripe crop");
@@ -681,7 +687,7 @@ fn a_harvest_that_gives_a_seed_back_puts_it_in_the_satchel() {
             break;
         }
     }
-    let (attribute, tier) = returned.expect("200 harvests at 15% return at least one seed");
+    let (attribute, tier, _grade) = returned.expect("200 harvests at 15% return at least one seed");
     assert_eq!(attribute, Attribute::Mana);
     assert_eq!(
         cultivation.view().last_seed_return.map(|seed| seed.tier),
@@ -1421,11 +1427,12 @@ fn an_old_bought_event_still_reads() {
     .expect("the old shape parses");
     match old.detail {
         EventDetail::Bought {
-            what: SaleKind::Seed { name, tier },
+            what: SaleKind::Seed { name, tier, grade },
             stones,
         } => {
             assert_eq!(name.as_deref(), Some("白虎茸"));
             assert_eq!((tier, stones), (0, 0), "the old events carry neither");
+            assert_eq!(grade, SeedGrade::Earth, "and no grade reads as 地阶");
         }
         other => panic!("the old event read as {other:?}"),
     }
@@ -1602,12 +1609,8 @@ fn gear_is_what_opens_a_realm() {
         let mut slots = std::collections::BTreeSet::new();
         let mut dress = Rng::seeded(index as u64 + 99);
         while slots.len() < EquipSlot::ALL.len() {
-            let item = super::items::roll_equipment(
-                0,
-                index as u8 + 1,
-                super::items::DropSource::Combat,
-                &mut dress,
-            );
+            let item =
+                super::items::roll_equipment(0, index as u8 + 1, super::Rarity::Common, &mut dress);
             if slots.insert(item.slot.index()) {
                 geared = geared.plus(item.attributes);
             }

@@ -1072,7 +1072,13 @@ fn item_label(locale: &str, item: &bongocat_pomodoro::ItemView) -> String {
 
 /// A found seed's display line, shared with the page's own rows.
 fn seed_label(locale: &str, seed: &bongocat_pomodoro::SeedView) -> String {
-    super::cultivation_settings::seed_label(locale, seed.attribute, seed.tier, seed.name.as_deref())
+    super::cultivation_settings::seed_label(
+        locale,
+        seed.attribute,
+        seed.tier,
+        seed.grade,
+        seed.name.as_deref(),
+    )
 }
 
 /// The gear a win paid, named when the drop carried a name.

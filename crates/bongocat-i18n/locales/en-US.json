@@ -678,7 +678,8 @@
       "progress": "Rank %{rank}/%{total} · next rank %{need} pomodoros · %{progress}/%{need} trained",
       "complete": "%{total}/%{total} ranks · complete",
       "success": "lands %{rate}%",
-      "failures": "%{count} failures in a row"
+      "failures": "%{count} failures in a row",
+      "aptitude": "aptitude +%{value} a rank"
     },
     "derived": "Shown",
     "derived_hint": "Follows from the four attributes; no point can be placed here",
@@ -747,8 +748,8 @@
       "empty": "No gear yet. A finished pomodoro sometimes drops one."
     },
     "seed": {
-      "label": "%{attribute} seed · tier %{tier}",
-      "label_named": "%{name} · tier %{tier}",
+      "label": "%{attribute} seed · tier %{tier} · %{grade}",
+      "label_named": "%{name} · tier %{tier} · %{grade}",
       "plant": "Plant",
       "harvest_line": "%{attribute} +%{value} when harvested"
     },
@@ -842,7 +843,10 @@
       "drop_seed": "Found a seed: %{item}",
       "seed_return": "The harvest brought back %{seed}",
       "star_success": "Star up: %{name} rose to %{star} stars",
-      "star_failed": "Star up failed: %{name} fell to %{star} stars"
+      "star_failed": "Star up failed: %{name} fell to %{star} stars",
+      "drop_art": "One in a thousand: an art, %{item}",
+      "drop_herb": "One in a thousand: %{item}",
+      "drop_stones": "One in a thousand: %{item} stones"
     },
     "record": {
       "title": "Recent events",
@@ -880,7 +884,9 @@
       "star_failed": "%{name} fell back to %{star} stars (%{stones} stones)",
       "aptitude": "%{herb} · aptitude +%{gain} → %{value}",
       "aptitude_gate": "%{line} (Marrow Pill ×%{pills})",
-      "marrow_found": "Found a Marrow Pill (%{source})"
+      "marrow_found": "Found a Marrow Pill (%{source})",
+      "bonus": "Unexpected gain: %{find}",
+      "bonus_stones": "%{stones} stones"
     },
     "shop": {
       "title": "Market",
@@ -905,7 +911,7 @@
       "refuse_star_capped": "This piece already holds all ten stars",
       "detail_sell": "Sells back for %{stones} stones",
       "special": "On sale · %{value}/10 of the listed %{list}",
-      "seed_tier": "a tier %{tier} herb",
+      "seed_tier": "a tier %{tier} %{grade} herb",
       "plot": "a garden plot",
       "herb": "Aptitude item",
       "herb_facts": "%{herb} · %{effect}",
@@ -951,10 +957,12 @@
       "title": "Trial",
       "attempt": "Trial",
       "chances": "Trial chances %{left}/%{total}",
-      "hint": "Every finished pomodoro earns one trial chance, ten at most. A trial is a random fight levelled to you; a win pays loot at the base chances — a seed most often, gear sometimes, an art almost never.",
+      "hint": "Every finished pomodoro earns one trial chance, ten at most. A trial is fought at home: a walk you have not returned from closes it. The opponent is levelled to you, and a win pays loot at the base chances — a seed most often, gear sometimes, an art almost never.",
       "won": "The trial was passed.",
       "lost": "The trial was too much; nothing came of it.",
-      "refuse_empty": "No trial chance banked: finish a pomodoro to earn one"
+      "refuse_empty": "No trial chance banked: finish a pomodoro to earn one",
+      "refuse_out": "Still out on a walk — a trial waits until you are home",
+      "away": "home in %{hours}h %{minutes}m — trials wait"
     }
   }
 }

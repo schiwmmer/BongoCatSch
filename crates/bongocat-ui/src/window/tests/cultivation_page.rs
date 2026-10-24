@@ -17,7 +17,7 @@ use bongocat_pomodoro::{
     ArtOutcome, Attribute, Attributes, CropRecord, Cultivation, CultivationDocument, DailyKind,
     DailyOutcome, Derived, DuelReport, DuelRound, EventDetail, EventRecord, ExplorationFindView,
     ExplorationOutcome, Fighter, ItemView, LAYERS_PER_STAGE, OwnedArt, PLAYER_NAME, PlotRecord,
-    PomodoroCommand, PomodoroSnapshot, PomodoroState, Rarity, SeedStack, TrainingView,
+    PomodoroCommand, PomodoroSnapshot, PomodoroState, Rarity, SeedGrade, SeedStack, TrainingView,
     TrialBlocked, TrialOutcome, WANDERER_NAME, threshold_for,
 };
 use gpui_kit::{ScrollDelta, point};
@@ -1028,6 +1028,7 @@ fn a_seed_says_what_it_pays_at_every_stage(cx: &mut TestAppContext) {
         seeds: vec![SeedStack {
             attribute: Attribute::Root,
             tier: 3,
+            grade: SeedGrade::Earth,
             count: 1,
             name: Some("青芝".to_owned()),
         }],
@@ -1035,6 +1036,7 @@ fn a_seed_says_what_it_pays_at_every_stage(cx: &mut TestAppContext) {
             crop: Some(CropRecord::planted(
                 Attribute::Mana,
                 2,
+                SeedGrade::Heaven,
                 Some("玄莲".to_owned()),
                 0,
             )),
@@ -1045,10 +1047,10 @@ fn a_seed_says_what_it_pays_at_every_stage(cx: &mut TestAppContext) {
     let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
     let (_view, visual) = cultivation_page_with(cx, pomodoro);
     visual.update(|window, cx| window.render_frame(cx));
-    visual.update(|window, cx| window.click("cultivation-seed-name-0-3", cx));
+    visual.update(|window, cx| window.click("cultivation-seed-name-0-3-2", cx));
     visual.update(|window, cx| window.render_frame(cx));
     assert!(
-        painted(visual, "cultivation-seed-detail-0-3"),
+        painted(visual, "cultivation-seed-detail-0-3-2"),
         "a seed in the satchel says what it pays"
     );
     visual.update(|window, cx| window.click("cultivation-plot-name-0", cx));

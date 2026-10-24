@@ -815,6 +815,7 @@ mod tests {
             crop: Some(CropView {
                 attribute: Attribute::Root,
                 tier: 1,
+                grade: bongocat_pomodoro::SeedGrade::Earth,
                 name: None,
                 ready_at_unix,
             }),

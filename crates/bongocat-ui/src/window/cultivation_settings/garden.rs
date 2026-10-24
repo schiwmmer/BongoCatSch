@@ -6,13 +6,13 @@ use super::*;
 ///
 /// The domain owns the number; the page only spells it. Both the shelf and the
 /// satchel read it, so the figure a buyer sees is the figure the plot pays.
-fn harvest_line(locale: &str, attribute: Attribute, tier: u8) -> String {
+fn harvest_line(locale: &str, attribute: Attribute, tier: u8, grade: SeedGrade) -> String {
     format_text(
         locale,
         "cultivation.seed.harvest_line",
         &[
             ("attribute", text(locale, attribute.name_key()).to_string()),
-            ("value", harvest_points(tier).to_string()),
+            ("value", harvest_points(tier, grade).to_string()),
         ],
     )
 }
@@ -22,10 +22,10 @@ fn harvest_line(locale: &str, attribute: Attribute, tier: u8) -> String {
 ///
 /// One string shared by the shelf and the satchel, so the herb cannot be
 /// described two ways depending on where the user happened to look at it.
-pub(super) fn seed_facts(locale: &str, attribute: Attribute, tier: u8) -> String {
+pub(super) fn seed_facts(locale: &str, attribute: Attribute, tier: u8, grade: SeedGrade) -> String {
     format!(
         "{} · {}",
-        harvest_line(locale, attribute, tier),
+        harvest_line(locale, attribute, tier, grade),
         growing_line(locale, grow_seconds(tier)),
     )
 }
@@ -34,15 +34,16 @@ pub(super) fn seed_facts(locale: &str, attribute: Attribute, tier: u8) -> String
 /// on the shelf and in the satchel — how long it would take to grow.
 fn seed_detail(
     view: &Entity<SettingsView>,
-    key: (Attribute, u8),
+    key: (Attribute, u8, SeedGrade),
     line: String,
     tokens: Tokens,
 ) -> gpui_kit::AnyElement {
     div()
         .id(format!(
-            "cultivation-seed-detail-{}-{}",
+            "cultivation-seed-detail-{}-{}-{}",
             key.0.index(),
-            key.1
+            key.1,
+            key.2.index()
         ))
         .w_full()
         .text_xs()
@@ -65,7 +66,7 @@ fn seed_detail(
 pub(super) fn seed_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
-    open_seed: Option<(Attribute, u8)>,
+    open_seed: Option<(Attribute, u8, SeedGrade)>,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
@@ -85,16 +86,24 @@ pub(super) fn seed_panel(
     }
     let plots_full = cultivation.plots.iter().all(|plot| plot.crop.is_some());
     let rows = cultivation.seeds.iter().take(8).map(|seed| {
-        let key = (seed.attribute, seed.tier);
+        let key = (seed.attribute, seed.tier, seed.grade);
         let label = format!(
             "{} ×{}",
-            seed_label(locale, seed.attribute, seed.tier, seed.name.as_deref()),
+            seed_label(
+                locale,
+                seed.attribute,
+                seed.tier,
+                seed.grade,
+                seed.name.as_deref()
+            ),
             seed.count
         );
+        let grade_paint = seed_grade_color(seed.grade);
         let mut button = Button::new(format!(
-            "cultivation-plant-{}-{}",
+            "cultivation-plant-{}-{}-{}",
             seed.attribute.index(),
-            seed.tier
+            seed.tier,
+            seed.grade.index()
         ))
         .ghost()
         .small()
@@ -104,11 +113,14 @@ pub(super) fn seed_panel(
                 let view = view.clone();
                 let attribute = seed.attribute;
                 let tier = seed.tier;
+                let grade = seed.grade;
                 move |_, _, cx| {
                     view.update(cx, |view, cx| {
-                        let _ = view
-                            .pomodoro
-                            .try_publish(PomodoroCommand::PlantSeed { attribute, tier });
+                        let _ = view.pomodoro.try_publish(PomodoroCommand::PlantSeed {
+                            attribute,
+                            tier,
+                            grade,
+                        });
                         view.poll_pomodoro(cx);
                     });
                 }
@@ -119,14 +131,16 @@ pub(super) fn seed_panel(
         // stay one-click, so asking a question never costs an action.
         let name = div()
             .id(format!(
-                "cultivation-seed-name-{}-{}",
+                "cultivation-seed-name-{}-{}-{}",
                 seed.attribute.index(),
-                seed.tier
+                seed.tier,
+                seed.grade.index()
             ))
             .flex_1()
             .min_w_0()
             .truncate()
             .text_xs()
+            .text_color(grade_paint)
             .child(label)
             .test_support()
             .on_click({
@@ -144,9 +158,10 @@ pub(super) fn seed_panel(
             });
         let mut row = div()
             .id(format!(
-                "cultivation-seed-{}-{}",
+                "cultivation-seed-{}-{}-{}",
                 seed.attribute.index(),
-                seed.tier
+                seed.tier,
+                seed.grade.index()
             ))
             .flex()
             .flex_col()
@@ -165,9 +180,10 @@ pub(super) fn seed_panel(
                     // a single "sell all" can ask.
                     .child(
                         Button::new(format!(
-                            "cultivation-sell-seed-{}-{}",
+                            "cultivation-sell-seed-{}-{}-{}",
                             seed.attribute.index(),
-                            seed.tier
+                            seed.tier,
+                            seed.grade.index()
                         ))
                         .ghost()
                         .small()
@@ -176,11 +192,14 @@ pub(super) fn seed_panel(
                             let view = view.clone();
                             let attribute = seed.attribute;
                             let tier = seed.tier;
+                            let grade = seed.grade;
                             move |_, _, cx| {
                                 view.update(cx, |view, cx| {
-                                    let _ = view
-                                        .pomodoro
-                                        .try_publish(PomodoroCommand::SellSeed { attribute, tier });
+                                    let _ = view.pomodoro.try_publish(PomodoroCommand::SellSeed {
+                                        attribute,
+                                        tier,
+                                        grade,
+                                    });
                                     view.poll_pomodoro(cx);
                                 });
                             }
@@ -193,7 +212,7 @@ pub(super) fn seed_panel(
                 key,
                 format!(
                     "{} · {}",
-                    seed_facts(locale, seed.attribute, seed.tier),
+                    seed_facts(locale, seed.attribute, seed.tier, seed.grade),
                     format_text(
                         locale,
                         "cultivation.shop.detail_sell",
@@ -352,8 +371,10 @@ fn plot_cell(
                 locale,
                 crop.attribute,
                 crop.tier,
+                crop.grade,
                 crop.name.as_deref(),
             ))
+            .text_color(seed_grade_color(crop.grade))
             .test_support()
             .on_click({
                 let view = view.clone();
@@ -375,7 +396,7 @@ fn plot_cell(
                 .id(format!("cultivation-plot-detail-{index}"))
                 .text_xs()
                 .text_color(tokens.muted)
-                .child(harvest_line(locale, crop.attribute, crop.tier))
+                .child(harvest_line(locale, crop.attribute, crop.tier, crop.grade))
                 .test_support(),
         );
     }

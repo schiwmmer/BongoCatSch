@@ -208,6 +208,8 @@ pub enum PomodoroCommand {
     PlantSeed {
         attribute: crate::Attribute,
         tier: u8,
+        /// The herb's grade: a stack is one attribute, one tier and one grade.
+        grade: crate::SeedGrade,
     },
     /// Pick a ripe crop out of a plot.
     HarvestPlot { plot: usize },
@@ -263,6 +265,7 @@ pub enum PomodoroCommand {
     SellSeed {
         attribute: crate::Attribute,
         tier: u8,
+        grade: crate::SeedGrade,
     },
     /// Spend 灵石 on one attempt at a piece of gear's next star.
     ///
@@ -434,8 +437,12 @@ impl PomodoroState {
                 estimated_pomodoros,
             } => self.update_task(task_id, name, estimated_pomodoros),
             PomodoroCommand::DeleteTask { task_id } => self.delete_task(task_id),
-            PomodoroCommand::PlantSeed { attribute, tier } => {
-                self.cultivation.plant(attribute, tier, now_unix);
+            PomodoroCommand::PlantSeed {
+                attribute,
+                tier,
+                grade,
+            } => {
+                self.cultivation.plant(attribute, tier, grade, now_unix);
             }
             PomodoroCommand::HarvestPlot { plot } => {
                 self.cultivation.harvest(plot, now_unix);
@@ -498,8 +505,12 @@ impl PomodoroState {
                     self.cultivation.note_refusal(Refusal::Trade(refusal));
                 }
             }
-            PomodoroCommand::SellSeed { attribute, tier } => {
-                if let Err(refusal) = self.cultivation.sell_seed(attribute, tier, now_unix) {
+            PomodoroCommand::SellSeed {
+                attribute,
+                tier,
+                grade,
+            } => {
+                if let Err(refusal) = self.cultivation.sell_seed(attribute, tier, grade, now_unix) {
                     self.cultivation.note_refusal(Refusal::Trade(refusal));
                 }
             }

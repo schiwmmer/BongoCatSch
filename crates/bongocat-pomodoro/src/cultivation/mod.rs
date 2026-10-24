@@ -40,6 +40,7 @@ mod battle;
 mod curve;
 mod daily;
 mod document;
+mod drop;
 mod duel;
 mod events;
 mod explore;
@@ -57,9 +58,11 @@ mod tests;
 
 pub use aptitude::{APTITUDE_MAX_TENTHS, AptitudeHerb, HerbView};
 pub use arts::{
-    ART_COUNT, ArtBlueprint, ArtGrade, ArtKind, ArtOutcome, ArtView, MasteredArtView, OwnedArt,
-    RECENT_ARTS_CAP, art_attributes, art_bonus, art_bonus_at, art_payout_at, art_view, blueprint,
-    external_damage, external_power_gain, mastered_art_attributes, mastered_art_bonus,
+    APTITUDE_ART_IDS, APTITUDE_ART_TENTHS_PER_RANK, ART_COUNT, ArtBlueprint, ArtGrade, ArtKind,
+    ArtOutcome, ArtView, MasteredArtView, OwnedArt, RECENT_ARTS_CAP, art_aptitude_tenths,
+    art_aptitude_tenths_at, art_attributes, art_bonus, art_bonus_at, art_payout_at, art_view,
+    blueprint, external_damage, external_power_gain, mastered_art_aptitude_payout,
+    mastered_art_aptitude_tenths, mastered_art_attributes, mastered_art_bonus,
     mastered_art_bonus_payout, mastered_art_payout, mastered_art_view, mastery_permille,
     printed_pomodoros, required_pomodoros,
 };
@@ -72,22 +75,27 @@ pub use curve::{
 };
 pub use daily::DailyKind;
 pub use document::CultivationDocument;
+pub use drop::{
+    POWER_FACTOR_MAX_PERMILLE, POWER_FACTOR_MIN_PERMILLE, QUALITY_BASE_PER_BILLION,
+    QUALITY_STEP_DIVISOR, power_factor_permille, quality_chance_per_billion, quality_per_billion,
+    realm_power, tier_for_power,
+};
 pub use duel::{
     ArtStrike, DUEL_RECORD_CAP, DUEL_ROUND_CAP, DuelRecord, DuelReport, DuelRound, FightKind,
     Fighter, GUARDIAN_NAME, PLAYER_NAME, WANDERER_NAME,
 };
-pub use events::{EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind};
+pub use events::{BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind};
 pub use explore::{
     BREAKTHROUGH_COOLDOWN_SECONDS, ENCOUNTER_PERMILLE, ExplorationHours, ExplorationOutcome,
     VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkRecord, cooldown_seconds,
 };
 pub use garden::{
-    CropRecord, FREE_PLOT_COUNT, MAX_PLOT_COUNT, MAX_SEED_TIER, PlotRecord, SeedStack,
+    CropRecord, FREE_PLOT_COUNT, MAX_PLOT_COUNT, MAX_SEED_TIER, PlotRecord, SeedGrade, SeedStack,
     grow_seconds, harvest_points,
 };
 pub use items::{
-    DropSource, EquipSlot, EquipmentRecord, GearEffect, MAX_STAR, Rarity, SLOT_COUNT,
-    STAR_SUCCESS_PERMILLE, star_multiplier_permille, star_success_permille,
+    EquipSlot, EquipmentRecord, GearEffect, MAX_STAR, Rarity, SLOT_COUNT, STAR_SUCCESS_PERMILLE,
+    star_multiplier_permille, star_success_permille,
 };
 pub use proving::{ProvingOutcome, TRIAL_CHANCES_CAP};
 pub use shop::SESSION_EARNINGS;
@@ -132,6 +140,9 @@ pub enum Refusal {
     TrialTop,
     /// A 试炼 was asked for with no chance banked: a finished pomodoro pays one.
     ProvingSpent,
+    /// A 试炼 was asked for while the cultivator is still out on a walk: the
+    /// courtyard is fought in, so an unreturned walk closes it too.
+    ProvingOut,
 }
 
 impl Refusal {
@@ -144,6 +155,7 @@ impl Refusal {
             Self::TrialDrained => "cultivation.trial.refuse_drained",
             Self::TrialTop => "cultivation.trial.refuse_top",
             Self::ProvingSpent => "cultivation.proving.refuse_empty",
+            Self::ProvingOut => "cultivation.proving.refuse_out",
         }
     }
 }
@@ -184,6 +196,34 @@ pub const EQUIPMENT_DROP_PERMILLE: u64 = 60;
 /// The chance one finished session drops a seed, in parts per thousand. The
 /// rolls are exclusive: a session drops gear, or a seed, or nothing.
 pub const SEED_DROP_PERMILLE: u64 = 50;
+
+/// How often one finished pomodoro pays a bonus of some other kind, in parts
+/// per thousand: one in a thousand.
+///
+/// A pomodoro is the ladder's main fuel, and this is the ladder occasionally
+/// noticing: a purse, a herb, a book, a piece of gear — one thing, at the
+/// session's own strength. Rare enough that the notice is worth reading, and
+/// often enough that a week of focus has a story in it.
+pub const SESSION_BONUS_PERMILLE: u64 = 1;
+
+/// What the thousandth's luck pays, per kind, in parts per thousand of its own
+/// roll. Gear and seeds are the ordinary finds; 灵石 is the consolation; the
+/// two 潜质 herbs and the 功法 are what a jackpot is *worth*.
+const BONUS_GEAR_PERMILLE: u64 = 350;
+const BONUS_SEED_PERMILLE: u64 = 350;
+const BONUS_STONES_PERMILLE: u64 = 200;
+const BONUS_INSIGHT_PERMILLE: u64 = 60;
+const BONUS_WISDOM_PERMILLE: u64 = 30;
+
+/// The six shares are one roll: the rest of the thousand — ten — is a 功法.
+const _: () = assert!(
+    BONUS_GEAR_PERMILLE
+        + BONUS_SEED_PERMILLE
+        + BONUS_STONES_PERMILLE
+        + BONUS_INSIGHT_PERMILLE
+        + BONUS_WISDOM_PERMILLE
+        < 1_000
+);
 
 /// The chance one harvest gives a seed back, in parts per thousand.
 ///

@@ -15,12 +15,13 @@ use std::array;
 
 use super::{
     ART_COUNT, ArtGrade, ArtKind, ArtOutcome, ArtStrike, ArtView, Attribute, Attributes,
-    BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport, CultivationDocument, DailyKind, Derived,
-    DerivedBreakdown, DuelReport, EQUIPMENT_DROP_PERMILLE, EquipSlot, EquipmentRecord,
-    ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, GearEffect, Guardian, MAX_LEVEL, MAX_STAR,
-    MasteredArtView, OwnedArt, PLAYER_NAME, RECENT_ARTS_CAP, Rarity, Realm, Refusal, Rng,
-    SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack, VICTORY_SEED_PERMILLE, absence_penalty,
-    art_attributes, art_view,
+    BONUS_GEAR_PERMILLE, BONUS_INSIGHT_PERMILLE, BONUS_SEED_PERMILLE, BONUS_STONES_PERMILLE,
+    BONUS_WISDOM_PERMILLE, BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport, CultivationDocument,
+    DailyKind, Derived, DerivedBreakdown, DuelReport, EQUIPMENT_DROP_PERMILLE, EquipSlot,
+    EquipmentRecord, ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, GearEffect, Guardian,
+    MAX_LEVEL, MAX_STAR, MasteredArtView, OwnedArt, PLAYER_NAME, RECENT_ARTS_CAP, Rarity, Realm,
+    Refusal, Rng, SEED_DROP_PERMILLE, SESSION_BONUS_PERMILLE, SLOT_COUNT, SeedStack,
+    VICTORY_SEED_PERMILLE, absence_penalty, art_attributes, art_view,
     arts::{
         art_bonus, blueprint, mastered_art_attributes, mastered_art_bonus, mastered_art_view, train,
     },
@@ -32,15 +33,18 @@ use super::{
         roll_kind,
     },
     duel::{DUEL_RECORD_CAP, DuelRecord, FightKind, duel},
-    events::{EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind},
+    events::{BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind},
     explore::{
-        GUARDIAN_STONES, TRIAL_STONES, WALK_STONES, WANDERER_STONES, WalkRecord,
+        BONUS_STONES, GUARDIAN_STONES, TRIAL_STONES, WALK_STONES, WANDERER_STONES, WalkRecord,
         breakthrough_ready, cooldown_seconds, exploration_ready, roll_stones, roll_victory,
         roll_walk,
     },
-    garden::{CropRecord, PlotRecord, harvest_points, plot_price, seed_name, seed_return},
+    garden::{
+        CropRecord, PlotRecord, SeedGrade, harvest_points, plot_price, roll_seed_grade, seed_name,
+        seed_return,
+    },
     growth_permille,
-    items::{DropSource, roll_equipment},
+    items::roll_equipment,
     mastery_permille,
     opponent::{self, Opponent},
     proving::{ProvingOutcome, TRIAL_CHANCES_CAP},
@@ -67,10 +71,56 @@ pub struct AbsenceCharge {
 }
 
 /// What one finished session produced beyond its growth.
+///
+/// The first two are the ordinary drop — a piece of gear or a herb, at the
+/// session's own odds — and the rest are what the thousandth's luck pays: the
+/// ladder's one jackpot, in whatever shape it came.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Drop {
     Equipment(EquipmentRecord),
-    Seed { attribute: Attribute, tier: u8 },
+    Seed {
+        attribute: Attribute,
+        tier: u8,
+        grade: SeedGrade,
+    },
+    /// A 功法, by the name it was given.
+    Art {
+        name: String,
+    },
+    /// One 潜质 herb.
+    Herb {
+        herb: super::AptitudeHerb,
+    },
+    /// A purse of 灵石.
+    Stones(u32),
+}
+
+/// What one source's *absolute* strength hands the two ladders.
+///
+/// One value, read twice: [`Self::tier`] is the 阶级 the goods stand at and
+/// [`Self::factor`] is what the quality roll is multiplied by. Both are pure
+/// functions of the power, so a page that prints "对手战力 N" and the roll that
+/// paid out cannot disagree about what N bought.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Strength {
+    power: u32,
+}
+
+impl Strength {
+    /// The strength a body of this power is worth.
+    pub(crate) const fn of(power: u32) -> Self {
+        Self { power }
+    }
+
+    /// The rung its goods stand on: a realm, one-based.
+    pub(crate) fn tier(self) -> u8 {
+        super::drop::tier_for_power(self.power)
+    }
+
+    /// What it multiplies the quality ladder by, in parts per thousand.
+    pub(crate) fn factor(self) -> u32 {
+        super::drop::power_factor_permille(self.power)
+    }
 }
 
 /// Everything one finished session changed.
@@ -168,8 +218,8 @@ pub struct HarvestOutcome {
     /// The crop that was picked.
     pub crop: CropRecord,
     /// The seed the harvest gave back, if it gave one: the same attribute, the
-    /// same tier or one higher.
-    pub seed: Option<(Attribute, u8)>,
+    /// same tier or one higher, at a grade rolled fresh.
+    pub seed: Option<(Attribute, u8, SeedGrade)>,
 }
 
 /// What one attempt at a piece's next star came to.
@@ -248,6 +298,9 @@ pub struct ItemView {
 pub struct SeedView {
     pub attribute: Attribute,
     pub tier: u8,
+    /// The herb's grade: what the harvest will be multiplied by, and the colour
+    /// the row is painted.
+    pub grade: SeedGrade,
     pub count: u32,
     /// The herb's xianxia-given name, if the stack carries one.
     pub name: Option<String>,
@@ -274,6 +327,8 @@ pub struct TrainingView {
 pub struct CropView {
     pub attribute: Attribute,
     pub tier: u8,
+    /// The grade it was planted at, which is what the harvest will pay at.
+    pub grade: SeedGrade,
     /// The herb's name, carried from the seed it grew from. A crop planted by an
     /// old save has none and reads as its attribute label.
     pub name: Option<String>,
@@ -299,7 +354,18 @@ pub struct GuardianView {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DropView {
     Equipment(ItemView),
-    Seed { attribute: Attribute, tier: u8 },
+    Seed {
+        attribute: Attribute,
+        tier: u8,
+        grade: SeedGrade,
+    },
+    Art {
+        name: String,
+    },
+    Herb {
+        herb: super::AptitudeHerb,
+    },
+    Stones(u32),
 }
 
 /// What one walk turned up, as a surface reads it.
@@ -527,14 +593,54 @@ pub struct CultivationView {
     pub shop_offers: Vec<ShopOfferView>,
 }
 
-/// What the 集市 pays for one seed of that attribute and tier.
-fn seed_sell_price(attribute: Attribute, tier: u8) -> u32 {
+/// What the 集市 pays for one seed of that attribute, tier and grade.
+fn seed_sell_price(attribute: Attribute, tier: u8, grade: SeedGrade) -> u32 {
     shop::ShopOffer::Seed {
         attribute,
         tier,
+        grade,
         name: None,
     }
     .sell_price()
+}
+
+/// One seed stack as a surface reads it. The price is read off the stack rather
+/// than passed in, so a row cannot quote a figure the sale would not pay.
+fn seed_view(stack: &SeedStack) -> SeedView {
+    SeedView {
+        attribute: stack.attribute,
+        tier: stack.tier,
+        grade: stack.grade,
+        count: stack.count,
+        name: stack.name.clone(),
+        sell_price: seed_sell_price(stack.attribute, stack.tier, stack.grade),
+    }
+}
+
+/// What one bonus drop says in the event log.
+///
+/// One variant for every shape the jackpot takes, because they are one kind of
+/// event — a pomodoro that paid something extra — and the fields that are filled
+/// say which shape it was.
+fn bonus_event(drop: &Drop) -> EventDetail {
+    let find = match drop {
+        Drop::Equipment(item) => BonusFind::Equipment {
+            name: item.name.clone(),
+        },
+        Drop::Seed {
+            attribute,
+            tier,
+            grade,
+        } => BonusFind::Seed {
+            attribute: *attribute,
+            tier: *tier,
+            grade: *grade,
+        },
+        Drop::Art { name } => BonusFind::Art { name: name.clone() },
+        Drop::Herb { herb } => BonusFind::Herb { herb: *herb },
+        Drop::Stones(stones) => BonusFind::Stones { stones: *stones },
+    };
+    EventDetail::Bonus { find }
 }
 
 /// How often a lost breakthrough costs a piece of gear, in parts per thousand.
@@ -816,18 +922,26 @@ impl Cultivation {
             .plus(self.art_attributes())
     }
 
-    /// 潜质, in tenths: the born band plus the whole points gear and 内功 pay
-    /// outright.
+    /// 潜质, in tenths: the born band plus everything gear and 功法 pay.
     ///
     /// One reader for the number every surface and every learning roll uses, so
     /// the rate a row prints, the pomodoros a 阶 asks for and the roll that
-    /// decides an attempt are all the same value.
+    /// decides an attempt are all the same value. The 功法 share is the ten
+    /// books written for 潜质 — a 阶 at a time, and the mastery bonus on a
+    /// finished one — and it is counted in tenths rather than as a whole number,
+    /// because 0.2 a 阶 is what the brief's ladder is made of.
     pub fn aptitude_tenths(&self) -> i32 {
         let born = self.document.aptitude_tenths.unwrap_or(0);
         let outright = i32::try_from(self.equipment_bonus().aptitude)
             .unwrap_or(i32::MAX)
             .saturating_add(i32::try_from(self.art_bonus().aptitude).unwrap_or(i32::MAX));
-        super::aptitude::clamp_tenths(born.saturating_add(outright.saturating_mul(10)))
+        let books = super::arts::art_aptitude_tenths(&self.document.arts).saturating_add(
+            super::arts::mastered_art_aptitude_tenths(&self.document.mastered_arts),
+        );
+        super::aptitude::clamp_tenths(
+            born.saturating_add(outright.saturating_mul(10))
+                .saturating_add(books),
+        )
     }
 
     /// 潜质 as a point value: 47 tenths reads as 4.7.
@@ -1252,21 +1366,100 @@ impl Cultivation {
         self.document.peak_level = self.document.peak_level.max(self.level());
     }
 
-    /// The one roll a finished session makes: gear, or a seed, or nothing.
+    /// The rolls a finished session makes: its thousandth's luck first, then the
+    /// ordinary drop.
+    ///
+    /// The jackpot is rolled before the ordinary find so a session that hits both
+    /// announces the rarer thing — a thousandth beating a hundred-and-tenth is
+    /// the one line worth reading. Both are read through the session's own
+    /// strength: nothing fought here, so the cultivator's power is the source.
     fn roll_drop(&mut self, now_unix: i64) -> Option<Drop> {
         let mut rng = self.rng(now_unix);
+        let strength = Strength::of(self.power());
+        if rng.below(1_000) < SESSION_BONUS_PERMILLE
+            && let Some(bonus) = self.roll_bonus(strength, &mut rng, now_unix)
+        {
+            // Written to the log as it is paid: a thousandth is the one thing in
+            // a session the user will want to find again later.
+            let detail = bonus_event(&bonus);
+            self.push_event(now_unix, detail);
+            return Some(bonus);
+        }
         let roll = rng.below(1_000);
-        let tier = self.realm().index() as u8 + 1;
         if roll < EQUIPMENT_DROP_PERMILLE {
-            let item = self.push_equipment(tier, DropSource::Random, &mut rng);
+            // A quality roll that comes up empty is a session that found nothing:
+            // the kind said "gear" and the ladder said "not this time", and the
+            // only honest thing to report is the second one.
+            let item = self.push_equipment(strength, &mut rng)?;
             return Some(Drop::Equipment(item));
         }
         if roll < EQUIPMENT_DROP_PERMILLE + SEED_DROP_PERMILLE {
             let attribute = Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
-            self.push_seed(attribute, tier, &mut rng);
-            return Some(Drop::Seed { attribute, tier });
+            let grade = roll_seed_grade(&mut rng);
+            self.push_seed(attribute, strength.tier(), grade, &mut rng);
+            return Some(Drop::Seed {
+                attribute,
+                tier: strength.tier(),
+                grade,
+            });
         }
         None
+    }
+
+    /// What one lucky pomodoro pays: one thing, out of the whole ladder.
+    ///
+    /// The roll is weighted by what the ladder is short of rather than by what
+    /// it is full of: gear and herbs are the ordinary finds, 灵石 is the
+    /// consolation, and a 潜质 herb or a 功法 is the shape a thousandth is
+    /// *worth*. Every branch is at the session's own strength, so the jackpot is
+    /// the same find a walk would have made, only without the walk.
+    fn roll_bonus(&mut self, strength: Strength, rng: &mut Rng, now_unix: i64) -> Option<Drop> {
+        let roll = rng.below(1_000);
+        let mut edge = BONUS_GEAR_PERMILLE;
+        if roll < edge {
+            let item = self.push_equipment(strength, rng)?;
+            return Some(Drop::Equipment(item));
+        }
+        edge += BONUS_SEED_PERMILLE;
+        if roll < edge {
+            let attribute = Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
+            let grade = roll_seed_grade(rng);
+            self.push_seed(attribute, strength.tier(), grade, rng);
+            return Some(Drop::Seed {
+                attribute,
+                tier: strength.tier(),
+                grade,
+            });
+        }
+        edge += BONUS_STONES_PERMILLE;
+        if roll < edge {
+            let amount = roll_stones(rng, BONUS_STONES, strength.tier());
+            self.document.stones = self.document.stones.saturating_add(amount);
+            return Some(Drop::Stones(amount));
+        }
+        edge += BONUS_INSIGHT_PERMILLE;
+        if roll < edge {
+            self.document.insight_herbs = self.document.insight_herbs.saturating_add(1);
+            return Some(Drop::Herb {
+                herb: super::AptitudeHerb::Insight,
+            });
+        }
+        edge += BONUS_WISDOM_PERMILLE;
+        if roll < edge {
+            self.document.wisdom_herbs = self.document.wisdom_herbs.saturating_add(1);
+            return Some(Drop::Herb {
+                herb: super::AptitudeHerb::Wisdom,
+            });
+        }
+        // The rest of the roll — a hundredth of a thousandth — is a 功法: the
+        // rarest shape a pomodoro can pay, and the one that has to be told apart
+        // from the same book found on a walk.
+        let grade = {
+            let mut grade_rng = self.rng(now_unix);
+            super::arts::roll_art_grade(&mut grade_rng)
+        };
+        self.grant_art(grade, now_unix)
+            .map(|art| Drop::Art { name: art.name })
     }
 
     /// A random source for one event. The wall clock is mixed in so a session
@@ -1288,12 +1481,18 @@ impl Cultivation {
         id
     }
 
-    /// Own one rolled item, out of the channel it came from.
-    fn push_equipment(&mut self, tier: u8, source: DropSource, rng: &mut Rng) -> EquipmentRecord {
+    /// Own one rolled item, at a source's own strength.
+    ///
+    /// `None` when the quality roll came up empty: a piece of gear is only ever
+    /// rolled because something promised one, and the promise is exactly what
+    /// the ladder's remainder takes back — a weak source's find is likelier to
+    /// be nothing at all, which is what "获得概率" means.
+    fn push_equipment(&mut self, strength: Strength, rng: &mut Rng) -> Option<EquipmentRecord> {
+        let rarity = super::drop::roll_quality(rng, strength.factor())?;
         let id = self.next_id();
-        let item = roll_equipment(id, tier, source, rng);
+        let item = roll_equipment(id, strength.tier(), rarity, rng);
         self.document.equipment.push(item.clone());
-        item
+        Some(item)
     }
 
     /// Own one item that already exists — the one a beaten opponent was wearing.
@@ -1307,15 +1506,23 @@ impl Cultivation {
         item
     }
 
-    /// Take one piece off a beaten opponent, or roll one if it wore none.
-    fn take_gear(&mut self, rival: &Opponent, tier: u8, rng: &mut Rng) -> EquipmentRecord {
+    /// Take one piece off a beaten opponent.
+    ///
+    /// What it wore is what it hands over — the piece the panel showed on it,
+    /// attributes and all. A bare-handed opponent still pays, and that fallback
+    /// is rolled at the opponent's own strength: a strong opponent with nothing
+    /// on it is still a strong source.
+    fn take_gear(
+        &mut self,
+        rival: &Opponent,
+        strength: Strength,
+        rng: &mut Rng,
+    ) -> Option<EquipmentRecord> {
         let dropped = (!rival.gear.is_empty())
             .then(|| rival.gear[rng.below(rival.gear.len() as u64) as usize].clone());
         match dropped {
-            Some(item) => self.adopt_equipment(item),
-            // A bare-handed opponent still pays: a fight that dropped nothing
-            // would read as a bug rather than as a poor opponent.
-            None => self.push_equipment(tier, DropSource::Combat, rng),
+            Some(item) => Some(self.adopt_equipment(item)),
+            None => self.push_equipment(strength, rng),
         }
     }
 
@@ -1346,37 +1553,27 @@ impl Cultivation {
     /// The shop names the herbs it sells so a shelf can be read before buying;
     /// folding a bought seed in through [`Self::push_seed`] would re-roll that name
     /// and the shelf would have promised one herb and delivered another.
+    ///
+    /// A stack is one attribute, one tier *and* one grade: two 地阶 herbs and a
+    /// 天阶 one of the same patch are three different things to plant, because
+    /// the grade is what the harvest pays at.
     fn push_seed_named(
         &mut self,
         attribute: Attribute,
         tier: u8,
+        grade: SeedGrade,
         name: Option<String>,
         rng: &mut Rng,
     ) -> SeedView {
-        if let Some(stack) = self
-            .document
-            .seeds
-            .iter_mut()
-            .find(|stack| stack.attribute == attribute && stack.tier == tier)
-        {
+        if let Some(stack) = self.document.seeds.iter_mut().find(|stack| {
+            stack.attribute == attribute && stack.tier == tier && stack.grade == grade
+        }) {
             stack.count = stack.count.saturating_add(1);
-            return SeedView {
-                attribute: stack.attribute,
-                tier: stack.tier,
-                count: stack.count,
-                name: stack.name.clone(),
-                sell_price: seed_sell_price(stack.attribute, stack.tier),
-            };
+            return seed_view(stack);
         }
-        let mut stack = SeedStack::single(attribute, tier);
+        let mut stack = SeedStack::single(attribute, tier, grade);
         stack.name = name.or_else(|| Some(seed_name(rng)));
-        let view = SeedView {
-            attribute: stack.attribute,
-            tier: stack.tier,
-            count: stack.count,
-            name: stack.name.clone(),
-            sell_price: seed_sell_price(stack.attribute, stack.tier),
-        };
+        let view = seed_view(&stack);
         self.document.seeds.push(stack);
         view
     }
@@ -1385,45 +1582,31 @@ impl Cultivation {
     ///
     /// Returns the stack as a surface reads it, so a caller that just found the
     /// seed can say which herb it was.
-    fn push_seed(&mut self, attribute: Attribute, tier: u8, rng: &mut Rng) -> SeedView {
-        if let Some(stack) = self
-            .document
-            .seeds
-            .iter_mut()
-            .find(|stack| stack.attribute == attribute && stack.tier == tier)
-        {
-            stack.count = stack.count.saturating_add(1);
-            return SeedView {
-                attribute: stack.attribute,
-                tier: stack.tier,
-                count: stack.count,
-                name: stack.name.clone(),
-                sell_price: seed_sell_price(stack.attribute, stack.tier),
-            };
-        }
-        let mut stack = SeedStack::single(attribute, tier);
-        stack.name = Some(seed_name(rng));
-        let view = SeedView {
-            attribute: stack.attribute,
-            tier: stack.tier,
-            count: stack.count,
-            name: stack.name.clone(),
-            sell_price: seed_sell_price(stack.attribute, stack.tier),
-        };
-        self.document.seeds.push(stack);
-        view
+    fn push_seed(
+        &mut self,
+        attribute: Attribute,
+        tier: u8,
+        grade: SeedGrade,
+        rng: &mut Rng,
+    ) -> SeedView {
+        self.push_seed_named(attribute, tier, grade, None, rng)
     }
 
     /// Plant one seed in the first empty plot.
     ///
     /// Returns whether anything was planted: no seed of that kind, or no empty
-    /// plot, leaves the garden exactly as it was.
-    pub fn plant(&mut self, attribute: Attribute, tier: u8, now_unix: i64) -> bool {
-        let Some(stack) =
-            self.document.seeds.iter_mut().find(|stack| {
-                stack.attribute == attribute && stack.tier == tier && stack.count > 0
-            })
-        else {
+    /// plot, leaves the garden exactly as it was. The grade is part of what the
+    /// seed *is*, so a named seed stack is planted by all three numbers.
+    pub fn plant(
+        &mut self,
+        attribute: Attribute,
+        tier: u8,
+        grade: SeedGrade,
+        now_unix: i64,
+    ) -> bool {
+        let Some(stack) = self.document.seeds.iter_mut().find(|stack| {
+            stack.attribute == attribute && stack.tier == tier && stack.grade == grade
+        }) else {
             return false;
         };
         // The plot inherits the herb's name: the seed stack is spent one
@@ -1432,7 +1615,7 @@ impl Cultivation {
         let Some(plot) = self.document.plots.iter_mut().find(|plot| plot.is_empty()) else {
             return false;
         };
-        plot.crop = Some(CropRecord::planted(attribute, tier, name, now_unix));
+        plot.crop = Some(CropRecord::planted(attribute, tier, grade, name, now_unix));
         stack.count = stack.count.saturating_sub(1);
         self.document.seeds.retain(|stack| stack.count > 0);
         true
@@ -1440,10 +1623,11 @@ impl Cultivation {
 
     /// Pick a ripe crop, if the plot holds one.
     ///
-    /// The harvest pays its attribute points, and then rolls once for a seed:
-    /// the same attribute, the same tier or one higher. That roll is what keeps
-    /// a garden from running dry, and it is deliberately rare next to the
-    /// points the crop already paid.
+    /// The harvest pays its attribute points — the tier's base times the grade's
+    /// multiplier — and then rolls once for a seed: the same attribute, the same
+    /// tier or one higher, at a grade of its own. That roll is what keeps a
+    /// garden from running dry, and it is deliberately rare next to the points
+    /// the crop already paid.
     pub fn harvest(&mut self, plot: usize, now_unix: i64) -> Option<HarvestOutcome> {
         let crop = {
             let plot = self.document.plots.get_mut(plot)?;
@@ -1453,22 +1637,23 @@ impl Cultivation {
             }
             plot.crop.take()?
         };
-        let points = harvest_points(crop.tier);
+        let points = harvest_points(crop.tier, crop.grade);
         crop.attribute.add_to(&mut self.document.crop_bonus, points);
         // Counted here rather than on the seed roll: a crop that returned nothing
         // was still pulled, and the 造化 dimension is fed by pulling.
         self.document.harvests = self.document.harvests.saturating_add(1);
         let mut rng = self.rng(now_unix);
         let seed = seed_return(crop.attribute, crop.tier, &mut rng);
-        if let Some((attribute, tier)) = seed {
-            self.push_seed(attribute, tier, &mut rng);
+        if let Some((attribute, tier, grade)) = seed {
+            self.push_seed(attribute, tier, grade, &mut rng);
         }
-        self.last_seed_return = seed.map(|(attribute, tier)| SeedView {
+        self.last_seed_return = seed.map(|(attribute, tier, grade)| SeedView {
             attribute,
             tier,
+            grade,
             count: 1,
             name: None,
-            sell_price: seed_sell_price(attribute, tier),
+            sell_price: seed_sell_price(attribute, tier, grade),
         });
         // The line names the herb and what it paid, because "a crop came up" is
         // a fact the user cannot check against the garden that is now empty.
@@ -1477,6 +1662,7 @@ impl Cultivation {
             EventDetail::Harvested {
                 attribute: crop.attribute,
                 tier: crop.tier,
+                grade: crop.grade,
                 name: crop.name.clone(),
                 points,
             },
@@ -1897,22 +2083,26 @@ impl Cultivation {
         // bought become real levels — and real free points — now.
         self.note_peak_level();
         let mut rng = self.rng(0);
-        let tier = target.index() as u8 + 1;
+        // The guardian's own strength, not the realm it guarded: what a win pays
+        // is read off the body that was beaten, which is why a guardian met at
+        // its realm's cap pays at that realm's depth.
+        let strength = Strength::of(rival.attributes.power());
         // The trophy is the piece the guardian was wearing, not a fresh roll:
         // what the fight was against and what it leaves behind are one thing.
         let reward = match rival.gear.first() {
-            Some(item) => self.adopt_equipment(item.clone()),
+            Some(item) => Some(self.adopt_equipment(item.clone())),
             // A guardian met bare-handed (it can happen at the shallow end,
             // where a piece of gear would outweigh the whole body) still pays
             // for the realm it opened.
-            None => self.push_equipment(tier, DropSource::Combat, &mut rng),
+            None => self.push_equipment(strength, &mut rng),
         };
         // A win always pays a 功法 — that is the promise the fight is made for —
         // and it is the book the guardian was swinging.
         let granted_art = self.take_art(rival, target, now_unix);
         if rng.below(1_000) < VICTORY_SEED_PERMILLE {
             let attribute = Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
-            self.push_seed(attribute, tier, &mut rng);
+            let grade = roll_seed_grade(&mut rng);
+            self.push_seed(attribute, strength.tier(), grade, &mut rng);
         }
         // The guardian's purse, drawn after the 功法 and the gear because those
         // are what a breakthrough is *for*: the money is what a realm's treasury
@@ -1932,7 +2122,7 @@ impl Cultivation {
                 won: true,
             },
             target,
-            reward: Some(reward),
+            reward,
             duel,
             lost: None,
             granted_art,
@@ -1945,9 +2135,9 @@ impl Cultivation {
     /// reported.
     ///
     /// Shared by the walk and the morning ambush because it is the same
-    /// encounter either way: the same weighting, the same tier, the same three
-    /// kinds. Two copies of this roll would be two chances for one of them to
-    /// drift out of tune with the panel that explains it.
+    /// encounter either way: the same weighting, the same strength, the same
+    /// three kinds. Two copies of this roll would be two chances for one of them
+    /// to drift out of tune with the panel that explains it.
     fn award_wanderer_find(
         &mut self,
         rival: &Opponent,
@@ -1955,7 +2145,10 @@ impl Cultivation {
         now_unix: i64,
     ) -> ExplorationFindView {
         let mut found = ExplorationFindView::default();
-        let tier = self.realm().index() as u8 + 1;
+        // A beaten opponent is the source, so what it hands over is read off its
+        // own strength rather than off the realm the fight happened in: beating
+        // something bigger than the save is how a save gets gear from deeper in.
+        let strength = Strength::of(rival.attributes.power());
         match roll_victory(rng) {
             // What the roll decides is *which* of the beaten fighter's things
             // comes home with you — the things themselves were never a fresh
@@ -1964,13 +2157,15 @@ impl Cultivation {
                 found.art = self.take_art(rival, self.realm(), now_unix);
             }
             ExplorationOutcome::Gear => {
-                let item = self.take_gear(rival, tier, rng);
-                found.gear = Some(self.item_view(&item));
+                if let Some(item) = self.take_gear(rival, strength, rng) {
+                    found.gear = Some(self.item_view(&item));
+                }
             }
             ExplorationOutcome::Seed => {
                 let attribute =
                     Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
-                found.seed = Some(self.push_seed(attribute, tier, rng));
+                let grade = roll_seed_grade(rng);
+                found.seed = Some(self.push_seed(attribute, strength.tier(), grade, rng));
             }
             _ => {}
         }
@@ -2011,17 +2206,22 @@ impl Cultivation {
         // The length this walk was taken at is the multiplier its chances are
         // read through — the one lever the user pulled.
         let mut outcome = roll_walk(&mut rng, hours);
-        let tier = self.realm().index() as u8 + 1;
+        // A walk is the quiet half of the ladder, so its source is the walker:
+        // what the road turns up is what the cultivator is worth, and a save that
+        // has climbed finds deeper goods on the same road.
+        let strength = Strength::of(self.power());
         let mut found = ExplorationFindView::default();
         match outcome {
             ExplorationOutcome::Seed => {
                 let attribute =
                     Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
-                found.seed = Some(self.push_seed(attribute, tier, &mut rng));
+                let grade = roll_seed_grade(&mut rng);
+                found.seed = Some(self.push_seed(attribute, strength.tier(), grade, &mut rng));
             }
             ExplorationOutcome::Gear => {
-                let item = self.push_equipment(tier, DropSource::Random, &mut rng);
-                found.gear = Some(self.item_view(&item));
+                if let Some(item) = self.push_equipment(strength, &mut rng) {
+                    found.gear = Some(self.item_view(&item));
+                }
             }
             ExplorationOutcome::Art => {
                 // Which grade turns up is the discovery roll, not the realm's
@@ -2053,6 +2253,13 @@ impl Cultivation {
             ExplorationOutcome::Defeat
             | ExplorationOutcome::Nothing
             | ExplorationOutcome::Stones => {}
+        }
+        // A kind that was rolled but paid nothing is a walk that found nothing:
+        // the quality ladder's remainder is exactly the find that did not
+        // happen, and a line saying "found gear" over an empty satchel would be
+        // a promise the roll broke.
+        if outcome == ExplorationOutcome::Gear && found.gear.is_none() {
+            outcome = ExplorationOutcome::Nothing;
         }
         // A quiet walk is a random event like the morning's: one in ten thousand
         // turns up a 洗髓丹. A fight's own roll is above, and a loss finds
@@ -2224,19 +2431,22 @@ impl Cultivation {
         let mut found = ExplorationFindView::default();
         if duel.won {
             self.document.trial_floor = floor.min(TRIAL_MAX_FLOOR);
-            // The floor is a level, so its goods are that level's realm's goods:
-            // climbing past your own realm is how the tower pays a tier the
-            // garden and the road cannot reach yet.
-            let tier = floor_realm(floor).index() as u8 + 1;
+            // The warden is the source, so what the floor pays is read off the
+            // body that defended it: a floor reached past the save's own realm
+            // hands over that realm's goods, which is how the tower is a way
+            // down the ladder rather than a second one.
+            let strength = Strength::of(rival.attributes.power());
             match roll_reward(&mut rng) {
                 TrialReward::Seed => {
                     let attribute =
                         Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
-                    found.seed = Some(self.push_seed(attribute, tier, &mut rng));
+                    let grade = roll_seed_grade(&mut rng);
+                    found.seed = Some(self.push_seed(attribute, strength.tier(), grade, &mut rng));
                 }
                 TrialReward::Gear => {
-                    let item = self.take_gear(&rival, tier, &mut rng);
-                    found.gear = Some(self.item_view(&item));
+                    if let Some(item) = self.take_gear(&rival, strength, &mut rng) {
+                        found.gear = Some(self.item_view(&item));
+                    }
                 }
                 TrialReward::Art => {
                     found.art = self.take_art(&rival, floor_realm(floor), now_unix);
@@ -2275,13 +2485,18 @@ impl Cultivation {
 
     /// Spend one 试炼 chance on a fight at the cultivator's own level.
     ///
-    /// The chance is the gate and there is no clock beside it: a finished
-    /// pomodoro pays one, ten can be banked, and the courtyard is open whenever
-    /// the training has earned it. The opponent is rolled per meeting at the
+    /// Two gates, and neither is a price: a banked chance — a finished pomodoro
+    /// pays one, ten can be held — and being *home*. The courtyard is fought in,
+    /// so a cultivator still out on a walk has no 试炼 to spend a chance on; the
+    /// walk has to be over first. The opponent is rolled per meeting at the
     /// cultivator's own level — a 试炼 is a fight, not a wall — and a win pays
     /// the 锁妖塔's base table: a seed most often, gear sometimes, a 功法 almost
     /// never. What the two dungeons differ in is when they pay, not what.
     pub fn proving(&mut self, now_unix: i64) -> Option<ProvingOutcome> {
+        if !self.exploration_ready(now_unix) {
+            self.note_refusal(Refusal::ProvingOut);
+            return None;
+        }
         if self.document.proving_tokens == 0 {
             self.note_refusal(Refusal::ProvingSpent);
             return None;
@@ -2296,15 +2511,18 @@ impl Cultivation {
         self.record_duel(duel.won, FightKind::Wanderer, now_unix);
         let mut found = ExplorationFindView::default();
         if duel.won {
+            let strength = Strength::of(rival.attributes.power());
             match roll_reward(&mut rng) {
                 TrialReward::Seed => {
                     let attribute =
                         Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
-                    found.seed = Some(self.push_seed(attribute, tier, &mut rng));
+                    let grade = roll_seed_grade(&mut rng);
+                    found.seed = Some(self.push_seed(attribute, strength.tier(), grade, &mut rng));
                 }
                 TrialReward::Gear => {
-                    let item = self.take_gear(&rival, tier, &mut rng);
-                    found.gear = Some(self.item_view(&item));
+                    if let Some(item) = self.take_gear(&rival, strength, &mut rng) {
+                        found.gear = Some(self.item_view(&item));
+                    }
                 }
                 TrialReward::Art => {
                     found.art = self.take_art(&rival, self.realm(), now_unix);
@@ -2382,11 +2600,27 @@ impl Cultivation {
                 GiftKind::Seed => {
                     let attribute =
                         Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
-                    outcome.found.seed = Some(self.push_seed(attribute, tier, &mut rng));
+                    // A gift is the quiet kind of source, so it is the
+                    // cultivator's own strength that decides what the day hands
+                    // over: nothing was fought for it.
+                    let strength = Strength::of(self.power());
+                    let grade = roll_seed_grade(&mut rng);
+                    outcome.found.seed =
+                        Some(self.push_seed(attribute, strength.tier(), grade, &mut rng));
                 }
                 GiftKind::Gear => {
-                    let item = self.push_equipment(tier, DropSource::Random, &mut rng);
-                    outcome.found.gear = Some(self.item_view(&item));
+                    let strength = Strength::of(self.power());
+                    match self.push_equipment(strength, &mut rng) {
+                        Some(item) => outcome.found.gear = Some(self.item_view(&item)),
+                        // A gift always hands something over — that is what makes
+                        // it a gift — so a wardrobe that rolled up empty becomes
+                        // the purse it would have been worth.
+                        None => {
+                            let amount = roll_stones(&mut rng, DAILY_GIFT_STONES, tier);
+                            self.document.stones = self.document.stones.saturating_add(amount);
+                            outcome.found.stones = Some(amount);
+                        }
+                    }
                 }
             },
             DailyKind::Trinket => {
@@ -2524,22 +2758,12 @@ impl Cultivation {
             }
         }
         inventory.sort_by_key(|item| std::cmp::Reverse(item.id));
-        let mut seeds: Vec<SeedView> = self
-            .document
-            .seeds
-            .iter()
-            .map(|stack| SeedView {
-                attribute: stack.attribute,
-                tier: stack.tier,
-                count: stack.count,
-                name: stack.name.clone(),
-                sell_price: seed_sell_price(stack.attribute, stack.tier),
-            })
-            .collect();
+        let mut seeds: Vec<SeedView> = self.document.seeds.iter().map(seed_view).collect();
         seeds.sort_by(|left, right| {
             right
                 .tier
                 .cmp(&left.tier)
+                .then_with(|| right.grade.cmp(&left.grade))
                 .then_with(|| left.attribute.index().cmp(&right.attribute.index()))
         });
         CultivationView {
@@ -2570,6 +2794,7 @@ impl Cultivation {
                     crop: plot.crop.as_ref().map(|crop| CropView {
                         attribute: crop.attribute,
                         tier: crop.tier,
+                        grade: crop.grade,
                         name: crop.name.clone(),
                         ready_at_unix: crop.ready_at_unix,
                     }),
@@ -2601,7 +2826,18 @@ impl Cultivation {
                     name: item.name.clone(),
                     sell_price: shop::ShopOffer::Equipment(item.clone()).sell_price(),
                 }),
-                Drop::Seed { attribute, tier } => DropView::Seed { attribute, tier },
+                Drop::Seed {
+                    attribute,
+                    tier,
+                    grade,
+                } => DropView::Seed {
+                    attribute,
+                    tier,
+                    grade,
+                },
+                Drop::Art { name } => DropView::Art { name },
+                Drop::Herb { herb } => DropView::Herb { herb },
+                Drop::Stones(stones) => DropView::Stones(stones),
             }),
             last_seed_return: self.last_seed_return.clone(),
             arts,
@@ -2831,9 +3067,12 @@ impl Cultivation {
             ShopOffer::Equipment(item) => SaleKind::Equipment {
                 name: item.name.clone(),
             },
-            ShopOffer::Seed { name, tier, .. } => SaleKind::Seed {
+            ShopOffer::Seed {
+                name, tier, grade, ..
+            } => SaleKind::Seed {
                 name: name.clone(),
                 tier: *tier,
+                grade: *grade,
             },
             ShopOffer::Art { art_id } => SaleKind::Art {
                 name: Some(blueprint(*art_id).name),
@@ -2849,10 +3088,11 @@ impl Cultivation {
             ShopOffer::Seed {
                 attribute,
                 tier,
+                grade,
                 name,
             } => {
                 let mut rng = self.rng(now_unix);
-                self.push_seed_named(attribute, tier, name, &mut rng);
+                self.push_seed_named(attribute, tier, grade, name, &mut rng);
             }
             ShopOffer::Art { art_id } => {
                 // The book that was on the shelf, not another one of its grade:
@@ -2977,14 +3217,12 @@ impl Cultivation {
         &mut self,
         attribute: super::Attribute,
         tier: u8,
+        grade: SeedGrade,
         now_unix: i64,
     ) -> Result<u32, TradeRefusal> {
-        let Some(index) = self
-            .document
-            .seeds
-            .iter()
-            .position(|stack| stack.attribute == attribute && stack.tier == tier)
-        else {
+        let Some(index) = self.document.seeds.iter().position(|stack| {
+            stack.attribute == attribute && stack.tier == tier && stack.grade == grade
+        }) else {
             return Err(TradeRefusal::NotOwned);
         };
         if self.document.seeds[index].count == 0 {
@@ -2995,6 +3233,7 @@ impl Cultivation {
         let stones = shop::ShopOffer::Seed {
             attribute,
             tier,
+            grade,
             name: stack.name.clone(),
         }
         .sell_price();
@@ -3006,7 +3245,7 @@ impl Cultivation {
         self.push_event(
             now_unix,
             EventDetail::Sold {
-                what: SaleKind::Seed { name, tier },
+                what: SaleKind::Seed { name, tier, grade },
                 stones,
             },
         );
@@ -3204,6 +3443,136 @@ mod tests {
             cultivation.view().last_proving.is_some(),
             "the popup has a report to replay"
         );
+    }
+
+    /// 试炼 is fought at home: a walk that has not come back closes the courtyard
+    /// even when a chance is banked.
+    #[test]
+    fn a_proving_waits_for_the_walk_to_come_home() {
+        let mut cultivation = Cultivation::default();
+        for step in 0..3 {
+            cultivation.on_session_completed(1_000 + step * 10, day(1), 25);
+        }
+        let tokens = cultivation.view().proving_tokens;
+        assert!(tokens > 0, "three sessions banked three chances");
+        cultivation.explore(2_000, ExplorationHours::Four);
+        assert!(
+            cultivation.proving(2_000 + 3_600).is_none(),
+            "an unreturned walk closes the courtyard"
+        );
+        assert_eq!(cultivation.last_refusal, Some(Refusal::ProvingOut));
+        assert_eq!(
+            cultivation.view().proving_tokens,
+            tokens,
+            "a refused 试炼 spends no chance"
+        );
+        let home = 2_000 + 4 * 3_600;
+        assert!(
+            cultivation.proving(home).is_some(),
+            "back home, the chance buys its fight"
+        );
+    }
+
+    /// The thousandth: one finished pomodoro in a thousand pays something beside
+    /// its growth and its ordinary find.
+    #[test]
+    fn a_pomodoro_in_a_thousand_pays_a_bonus() {
+        assert_eq!(SESSION_BONUS_PERMILLE, 1, "千分之一");
+        // The roll itself, drawn often enough to see every shape it can take.
+        let mut cultivation = a_bare_save_at(40);
+        let mut kinds = std::collections::BTreeSet::new();
+        let mut rng = Rng::seeded(0x0000_5EED_B0A7_1234);
+        for _ in 0..2_000 {
+            let strength = Strength::of(cultivation.power());
+            if let Some(drop) = cultivation.roll_bonus(strength, &mut rng, 1_000) {
+                kinds.insert(match drop {
+                    Drop::Equipment(_) => 0,
+                    Drop::Seed { .. } => 1,
+                    Drop::Art { .. } => 2,
+                    Drop::Herb { .. } => 3,
+                    Drop::Stones(_) => 4,
+                });
+            }
+        }
+        assert_eq!(kinds.len(), 5, "every shape of the jackpot is reachable");
+        // And the rate it is rolled at, measured rather than asserted: one in a
+        // thousand, over a hundred thousand sessions' worth of rolls.
+        let mut rng = Rng::seeded(0x0000_5EED_5EED_5EED);
+        let hits = (0..100_000)
+            .filter(|_| rng.below(1_000) < SESSION_BONUS_PERMILLE)
+            .count();
+        assert!(
+            (60..=140).contains(&hits),
+            "{hits} of a hundred thousand is not one in a thousand"
+        );
+    }
+
+    /// A dropped seed carries a grade, and two grades of one patch are two
+    /// stacks: the grade is what the harvest pays at.
+    #[test]
+    fn a_dropped_seed_carries_its_grade() {
+        let mut cultivation = Cultivation::default();
+        let mut rng = Rng::seeded(7);
+        let earth = cultivation.push_seed(Attribute::Root, 2, SeedGrade::Earth, &mut rng);
+        let divine = cultivation.push_seed(Attribute::Root, 2, SeedGrade::Divine, &mut rng);
+        assert_eq!(earth.count, 1);
+        assert_eq!(divine.count, 1);
+        assert_eq!(
+            cultivation.document().seeds.len(),
+            2,
+            "two grades of one patch are two things to plant"
+        );
+        assert!(
+            divine.sell_price > earth.sell_price,
+            "{} against {}",
+            divine.sell_price,
+            earth.sell_price
+        );
+        assert!(
+            cultivation
+                .view()
+                .seeds
+                .iter()
+                .any(|seed| seed.grade == SeedGrade::Divine)
+        );
+    }
+
+    /// The ten 潜质 books are the only 功法 that move 潜质, and the number the
+    /// panel reads is the number the learning roll uses.
+    #[test]
+    fn only_the_aptitude_books_move_the_aptitude_reading() {
+        for art_id in crate::cultivation::APTITUDE_ART_IDS {
+            let cultivation = Cultivation::new(CultivationDocument {
+                // A body born with nothing: the reading below is the books'.
+                aptitude_tenths: Some(0),
+                arts: vec![OwnedArt {
+                    art_id,
+                    rank: 1,
+                    progress: 0,
+                    outcome: None,
+                    failures: 0,
+                }],
+                ..CultivationDocument::default()
+            });
+            assert_eq!(
+                cultivation.aptitude_tenths(),
+                crate::cultivation::arts::aptitude_tenths_per_rank(art_id),
+                "one 阶 of {art_id} is worth its grade's tenths"
+            );
+        }
+        // Any other book pays nothing, however far it has climbed.
+        let ordinary = Cultivation::new(CultivationDocument {
+            aptitude_tenths: Some(0),
+            arts: vec![OwnedArt {
+                art_id: 1,
+                rank: 2,
+                progress: 0,
+                outcome: None,
+                failures: 0,
+            }],
+            ..CultivationDocument::default()
+        });
+        assert_eq!(ordinary.aptitude_tenths(), 0);
     }
 
     /// The length a walk was taken for is the length that holds the next one
@@ -3579,7 +3948,7 @@ mod tests {
             let item = crate::cultivation::items::roll_equipment(
                 id,
                 realm.index() as u8 + 1,
-                crate::cultivation::items::DropSource::Combat,
+                crate::cultivation::Rarity::Common,
                 &mut rng,
             );
             if slots.insert(item.slot.index()) {
