@@ -38,6 +38,9 @@
   "system_menu": {
     "title": "BongoCat",
     "start_pomodoro": "Start Pomodoro",
+    "pause_pomodoro": "Pause Pomodoro",
+    "resume_pomodoro": "Resume Pomodoro",
+    "abandon_pomodoro": "Abandon Pomodoro",
     "start_cultivation": "Cultivation",
     "open_settings": "Settings",
     "quit": "Quit BongoCat"

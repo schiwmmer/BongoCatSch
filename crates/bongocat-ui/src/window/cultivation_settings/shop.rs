@@ -102,6 +102,22 @@ fn shop_row(
         "cultivation.shop.price",
         &[("stones", entry.price.to_string())],
     );
+    // A seed's grade as its own tag, in the grade's colour.
+    //
+    // The name is already painted in that colour, but the name is also the first
+    // thing a narrow row truncates and it spells the grade out last — so the one
+    // fact a buyer reads the shelf by is the one that survives a squeezed row.
+    // The five colours are the 功法 ladder's own, so 黄阶 here and 黄阶 on a book
+    // are the same yellow.
+    let grade_tag = seed_tag_grade(&entry.offer, entry.bought).map(|grade| {
+        div()
+            .id(format!("cultivation-shop-grade-{}", slot))
+            .flex_none()
+            .text_xs()
+            .text_color(seed_grade_color(grade))
+            .child(text(locale, grade.name_key()))
+            .test_support()
+    });
     let mut name = div()
         .id(format!("cultivation-shop-name-{}", slot))
         .flex_1()
@@ -143,6 +159,7 @@ fn shop_row(
         .justify_between()
         .gap_2()
         .child(name)
+        .children(grade_tag)
         // The cut, said beside the price it is a cut of: a row that only showed
         // the cheaper number would be a row whose discount is invisible, and one
         // that only showed the old price would be a row that has not moved.
@@ -427,5 +444,53 @@ fn shop_offer_label(offer: &ShopOffer, locale: &str) -> String {
         } => seed_label(locale, *attribute, *tier, *grade, name.as_deref()),
         ShopOffer::Art { art_id } => blueprint(*art_id).name.clone(),
         ShopOffer::Herb { herb } => text(locale, herb.name_key()).to_string(),
+    }
+}
+
+/// The grade a shelf row tags, when it carries one.
+///
+/// Seeds only: gear is tagged by its quality and a 功法 or a herb has no grade a
+/// row could print. A bought row tags nothing — it is struck through and priced
+/// "已购", and a grade on it would read as a grade still on sale.
+pub(super) fn seed_tag_grade(offer: &ShopOffer, bought: bool) -> Option<SeedGrade> {
+    match offer {
+        ShopOffer::Seed { grade, .. } if !bought => Some(*grade),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every shelf row that is a seed still for sale carries its grade tag, and
+    /// nothing else does. The tag is what makes the five grades tell apart on a
+    /// row whose name is too narrow to print them.
+    #[test]
+    fn only_a_seed_still_on_the_shelf_is_tagged_with_its_grade() {
+        for (index, grade) in SeedGrade::ALL.iter().enumerate() {
+            let seed = ShopOffer::Seed {
+                attribute: Attribute::Mana,
+                tier: 3,
+                grade: *grade,
+                name: None,
+            };
+            assert_eq!(seed_tag_grade(&seed, false), Some(*grade), "grade {index}");
+            assert_eq!(
+                seed_tag_grade(&seed, true),
+                None,
+                "a bought row tags nothing"
+            );
+        }
+        assert_eq!(seed_tag_grade(&ShopOffer::Art { art_id: 1 }, false), None);
+        assert_eq!(
+            seed_tag_grade(
+                &ShopOffer::Herb {
+                    herb: AptitudeHerb::Insight
+                },
+                false
+            ),
+            None
+        );
     }
 }

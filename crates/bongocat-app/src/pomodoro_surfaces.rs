@@ -159,6 +159,22 @@ pub(crate) const PAUSE_ROW: PomodoroMenuEntry = PomodoroMenuEntry {
     label_key: "pomodoro.timer.pause",
 };
 
+/// The abandoning row, shared by both states.
+///
+/// A running session can be abandoned outright: stopping to think about whether
+/// to keep going is itself a decision, and a menu that hid the exit would leave
+/// abandoning the only action that takes three clicks. The row is placed below
+/// the non-destructive one on purpose — the hand goes to Pause first.
+#[cfg(target_os = "macos")]
+pub(crate) const ABANDON_ROW: PomodoroMenuEntry = PomodoroMenuEntry {
+    id: "bongocat.pomodoro-abandon",
+    label_key: "pomodoro.timer.abandon",
+};
+
+/// What a running countdown offers: freeze it, or throw it away.
+#[cfg(target_os = "macos")]
+pub(crate) const PAUSE_AND_ABANDON_ROWS: [PomodoroMenuEntry; 2] = [PAUSE_ROW, ABANDON_ROW];
+
 /// What a paused countdown offers.
 ///
 /// Abandoning is one row below resuming because a paused session is already
@@ -170,20 +186,18 @@ pub(crate) const RESUME_AND_ABANDON_ROWS: [PomodoroMenuEntry; 2] = [
         id: "bongocat.pomodoro-resume",
         label_key: "pomodoro.timer.resume",
     },
-    PomodoroMenuEntry {
-        id: "bongocat.pomodoro-abandon",
-        label_key: "pomodoro.timer.abandon",
-    },
+    ABANDON_ROW,
 ];
 
 /// The rows a right-click offers, given the countdown's state.
 ///
-/// A running countdown offers only a pause. Offering to abandon a session the
-/// user did not mean to touch would put a destructive row next to a common one.
+/// Both states offer abandoning: the session the user no longer wants is the
+/// reason they are looking at the menu, and hiding that row while it runs only
+/// makes them pause first to reach it.
 #[cfg(target_os = "macos")]
 pub(crate) fn pomodoro_menu_entries(request: OverlayPomodoroMenuRequest) -> Vec<PomodoroMenuEntry> {
     match request {
-        OverlayPomodoroMenuRequest::OfferPause => vec![PAUSE_ROW],
+        OverlayPomodoroMenuRequest::OfferPause => PAUSE_AND_ABANDON_ROWS.to_vec(),
         OverlayPomodoroMenuRequest::OfferResumeAndAbandon => RESUME_AND_ABANDON_ROWS.to_vec(),
     }
 }
@@ -219,10 +233,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_running_countdown_offers_only_a_pause() {
+    fn a_running_countdown_offers_pause_and_abandon() {
         assert_eq!(
             pomodoro_menu_entries(OverlayPomodoroMenuRequest::OfferPause),
-            [PAUSE_ROW]
+            PAUSE_AND_ABANDON_ROWS
         );
     }
 
@@ -235,24 +249,34 @@ mod tests {
     }
 
     #[test]
-    fn the_running_menu_does_not_offer_a_destructive_row() {
-        // Abandoning throws away a session's work. It would sit one row from
-        // Pause, so it must not appear there at all.
-        assert!(
-            !pomodoro_menu_entries(OverlayPomodoroMenuRequest::OfferPause)
-                .iter()
-                .any(|row| row.id == "bongocat.pomodoro-abandon"),
-            "a running countdown must not offer abandon"
+    fn the_running_menu_puts_the_non_destructive_row_first() {
+        // Abandoning throws away a session's work, so it is never the row the
+        // hand lands on first: pause (or resume) comes before it.
+        assert_eq!(
+            pomodoro_menu_entries(OverlayPomodoroMenuRequest::OfferPause)[0],
+            PAUSE_ROW
         );
+        assert_eq!(
+            pomodoro_menu_entries(OverlayPomodoroMenuRequest::OfferResumeAndAbandon)[0].id,
+            RESUME_AND_ABANDON_ROWS[0].id
+        );
+        for request in [
+            OverlayPomodoroMenuRequest::OfferPause,
+            OverlayPomodoroMenuRequest::OfferResumeAndAbandon,
+        ] {
+            let rows = pomodoro_menu_entries(request);
+            assert_eq!(
+                rows.iter().filter(|row| row.id == ABANDON_ROW.id).count(),
+                1,
+                "{request:?} must offer abandoning exactly once"
+            );
+            assert_ne!(rows[0].id, ABANDON_ROW.id, "{request:?} leads with abandon");
+        }
     }
 
     #[test]
     fn every_row_maps_to_an_action_and_every_action_to_a_command() {
-        for row in [
-            PAUSE_ROW,
-            RESUME_AND_ABANDON_ROWS[0],
-            RESUME_AND_ABANDON_ROWS[1],
-        ] {
+        for row in [PAUSE_ROW, RESUME_AND_ABANDON_ROWS[0], ABANDON_ROW] {
             assert!(!row.label_key.is_empty(), "{:?} has no label", row.id);
         }
         assert_eq!(
@@ -274,12 +298,20 @@ mod tests {
     }
 
     #[test]
-    fn the_rows_of_each_menu_are_distinct() {
+    fn the_rows_of_each_menu_are_distinct_where_they_differ() {
         let running = pomodoro_menu_entries(OverlayPomodoroMenuRequest::OfferPause);
         let paused = pomodoro_menu_entries(OverlayPomodoroMenuRequest::OfferResumeAndAbandon);
+        // The two states differ in their first row only: a running session
+        // cannot be resumed and a paused one cannot be paused again.
         assert!(
-            running.iter().all(|row| !paused.contains(row)),
-            "a running countdown must not offer what only a paused one does"
+            running
+                .iter()
+                .all(|row| row.id != RESUME_AND_ABANDON_ROWS[0].id),
+            "a running countdown must not offer to resume"
+        );
+        assert!(
+            paused.iter().all(|row| row.id != PAUSE_ROW.id),
+            "a paused countdown must not offer to pause"
         );
     }
 

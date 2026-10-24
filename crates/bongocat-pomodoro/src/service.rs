@@ -529,6 +529,13 @@ fn run_worker(receiver: Receiver<PomodoroCommand>, shared: Arc<SharedState>, pat
     // readings, not a per-tick subtraction, so a late wake-up costs exactly the
     // time it was late.
     let mut last_tick = Instant::now();
+    // The seconds a previous wake-up could not hand over because they had not
+    // finished yet. A wake-up that arrives 30 ms after the last one owes zero
+    // whole seconds, and that 30 ms must survive to the next wake-up: typing or
+    // moving the pointer publishes a command on every frame, which turns the
+    // worker into a 30 ms loop, and dropping each fraction froze the countdown
+    // for as long as the input lasted.
+    let mut carried = Duration::ZERO;
     loop {
         if shared.shutdown_requested.load(Ordering::Acquire) {
             break;
@@ -542,7 +549,12 @@ fn run_worker(receiver: Receiver<PomodoroCommand>, shared: Arc<SharedState>, pat
         let now = Instant::now();
         let elapsed = now.saturating_duration_since(last_tick);
         last_tick = now;
-        tick(&shared, &path, elapsed);
+        let elapsed = take_whole_seconds(elapsed, &mut carried);
+        // Idle time is not a countdown: a fraction carried across a break would
+        // be charged to the session that comes after it.
+        if !tick(&shared, &path, elapsed) {
+            carried = Duration::ZERO;
+        }
     }
     set_worker_state(&shared, PomodoroWorkerState::Stopping);
     while receiver.try_recv().is_ok() {}
@@ -568,6 +580,19 @@ fn wait_for(shared: &Arc<SharedState>) -> Duration {
     }
 }
 
+/// The whole seconds in `elapsed`, with the fraction carried to the next call.
+///
+/// The countdown is stored in whole seconds, so a wake-up that leaves a fraction
+/// of one behind has nothing to hand over — and throwing that fraction away is
+/// what stops a clock that is woken many times a second. Carrying it means a
+/// hundred 30 ms wake-ups still pay their three seconds.
+fn take_whole_seconds(elapsed: Duration, carried: &mut Duration) -> Duration {
+    let total = elapsed.saturating_add(*carried);
+    let whole = Duration::from_secs(total.as_secs());
+    *carried = total.saturating_sub(whole);
+    whole
+}
+
 fn process_command(shared: &Arc<SharedState>, path: &Path, command: PomodoroCommand) {
     let mut inner = shared
         .inner
@@ -581,7 +606,10 @@ fn process_command(shared: &Arc<SharedState>, path: &Path, command: PomodoroComm
 }
 
 /// Fold elapsed time into a running countdown.
-fn tick(shared: &Arc<SharedState>, path: &Path, elapsed: Duration) {
+///
+/// Returns whether a session was running: a paused or idle timer answers `false`
+/// so the caller knows the time it just measured belongs to nobody.
+fn tick(shared: &Arc<SharedState>, path: &Path, elapsed: Duration) -> bool {
     let mut inner = shared
         .inner
         .lock()
@@ -605,7 +633,7 @@ fn tick(shared: &Arc<SharedState>, path: &Path, elapsed: Duration) {
     if inner.domain.timer().state() != TimerState::Running {
         drop(inner);
         shared.changed.notify_all();
-        return;
+        return false;
     }
     let completed = inner.domain.advance(elapsed, now).is_some();
     if completed {
@@ -619,6 +647,7 @@ fn tick(shared: &Arc<SharedState>, path: &Path, elapsed: Duration) {
     }
     drop(inner);
     shared.changed.notify_all();
+    true
 }
 
 fn set_worker_state(shared: &Arc<SharedState>, worker: PomodoroWorkerState) {
@@ -649,6 +678,34 @@ mod tests {
     use crate::DEFAULT_FOCUS_MINUTES;
 
     const TIMEOUT: Duration = Duration::from_secs(5);
+
+    /// A worker woken faster than once a second still owes its seconds: input
+    /// publishes a command on every frame, and the countdown must not stop for
+    /// as long as the user keeps typing or moving the pointer.
+    #[test]
+    fn sub_second_wake_ups_add_up_instead_of_being_dropped() {
+        let mut carried = Duration::ZERO;
+        let mut paid = Duration::ZERO;
+        for _ in 0..100 {
+            paid += take_whole_seconds(Duration::from_millis(30), &mut carried);
+        }
+        assert_eq!(paid, Duration::from_secs(3), "3000 ms of 30 ms wake-ups");
+        assert_eq!(carried, Duration::ZERO);
+
+        // A hundred wake-ups at 10 ms leave nothing behind either, and a
+        // fraction smaller than a second is kept until it completes one.
+        let mut carried = Duration::ZERO;
+        assert_eq!(
+            take_whole_seconds(Duration::from_millis(400), &mut carried),
+            Duration::ZERO
+        );
+        assert_eq!(carried, Duration::from_millis(400));
+        assert_eq!(
+            take_whole_seconds(Duration::from_millis(700), &mut carried),
+            Duration::from_secs(1)
+        );
+        assert_eq!(carried, Duration::from_millis(100));
+    }
 
     fn wait_for(client: &PomodoroClient, predicate: impl Fn(&PomodoroSnapshot) -> bool) {
         let deadline = Instant::now() + TIMEOUT;

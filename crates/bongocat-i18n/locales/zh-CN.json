@@ -38,6 +38,9 @@
   "system_menu": {
     "title": "BongoCat",
     "start_pomodoro": "开始番茄钟",
+    "pause_pomodoro": "暂停番茄钟",
+    "resume_pomodoro": "继续番茄钟",
+    "abandon_pomodoro": "放弃番茄钟",
     "start_cultivation": "修仙",
     "open_settings": "设置",
     "quit": "退出 BongoCat"

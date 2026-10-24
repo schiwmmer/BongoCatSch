@@ -4,6 +4,7 @@
 
 ### ✨ Features
 
+- The model window's right-click menu now follows the session: "Start Pomodoro" when there is none, "Pause" and "Abandon" while one counts, "Resume" and "Abandon" while one is paused. The countdown's own right-click offers the same abandon — a session the user no longer wants no longer has to be paused before it can be thrown away.
 - The breakthrough prompt is now a banner at the very top of the page, in the largest type the page uses for a line, and it appears only when the realm is full — a save still climbing is told nothing, and the breakthrough panel itself is drawn only while a guardian is actually standing there.
 - The tower is renamed 锁妖塔; the panel's rules and every line it prints follow the new name.
 - A new 试炼 panel sits directly under the walk: every finished pomodoro banks one trial chance (ten at most), and a chance buys a randomised fight levelled to the cultivator. A win pays the tower's base table — a seed most often, gear sometimes, an art almost never — and a loss costs nothing but the chance.
@@ -84,6 +85,7 @@
 - The floating countdown is white now instead of following the system appearance, and keeps its dark shadow so it still reads on a light wallpaper.
 - Every derived number's hover card gains an even-spread line: what the same four attributes would buy spread evenly, and how far the current build is from it (`+`, `-` or `±0`). The 潜质 card now explains what 潜质 actually decides — how often 功法 training fails — instead of borrowing the generic sentence.
 - Counts in the millions are printed to two decimals (`1.23M`) while thousands keep one (`54.7K`): a tenth of a million is a hundred thousand, so one decimal printed figures tens of thousands apart as the same number.
+- A seed row on the market shelf now carries its grade beside the name — 黄 / 玄 / 地 / 天 / 神 in the grade's own colour, the same ramp the 功法 and gear wear. The name was already painted that way, but the name is also the first thing a narrow row truncates and it spells the grade out last; with a tag of its own, the grade survives a squeezed row.
 
 ### 🌍 Localization
 
@@ -93,6 +95,10 @@
 - Days that carry finished focus sessions get a light red wash in the Pomodoro calendar, so an active day is recognisable at a glance.
 - The product ships Chinese and English only: the other six catalogs, their language options, the language enum values and the Windows installer languages are gone. Any Chinese tag — Traditional included — reads the Simplified catalog; every other language reads English.
 - Both catalogs grow the copy the new sections need: 功法 names and grades, the market's refusals and prices, exploration's findings, the duel popup and the event log.
+
+### 🐛 Bug Fixes
+
+- Fixed the countdown freezing while the user typed or moved the pointer: the worker threw away every fraction of a second it could not hand over, and each keystroke or mouse move wakes it once — far more often than once a second, so every fraction was dropped and the clock stopped dead for as long as the input lasted. The fraction now carries until it completes a whole second, and the worker sleeps exactly as long as the running session has left.
 
 ## 2.3.1 - 2026-10-13
 

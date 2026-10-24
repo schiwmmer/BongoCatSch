@@ -1325,10 +1325,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .as_mut()
                             .expect("product overlay owner is present")
                             .tick();
+                        // The model-window menu carries the rows for whatever
+                        // the session is doing right now: start when there is
+                        // none, pause or abandon while it counts.
+                        let pomodoro_mode = match pomodoro_snapshot.timer.map(|timer| timer.state)
+                        {
+                            None | Some(bongocat_pomodoro::TimerState::Idle) => {
+                                bongocat_platform::PomodoroMenuMode::Idle
+                            }
+                            Some(bongocat_pomodoro::TimerState::Running) => {
+                                bongocat_platform::PomodoroMenuMode::Running
+                            }
+                            Some(bongocat_pomodoro::TimerState::Paused) => {
+                                bongocat_platform::PomodoroMenuMode::Paused
+                            }
+                        };
                         if context_menu_requested
                             && let Some(menu) = coordinator.system_menu.as_ref()
                             && let Some(overlay) = coordinator.overlay.as_ref()
-                            && let Err(error) = menu.show_context_menu_for_window(overlay)
+                            && let Err(error) =
+                                menu.show_context_menu_for_window(overlay, pomodoro_mode)
                         {
                             frame_application_log.record(
                                 ApplicationLogEvent::new(ApplicationLogCode::ServiceFailed)
@@ -1472,7 +1488,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .borrow()
                             .as_ref()
                             .ok_or(bongocat_platform::SystemMenuError::WindowHandleUnavailable)
-                            .and_then(|overlay| menu.show_context_menu_for_window(overlay));
+                            .and_then(|overlay| {
+                                menu.show_context_menu_for_window(
+                                    overlay,
+                                    bongocat_platform::PomodoroMenuMode::Idle,
+                                )
+                            });
                         if let Err(error) = result {
                             frame_application_log.record(
                                 ApplicationLogEvent::new(ApplicationLogCode::ServiceFailed)

@@ -66,7 +66,9 @@ pub use theme::{
 };
 
 mod system_menu;
-pub use system_menu::{SystemMenuAction, SystemMenuError, SystemMenuPresentation};
+pub use system_menu::{
+    PomodoroMenuMode, SystemMenuAction, SystemMenuError, SystemMenuPresentation,
+};
 mod system_menu_native;
 pub use system_menu_native::SystemMenu;
 
