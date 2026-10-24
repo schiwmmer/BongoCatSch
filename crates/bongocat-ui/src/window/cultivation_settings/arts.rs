@@ -306,6 +306,21 @@ fn art_row(
     let art_id = art.id;
     // A finished book has no next 阶 to price, so it says it stands complete
     // rather than borrowing a cost it does not have.
+    // The rate rides on the same line as the cost: "one more pomodoro, and
+    // this attempt lands one time in two" is the pair the user is actually
+    // weighing, and a percentage on a line of its own would be a second row
+    // for a number that only means anything beside its cost.
+    let success_line = format_text(
+        locale,
+        "cultivation.art.success",
+        &[(
+            "rate",
+            format!(
+                "{:.1}",
+                f32::from(u16::try_from(art.success_permille / 10).unwrap_or(0)) / 10.0
+            ),
+        )],
+    );
     let progress_line = if art.rank >= art.max_rank {
         format_text(
             locale,
@@ -323,6 +338,11 @@ fn art_row(
                 ("progress", art.progress.to_string()),
             ],
         )
+    };
+    let progress_line = if art.rank >= art.max_rank {
+        progress_line
+    } else {
+        format!("{progress_line} · {success_line}")
     };
     div()
         .id(format!("cultivation-art-{}", art.id))
