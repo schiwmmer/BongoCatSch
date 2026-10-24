@@ -63,12 +63,14 @@ pub const INSIGHT_SHELF_ONE_IN: u64 = 4;
 /// choice rather than a reskin of one another.
 pub const WISDOM_SHELF_ONE_IN: u64 = 10;
 
-/// How often a day's shelf carries a 洗髓丹: one day in ten thousand.
+/// How often a day's shelf carries a 洗髓丹: one day in two hundred.
 ///
-/// The brief's number, and it is a *day* chance rather than a slot chance: a
-/// pill is one event, and rolling it per slot would quietly multiply the odds
-/// by however many rows the shelf happens to have.
-pub const MARROW_SHELF_ONE_IN: u64 = 10_000;
+/// A *day* chance rather than a slot chance: a pill is one event, and rolling it
+/// per slot would quietly multiply the odds by however many rows the shelf
+/// happens to have. One in two hundred is roughly one sighting every six or
+/// seven months of daily shopping — rare enough that finding one is news, common
+/// enough that a build saving for a gate can plan on seeing it.
+pub const MARROW_SHELF_ONE_IN: u64 = 200;
 
 /// What the shop buys an item for, in tenths of the asking price.
 ///
@@ -457,9 +459,8 @@ mod tests {
     use super::*;
 
     /// The 潜质 shelf: a herb finds its way onto the shelf about one day in
-    /// four, the rarer one about one in ten, and the pill about one in ten
-    /// thousand — the brief's numbers, measured rather than asserted from the
-    /// constants.
+    /// four, the rarer one about one in ten, and the pill about one in two
+    /// hundred — measured rather than asserted from the constants.
     #[test]
     fn the_aptitude_shelf_is_rare_and_the_pill_is_the_rarest_row() {
         let days = 20_000_i64;
@@ -484,28 +485,38 @@ mod tests {
             (rate(wisdom) - 0.10).abs() < 0.02,
             "慧心草 one day in ten: {wisdom} of {days}"
         );
+        // Twenty thousand days is a hundred sightings of a one-in-two-hundred
+        // draw, so the pill's rate is measured over the days themselves: a rate
+        // that only held in the constant and not on the shelf would be a
+        // constant nothing reads.
+        assert!(
+            (rate(marrow) - 1.0 / 200.0).abs() < 0.02,
+            "洗髓丹 one day in two hundred: {marrow} of {days}"
+        );
         assert!(wisdom < insight, "慧心草 must stay the rarer herb");
-        // Twenty thousand days is too short to *observe* a one-in-ten-thousand
-        // draw, so the pill's rate is read off the roll it actually makes: a
-        // million `below(10_000)` draws land one in ten thousand times.
-        assert_eq!(MARROW_SHELF_ONE_IN, 10_000, "万分之一");
+        // The pill is still the scarcest of the three 潜质 rows, but it is a
+        // sighting now rather than a legend: a hundred of them in twenty
+        // thousand days is a rate a build can plan around.
+        assert!(marrow < wisdom, "the pill is the rarest of the three");
+        // The same rate read straight off the roll the shelf makes.
         let mut rng = super::super::Rng::seeded(0x0000_5EED_1234_5678);
         let hits = (0..1_000_000)
             .filter(|_| rng.below(MARROW_SHELF_ONE_IN) == 0)
             .count();
         assert!(
-            (70..=130).contains(&hits),
-            "one in ten thousand: {hits} of a million"
+            (4_600..=5_400).contains(&hits),
+            "one in two hundred: {hits} of a million"
         );
-        let _ = marrow;
     }
 
-    /// The three 潜质 items are priced apart, and the pill is the dearest thing
-    /// the shop sells.
+    /// The three 潜质 items are priced apart, and the pill sits *between* the
+    /// two herbs: a gate key a build saves for is not the dearest row on the
+    /// shelf, it is the scheduled one.
     #[test]
     fn the_aptitude_items_are_priced_apart() {
         assert!(AptitudeHerb::Insight.price() > seed_price(10, SeedGrade::Divine));
-        assert!(AptitudeHerb::Wisdom.price() > AptitudeHerb::Insight.price());
-        assert_eq!(AptitudeHerb::Marrow.price(), 100_000);
+        assert!(AptitudeHerb::Wisdom.price() > AptitudeHerb::Marrow.price());
+        assert!(AptitudeHerb::Marrow.price() > AptitudeHerb::Insight.price());
+        assert_eq!(AptitudeHerb::Marrow.price(), 10_000);
     }
 }

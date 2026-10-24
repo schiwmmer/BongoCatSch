@@ -245,14 +245,16 @@ impl AptitudeHerb {
     /// What the shelf asks for it, in 灵石.
     ///
     /// Priced against the ladder the herbs move: a single 悟心草 is worth a
-    /// fortnight of sessions, 慧心草 two and a half times that, and a 洗髓丹 —
-    /// the only thing that opens a gate past a hundred — five times the rarer
-    /// herb.
+    /// fortnight of sessions and 慧心草 two and a half times that. The 洗髓丹
+    /// sits *between* them rather than on top, because it is a different kind of
+    /// purchase — a gate key a build saves up for on a schedule, not a lucky
+    /// find. Fifty-five of them walk a 潜质 from 0 to 1000, so its price is what
+    /// decides whether the top of the band is a project or a fantasy.
     pub const fn price(self) -> u32 {
         match self {
             Self::Insight => 8_000,
             Self::Wisdom => 20_000,
-            Self::Marrow => 100_000,
+            Self::Marrow => 10_000,
         }
     }
 
@@ -415,14 +417,16 @@ mod tests {
 
     #[test]
     fn the_herbs_are_priced_and_ranged_apart() {
-        // 慧心草 is rarer and dearer, and pays more per draw.
-        assert!(AptitudeHerb::Wisdom.price() > AptitudeHerb::Insight.price());
-        assert!(AptitudeHerb::Marrow.price() > AptitudeHerb::Wisdom.price());
+        // 慧心草 is rarer and dearer, and pays more per draw. The 洗髓丹 sits
+        // between the two: a gate key is a scheduled purchase, not the dearest
+        // row on the shelf.
+        assert!(AptitudeHerb::Wisdom.price() > AptitudeHerb::Marrow.price());
+        assert!(AptitudeHerb::Marrow.price() > AptitudeHerb::Insight.price());
         let (insight_low, insight_high) = AptitudeHerb::Insight.gain_tenths().unwrap();
         let (wisdom_low, wisdom_high) = AptitudeHerb::Wisdom.gain_tenths().unwrap();
         assert_eq!((insight_low, insight_high), (1, 12), "0.1 ..= 1.2");
         assert_eq!((wisdom_low, wisdom_high), (5, 20), "0.5 ..= 2.0");
         assert!(AptitudeHerb::Marrow.gain_tenths().is_none());
-        assert_eq!(AptitudeHerb::Marrow.price(), 100_000, "十万灵石");
+        assert_eq!(AptitudeHerb::Marrow.price(), 10_000, "一万灵石");
     }
 }
