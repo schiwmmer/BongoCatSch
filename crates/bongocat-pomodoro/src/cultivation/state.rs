@@ -16,11 +16,11 @@ use std::array;
 use super::{
     ART_COUNT, ArtGrade, ArtKind, ArtOutcome, ArtStrike, ArtView, Attribute, Attributes,
     BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport, CultivationDocument, DailyKind, Derived,
-    DerivedBreakdown, DuelReport, EQUIPMENT_DROP_PERMILLE, EXPLORATION_COOLDOWN_SECONDS, EquipSlot,
-    EquipmentRecord, ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, GearEffect, Guardian,
-    MAX_LEVEL, MAX_STAR, MasteredArtView, OwnedArt, PLAYER_NAME, RECENT_ARTS_CAP, Rarity, Realm,
-    Refusal, Rng, SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack, VICTORY_SEED_PERMILLE,
-    absence_penalty, art_attributes, art_view,
+    DerivedBreakdown, DuelReport, EQUIPMENT_DROP_PERMILLE, EquipSlot, EquipmentRecord,
+    ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, GearEffect, Guardian, MAX_LEVEL, MAX_STAR,
+    MasteredArtView, OwnedArt, PLAYER_NAME, RECENT_ARTS_CAP, Rarity, Realm, Refusal, Rng,
+    SEED_DROP_PERMILLE, SLOT_COUNT, SeedStack, VICTORY_SEED_PERMILLE, absence_penalty,
+    art_attributes, art_view,
     arts::{
         art_bonus, blueprint, mastered_art_attributes, mastered_art_bonus, mastered_art_view, train,
     },
@@ -35,13 +35,15 @@ use super::{
     events::{EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind},
     explore::{
         GUARDIAN_STONES, TRIAL_STONES, WALK_STONES, WANDERER_STONES, WalkRecord,
-        breakthrough_ready, exploration_ready, roll_stones, roll_victory, roll_walk,
+        breakthrough_ready, cooldown_seconds, exploration_ready, roll_stones, roll_victory,
+        roll_walk,
     },
     garden::{CropRecord, PlotRecord, harvest_points, plot_price, seed_name, seed_return},
     growth_permille,
     items::{DropSource, roll_equipment},
     mastery_permille,
     opponent::{self, Opponent},
+    proving::{ProvingOutcome, TRIAL_CHANCES_CAP},
     scaled_growth,
     shop::{self, ShopOffer, ShopOfferView, star_up_cost},
     star_success_permille,
@@ -400,6 +402,12 @@ pub struct CultivationView {
     /// How many levels the ladder holds in all: [`MAX_LEVEL`], carried so a
     /// surface can print "347 / 1000" without importing the ladder's size.
     pub total_levels: u16,
+    /// Whether the realm is full: the growth has bought every layer the realm
+    /// has, and only the guardian stands between the save and the next one.
+    ///
+    /// The page's one prompt reads this: a hint about breaking through belongs
+    /// on screen when there is a wall to break, and nowhere else.
+    pub realm_full: bool,
     /// The 功法 the next finished pomodoro trains.
     pub selected_art: Option<u64>,
     /// What the last finished session did to the 功法 being trained.
@@ -420,6 +428,8 @@ pub struct CultivationView {
     pub breakthrough_ready: bool,
     /// The instant a walk is owed again, while one is not.
     pub exploration_ready_at: Option<i64>,
+    /// How long the last walk was, which is what set that instant.
+    pub exploration_hours: super::ExplorationHours,
     /// The instant the guardian can be fought again, while a loss still holds
     /// the attempt.
     pub breakthrough_ready_at: Option<i64>,
@@ -439,6 +449,15 @@ pub struct CultivationView {
     pub trial_blocked: Option<TrialBlocked>,
     /// The fight the last floor settled, for the popup that replays it.
     pub last_trial: Option<TrialOutcome>,
+    /// How many 试炼 chances are banked, and the most that can be.
+    pub proving_tokens: u32,
+    /// The ceiling the count above is printed against.
+    pub proving_token_cap: u32,
+    /// How many 试炼 have been fought, so a surface can tell a new report from
+    /// the one it has already shown.
+    pub provings: u32,
+    /// The fight the last spent chance settled, for the popup that replays it.
+    pub last_proving: Option<ProvingOutcome>,
     /// What the day opened with, for the page and for the popup an ambush earns.
     pub last_daily_event: Option<DailyOutcome>,
     /// The local day the morning event belongs to, or `None` before the first.
@@ -542,6 +561,12 @@ pub struct Cultivation {
     last_exploration_found: Option<ExplorationFindView>,
     /// The floor the last trial settled, if one was climbed this session.
     last_trial: Option<TrialOutcome>,
+    /// The 试炼 the last spent chance settled, if one was fought this session.
+    last_proving: Option<ProvingOutcome>,
+    /// How many 试炼 chances have been spent this session. A surface watches
+    /// this rather than the report, for the same reason it watches
+    /// [`Self::trial_attempts`].
+    provings: u32,
     /// What the day opened with, once it has opened.
     last_daily_event: Option<DailyOutcome>,
     /// How many morning events have fired this session. A surface no longer
@@ -625,6 +650,8 @@ impl Cultivation {
             last_exploration: None,
             last_exploration_found: None,
             last_trial: None,
+            last_proving: None,
+            provings: 0,
             trial_attempts: 0,
             last_daily_event: None,
             daily_events: 0,
@@ -1038,6 +1065,13 @@ impl Cultivation {
         // growth does: a purse that paid on a different day than the work would
         // be a second, quieter ladder sitting next to the first.
         self.credit_session_earnings();
+        // The session also buys one 试炼 chance: the training is the faucet for
+        // the courtyard's other half, and ten chances is the bank it feeds.
+        self.document.proving_tokens = self
+            .document
+            .proving_tokens
+            .saturating_add(1)
+            .min(TRIAL_CHANCES_CAP);
         let drop = self.roll_drop(now_unix);
         self.last_drop = drop.clone();
         SessionReward {
@@ -1149,6 +1183,7 @@ impl Cultivation {
                 rank: 0,
                 progress: 0,
                 outcome: None,
+                failures: 0,
             });
             if self.document.selected_art.is_none() {
                 self.document.selected_art = Some(art_id);
@@ -1186,6 +1221,7 @@ impl Cultivation {
             rank: 0,
             progress: 0,
             outcome: None,
+            failures: 0,
         });
         if self.document.selected_art.is_none() {
             self.document.selected_art = Some(art_id);
@@ -1948,12 +1984,20 @@ impl Cultivation {
     /// nothing has to say that it is cooling down rather than look broken. A
     /// walk that meets someone settles that fight the same way a breakthrough
     /// does, and losing it costs nothing but the walk.
-    pub fn explore(&mut self, now_unix: i64) -> Option<ExplorationOutcome> {
-        if !exploration_ready(self.document.last_exploration_unix, now_unix) {
+    pub fn explore(
+        &mut self,
+        now_unix: i64,
+        hours: super::ExplorationHours,
+    ) -> Option<ExplorationOutcome> {
+        if !self.exploration_ready(now_unix) {
             self.note_refusal(Refusal::ExploreCooldown);
             return None;
         }
         self.document.last_exploration_unix = Some(now_unix);
+        // The length is written down beside the instant, because the cooldown
+        // is the length's own: a four-hour walk read back as a twelve-hour one
+        // would hold the next walk for eight hours it never spent.
+        self.document.last_exploration_hours = hours.hours();
         // Counted here rather than on the outcome: a walk that found nothing is
         // still a walk a surface has not shown yet.
         self.document.explorations = self.document.explorations.saturating_add(1);
@@ -1964,7 +2008,9 @@ impl Cultivation {
         // be announced as 败北 under a won fight's log.
         self.last_exploration_duel = None;
         let mut rng = self.rng(now_unix);
-        let mut outcome = roll_walk(&mut rng);
+        // The length this walk was taken at is the multiplier its chances are
+        // read through — the one lever the user pulled.
+        let mut outcome = roll_walk(&mut rng, hours);
         let tier = self.realm().index() as u8 + 1;
         let mut found = ExplorationFindView::default();
         match outcome {
@@ -2088,6 +2134,26 @@ impl Cultivation {
     /// A trial only ever offers the floor above the highest one cleared: the
     /// climb is a frontier, not a menu, so re-fighting ground already held
     /// cannot be used to farm a tier the save has outgrown.
+    /// Whether a walk is owed right now.
+    ///
+    /// Read through the length the last walk was taken at: the cooldown is that
+    /// walk's own, so a short walk comes back sooner than a long one.
+    pub fn exploration_ready(&self, now_unix: i64) -> bool {
+        exploration_ready(
+            self.document.last_exploration_unix,
+            self.stored_walk_seconds(),
+            now_unix,
+        )
+    }
+
+    /// How long the last walk holds the next one off, in seconds.
+    ///
+    /// Zero hours is a save written before walks had lengths, and
+    /// [`cooldown_seconds`] reads that as the old ten hours.
+    pub fn stored_walk_seconds(&self) -> i64 {
+        cooldown_seconds(i64::from(self.document.last_exploration_hours) * 3_600)
+    }
+
     pub fn trial_next_floor(&self) -> u16 {
         self.document.trial_floor.saturating_add(1)
     }
@@ -2113,7 +2179,7 @@ impl Cultivation {
         if self.trial_next_floor() > TRIAL_MAX_FLOOR {
             return Some(TrialBlocked::Top);
         }
-        if !exploration_ready(self.document.last_exploration_unix, now_unix) {
+        if !self.exploration_ready(now_unix) {
             return Some(TrialBlocked::Out);
         }
         if self.trial_attempts_left(day) == 0 {
@@ -2201,6 +2267,62 @@ impl Cultivation {
         );
         let outcome = TrialOutcome { floor, duel, found };
         self.last_trial = Some(outcome.clone());
+        Some(outcome)
+    }
+
+    /// Spend one 试炼 chance on a fight at the cultivator's own level.
+    ///
+    /// The chance is the gate and there is no clock beside it: a finished
+    /// pomodoro pays one, ten can be banked, and the courtyard is open whenever
+    /// the training has earned it. The opponent is rolled per meeting at the
+    /// cultivator's own level — a 试炼 is a fight, not a wall — and a win pays
+    /// the 锁妖塔's base table: a seed most often, gear sometimes, a 功法 almost
+    /// never. What the two dungeons differ in is when they pay, not what.
+    pub fn proving(&mut self, now_unix: i64) -> Option<ProvingOutcome> {
+        if self.document.proving_tokens == 0 {
+            self.note_refusal(Refusal::ProvingSpent);
+            return None;
+        }
+        self.document.proving_tokens = self.document.proving_tokens.saturating_sub(1);
+        self.provings = self.provings.saturating_add(1);
+        let mut rng = self.rng(now_unix);
+        let fighter = self.fighter(&mut rng);
+        let tier = self.realm().index() as u8 + 1;
+        let rival = opponent::challenger(self.level(), tier, rng.below(u64::MAX));
+        let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
+        self.record_duel(duel.won, FightKind::Wanderer, now_unix);
+        let mut found = ExplorationFindView::default();
+        if duel.won {
+            match roll_reward(&mut rng) {
+                TrialReward::Seed => {
+                    let attribute =
+                        Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
+                    found.seed = Some(self.push_seed(attribute, tier, &mut rng));
+                }
+                TrialReward::Gear => {
+                    let item = self.take_gear(&rival, tier, &mut rng);
+                    found.gear = Some(self.item_view(&item));
+                }
+                TrialReward::Art => {
+                    found.art = self.take_art(&rival, self.realm(), now_unix);
+                }
+                TrialReward::Nothing => {}
+            }
+            // A beaten challenger can leave a 洗髓丹 behind, on the same odds
+            // every other fight rolls: the pill is not a tower's privilege.
+            self.roll_marrow_from_combat(rival.attributes.power(), &mut rng, now_unix);
+        }
+        self.push_event(
+            now_unix,
+            EventDetail::Proving {
+                won: duel.won,
+                art: found.art.clone(),
+                gear: found.gear.as_ref().and_then(|item| item.name.clone()),
+                seed: found.seed.as_ref().and_then(|seed| seed.name.clone()),
+            },
+        );
+        let outcome = ProvingOutcome { duel, found };
+        self.last_proving = Some(outcome.clone());
         Some(outcome)
     }
 
@@ -2486,12 +2608,13 @@ impl Cultivation {
             aptitude_tenths,
             aptitude_herbs: self.aptitude_herbs(),
             total_levels: MAX_LEVEL,
+            realm_full: self.level() >= self.realm().cap_level(),
             selected_art: self.document.selected_art,
             last_training: self.last_training.clone(),
             last_exploration_duel: self.last_exploration_duel.clone(),
             last_exploration: self.last_exploration,
             last_exploration_found: self.last_exploration_found.clone(),
-            exploration_ready: exploration_ready(self.document.last_exploration_unix, now_unix),
+            exploration_ready: self.exploration_ready(now_unix),
             breakthrough_ready: breakthrough_ready(
                 self.document.breakthrough_blocked_until,
                 now_unix,
@@ -2499,7 +2622,10 @@ impl Cultivation {
             exploration_ready_at: self
                 .document
                 .last_exploration_unix
-                .map(|last| last.saturating_add(EXPLORATION_COOLDOWN_SECONDS)),
+                .map(|last| last.saturating_add(self.stored_walk_seconds())),
+            exploration_hours: super::ExplorationHours::from_hours(
+                self.document.last_exploration_hours,
+            ),
             breakthrough_ready_at: self.document.breakthrough_blocked_until,
             breakthrough_attempts: self.breakthrough_attempts,
             explorations: self.document.explorations,
@@ -2510,6 +2636,10 @@ impl Cultivation {
             trial_blocked: self.trial_blocked(now_unix, day),
             last_trial: self.last_trial.clone(),
             trial_attempts: self.trial_attempts,
+            proving_tokens: self.document.proving_tokens,
+            proving_token_cap: TRIAL_CHANCES_CAP,
+            provings: self.provings,
+            last_proving: self.last_proving.clone(),
             last_daily_event: self.last_daily_event.clone(),
             daily_event_day: self.document.daily_event_day,
             daily_events: self.daily_events,
@@ -2944,12 +3074,16 @@ impl Cultivation {
 #[cfg(test)]
 mod tests {
     use super::super::{
-        AptitudeHerb, DISCIPLINE_STEP_CAP, DISCIPLINE_STEP_PERMILLE, Discipline,
+        AptitudeHerb, DISCIPLINE_STEP_CAP, DISCIPLINE_STEP_PERMILLE, Discipline, ExplorationHours,
         GROWTH_MULTIPLIER_CAP_PERMILLE, LAYERS_PER_STAGE, STAGE_COUNT, discipline_bonus,
         discipline_cap, growth_permille, scaled_growth, session_growth, threshold_for,
     };
     use super::*;
     use crate::CalendarDay;
+
+    /// How far apart the tests take their walks: the longest length, so a walk
+    /// taken at any of the three is owed again by the time the next one starts.
+    const WALK_SECONDS: i64 = 12 * 60 * 60;
 
     fn day(number: i64) -> CalendarDay {
         CalendarDay::from_day_number(number)
@@ -3018,6 +3152,7 @@ mod tests {
                 rank: 1,
                 progress: 0,
                 outcome: None,
+                failures: 0,
             }],
             ..CultivationDocument::default()
         });
@@ -3032,6 +3167,69 @@ mod tests {
     }
 
     /// A cultivator at the first realm's last layer, so a guardian is offered.
+    /// A finished pomodoro buys one 试炼 chance, ten at most are banked, and a
+    /// banked chance buys a fight — with no clock anywhere in the bargain.
+    #[test]
+    fn a_session_buys_a_chance_and_a_chance_buys_a_fight() {
+        let mut cultivation = Cultivation::default();
+        assert!(
+            cultivation.proving(1_000).is_none(),
+            "an empty bank buys no fight"
+        );
+        assert_eq!(cultivation.last_refusal, Some(Refusal::ProvingSpent));
+
+        // Twelve finished sessions, one local day: the bank fills to its cap
+        // and stays there rather than growing past it.
+        for step in 0..12 {
+            cultivation.on_session_completed(1_000 + step * 10, day(1), 25);
+        }
+        let filled = cultivation.view();
+        assert_eq!(filled.proving_tokens, TRIAL_CHANCES_CAP, "ten at most");
+        assert_eq!(filled.proving_token_cap, TRIAL_CHANCES_CAP);
+
+        let outcome = cultivation
+            .proving(2_000)
+            .expect("a banked chance buys a fight");
+        assert!(!outcome.duel.rounds.is_empty(), "a fight has blows");
+        assert_eq!(
+            cultivation.view().proving_tokens,
+            TRIAL_CHANCES_CAP - 1,
+            "the chance is spent"
+        );
+        assert_eq!(cultivation.view().provings, 1);
+        assert!(
+            cultivation.view().last_proving.is_some(),
+            "the popup has a report to replay"
+        );
+    }
+
+    /// The length a walk was taken for is the length that holds the next one
+    /// off: four hours is owed again at four, not at ten.
+    #[test]
+    fn a_walk_is_held_for_its_own_length_and_no_longer() {
+        let mut cultivation = Cultivation::default();
+        cultivation.explore(1_000, ExplorationHours::Four);
+        assert!(
+            cultivation
+                .explore(1_000 + 4 * 3_600 - 1, ExplorationHours::Four)
+                .is_none(),
+            "three hours fifty-nine is too early"
+        );
+        assert!(
+            cultivation
+                .explore(1_000 + 4 * 3_600, ExplorationHours::Four)
+                .is_some(),
+            "four hours is a walk"
+        );
+        // The length is written down, so the page's countdown is the length the
+        // walk actually took rather than a fixed ten hours.
+        assert_eq!(cultivation.document().last_exploration_hours, 4);
+        assert_eq!(
+            cultivation.view().exploration_ready_at,
+            Some(1_000 + 4 * 3_600 + 4 * 3_600)
+        );
+    }
+
     fn at_the_first_cap() -> Cultivation {
         Cultivation::new(CultivationDocument {
             growth: threshold_for(LAYERS_PER_STAGE),
@@ -3125,7 +3323,7 @@ mod tests {
         // a walk that meets someone may train 战斗 as well — so the number the
         // page shows is read back rather than assumed.
         for step in 0..20 {
-            cultivation.explore(1_000 + step * EXPLORATION_COOLDOWN_SECONDS);
+            cultivation.explore(1_000 + step * WALK_SECONDS, ExplorationHours::Twelve);
         }
         let view = cultivation.view();
         assert!(
@@ -3181,11 +3379,11 @@ mod tests {
     fn the_record_keeps_the_last_eight_fights_newest_first() {
         let mut cultivation = at_the_first_cap();
         for step in 0..60 {
-            let _ = cultivation.explore(100_000 + step * EXPLORATION_COOLDOWN_SECONDS);
+            let _ = cultivation.explore(100_000 + step * WALK_SECONDS, ExplorationHours::Twelve);
         }
         // Fought last, so the guardian's line is the newest one: a window of eight
         // would otherwise push it out, which is the window working, not failing.
-        let _ = cultivation.breakthrough(100_000 + 60 * EXPLORATION_COOLDOWN_SECONDS);
+        let _ = cultivation.breakthrough(100_000 + 60 * WALK_SECONDS);
         let view = cultivation.view();
         assert_eq!(
             view.duel_record.len(),
@@ -3232,7 +3430,7 @@ mod tests {
         );
 
         for step in 0..40 {
-            let _ = cultivation.explore(100_000 + step * EXPLORATION_COOLDOWN_SECONDS);
+            let _ = cultivation.explore(100_000 + step * WALK_SECONDS, ExplorationHours::Twelve);
         }
         let view = cultivation.view();
         let won = view
@@ -3508,12 +3706,14 @@ mod tests {
                 rank: 1,
                 progress: 0,
                 outcome: None,
+                failures: 0,
             },
             OwnedArt {
                 art_id: 7,
                 rank: 1,
                 progress: 0,
                 outcome: None,
+                failures: 0,
             },
         ];
         cultivation.select_art(Some(3));
@@ -3645,7 +3845,7 @@ mod tests {
                     realm: realm.index() as u8,
                     ..CultivationDocument::default()
                 });
-                let _ = cultivation.explore(1_000 + step * 100_000);
+                let _ = cultivation.explore(1_000 + step * 100_000, ExplorationHours::Twelve);
                 if let Some(stones) = cultivation
                     .view()
                     .last_exploration_found

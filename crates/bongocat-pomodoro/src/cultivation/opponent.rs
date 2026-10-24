@@ -19,6 +19,7 @@
 //!   [`ART_SWINGS`] swings and no more: the variance is meant to be felt within a
 //!   rung, not to make one realm's guardian unbeatable and the next one free.
 
+use super::MAX_LEVEL;
 use super::arts::blueprint;
 use super::duel::{GUARDIAN_NAME, WANDERER_NAME};
 use super::trial::{TRIAL_OPPONENT_NAME, floor_level, floor_realm};
@@ -194,6 +195,22 @@ pub(crate) fn wanderer(realm: Realm, seed: u64) -> Opponent {
         Stance::Wanderer,
         realm.cap_level(),
         realm.index() as u8 + 1,
+        WANDERER_NAME.to_owned(),
+        seed,
+    )
+}
+
+/// The someone a 试炼 sends: rolled per meeting, and levelled to the
+/// cultivator rather than to the realm's ceiling.
+///
+/// A 试炼 is a fight, not a wall: the tower's warden stands on a rung of the
+/// ladder, while this one stands where the cultivator stands, so a mid-realm
+/// save is not sent the realm's last layer for asking.
+pub(crate) fn challenger(level: u16, tier: u8, seed: u64) -> Opponent {
+    opponent(
+        Stance::Wanderer,
+        level.clamp(1, MAX_LEVEL),
+        tier,
         WANDERER_NAME.to_owned(),
         seed,
     )

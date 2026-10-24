@@ -677,7 +677,8 @@
       "mastery_damage": "大成 · 附加 %{value}% 攻击力",
       "progress": "已至 %{rank}/%{total} 阶 · 下一阶 %{need} 番茄 · 本阶已修 %{progress}/%{need}",
       "complete": "%{total}/%{total} 阶 · 圆满",
-      "success": "成功率 %{rate}%"
+      "success": "成功率 %{rate}%",
+      "failures": "连败 %{count} 次"
     },
     "derived": "外显属性",
     "derived_hint": "由四项属性算出，不可加点",
@@ -774,7 +775,8 @@
       "attempt": "闯关",
       "won": "破境成功，晋入%{stage}。",
       "max": "已至仙人境圆满。",
-      "held": "%{hours} 小时 %{minutes} 分后可再次闯关"
+      "held": "%{hours} 小时 %{minutes} 分后可再次闯关",
+      "banner": "本境圆满 · 击败守卫即可晋入%{stage}"
     },
     "duel": {
       "blow": "普通一击",
@@ -794,13 +796,14 @@
       "side_foe": "敌方",
       "side_you": "我方",
       "title_breakthrough": "破境之战",
-      "title_trial": "试炼之战",
+      "title_trial": "锁妖塔之战",
       "title_exploration": "遭遇战",
       "wanderer": "游荡者",
       "win": "胜利",
       "you": "你",
       "reward_stones": "得灵石 %{value} 枚",
-      "title_daily": "晨间遭遇"
+      "title_daily": "晨间遭遇",
+      "title_proving": "试炼之战"
     },
     "explore": {
       "attempt": "外出探索",
@@ -814,22 +817,24 @@
       "ready": "可以在外走一趟了。",
       "refuse_cooldown": "上次外出尚未回返，需再等些时日。",
       "title": "探索",
-      "victory": "遭遇战胜利，小有斩获。"
+      "victory": "遭遇战胜利，小有斩获。",
+      "hours": "%{hours} 小时 · ×%{mult}",
+      "hint": "外出时长决定收获概率：4 小时为基础概率，8 小时为 ×2.1，12 小时为 ×3.2。回程后要等相同时长才能再次出发，因此一日可走六次短途或两次长途，总收获大致相当。"
     },
     "trial": {
-      "title": "试炼",
-      "opponent": "试炼守卫",
+      "title": "锁妖塔",
+      "opponent": "锁妖塔守卫",
       "floor": "第 %{floor} 层 · 守关人战力 %{power}",
       "attempt": "闯塔",
       "attempts_left": "今日余 %{left}/%{total} 次",
       "cleared": "已通关第 %{floor} 层",
-      "top": "试炼塔已通关，再无可攀之层。",
+      "top": "锁妖塔已通关，再无可攀之层。",
       "hint": "每层守关人按境界逐级变强，首层同炼气 1 层 1 阶；通关必得灵石，另有几率得种子、装备或功法。",
       "won": "第 %{floor} 层通关。",
       "lost": "第 %{floor} 层未过。",
-      "refuse_out": "尚在外游历，归来后方可试炼。",
-      "refuse_drained": "今日试炼次数已尽，明日再来。",
-      "refuse_top": "试炼塔已通关，再无可攀之层。"
+      "refuse_out": "尚在外游历，归来后方可闯塔。",
+      "refuse_drained": "今日闯塔次数已尽，明日再来。",
+      "refuse_top": "锁妖塔已通关，再无可攀之层。"
     },
     "notice": {
       "absence": "%{days} 天未修炼，成长值 -%{charged}",
@@ -941,6 +946,15 @@
       "combat": "战斗",
       "fortune": "机缘",
       "shop": "集市"
+    },
+    "proving": {
+      "title": "试炼",
+      "attempt": "试炼",
+      "chances": "试炼机会 %{left}/%{total}",
+      "hint": "每完成一次番茄钟可得一次试炼机会，最多存十次。试炼是与自身等级相称的随机战斗，胜后按基础概率掉落战利品：仙草最常见，装备时有，功法极少。",
+      "won": "试炼获胜。",
+      "lost": "试炼落败，未有所获。",
+      "refuse_empty": "暂无试炼机会：完成一个番茄钟可得一次"
     }
   }
 }

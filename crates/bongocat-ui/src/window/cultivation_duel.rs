@@ -16,8 +16,8 @@ use super::*;
 use bongocat_i18n::{format_text, text};
 use bongocat_pomodoro::{
     ArtStrike, BreakthroughOutcome, DailyOutcome, DuelReport, DuelRound, ExplorationFindView,
-    ExplorationOutcome, Fighter, GUARDIAN_NAME, PLAYER_NAME, TRIAL_OPPONENT_NAME, TrialOutcome,
-    WANDERER_NAME,
+    ExplorationOutcome, Fighter, GUARDIAN_NAME, PLAYER_NAME, ProvingOutcome, TRIAL_OPPONENT_NAME,
+    TrialOutcome, WANDERER_NAME,
 };
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::Sizable as _;
@@ -58,8 +58,10 @@ pub(crate) enum CultivationDuelSource {
     Breakthrough,
     /// A walk out of the door.
     Exploration,
-    /// One floor of the 试炼 tower.
+    /// One floor of the 锁妖塔.
     Trial,
+    /// One 试炼 bought with a banked chance.
+    Proving,
     /// The morning ambush the day opened with.
     Daily,
 }
@@ -78,8 +80,10 @@ pub(crate) enum CultivationDuelPayload {
         Option<ExplorationFindView>,
         Option<DuelReport>,
     ),
-    /// A 试炼 floor: the fight the warden settled, and what clearing it paid.
+    /// A 锁妖塔 floor: the fight the warden settled, and what clearing it paid.
     Trial(TrialOutcome),
+    /// A 试炼: the fight a banked chance bought, and what winning paid.
+    Proving(ProvingOutcome),
     /// The morning ambush: the fight, and what driving it off paid.
     Daily(DailyOutcome),
 }
@@ -113,6 +117,7 @@ impl CultivationDuel {
                 .filter(|_| self.settled_a_fight())
                 .map_or(&[], |duel| &duel.rounds),
             CultivationDuelPayload::Trial(outcome) => &outcome.duel.rounds,
+            CultivationDuelPayload::Proving(outcome) => &outcome.duel.rounds,
             CultivationDuelPayload::Daily(outcome) => {
                 outcome.duel.as_ref().map_or(&[], |duel| &duel.rounds)
             }
@@ -143,6 +148,7 @@ impl CultivationDuel {
             CultivationDuelSource::Breakthrough => GUARDIAN_NAME,
             CultivationDuelSource::Exploration => WANDERER_NAME,
             CultivationDuelSource::Trial => TRIAL_OPPONENT_NAME,
+            CultivationDuelSource::Proving => WANDERER_NAME,
             CultivationDuelSource::Daily => WANDERER_NAME,
         }
     }
@@ -155,6 +161,7 @@ impl CultivationDuel {
                 duel.as_ref().filter(|_| self.settled_a_fight())
             }
             CultivationDuelPayload::Trial(outcome) => Some(&outcome.duel),
+            CultivationDuelPayload::Proving(outcome) => Some(&outcome.duel),
             CultivationDuelPayload::Daily(outcome) => outcome.duel.as_ref(),
         }
     }
@@ -173,6 +180,9 @@ impl CultivationDuel {
                 .filter(|_| self.settled_a_fight())
                 .map(|duel| (&duel.player, &duel.opponent)),
             CultivationDuelPayload::Trial(outcome) => {
+                Some((&outcome.duel.player, &outcome.duel.opponent))
+            }
+            CultivationDuelPayload::Proving(outcome) => {
                 Some((&outcome.duel.player, &outcome.duel.opponent))
             }
             CultivationDuelPayload::Daily(outcome) => outcome
@@ -195,6 +205,7 @@ impl CultivationDuel {
                 _ => false,
             },
             CultivationDuelPayload::Trial(outcome) => outcome.duel.won,
+            CultivationDuelPayload::Proving(outcome) => outcome.duel.won,
             CultivationDuelPayload::Daily(outcome) => outcome.won,
         }
     }
@@ -407,6 +418,9 @@ fn title_line(duel: &CultivationDuel, locale: &str) -> String {
                 ],
             )
         ),
+        CultivationDuelPayload::Proving(_) => {
+            text(locale, "cultivation.duel.title_proving").to_string()
+        }
         CultivationDuelPayload::Daily(_) => {
             text(locale, "cultivation.duel.title_daily").to_string()
         }
@@ -807,6 +821,58 @@ fn payoff_lines(duel: &CultivationDuel, locale: &str, tokens: Tokens) -> Vec<gpu
                         locale,
                         "cultivation.duel.reward_stones",
                         &[("value", amount.to_string())],
+                    ),
+                    tokens.accent,
+                ));
+            }
+        }
+        CultivationDuelPayload::Proving(outcome) => {
+            lines.push(payoff(
+                "cultivation-duel-proving-verdict",
+                text(
+                    locale,
+                    if outcome.duel.won {
+                        "cultivation.proving.won"
+                    } else {
+                        "cultivation.proving.lost"
+                    },
+                )
+                .to_string(),
+                if outcome.duel.won {
+                    tokens.accent
+                } else {
+                    tokens.danger
+                },
+            ));
+            if let Some(seed) = &outcome.found.seed {
+                lines.push(payoff(
+                    "cultivation-duel-proving-seed",
+                    format_text(
+                        locale,
+                        "cultivation.explore.found_seed",
+                        &[("name", seed_label(locale, seed))],
+                    ),
+                    tokens.accent,
+                ));
+            }
+            if let Some(item) = &outcome.found.gear {
+                lines.push(payoff(
+                    "cultivation-duel-proving-gear",
+                    format_text(
+                        locale,
+                        "cultivation.explore.found_gear",
+                        &[("name", item_label(locale, item))],
+                    ),
+                    tokens.accent,
+                ));
+            }
+            if let Some(name) = &outcome.found.art {
+                lines.push(payoff(
+                    "cultivation-duel-proving-art",
+                    format_text(
+                        locale,
+                        "cultivation.explore.found_art",
+                        &[("name", name.clone())],
                     ),
                     tokens.accent,
                 ));

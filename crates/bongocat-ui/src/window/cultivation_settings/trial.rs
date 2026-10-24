@@ -1,8 +1,14 @@
-//! 试炼: the tower climbed at home, a handful of floors a day.
+//! 锁妖塔: the tower climbed at home, a handful of floors a day.
+//!
+//! The page calls it 锁妖塔; the code and the catalog still call it `trial`,
+//! the name it was built under. The other half of the courtyard — the 试炼 a
+//! finished pomodoro pays for — is [`super::proving`], and the two are
+//! deliberately apart: this one is a frontier climbed on the day's attempts,
+//! that one is a fight bought with banked training.
 
 use super::*;
 
-/// The 试炼 tower, under the walk out of the door.
+/// The 锁妖塔, under the walk out of the door.
 ///
 /// The panel is the walk's twin on purpose: one line saying what the next climb
 /// is worth, one button, and a status beside it saying whether the tower is
@@ -30,7 +36,7 @@ pub(super) fn trial_panel(
             let view = view.clone();
             move |_, _, cx| {
                 view.update(cx, |view, cx| {
-                    view.ask_cultivation(CultivationDuelSource::Trial, PomodoroCommand::Trial, cx);
+                    view.ask_cultivation(CultivationDuelSource::Trial, PomodoroCommand::Tower, cx);
                 });
             }
         });

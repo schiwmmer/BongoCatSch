@@ -339,8 +339,20 @@ fn art_row(
             ],
         )
     };
+    // A run of failures is on the line beside the rate it bought: the rate is
+    // the number the user acts on, and this is why it is not the one 潜质 alone
+    // would promise.
     let progress_line = if art.rank >= art.max_rank {
         progress_line
+    } else if art.failures > 0 {
+        format!(
+            "{progress_line} · {success_line} · {}",
+            format_text(
+                locale,
+                "cultivation.art.failures",
+                &[("count", art.failures.to_string())],
+            )
+        )
     } else {
         format!("{progress_line} · {success_line}")
     };

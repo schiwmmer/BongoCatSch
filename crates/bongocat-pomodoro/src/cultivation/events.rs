@@ -87,6 +87,14 @@ pub enum EventDetail {
         #[serde(default)]
         stones: Option<u32>,
     },
+    /// A 试炼 was fought with a banked chance. A loss finds nothing but the
+    /// lesson, so the three names are only ever filled by a win.
+    Proving {
+        won: bool,
+        art: Option<String>,
+        gear: Option<String>,
+        seed: Option<String>,
+    },
     /// Something was bought at the market, for this much.
     ///
     /// `stones` is what the purchase paid; an old save's events predate the

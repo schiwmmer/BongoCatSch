@@ -20,20 +20,93 @@ use super::Rng;
 /// player who goes and trains comes back the same day.
 pub const BREAKTHROUGH_COOLDOWN_SECONDS: i64 = 12 * 60 * 60;
 
-/// How long between two walks, in seconds.
+/// How long the walk that was taken tied the cultivator up, for a save written
+/// before the walk had a length.
 ///
-/// Ten hours: a day still holds two walks, but a save that walks in the morning
-/// has to have done something else by the time the afternoon comes round — the
-/// walk is the cheapest faucet on the page and must not become the *only* one.
-pub const EXPLORATION_COOLDOWN_SECONDS: i64 = 10 * 60 * 60;
+/// Ten hours was the only length there was; a save that carries no length of
+/// its own is read as having taken one of those, so an upgraded install does
+/// not find its cooldown suddenly gone.
+pub const LEGACY_EXPLORATION_COOLDOWN_SECONDS: i64 = 10 * 60 * 60;
 
-/// The chance a walk meets someone, in parts per thousand.
-pub const ENCOUNTER_PERMILLE: u64 = 250;
+/// How long a walk takes, which is also what it is worth.
+///
+/// The same road, walked for longer, finds more: the length is the one lever
+/// the user pulls, and it is a real choice rather than a bigger-is-better one
+/// because a long walk is a walk you cannot take again for half a day. A day
+/// holds six short walks or two long ones, and six rolls at one fifth come to
+/// about what two rolls at three fifths do — the question is how finely the
+/// user wants their rolls, not which button is better.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ExplorationHours {
+    /// Four hours, at the base chances.
+    Four,
+    /// Eight hours, at two and a tenth the base chances.
+    #[default]
+    Eight,
+    /// Twelve hours, at three and a fifth the base chances.
+    Twelve,
+}
+
+impl ExplorationHours {
+    /// Every length, shortest first.
+    pub const ALL: [Self; 3] = [Self::Four, Self::Eight, Self::Twelve];
+
+    /// The length in whole hours, as a surface prints it.
+    pub const fn hours(self) -> u8 {
+        match self {
+            Self::Four => 4,
+            Self::Eight => 8,
+            Self::Twelve => 12,
+        }
+    }
+
+    /// The length in seconds: how long the next walk is held for.
+    pub const fn seconds(self) -> i64 {
+        self.hours() as i64 * 60 * 60
+    }
+
+    /// What this length multiplies a walk's chances by, in parts per thousand.
+    ///
+    /// One, two point one and three point two — the brief's own ladder. Every
+    /// chance a walk rolls is read through it, so the multiplier is exactly
+    /// what it says rather than what is left of it after a cap.
+    pub const fn multiplier_permille(self) -> u64 {
+        match self {
+            Self::Four => 1_000,
+            Self::Eight => 2_100,
+            Self::Twelve => 3_200,
+        }
+    }
+
+    /// The length a stored number of hours names.
+    ///
+    /// Anything else — a zero from a save written before walks had lengths, a
+    /// hand-edited seven — is the middle length rather than a refusal: the
+    /// field is a preference, and a preference that cannot be understood is
+    /// better replaced than thrown away.
+    pub const fn from_hours(hours: u8) -> Self {
+        match hours {
+            4 => Self::Four,
+            12 => Self::Twelve,
+            _ => Self::Eight,
+        }
+    }
+}
+
+/// The chance a walk meets someone, in parts per thousand, at four hours.
+///
+/// Every chance below is the *four-hour* one: a longer walk multiplies it by
+/// [`ExplorationHours::multiplier_permille`]. They are a third of what they
+/// were when ten hours was the only length on offer, because a day now holds
+/// up to six walks instead of two and a half: six rolls of a third are the
+/// same day's worth of findings the old cadence paid, which is what keeps the
+/// road a trickle rather than a fountain.
+pub const ENCOUNTER_PERMILLE: u64 = 90;
 /// What a walk turns up when it is quiet: seeds most often, gear sometimes, a
 /// 功法 almost never.
-pub const SEED_FIND_PERMILLE: u64 = 450;
-pub const GEAR_FIND_PERMILLE: u64 = 120;
-pub const ART_FIND_PERMILLE: u64 = 30;
+pub const SEED_FIND_PERMILLE: u64 = 150;
+pub const GEAR_FIND_PERMILLE: u64 = 40;
+pub const ART_FIND_PERMILLE: u64 = 10;
 /// What winning the fight that met you pays. Better than a quiet walk, because
 /// the walk cost a fight to keep — and led by gear rather than by herbs, which
 /// is the one place the two findings differ in kind: a wanderer carries what
@@ -200,18 +273,24 @@ pub struct WalkRecord {
 /// One roll answers both questions — is anything there, and does anyone want it —
 /// so the four quiet outcomes are exclusive and their chances add up to less than
 /// one, leaving the rest of the thousand to "nothing".
-pub fn roll_walk(rng: &mut Rng) -> ExplorationOutcome {
+pub fn roll_walk(rng: &mut Rng, hours: ExplorationHours) -> ExplorationOutcome {
+    let scale = hours.multiplier_permille();
+    let widened = |base: u64| base.saturating_mul(scale) / 1_000;
+    let mut edge = widened(SEED_FIND_PERMILLE);
     let roll = rng.below(1_000);
-    if roll < SEED_FIND_PERMILLE {
+    if roll < edge {
         return ExplorationOutcome::Seed;
     }
-    if roll < SEED_FIND_PERMILLE + GEAR_FIND_PERMILLE {
+    edge = edge.saturating_add(widened(GEAR_FIND_PERMILLE));
+    if roll < edge {
         return ExplorationOutcome::Gear;
     }
-    if roll < SEED_FIND_PERMILLE + GEAR_FIND_PERMILLE + ART_FIND_PERMILLE {
+    edge = edge.saturating_add(widened(ART_FIND_PERMILLE));
+    if roll < edge {
         return ExplorationOutcome::Art;
     }
-    if roll < SEED_FIND_PERMILLE + GEAR_FIND_PERMILLE + ART_FIND_PERMILLE + ENCOUNTER_PERMILLE {
+    edge = edge.saturating_add(widened(ENCOUNTER_PERMILLE));
+    if roll < edge {
         // Someone is here; who wins is the fight's to say, not the walk's.
         return ExplorationOutcome::Victory;
     }
@@ -249,11 +328,24 @@ pub(crate) fn roll_stones(rng: &mut Rng, purse: StonePurse, tier: u8) -> u32 {
     min.saturating_add(u32::try_from(rng.below(u64::from(span))).unwrap_or(0))
 }
 
-/// Whether a walk is owed: the cooldown has run out.
-pub fn exploration_ready(last: Option<i64>, now_unix: i64) -> bool {
+/// How long the last walk holds the next one off, in seconds.
+///
+/// A zero is a save written before the road had lengths — the field could not
+/// exist on it — and is read as the old ten hours rather than as "no cooldown
+/// at all", which would hand an upgraded save a second walk for free.
+pub const fn cooldown_seconds(stored: i64) -> i64 {
+    if stored > 0 {
+        stored
+    } else {
+        LEGACY_EXPLORATION_COOLDOWN_SECONDS
+    }
+}
+
+/// Whether a walk is owed: the cooldown its own length set has run out.
+pub fn exploration_ready(last: Option<i64>, last_seconds: i64, now_unix: i64) -> bool {
     match last {
         None => true,
-        Some(last) => now_unix.saturating_sub(last) >= EXPLORATION_COOLDOWN_SECONDS,
+        Some(last) => now_unix.saturating_sub(last) >= cooldown_seconds(last_seconds),
     }
 }
 
@@ -272,15 +364,20 @@ mod tests {
 
     /// The quiet outcomes and the encounter share one roll, so together they
     /// cannot fill it: the rest of the thousand is a walk that finds nothing.
+    /// The *longest* walk is the one that has to fit, because its chances are
+    /// the base ones multiplied by the largest of the three.
     const _: () = assert!(
-        SEED_FIND_PERMILLE + GEAR_FIND_PERMILLE + ART_FIND_PERMILLE + ENCOUNTER_PERMILLE <= 1_000
+        (SEED_FIND_PERMILLE + GEAR_FIND_PERMILLE + ART_FIND_PERMILLE + ENCOUNTER_PERMILLE)
+            * ExplorationHours::Twelve.multiplier_permille()
+            / 1_000
+            <= 1_000
     );
 
     #[test]
     fn a_walk_lands_on_every_outcome_sooner_or_later() {
         let mut seen = std::collections::BTreeSet::new();
         for seed in 0..1_000_u64 {
-            seen.insert(roll_walk(&mut Rng::seeded(seed)));
+            seen.insert(roll_walk(&mut Rng::seeded(seed), ExplorationHours::Four));
         }
         for outcome in [
             ExplorationOutcome::Seed,
@@ -294,7 +391,9 @@ mod tests {
         // Seeds are the common finding, a 功法 the rarest.
         let counts = |outcome| {
             (0..5_000_u64)
-                .filter(|seed| roll_walk(&mut Rng::seeded(*seed)) == outcome)
+                .filter(|seed| {
+                    roll_walk(&mut Rng::seeded(*seed), ExplorationHours::Four) == outcome
+                })
                 .count()
         };
         assert!(counts(ExplorationOutcome::Seed) > counts(ExplorationOutcome::Gear));
@@ -331,16 +430,48 @@ mod tests {
         assert!(deep > shallow * 2, "{deep} against {shallow}");
     }
 
+    /// A longer walk finds more, exactly as much more as the multiplier says —
+    /// measured on the roll itself rather than asserted from the constant, so a
+    /// tuning that quietly broke the ladder would be caught here.
+    #[test]
+    fn a_longer_walk_finds_more_by_exactly_its_multiplier() {
+        let hits = |hours: ExplorationHours| {
+            (0..20_000_u64)
+                .filter(|seed| {
+                    roll_walk(&mut Rng::seeded(*seed), hours) != ExplorationOutcome::Nothing
+                })
+                .count()
+        };
+        let four = hits(ExplorationHours::Four) as f64;
+        let eight = hits(ExplorationHours::Eight) as f64;
+        let twelve = hits(ExplorationHours::Twelve) as f64;
+        assert!(
+            (eight / four - 2.1).abs() < 0.1,
+            "eight hours is 2.1×: {eight} against {four}"
+        );
+        assert!(
+            (twelve / four - 3.2).abs() < 0.15,
+            "twelve hours is 3.2×: {twelve} against {four}"
+        );
+        assert!(twelve > eight && eight > four);
+    }
+
     #[test]
     fn both_cooldowns_run_out() {
-        assert!(exploration_ready(None, 0));
+        assert!(exploration_ready(None, 0, 0));
         assert!(!exploration_ready(
             Some(1_000),
-            1_000 + EXPLORATION_COOLDOWN_SECONDS - 1
+            4 * 3_600,
+            1_000 + 4 * 3_600 - 1
         ));
-        assert!(exploration_ready(
+        assert!(exploration_ready(Some(1_000), 4 * 3_600, 1_000 + 4 * 3_600));
+        // A save written before the road had lengths is read as the old ten
+        // hours, not as a road with no cooldown.
+        assert_eq!(cooldown_seconds(0), LEGACY_EXPLORATION_COOLDOWN_SECONDS);
+        assert!(!exploration_ready(
             Some(1_000),
-            1_000 + EXPLORATION_COOLDOWN_SECONDS
+            0,
+            1_000 + LEGACY_EXPLORATION_COOLDOWN_SECONDS - 1
         ));
         assert!(breakthrough_ready(None, 0));
         assert!(!breakthrough_ready(Some(500), 499));

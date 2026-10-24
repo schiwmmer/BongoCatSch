@@ -453,6 +453,7 @@ impl SettingsView {
             cultivation_events_open: false,
             cultivation_mastered_open: false,
             cultivation_ladder_open: false,
+            cultivation_explore_hours: 8,
             cultivation_daily_seen_day: None,
             // No fight is being replayed when the window opens, and none is
             // waiting on the worker either.
@@ -688,6 +689,13 @@ impl SettingsView {
                     .clone()
                     .map(cultivation_duel::CultivationDuelPayload::Trial),
             ),
+            CultivationDuelSource::Proving => (
+                cultivation.provings,
+                cultivation
+                    .last_proving
+                    .clone()
+                    .map(cultivation_duel::CultivationDuelPayload::Proving),
+            ),
             // The morning ambush is never asked for: it is opened by the poll
             // below, which watches the day's own count instead.
             CultivationDuelSource::Daily => return,
@@ -736,6 +744,7 @@ impl SettingsView {
             CultivationDuelSource::Breakthrough => cultivation.breakthrough_attempts,
             CultivationDuelSource::Exploration => cultivation.explorations,
             CultivationDuelSource::Trial => cultivation.trial_attempts,
+            CultivationDuelSource::Proving => cultivation.provings,
             // Nothing asks for the morning event; it asks for the user.
             CultivationDuelSource::Daily => return,
         };

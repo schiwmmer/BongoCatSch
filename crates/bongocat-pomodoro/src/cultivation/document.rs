@@ -132,6 +132,14 @@ pub struct CultivationDocument {
     /// When the last walk happened, which is what gates the next one.
     #[serde(default)]
     pub last_exploration_unix: Option<i64>,
+    /// How many hours that walk was taken for.
+    ///
+    /// The cooldown is the length's own, so the length has to be written down
+    /// beside the instant: read back as a twelve-hour walk, a four-hour one
+    /// would hold the next walk for eight hours it never spent. Zero is a save
+    /// written before walks had lengths, and is read as the old ten hours.
+    #[serde(default)]
+    pub last_exploration_hours: u8,
     /// How many walks have been taken — the 游历 dimension's own count, kept in
     /// the document because a dimension that forgot its training on every restart
     /// would never fill its bar.
@@ -225,6 +233,14 @@ pub struct CultivationDocument {
     /// it has already shown and the snapshot revision cannot say that.
     #[serde(default)]
     pub trials: u32,
+    /// How many 试炼 chances are banked.
+    ///
+    /// One per finished pomodoro, ten at most: the chance is what the training
+    /// itself pays, so a week of focus is a week of fights waiting. Written
+    /// down because a bank that emptied on every restart would make the whole
+    /// faucet a formality.
+    #[serde(default)]
+    pub proving_tokens: u32,
     /// 潜质, in tenths: −100 reads as −10.0, 10_000 as 1000.0.
     ///
     /// `None` is a body that has not been born yet — a fresh document, or a
@@ -309,6 +325,7 @@ impl CultivationDocument {
         // cannot be talked into a sixth attempt by editing the file.
         self.trial_floor = self.trial_floor.min(super::TRIAL_MAX_FLOOR);
         self.trial_attempts_today = self.trial_attempts_today.min(super::TRIAL_ATTEMPTS_PER_DAY);
+        self.proving_tokens = self.proving_tokens.min(super::TRIAL_CHANCES_CAP);
         self.equipped.resize(SLOT_COUNT, None);
         // The garden holds between the four free plots and the nine a save can
         // buy: a hand-edited document with fewer is topped up, one with more

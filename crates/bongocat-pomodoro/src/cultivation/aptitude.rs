@@ -61,6 +61,25 @@ pub const SUCCESS_CAP_PERMILLE: u32 = 995;
 /// 神阶 art, not incapable of ever reading it.
 pub const SUCCESS_FLOOR_PERMILLE: u32 = 1;
 
+/// What a run of failures at the *same* 阶 is worth, in parts per thousand.
+///
+/// The base rate multiplied by 1.01 once per failure already spent on this
+/// 阶: the body learns by being wrong, so a 神阶 art that has failed twenty
+/// times is no longer the same coin toss it was at the first attempt. The
+/// count belongs to one 阶 of one 功法 — the caller resets it when the 阶
+/// turns over — because an art is not easier for having been read badly at a
+/// shallower rung.
+///
+/// An ever-growing rate is still a rate: it is held to
+/// [`SUCCESS_CAP_PERMILLE`] so the die roll never becomes a formality.
+pub fn compensated_success_permille(base: u32, failures: u32) -> u32 {
+    // A save with a corrupt count cannot be allowed to overflow `powi` into an
+    // infinity the cast would then have to guess at.
+    let exponent = i32::try_from(failures.min(10_000)).unwrap_or(10_000);
+    let rate = f64::from(base) * SUCCESS_STEP.powi(exponent);
+    (rate.round() as u32).clamp(SUCCESS_FLOOR_PERMILLE, SUCCESS_CAP_PERMILLE)
+}
+
 /// The 潜质 a newborn body carries, rolled once and then written down.
 pub fn birth_aptitude(rng: &mut Rng) -> i32 {
     let span = u64::try_from(APTITUDE_BIRTH_SPAN_TENTHS * 2 + 1).unwrap_or(1);
@@ -346,6 +365,29 @@ mod tests {
         assert_eq!(marrow_needed(0, APTITUDE_MAX_TENTHS), 55);
         // Nothing needed for a move that is not upward.
         assert_eq!(marrow_needed(2_000, 2_000), 0);
+    }
+
+    /// Each failure on the current 阶 is worth one percent on the next attempt,
+    /// and the run is capped rather than allowed to promise certainty.
+    #[test]
+    fn a_run_of_failures_is_worth_one_percent_each_on_this_rank() {
+        let base = base_success_permille(ArtGrade::Heaven);
+        assert_eq!(compensated_success_permille(base, 0), base);
+        // 20 × 1.01 = 20.2 → 202‰.
+        assert_eq!(compensated_success_permille(base, 1), 202);
+        assert_eq!(compensated_success_permille(base, 4), 208);
+        // Compounding, not adding: 20 × 1.01² = 20.4.
+        assert_eq!(compensated_success_permille(base, 2), 204);
+        // A very long run of bad luck lands on the cap, not past it.
+        assert_eq!(
+            compensated_success_permille(base, 100_000),
+            SUCCESS_CAP_PERMILLE
+        );
+        // And a rate that was already at the cap cannot be raised past it.
+        assert_eq!(
+            compensated_success_permille(SUCCESS_CAP_PERMILLE, 10),
+            SUCCESS_CAP_PERMILLE
+        );
     }
 
     #[test]

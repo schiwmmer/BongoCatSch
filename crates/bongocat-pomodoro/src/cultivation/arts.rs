@@ -438,6 +438,13 @@ pub struct OwnedArt {
     pub rank: u8,
     /// Pomodoros banked toward the next 阶.
     pub progress: u32,
+    /// How many attempts at the *current* 阶 have failed.
+    ///
+    /// Reset the moment the 阶 turns over: the compensation a bad run earns is
+    /// worth something on the rung it was paid on and nothing on the next one,
+    /// or a single unlucky 阶 would follow a book all the way to its last.
+    #[serde(default)]
+    pub failures: u32,
     /// What an attempt just came to.
     pub outcome: Option<ArtOutcome>,
 }
@@ -476,8 +483,14 @@ pub fn train(owned: &mut OwnedArt, aptitude_tenths: i32, rng: &mut Rng) -> ArtOu
     // 潜质 sets the chance the session lands at all: one roll against the rate
     // this grade carries at this body's 潜质. A failure costs the session and
     // nothing else.
-    let success = super::aptitude::success_permille(art.grade, aptitude_tenths);
+    let success = super::aptitude::compensated_success_permille(
+        super::aptitude::success_permille(art.grade, aptitude_tenths),
+        owned.failures,
+    );
     if rng.below(1_000) >= u64::from(success) {
+        // The failure is banked against this 阶: the next attempt at it is one
+        // percent likelier, and the one after that likelier again.
+        owned.failures = owned.failures.saturating_add(1);
         owned.outcome = Some(ArtOutcome::Failed);
         return ArtOutcome::Failed;
     }
@@ -488,6 +501,9 @@ pub fn train(owned: &mut OwnedArt, aptitude_tenths: i32, rng: &mut Rng) -> ArtOu
         return ArtOutcome::Progressed;
     }
     owned.progress = 0;
+    // A new 阶 is a fresh climb: the failures that bought the last one stay
+    // behind with it.
+    owned.failures = 0;
     owned.rank = owned.rank.saturating_add(1);
     let outcome = if owned.rank >= max_rank {
         ArtOutcome::Mastered
@@ -714,8 +730,12 @@ pub struct ArtView {
     /// What the next 阶 asks for.
     pub required: u32,
     /// The chance one attempt lands, as this body faces it, in parts per
-    /// thousand.
+    /// thousand — 潜质's rate already multiplied by the run of failures this 阶
+    /// has cost.
     pub success_permille: u32,
+    /// How many attempts at this 阶 have failed. What the rate above has been
+    /// raised by, and what the row says when it is not zero.
+    pub failures: u32,
     /// What one 阶 pays, for an 内功.
     pub gain: Attributes,
     /// What one 阶 pays outright in combat numbers, for an 内功: the 攻击力,
@@ -786,7 +806,11 @@ pub fn art_view(owned: &OwnedArt, aptitude_tenths: i32, selected: bool) -> ArtVi
         max_rank: art.grade.ranks(),
         progress: owned.progress,
         required: required_pomodoros(owned.rank, aptitude_tenths),
-        success_permille: super::aptitude::success_permille(art.grade, aptitude_tenths),
+        success_permille: super::aptitude::compensated_success_permille(
+            super::aptitude::success_permille(art.grade, aptitude_tenths),
+            owned.failures,
+        ),
+        failures: owned.failures,
         gain: art.gain,
         bonus: art.bonus,
         cost: art.cost,
@@ -994,6 +1018,7 @@ mod tests {
                     rank: 1,
                     progress: 2,
                     outcome: None,
+                    failures: 0,
                 };
                 match train(&mut probe, 0, &mut Rng::seeded(seed)) {
                     ArtOutcome::Failed => Some(probe),
@@ -1006,6 +1031,51 @@ mod tests {
         assert_eq!(failed.rank, 1);
     }
 
+    /// A failure is banked against the 阶 it happened on: the next attempt at
+    /// that 阶 is likelier, and a new 阶 starts from the bare 潜质 rate again.
+    #[test]
+    fn a_failed_attempt_is_banked_against_this_rank_and_forgotten_on_the_next() {
+        let art_id = (1..=ART_COUNT)
+            .find(|id| blueprint(*id).grade == ArtGrade::Divine)
+            .expect("a 神阶 art is in the catalog");
+        let mut owned = OwnedArt {
+            art_id,
+            rank: 1,
+            progress: 0,
+            failures: 0,
+            outcome: None,
+        };
+        let base = art_view(&owned, 0, false).success_permille;
+        let mut rng = Rng::seeded(0xA17);
+        // A 神阶 art at zero 潜质 lands one time in twenty, so a miss comes
+        // quickly and the bank is one deep.
+        let mut guard = 0;
+        while owned.failures == 0 {
+            let _ = train(&mut owned, 0, &mut rng);
+            guard += 1;
+            assert!(guard < 5_000, "a 神阶 art eventually misses");
+        }
+        let banked = art_view(&owned, 0, false);
+        assert_eq!(banked.failures, owned.failures);
+        assert!(
+            banked.success_permille > base,
+            "the next attempt is likelier: {} against {base}",
+            banked.success_permille
+        );
+        // The run is forgotten the moment this 阶 turns over.
+        let mut guard = 0;
+        while owned.rank == 1 {
+            let _ = train(&mut owned, 0, &mut rng);
+            guard += 1;
+            assert!(guard < 100_000, "the first 阶 is one session at most");
+        }
+        assert_eq!(owned.failures, 0, "a new 阶 starts from the bare rate");
+        assert_eq!(
+            art_view(&owned, 0, false).success_permille,
+            super::super::aptitude::success_permille(ArtGrade::Divine, 0)
+        );
+    }
+
     #[test]
     fn a_run_of_good_luck_turns_the_rank_over() {
         let mut owned = OwnedArt {
@@ -1013,6 +1083,7 @@ mod tests {
             rank: 1,
             progress: 0,
             outcome: None,
+            failures: 0,
         };
         // 潜质 100 leaves a 黄阶 art at the success cap; a body that good is a
         // body whose training keeps landing.
@@ -1036,6 +1107,7 @@ mod tests {
             rank: 2,
             progress: 0,
             outcome: None,
+            failures: 0,
         }];
         let art = blueprint(1);
         if art.kind == ArtKind::Internal {
@@ -1077,12 +1149,14 @@ mod tests {
             rank: ranks - 1,
             progress: 0,
             outcome: None,
+            failures: 0,
         }];
         let finished = vec![OwnedArt {
             art_id: art.id,
             rank: ranks,
             progress: 0,
             outcome: None,
+            failures: 0,
         }];
         let before = art_attributes(&unfinished).total();
         let after = art_attributes(&finished).total();

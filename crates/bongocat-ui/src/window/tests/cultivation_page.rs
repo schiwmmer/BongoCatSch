@@ -93,6 +93,35 @@ fn cultivation_page_with(
     (view, visual)
 }
 
+/// Scroll the page until `id` is on screen.
+///
+/// The page is one column taller than the test window and every panel added to
+/// it pushes the ones below further down, so a test that clicks has to bring the
+/// row it wants into view first — exactly the way the real settings frame
+/// scrolls. Scrolling in small steps and asking after each keeps the tests free
+/// of the page's pixel height.
+fn scroll_until_visible(visual: &mut VisualTestContext, id: &'static str) {
+    for _ in 0..24 {
+        let visible = visual.update(|window, _| {
+            window
+                .try_find(ElementId::from(id))
+                .is_some_and(|snapshot| snapshot.visible())
+        });
+        if visible {
+            return;
+        }
+        visual.update(|window, cx| {
+            window.scroll(
+                ElementId::from("cultivation-page-harness"),
+                ScrollDelta::Lines(point(0.0, -6.0)),
+                cx,
+            );
+            window.render_frame(cx);
+        });
+    }
+    panic!("{id} never came into view");
+}
+
 /// Whether an element with `id` was painted by the last frame.
 fn painted(visual: &mut VisualTestContext, id: impl Into<ElementId>) -> bool {
     let id = id.into();
@@ -222,13 +251,14 @@ fn clicking_the_walk_asks_the_worker_for_one(cx: &mut TestAppContext) {
         painted(visual, "cultivation-explore-attempt"),
         "the walk must be offered"
     );
+    scroll_until_visible(visual, "cultivation-explore-attempt");
     visual.update(|window, cx| {
         window.render_frame(cx);
         window.click("cultivation-explore-attempt", cx);
     });
     let commands = published(&sink);
     assert!(
-        matches!(commands.as_slice(), [PomodoroCommand::Explore]),
+        matches!(commands.as_slice(), [PomodoroCommand::Explore { .. }]),
         "the click asks the worker for a walk: {commands:?}"
     );
 }
@@ -252,6 +282,7 @@ fn a_held_attempt_says_so_and_publishes_nothing(cx: &mut TestAppContext) {
         published(&sink).is_empty(),
         "nothing was asked for before the click"
     );
+    scroll_until_visible(visual, "cultivation-breakthrough-attempt");
     visual.update(|window, cx| {
         window.render_frame(cx);
         window.click("cultivation-breakthrough-attempt", cx);
@@ -295,13 +326,14 @@ fn a_walk_that_is_not_owed_is_still_offered_and_asks(cx: &mut TestAppContext) {
         painted(visual, "cultivation-explore-attempt"),
         "the walk must be offered whether or not one is owed"
     );
+    scroll_until_visible(visual, "cultivation-explore-attempt");
     visual.update(|window, cx| {
         window.render_frame(cx);
         window.click("cultivation-explore-attempt", cx);
     });
     let commands = published(&sink);
     assert!(
-        matches!(commands.as_slice(), [PomodoroCommand::Explore]),
+        matches!(commands.as_slice(), [PomodoroCommand::Explore { .. }]),
         "the click asks the worker anyway, and the worker refuses it: {commands:?}"
     );
 }
@@ -950,6 +982,7 @@ fn the_learned_panel_lists_a_part_trained_art(cx: &mut TestAppContext) {
             rank: 1,
             progress: 0,
             outcome: None,
+            failures: 0,
         }],
         ..CultivationDocument::default()
     })
@@ -1081,6 +1114,7 @@ fn the_art_row_shows_the_rank_ladder_and_its_progress(cx: &mut TestAppContext) {
             rank: 1,
             progress: 1,
             outcome: None,
+            failures: 0,
         }],
         ..CultivationDocument::default()
     })
@@ -1116,24 +1150,17 @@ fn clicking_the_tower_asks_the_worker_for_a_floor(cx: &mut TestAppContext) {
     ] {
         assert!(painted(visual, id), "the tower must draw {id}");
     }
-    // The tower is the second panel from the bottom of a long column, and the
-    // 潜质 row above it is what pushes its button past the test window's fold.
-    // The real settings frame scrolls here, so the harness does too.
-    visual.update(|window, cx| {
-        window.scroll(
-            ElementId::from("cultivation-page-harness"),
-            ScrollDelta::Lines(point(0.0, -40.0)),
-            cx,
-        );
-        window.render_frame(cx);
-    });
+    // The tower is the third panel from the bottom of a long column, and the
+    // rows above it are what push its button past the test window's fold. The
+    // real settings frame scrolls here, so the harness does too.
+    scroll_until_visible(visual, "cultivation-trial-attempt");
     visual.update(|window, cx| {
         window.render_frame(cx);
         window.click("cultivation-trial-attempt", cx);
     });
     let commands = published(&sink);
     assert!(
-        matches!(commands.as_slice(), [PomodoroCommand::Trial]),
+        matches!(commands.as_slice(), [PomodoroCommand::Tower]),
         "the click asks the worker for a floor: {commands:?}"
     );
 }
@@ -1152,6 +1179,7 @@ fn a_closed_tower_says_why_and_publishes_nothing(cx: &mut TestAppContext) {
         painted(visual, "cultivation-trial-status"),
         "the reason has to be on the page"
     );
+    scroll_until_visible(visual, "cultivation-trial-attempt");
     visual.update(|window, cx| {
         window.render_frame(cx);
         window.click("cultivation-trial-attempt", cx);
@@ -1256,4 +1284,114 @@ fn the_learned_panel_shows_three_and_unfolds(cx: &mut TestAppContext) {
     for id in ["cultivation-mastered-art-14", "cultivation-mastered-art-15"] {
         assert!(painted(visual, id), "unfolding must draw {id}");
     }
+}
+
+/// The breakthrough prompt is the one line the page raises its voice for, and
+/// it shows only when there is a wall to break.
+///
+/// A hint printed under a realm still being climbed was a sentence the user
+/// read every day and could do nothing about — so the banner is drawn at the
+/// very top of the page for the cap alone, and the panel below it, which holds
+/// the fight, exists only when a guardian is actually standing there.
+#[gpui_kit::test]
+fn the_breakthrough_prompt_appears_only_at_a_full_realm(cx: &mut TestAppContext) {
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(at_the_cap()));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-breakthrough-banner"),
+        "a full realm has to shout"
+    );
+    assert!(
+        painted(visual, "cultivation-breakthrough"),
+        "and the fight itself is on the page"
+    );
+
+    // A save still climbing is told nothing: no banner, no panel.
+    let (pomodoro, _sink) =
+        PomodoroClient::with_snapshot(pomodoro_snapshot(Cultivation::default().view()));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        !painted(visual, "cultivation-breakthrough-banner"),
+        "a realm still being climbed gets no prompt"
+    );
+    assert!(
+        !painted(visual, "cultivation-breakthrough"),
+        "and no fight it cannot pick"
+    );
+}
+
+/// The 试炼 sits under the walk, and its button answers to the banked chances
+/// rather than to a clock.
+#[gpui_kit::test]
+fn the_trial_panel_spends_a_banked_chance_and_nothing_without_one(cx: &mut TestAppContext) {
+    let mut cultivation = Cultivation::default().view();
+    cultivation.proving_tokens = 0;
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-proving"),
+        "the 试炼 must be on the page"
+    );
+    scroll_until_visible(visual, "cultivation-proving-attempt");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-proving-attempt", cx);
+    });
+    assert!(
+        published(&sink).is_empty(),
+        "an empty bank cannot be clicked past"
+    );
+
+    let mut cultivation = Cultivation::default().view();
+    cultivation.proving_tokens = 3;
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    scroll_until_visible(visual, "cultivation-proving-attempt");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-proving-attempt", cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(commands.as_slice(), [PomodoroCommand::Prove]),
+        "a banked chance asks the worker for the fight: {commands:?}"
+    );
+}
+
+/// The walk's three lengths are a choice the click carries: picking 4 hours and
+/// walking asks the worker for a four-hour walk, not for the default eight.
+#[gpui_kit::test]
+fn picking_a_walk_length_is_what_the_click_asks_for(cx: &mut TestAppContext) {
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(at_the_cap()));
+    let (view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    scroll_until_visible(visual, "cultivation-explore-hours-4");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-explore-hours-4", cx);
+    });
+    assert_eq!(
+        visual.update(|_, cx| view.read(cx).cultivation_explore_hours),
+        4,
+        "the chip is what the page remembers"
+    );
+    scroll_until_visible(visual, "cultivation-explore-attempt");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-explore-attempt", cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(
+            commands.as_slice(),
+            [PomodoroCommand::Explore {
+                hours: bongocat_pomodoro::ExplorationHours::Four
+            }]
+        ),
+        "the click carries the length that was picked: {commands:?}"
+    );
 }

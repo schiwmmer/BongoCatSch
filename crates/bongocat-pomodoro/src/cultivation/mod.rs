@@ -46,6 +46,7 @@ mod explore;
 mod garden;
 mod items;
 mod opponent;
+mod proving;
 mod shop;
 mod state;
 mod trade;
@@ -77,8 +78,8 @@ pub use duel::{
 };
 pub use events::{EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind};
 pub use explore::{
-    BREAKTHROUGH_COOLDOWN_SECONDS, ENCOUNTER_PERMILLE, EXPLORATION_COOLDOWN_SECONDS,
-    ExplorationOutcome, VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkRecord,
+    BREAKTHROUGH_COOLDOWN_SECONDS, ENCOUNTER_PERMILLE, ExplorationHours, ExplorationOutcome,
+    VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkRecord, cooldown_seconds,
 };
 pub use garden::{
     CropRecord, FREE_PLOT_COUNT, MAX_PLOT_COUNT, MAX_SEED_TIER, PlotRecord, SeedStack,
@@ -88,6 +89,7 @@ pub use items::{
     DropSource, EquipSlot, EquipmentRecord, GearEffect, MAX_STAR, Rarity, SLOT_COUNT,
     STAR_SUCCESS_PERMILLE, star_multiplier_permille, star_success_permille,
 };
+pub use proving::{ProvingOutcome, TRIAL_CHANCES_CAP};
 pub use shop::SESSION_EARNINGS;
 pub use shop::{
     SHOP_MAX_OFFERS, SHOP_MIN_OFFERS, ShopOffer, ShopOfferView, art_price, equipment_price,
@@ -128,6 +130,8 @@ pub enum Refusal {
     TrialDrained,
     /// A trial was asked for on a save that has already cleared the top floor.
     TrialTop,
+    /// A 试炼 was asked for with no chance banked: a finished pomodoro pays one.
+    ProvingSpent,
 }
 
 impl Refusal {
@@ -139,6 +143,7 @@ impl Refusal {
             Self::TrialOut => "cultivation.trial.refuse_out",
             Self::TrialDrained => "cultivation.trial.refuse_drained",
             Self::TrialTop => "cultivation.trial.refuse_top",
+            Self::ProvingSpent => "cultivation.proving.refuse_empty",
         }
     }
 }

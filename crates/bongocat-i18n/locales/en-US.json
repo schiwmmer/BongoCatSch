@@ -677,7 +677,8 @@
       "mastery_damage": "Mastered · +%{value}% attack per blow",
       "progress": "Rank %{rank}/%{total} · next rank %{need} pomodoros · %{progress}/%{need} trained",
       "complete": "%{total}/%{total} ranks · complete",
-      "success": "lands %{rate}%"
+      "success": "lands %{rate}%",
+      "failures": "%{count} failures in a row"
     },
     "derived": "Shown",
     "derived_hint": "Follows from the four attributes; no point can be placed here",
@@ -774,7 +775,8 @@
       "attempt": "Fight",
       "won": "Breakthrough! You have entered %{stage}.",
       "max": "The immortal realm is complete.",
-      "held": "The next attempt in %{hours}h %{minutes}m"
+      "held": "The next attempt in %{hours}h %{minutes}m",
+      "banner": "This realm is full — beat its guardian to enter %{stage}"
     },
     "duel": {
       "blow": "a plain blow",
@@ -793,14 +795,15 @@
       "reward_gear": "Gear gained: %{name}",
       "side_foe": "Their side",
       "side_you": "Your side",
-      "title_trial": "Trial bout",
+      "title_trial": "Tower bout",
       "title_breakthrough": "The breakthrough fight",
       "title_exploration": "A chance meeting",
       "wanderer": "the wanderer",
       "win": "Victory",
       "you": "You",
       "reward_stones": "%{value} stones",
-      "title_daily": "Morning Encounter"
+      "title_daily": "Morning Encounter",
+      "title_proving": "Trial bout"
     },
     "explore": {
       "attempt": "Take a walk",
@@ -814,11 +817,13 @@
       "ready": "A walk is owed.",
       "refuse_cooldown": "The last walk has not come back yet — wait a while longer.",
       "title": "Exploration",
-      "victory": "The wanderer was beaten, and paid for it."
+      "victory": "The wanderer was beaten, and paid for it.",
+      "hours": "%{hours}h · ×%{mult}",
+      "hint": "The length of a walk sets what it can find: four hours at the base chances, eight at ×2.1, twelve at ×3.2. The walk holds you for the same length afterwards, so a day holds six short walks or two long ones — about the same total either way."
     },
     "trial": {
-      "title": "Trials",
-      "opponent": "Trial Warden",
+      "title": "Demon-Locking Tower",
+      "opponent": "Tower Warden",
       "floor": "Floor %{floor} · warden power %{power}",
       "attempt": "Climb",
       "attempts_left": "%{left}/%{total} climbs left today",
@@ -828,7 +833,7 @@
       "won": "Floor %{floor} cleared.",
       "lost": "Floor %{floor} was too much.",
       "refuse_out": "Still out on a walk — the tower opens once you are home.",
-      "refuse_drained": "Today's climbs are spent; come back tomorrow.",
+      "refuse_drained": "No climbs left today. Come back tomorrow.",
       "refuse_top": "The tower is cleared; no floor is left to climb."
     },
     "notice": {
@@ -941,6 +946,15 @@
       "combat": "a fight",
       "fortune": "a stroke of luck",
       "shop": "the market"
+    },
+    "proving": {
+      "title": "Trial",
+      "attempt": "Trial",
+      "chances": "Trial chances %{left}/%{total}",
+      "hint": "Every finished pomodoro earns one trial chance, ten at most. A trial is a random fight levelled to you; a win pays loot at the base chances — a seed most often, gear sometimes, an art almost never.",
+      "won": "The trial was passed.",
+      "lost": "The trial was too much; nothing came of it.",
+      "refuse_empty": "No trial chance banked: finish a pomodoro to earn one"
     }
   }
 }

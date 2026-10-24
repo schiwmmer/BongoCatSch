@@ -4,6 +4,12 @@
 
 ### ✨ Features
 
+- The breakthrough prompt is now a banner at the very top of the page, in the largest type the page uses for a line, and it appears only when the realm is full — a save still climbing is told nothing, and the breakthrough panel itself is drawn only while a guardian is actually standing there.
+- The tower is renamed 锁妖塔; the panel's rules and every line it prints follow the new name.
+- A new 试炼 panel sits directly under the walk: every finished pomodoro banks one trial chance (ten at most), and a chance buys a randomised fight levelled to the cultivator. A win pays the tower's base table — a seed most often, gear sometimes, an art almost never — and a loss costs nothing but the chance.
+- Walks now come in three lengths — 4, 8 and 12 hours — picked with a chip above the button. Every chance a walk rolls is multiplied by the chip's own figure (×1, ×2.1, ×3.2), and the walk holds the cultivator for exactly that length, so a day holds six short walks or two long ones for about the same total.
+- A failed attempt at a 功法 now counts: the next attempt at the same 阶 succeeds at 1.01× per failure already spent on it, each 功法 tracks its own run, and the run is forgotten the moment the 阶 turns over. The row prints the run beside the rate it bought.
+
 - The realm line is a control now: clicking it unfolds the whole ladder — the level on the thousand ("347 / 1000"), the rule that converts a realm, layer and rank into it (`(realm − 1) × 100 + layer × 10 + rank`, layers counted from 0), and all ten rungs with the current one marked.
 - The attribute panel drops the two school figures that decided nothing and shows the two halves that do: 内功 power, what the inner arts are worth at the same scale as the four attributes, and 外功 power, what the best outer art adds per blow over a bare hand.
 - 潜质 is rebuilt as its own fractional number — born somewhere on a −10..+10 band, capped at 1000, stored in tenths — and it now sets both how reliably and how fast an art is learned: at 0 an attempt succeeds 50 / 42 / 35 / 20 / 5% by grade and a rank costs three times the printed pomodoros, with every point multiplying the rate by 1.01 and the cost by 0.99. Two herbs are the only way up (悟心草 +0.1–1.2, 慧心草 +0.5–2.0), and every even hundred needs its own number of 洗髓丹 — the hundredth one pill, the two-hundredth two — before it can move again.

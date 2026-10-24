@@ -355,6 +355,13 @@ pub struct SettingsView {
     /// A save can know a hundred 功法 and still be working on three: the panel
     /// answers "what am I training", and the full list is one click away.
     pub(crate) cultivation_mastered_open: bool,
+    /// The walk length the user has chosen, in hours: four, eight or twelve.
+    ///
+    /// A preference rather than a record: the domain is told the length with
+    /// every walk, so the page only has to remember which chip is lit. Eight is
+    /// the middle of the three and the closest to the ten hours the road used to
+    /// take, which is why it is where a fresh page starts.
+    pub(crate) cultivation_explore_hours: u8,
     /// Whether the realm ladder is unfolded under the realm line.
     ///
     /// Closed by default: the page is one scrolling column, and the ten-realm

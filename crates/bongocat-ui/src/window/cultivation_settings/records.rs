@@ -310,6 +310,32 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             *stones,
             locale,
         ),
+        EventDetail::Proving {
+            won,
+            art,
+            gear,
+            seed,
+        } => {
+            let mut line = format_text(
+                locale,
+                if *won {
+                    "cultivation.proving.won"
+                } else {
+                    "cultivation.proving.lost"
+                },
+                &[],
+            );
+            if *won {
+                push_finds(
+                    &mut line,
+                    art.as_deref(),
+                    gear.as_deref(),
+                    seed.as_deref(),
+                    locale,
+                );
+            }
+            line
+        }
         EventDetail::Daily {
             kind,
             won,

@@ -16,9 +16,9 @@ use super::*;
 use bongocat_i18n::{compact_number, format_text, text};
 use bongocat_pomodoro::{
     AptitudeHerb, ArtGrade, ArtKind, ArtOutcome, ArtView, Attribute, Attributes, CultivationView,
-    DailyKind, Derived, DropView, EquipSlot, EventDetail, EventRecord, ExplorationOutcome,
-    GearEffect, ItemView, LAYERS_PER_STAGE, MAX_LEVEL, MAX_STAR, MarrowSource, MasteredArtView,
-    PlotView, PomodoroCommand, Rarity, Realm, SaleKind, ShopOffer, ShopOfferView,
+    DailyKind, Derived, DropView, EquipSlot, EventDetail, EventRecord, ExplorationHours,
+    ExplorationOutcome, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR, MarrowSource,
+    MasteredArtView, PlotView, PomodoroCommand, Rarity, Realm, SaleKind, ShopOffer, ShopOfferView,
     TRIAL_ATTEMPTS_PER_DAY, TrialBlocked, art_bonus_at, art_payout_at, blueprint, grow_seconds,
     harvest_points, mastered_art_bonus_payout, mastered_art_payout, star_multiplier_permille,
 };
@@ -35,6 +35,7 @@ mod attributes;
 mod explore;
 mod garden;
 mod gear;
+mod proving;
 mod records;
 mod shop;
 mod trial;
@@ -46,11 +47,12 @@ use arts::{arts_panel, mastered_panel};
 #[cfg(test)]
 pub(super) use attributes::derived_formula;
 use attributes::{aptitude_panel, attributes_panel, derived_panel};
-use explore::{breakthrough_panel, exploration_panel};
+use explore::{breakthrough_banner, breakthrough_panel, exploration_panel};
 use garden::{garden_panel, seed_panel};
 use gear::{equipment_panel, inventory_panel};
 // The history popup is mounted by the window frame beside the fight, so it
 // has to be visible past this module.
+use proving::proving_panel;
 pub(super) use records::events_overlay;
 use records::record_section;
 use shop::shop_panel;
@@ -109,6 +111,7 @@ pub(super) fn content(
         .flex_col()
         .gap_3()
         .p_3()
+        .children(breakthrough_banner(&cultivation, locale, tokens))
         .child(realm_header(
             &view,
             &cultivation,
@@ -145,8 +148,15 @@ pub(super) fn content(
         ))
         .child(seed_panel(&view, &cultivation, open_seed, locale, tokens))
         .child(garden_panel(&view, &cultivation, open_plot, locale, tokens))
-        .child(breakthrough_panel(&view, &cultivation, locale, tokens))
-        .child(exploration_panel(&view, &cultivation, locale, tokens))
+        .children(breakthrough_panel(&view, &cultivation, locale, tokens))
+        .child(exploration_panel(
+            &view,
+            &cultivation,
+            ExplorationHours::from_hours(view.read(cx).cultivation_explore_hours),
+            locale,
+            tokens,
+        ))
+        .child(proving_panel(&view, &cultivation, locale, tokens))
         .child(trial_panel(&view, &cultivation, locale, tokens))
         .child(shop_panel(&view, &cultivation, open_offer, locale, tokens))
         .into_any_element()

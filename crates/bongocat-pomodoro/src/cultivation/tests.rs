@@ -9,6 +9,10 @@ use crate::CalendarDay;
 /// The growth that fills the first realm: the last layer of 炼气.
 const FIRST_REALM_CAP: u32 = 9_900;
 
+/// How far apart the tests take their walks: the longest length, so a walk
+/// taken at any of the three is owed again by the time the next one starts.
+const WALK_SECONDS: i64 = 12 * 60 * 60;
+
 fn day(number: i64) -> CalendarDay {
     CalendarDay::from_day_number(number)
 }
@@ -870,9 +874,13 @@ fn a_loss_costs_gear_sometimes_and_never_everything() {
 #[test]
 fn one_walk_every_twelve_hours() {
     let mut cultivation = Cultivation::default();
-    let first = cultivation.explore(10_000).expect("the first walk is owed");
+    let first = cultivation
+        .explore(10_000, ExplorationHours::Twelve)
+        .expect("the first walk is owed");
     assert!(
-        cultivation.explore(10_001).is_none(),
+        cultivation
+            .explore(10_001, ExplorationHours::Twelve)
+            .is_none(),
         "the walk is not owed"
     );
     // The panel reads the same rule the walk does, from the clock it is handed.
@@ -882,11 +890,11 @@ fn one_walk_every_twelve_hours() {
     );
     assert!(
         cultivation
-            .view_on(10_000 + EXPLORATION_COOLDOWN_SECONDS, 10_000)
+            .view_on(10_000 + WALK_SECONDS, 10_000)
             .exploration_ready
     );
     let second = cultivation
-        .explore(10_000 + EXPLORATION_COOLDOWN_SECONDS)
+        .explore(10_000 + WALK_SECONDS, ExplorationHours::Twelve)
         .expect("the cooldown has run out");
     // Whatever the walk was, the panel can say what came of it.
     assert_eq!(cultivation.view().last_exploration, Some(second));
@@ -905,7 +913,8 @@ fn a_walk_says_what_it_turned_up() {
     let mut purse_only = 0;
     for clock in 0..40_i64 {
         let mut cultivation = Cultivation::default();
-        let Some(outcome) = cultivation.explore(1_000 + clock * 100_000) else {
+        let Some(outcome) = cultivation.explore(1_000 + clock * 100_000, ExplorationHours::Twelve)
+        else {
             continue;
         };
         let turned_up = cultivation.view().last_exploration_found.clone();
@@ -967,9 +976,9 @@ fn a_fight_and_a_walk_each_count_once() {
 
     let mut walking = Cultivation::default();
     assert_eq!(walking.view().explorations, 0);
-    let _ = walking.explore(5_000);
+    let _ = walking.explore(5_000, ExplorationHours::Twelve);
     assert_eq!(walking.view().explorations, 1, "the walk counted");
-    assert!(walking.explore(5_001).is_none());
+    assert!(walking.explore(5_001, ExplorationHours::Twelve).is_none());
     assert_eq!(
         walking.view().explorations,
         1,
@@ -1005,7 +1014,8 @@ fn a_walk_can_turn_up_stones() {
     let mut turned_up = 0;
     for clock in 0..60_i64 {
         let mut cultivation = Cultivation::default();
-        let Some(outcome) = cultivation.explore(1_000 + clock * 100_000) else {
+        let Some(outcome) = cultivation.explore(1_000 + clock * 100_000, ExplorationHours::Twelve)
+        else {
             continue;
         };
         let found = cultivation.view().last_exploration_found.clone();
@@ -1038,7 +1048,8 @@ fn a_walk_can_turn_up_stones() {
 fn a_walk_that_was_beaten_pays_nothing() {
     for clock in 0..60_i64 {
         let mut cultivation = Cultivation::default();
-        let Some(outcome) = cultivation.explore(1_000 + clock * 100_000) else {
+        let Some(outcome) = cultivation.explore(1_000 + clock * 100_000, ExplorationHours::Twelve)
+        else {
             continue;
         };
         if outcome != ExplorationOutcome::Defeat {
@@ -1066,13 +1077,16 @@ fn a_walk_that_was_beaten_pays_nothing() {
 /// report; only a walk that settled a fight carries one.
 #[test]
 fn a_quiet_walk_carries_no_fight_into_its_popup() {
-    let step = EXPLORATION_COOLDOWN_SECONDS + 1;
+    let step = WALK_SECONDS + 1;
     // One save, walked until the road sends someone: the fight that walk met
     // is what a later quiet walk must not inherit.
     let mut cultivation = Cultivation::default();
     let mut met_someone = false;
     for attempt in 0..300_i64 {
-        if cultivation.explore(attempt * step).is_none() {
+        if cultivation
+            .explore(attempt * step, ExplorationHours::Twelve)
+            .is_none()
+        {
             continue;
         }
         if cultivation.view().last_exploration_duel.is_some() {
@@ -1085,7 +1099,7 @@ fn a_quiet_walk_carries_no_fight_into_its_popup() {
     // nothing to replay and no verdict to draw.
     let mut quiet = None;
     for attempt in 300..600_i64 {
-        let Some(outcome) = cultivation.explore(attempt * step) else {
+        let Some(outcome) = cultivation.explore(attempt * step, ExplorationHours::Twelve) else {
             continue;
         };
         if !matches!(
@@ -1276,9 +1290,11 @@ fn a_refusal_is_recorded_with_a_reason_and_a_count() {
 #[test]
 fn a_walk_that_is_not_owed_says_why() {
     let mut cultivation = Cultivation::default();
-    let _ = cultivation.explore(10_000);
+    let _ = cultivation.explore(10_000, ExplorationHours::Twelve);
     assert!(
-        cultivation.explore(10_001).is_none(),
+        cultivation
+            .explore(10_001, ExplorationHours::Twelve)
+            .is_none(),
         "the walk is not owed"
     );
     let view = cultivation.view();
@@ -1449,6 +1465,7 @@ fn the_fight_picks_among_the_strongest_external_arts() {
             rank: 1,
             progress: 0,
             outcome: None,
+            failures: 0,
         });
     }
     // A fourth deep book, never trained: owning it is not swinging it.
@@ -1457,6 +1474,7 @@ fn the_fight_picks_among_the_strongest_external_arts() {
         rank: 0,
         progress: 0,
         outcome: None,
+        failures: 0,
     });
     let cultivation = Cultivation::new(document);
     let mut rng = super::Rng::seeded(0x5EED_5EED);

@@ -231,10 +231,20 @@ pub enum PomodoroCommand {
     /// training: a session then pays growth alone.
     SelectArt { art_id: Option<u64> },
     /// Walk out of the door: one exploration, gated by its own cooldown.
-    Explore,
-    /// Climb one floor of the 试炼 tower: gated by the day's attempts and by
-    /// being home rather than out on a walk.
-    Trial,
+    ///
+    /// `hours` is how long the walk is taken for: the same road, walked for
+    /// longer, finds more and holds the cultivator longer — four, eight or
+    /// twelve, and anything else is read as eight.
+    Explore { hours: crate::ExplorationHours },
+    /// Climb one floor of the 锁妖塔: gated by the day's attempts and by being
+    /// home rather than out on a walk.
+    Tower,
+    /// Spend one banked 试炼 chance on a fight at the cultivator's own level.
+    ///
+    /// A finished pomodoro pays a chance and ten can be banked, so the gate is
+    /// the bank rather than a clock: the page offers the button while a chance
+    /// is held, and says how many are left while they last.
+    Prove,
     /// Credit growth for raw keyboard or mouse activity. `count` is how many
     /// interactions happened since the last credit, batched by the caller so a
     /// fast typist does not publish one command per keystroke.
@@ -297,8 +307,9 @@ impl PomodoroCommand {
             | Self::AllocateAttribute { .. }
             | Self::Breakthrough
             | Self::SelectArt { .. }
-            | Self::Explore
-            | Self::Trial
+            | Self::Explore { .. }
+            | Self::Tower
+            | Self::Prove
             | Self::RecordInput { .. } => true,
             // A trade is the one command that can be refused, and the state knows
             // whether it was: `apply` records the outcome and the writer reads it,
@@ -453,12 +464,15 @@ impl PomodoroState {
             PomodoroCommand::SelectArt { art_id } => {
                 self.cultivation.select_art(art_id);
             }
-            PomodoroCommand::Explore => {
-                self.cultivation.explore(now_unix);
+            PomodoroCommand::Explore { hours } => {
+                self.cultivation.explore(now_unix, hours);
             }
-            PomodoroCommand::Trial => {
+            PomodoroCommand::Tower => {
                 let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
                 self.cultivation.trial(now_unix, today.day_number());
+            }
+            PomodoroCommand::Prove => {
+                self.cultivation.proving(now_unix);
             }
             PomodoroCommand::RecordInput { count } => {
                 for _ in 0..count {
