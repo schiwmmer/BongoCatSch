@@ -273,7 +273,6 @@ pub struct ItemView {
     /// The combat numbers this piece adds outright — 攻击力, 生命值, 命中 and the
     /// rest — with its stars folded in.
     pub bonus: Derived,
-    pub power: u32,
     pub equipped: bool,
     /// The stars the piece holds. Zero is a piece nobody has starred.
     pub star: u8,
@@ -2875,7 +2874,6 @@ impl Cultivation {
                     rarity: item.rarity,
                     attributes: item.effective_attributes(),
                     bonus: item.effective_bonus(),
-                    power: item.power(),
                     equipped: false,
                     star: item.star(),
                     effect: item.effect,
@@ -3002,7 +3000,6 @@ impl Cultivation {
             // fight reads and what the row prints are the same numbers.
             attributes: item.effective_attributes(),
             bonus: item.effective_bonus(),
-            power: item.power(),
             equipped: self
                 .document
                 .equipped
@@ -3482,7 +3479,7 @@ mod tests {
         assert_eq!(
             art.success_permille,
             super::super::aptitude::base_success_permille(art.grade),
-            "the rate is the grade's own at zero 潜质"
+            "the rate is the grade's own at zero 潜质 and no failures"
         );
     }
 

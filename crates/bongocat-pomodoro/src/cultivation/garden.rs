@@ -3,8 +3,8 @@
 //!
 //! A crop matures on the wall clock rather than on focus time, so a session
 //! planted before lunch is pickable after it. The growth time scales with the
-//! seed's tier: half an hour at the first, four hours at the third, twelve at
-//! the fourth, and a week at the tenth. The ramp past the fourth tier is gentle
+//! seed's tier: eight hours at the first, eighteen at the third, a day at the
+//! fourth, and ten days at the tenth. The ramp past the fourth tier is gentle
 //! on purpose — the harvest is paid by the hour (see
 //! [`harvest_points`] and [`HARVEST_PERMILLE_PER_HOUR`]), so a tier that waited
 //! three times as long as the one below would pay three times as much, and a
@@ -54,27 +54,27 @@ pub const MAX_SEED_TIER: u8 = STAGE_COUNT as u8;
 
 /// How long a seed of this tier needs to mature, in seconds.
 ///
-/// Half an hour, eighty minutes, four hours, twelve hours, a day — the four
-/// anchors a garden already knew, kept — and then a gentler climb to a week at
-/// the tenth. The early tiers are quick enough that a garden is worth checking
-/// between sessions and the deep ones are projects, but no tier is so long that
-/// its harvest stops being payable: the payout is linear in the wait, so the
-/// ladder's top only stays honest while the wait itself stays reasonable.
+/// Eight hours, twelve, eighteen, a day, and then a climb to ten days at the
+/// tenth. Every wait is long enough that the harvest is a *crop* rather than a
+/// notification: the payout is linear in the wait, so an eight-hour first tier
+/// is what lets the grade ladder be read at all — half an hour of anything
+/// rounds to a single point, and five grades that all read "1" are five grades
+/// the page cannot tell apart.
 ///
 /// The grade does not enter: a 神阶 seed of the third tier is still an
-/// afternoon's crop. What the grade buys is the harvest, not the wait, so the
+/// eighteen-hour crop. What the grade buys is the harvest, not the wait, so the
 /// plot a user gives up is the same plot whatever comes up out of it.
 const GROW_SECONDS: [i64; MAX_SEED_TIER as usize] = [
-    1_800,   // 1: half an hour
-    4_800,   // 2: eighty minutes
-    14_400,  // 3: four hours
-    43_200,  // 4: twelve hours
-    86_400,  // 5: a day
-    129_600, // 6: thirty-six hours
-    172_800, // 7: two days
-    259_200, // 8: three days
-    345_600, // 9: four days
-    604_800, // 10: a week
+    28_800,  // 1: eight hours
+    43_200,  // 2: twelve hours
+    64_800,  // 3: eighteen hours
+    86_400,  // 4: a day
+    129_600, // 5: thirty-six hours
+    172_800, // 6: two days
+    259_200, // 7: three days
+    345_600, // 8: four days
+    518_400, // 9: six days
+    864_000, // 10: ten days
 ];
 
 /// How long a seed of this tier needs to mature, in seconds.
@@ -174,10 +174,11 @@ impl SeedGrade {
     /// existing numbers rather than on top of them.
     ///
     /// The bottom rungs are deliberately poor. A patch is paid by the hour, so
-    /// a 黄阶 seed of the first tier is a handful of minutes of waiting and
-    /// pays accordingly — the herb a beginner can afford is the one that grows
-    /// the least, which is what keeps "plant the cheapest thing, always" from
-    /// being the answer the garden prints.
+    /// a 黄阶 seed pays a quarter of what a 地阶 one does for the same wait —
+    /// the herb a beginner can afford is the one that grows the least, which is
+    /// what keeps "plant the cheapest thing, always" from being the answer the
+    /// garden prints. At the first tier that quarter is a single point for
+    /// eight hours; at the tenth it is twenty-four for ten days.
     pub const fn multiplier_permille(self) -> u32 {
         match self {
             Self::Yellow => 250,
@@ -199,14 +200,18 @@ pub(crate) fn roll_seed_grade(rng: &mut Rng) -> SeedGrade {
 }
 
 /// What one hour in the ground pays, in parts per thousand of an attribute
-/// point, at the 地 anchor grade: 1.4.
+/// point, at the 地 anchor grade: 0.4.
 ///
-/// Read off the other ladder rather than invented. An 玄阶 功法 pays its
-/// grade's magnitude for a printed pomodoro, and the brief's exchange rate is
-/// one pomodoro to three hours of growing — so an hour planted is worth about a
-/// third of a session of training, and 玄 comes to roughly 0.8 of a point an
-/// hour. The 地 anchor is a thousand permille of that, 1.4 an hour.
-pub const HARVEST_PERMILLE_PER_HOUR: i64 = 1_400;
+/// Read off the other ladder rather than invented, and then cut. A 玄阶 功法
+/// pays its grade's magnitude for a rank — eight points over one to three
+/// sessions — while a crop that paid even a point an hour would hand out a
+/// hundred points for four days in the ground, and a garden would be the loudest
+/// ladder in the game rather than the quiet one. Four tenths of a point an hour
+/// puts a 地阶 plot at three points for its first tier, ten for a day at the
+/// fourth and ninety-six for ten days at the tenth: a crop is worth a fraction
+/// of a session for every session it takes, which is what keeps the desk the
+/// place the numbers actually come from.
+pub const HARVEST_PERMILLE_PER_HOUR: i64 = 400;
 
 /// The attribute points one harvest of this tier and grade pays.
 ///
@@ -376,13 +381,17 @@ mod tests {
 
     #[test]
     fn a_crop_is_ready_only_after_its_growing_time() {
+        let ready = 1_000 + grow_seconds(2);
         let crop = CropRecord::planted(Attribute::Root, 2, SeedGrade::Earth, None, 1_000);
-        assert_eq!(crop.ready_at_unix, 1_000 + 4_800);
+        assert_eq!(crop.ready_at_unix, ready);
         assert!(!crop.is_ready(1_000));
-        assert!(!crop.is_ready(5_799));
-        assert!(crop.is_ready(5_800));
-        assert_eq!(crop.remaining_seconds(1_000), 4_800);
-        assert_eq!(crop.remaining_seconds(9_999), 0);
+        assert!(!crop.is_ready(ready - 1));
+        assert!(crop.is_ready(ready));
+        assert_eq!(
+            crop.remaining_seconds(1_000),
+            u32::try_from(grow_seconds(2)).unwrap()
+        );
+        assert_eq!(crop.remaining_seconds(ready + 1), 0);
     }
 
     #[test]
@@ -392,22 +401,25 @@ mod tests {
         assert!(harvest_points(10, SeedGrade::Earth) > harvest_points(9, SeedGrade::Earth));
     }
 
-    /// The brief's anchor: 地 is a thousand permille of the base rate, and every
-    /// other grade is read against it. The four anchors the garden already knew
-    /// — thirty minutes, eighty, four hours, twelve — pay what the linear rule
-    /// says they pay, which is the check that the two halves of the curve
-    /// (wait and payout) were retuned together rather than one at a time.
+    /// The anchor: 地 is a thousand permille of the base rate, and every other
+    /// grade is read against it. The whole curve — wait and payout — is pinned
+    /// here, because the two halves were retuned together: a table that moved
+    /// one without the other would still pass a per-tier monotonicity check.
     #[test]
-    fn the_earth_grade_is_the_number_the_garden_already_paid() {
+    fn the_earth_grade_is_the_number_the_garden_pays() {
         let earth: Vec<i32> = (1..=MAX_SEED_TIER)
             .map(|tier| harvest_points(tier, SeedGrade::Earth))
             .collect();
         assert_eq!(
             earth,
-            vec![1, 2, 6, 17, 34, 50, 67, 101, 134, 235],
+            vec![3, 5, 7, 10, 14, 19, 29, 38, 58, 96],
             "a 地阶 plot pays its hours"
         );
-        assert_eq!(grow_seconds(4), 12 * 3_600);
+        assert_eq!(
+            grow_seconds(4),
+            24 * 3_600,
+            "a fourth-tier seed takes a day"
+        );
         assert_eq!(SeedGrade::Earth.multiplier_permille(), 1_000);
         assert_eq!(
             SeedGrade::default(),
@@ -431,11 +443,10 @@ mod tests {
             SeedGrade::Divine.multiplier_permille() >= SeedGrade::Yellow.multiplier_permille() * 5,
             "神 has to be worth several 黄"
         );
-        // Read on the tiers where the rounding still has room to tell the five
-        // apart: at the first tier half an hour is worth a point whatever the
-        // grade, which is the whole reason the cheap seed is no longer the
-        // efficient one.
-        for tier in [4_u8, 7, 10] {
+        // Every tier tells the five apart, the first one included: an
+        // eight-hour first tier is exactly long enough that 黄 reads 1 and 神
+        // reads 8, which is the whole reason the wait was lengthened.
+        for tier in 1..=MAX_SEED_TIER {
             let payouts: Vec<i32> = SeedGrade::ALL
                 .into_iter()
                 .map(|grade| harvest_points(tier, grade))
@@ -445,15 +456,18 @@ mod tests {
                 "tier {tier} pays the grades out of order: {payouts:?}"
             );
         }
-        // The cheap seed is not the efficient one any more: an hour of a 黄阶
-        // plot pays a quarter of an hour of a 地阶 plot. The first tier is the
-        // one rung where the rounding flattens both to a single point.
         assert_eq!(
-            harvest_points(1, SeedGrade::Yellow),
-            harvest_points(1, SeedGrade::Earth),
-            "half an hour is a point whatever the grade"
+            SeedGrade::ALL
+                .into_iter()
+                .map(|grade| harvest_points(1, grade))
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3, 5, 8],
+            "the first tier is a ladder, not a row of ones"
         );
-        for tier in 2..=MAX_SEED_TIER {
+        // The cheap seed is not the efficient one: an hour of a 黄阶 plot pays a
+        // quarter of an hour of a 地阶 plot, and the four grades of any tier keep
+        // that ratio.
+        for tier in 1..=MAX_SEED_TIER {
             assert!(
                 harvest_points(tier, SeedGrade::Yellow) < harvest_points(tier, SeedGrade::Earth),
                 "tier {tier}"
@@ -486,15 +500,29 @@ mod tests {
     }
 
     #[test]
-    fn the_growing_time_anchors_on_tiers_three_and_four() {
-        assert_eq!(grow_seconds(1), 30 * 60, "a first-tier seed takes 30m");
-        assert_eq!(grow_seconds(3), 4 * 3_600, "a third-tier seed takes 4h");
-        assert_eq!(grow_seconds(4), 12 * 3_600, "a fourth-tier seed takes 12h");
-        assert_eq!(grow_seconds(5), 24 * 3_600, "a day");
-        assert_eq!(grow_seconds(10), 7 * 24 * 3_600, "and a week at the top");
+    fn the_growing_time_anchors_on_tiers_one_and_ten() {
+        assert_eq!(grow_seconds(1), 8 * 3_600, "a first-tier seed takes 8h");
+        assert_eq!(grow_seconds(3), 18 * 3_600, "a third-tier seed takes 18h");
+        assert_eq!(
+            grow_seconds(4),
+            24 * 3_600,
+            "a fourth-tier seed takes a day"
+        );
+        assert_eq!(grow_seconds(10), 10 * 24 * 3_600, "and ten days at the top");
         // Monotone, so no tier is ever a cheaper wait than the one below it.
         for tier in 2..=MAX_SEED_TIER {
             assert!(grow_seconds(tier) > grow_seconds(tier - 1), "tier {tier}");
+        }
+        // And the payout per hour stays inside a narrow band: no tier is a
+        // bargain in time, which is what used to make the cheapest seed the
+        // only one worth planting.
+        for tier in 1..=MAX_SEED_TIER {
+            let per_hour = harvest_points(tier, SeedGrade::Earth) * 1_000
+                / (grow_seconds(tier) / 3_600) as i32;
+            assert!(
+                (300..=500).contains(&per_hour),
+                "tier {tier} pays {per_hour} thousandths of a point an hour"
+            );
         }
     }
 

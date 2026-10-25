@@ -692,11 +692,10 @@ fn item_label_element(
 /// One item's breakdown, shown under its row when expanded.
 ///
 /// The lines each answer a different question the row raises: the four raw
-/// numbers, what they are worth in each school, the combat numbers the piece
-/// adds outright, what its stars have multiplied, and — for a 神装 — the effect
-/// it carries. The schools line is the one that answers "is this a
-/// spellcaster's piece or a brawler's", which the tier and the quality alone do
-/// not say.
+/// attributes, the combat numbers the piece adds outright, what its stars have
+/// multiplied, and — for a 神装 — the effect it carries. Nothing here names a
+/// 法术 or 武术 total: the piece's attributes are what it is, and the numbers a
+/// fight reads are the ones below them.
 fn item_detail(item: &ItemView, locale: &str, tokens: Tokens) -> impl IntoElement {
     let attributes = item.attributes;
     let mut panel = div()
@@ -714,15 +713,6 @@ fn item_detail(item: &ItemView, locale: &str, tokens: Tokens) -> impl IntoElemen
                 ("strength", attributes.strength.to_string()),
                 ("mana", attributes.mana.to_string()),
                 ("agility", attributes.agility.to_string()),
-            ],
-        ))
-        .child(format_text(
-            locale,
-            "cultivation.item.schools",
-            &[
-                ("spell", attributes.spell_power().to_string()),
-                ("martial", attributes.martial_power().to_string()),
-                ("power", item.power.to_string()),
             ],
         ));
     // The outright combat numbers, when the piece pays any: a robe that soaks

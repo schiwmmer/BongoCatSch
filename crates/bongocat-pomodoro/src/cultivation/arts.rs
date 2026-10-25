@@ -485,11 +485,13 @@ pub struct OwnedArt {
     pub rank: u8,
     /// Pomodoros banked toward the next 阶.
     pub progress: u32,
-    /// How many attempts at the *current* 阶 have failed.
+    /// How many attempts at this 功法 have failed.
     ///
-    /// Reset the moment the 阶 turns over: the compensation a bad run earns is
-    /// worth something on the rung it was paid on and nothing on the next one,
-    /// or a single unlucky 阶 would follow a book all the way to its last.
+    /// Counted for the whole book, not for the 阶 it was spent on: a bad run is
+    /// the body learning *this* technique, so the help it earns carries past a
+    /// 阶 rather than being handed back at the turn. It is never reset — the
+    /// count stands until the art is finished — and it is per book, so one hard
+    /// 功法 being read badly twenty times does not make the next one easier.
     #[serde(default)]
     pub failures: u32,
     /// What an attempt just came to.
@@ -527,16 +529,14 @@ pub fn train(owned: &mut OwnedArt, aptitude_tenths: i32, rng: &mut Rng) -> ArtOu
         owned.outcome = Some(ArtOutcome::Mastered);
         return ArtOutcome::Mastered;
     }
-    // 潜质 sets the chance the session lands at all: one roll against the rate
-    // this grade carries at this body's 潜质. A failure costs the session and
-    // nothing else.
-    let success = super::aptitude::compensated_success_permille(
-        super::aptitude::success_permille(art.grade, aptitude_tenths),
-        owned.failures,
-    );
+    // 潜质 and the failures this book has already cost set the chance the
+    // session lands: one roll against `base × 1.01^(潜质 + 失败)`. A failure
+    // costs the session and nothing else.
+    let success = super::aptitude::success_permille(art.grade, aptitude_tenths, owned.failures);
     if rng.below(1_000) >= u64::from(success) {
-        // The failure is banked against this 阶: the next attempt at it is one
-        // percent likelier, and the one after that likelier again.
+        // The failure is banked against the 功法: the next attempt is one percent
+        // likelier, and every attempt after that likelier again — at this 阶 and
+        // at each 阶 still to come.
         owned.failures = owned.failures.saturating_add(1);
         owned.outcome = Some(ArtOutcome::Failed);
         return ArtOutcome::Failed;
@@ -548,9 +548,8 @@ pub fn train(owned: &mut OwnedArt, aptitude_tenths: i32, rng: &mut Rng) -> ArtOu
         return ArtOutcome::Progressed;
     }
     owned.progress = 0;
-    // A new 阶 is a fresh climb: the failures that bought the last one stay
-    // behind with it.
-    owned.failures = 0;
+    // The failures are not reset: a 阶 turning over is the same book still being
+    // read, and the runs already spent on it are what make the next 阶 easier.
     owned.rank = owned.rank.saturating_add(1);
     let outcome = if owned.rank >= max_rank {
         ArtOutcome::Mastered
@@ -852,11 +851,11 @@ pub struct ArtView {
     /// What the next 阶 asks for.
     pub required: u32,
     /// The chance one attempt lands, as this body faces it, in parts per
-    /// thousand — 潜质's rate already multiplied by the run of failures this 阶
-    /// has cost.
+    /// thousand — `base × 1.01^(潜质 + 失败)`.
     pub success_permille: u32,
-    /// How many attempts at this 阶 have failed. What the rate above has been
-    /// raised by, and what the row says when it is not zero.
+    /// How many attempts at this 功法 have failed so far. What the rate above
+    /// has been raised by, and what the row says when it is not zero. The count
+    /// belongs to the whole book and is never reset at a 阶 turn.
     pub failures: u32,
     /// What one 阶 pays, for an 内功.
     pub gain: Attributes,
@@ -934,8 +933,9 @@ pub fn art_view(owned: &OwnedArt, aptitude_tenths: i32, selected: bool) -> ArtVi
         max_rank: art.grade.ranks(),
         progress: owned.progress,
         required: required_pomodoros(owned.rank, aptitude_tenths),
-        success_permille: super::aptitude::compensated_success_permille(
-            super::aptitude::success_permille(art.grade, aptitude_tenths),
+        success_permille: super::aptitude::success_permille(
+            art.grade,
+            aptitude_tenths,
             owned.failures,
         ),
         failures: owned.failures,
@@ -1044,17 +1044,22 @@ mod tests {
     #[test]
     fn aptitude_sets_the_success_rate_and_saturates() {
         assert_eq!(
-            super::super::aptitude::success_permille(ArtGrade::Divine, 0),
+            super::super::aptitude::success_permille(ArtGrade::Divine, 0, 0),
             50,
             "a 神阶 art is a one-in-twenty read at no 潜质"
         );
         assert!(
-            super::super::aptitude::success_permille(ArtGrade::Divine, 1_000)
-                > super::super::aptitude::success_permille(ArtGrade::Divine, 0),
+            super::super::aptitude::success_permille(ArtGrade::Divine, 1_000, 0)
+                > super::super::aptitude::success_permille(ArtGrade::Divine, 0, 0),
             "潜质 is the lever"
         );
+        assert!(
+            super::super::aptitude::success_permille(ArtGrade::Divine, 0, 20)
+                > super::super::aptitude::success_permille(ArtGrade::Divine, 0, 0),
+            "and a run of failures is the same lever from the other side"
+        );
         assert_eq!(
-            super::super::aptitude::success_permille(ArtGrade::Yellow, 10_000),
+            super::super::aptitude::success_permille(ArtGrade::Yellow, 10_000, 0),
             super::super::aptitude::SUCCESS_CAP_PERMILLE,
             "a rate past certainty is held to certainty"
         );
@@ -1161,10 +1166,11 @@ mod tests {
         assert_eq!(failed.rank, 1);
     }
 
-    /// A failure is banked against the 阶 it happened on: the next attempt at
-    /// that 阶 is likelier, and a new 阶 starts from the bare 潜质 rate again.
+    /// A failure is banked against the whole 功法: the next attempt is likelier,
+    /// and the count survives a 阶 turning over — it is the book being read, not
+    /// the rung it was read at.
     #[test]
-    fn a_failed_attempt_is_banked_against_this_rank_and_forgotten_on_the_next() {
+    fn a_failed_attempt_is_banked_against_the_whole_art() {
         let art_id = (1..=ART_COUNT)
             .find(|id| blueprint(*id).grade == ArtGrade::Divine)
             .expect("a 神阶 art is in the catalog");
@@ -1192,17 +1198,23 @@ mod tests {
             "the next attempt is likelier: {} against {base}",
             banked.success_permille
         );
-        // The run is forgotten the moment this 阶 turns over.
+        let at_the_turn = owned.failures;
+        // The count is not handed back when the 阶 turns over.
         let mut guard = 0;
         while owned.rank == 1 {
             let _ = train(&mut owned, 0, &mut rng);
             guard += 1;
             assert!(guard < 100_000, "the first 阶 is one session at most");
         }
-        assert_eq!(owned.failures, 0, "a new 阶 starts from the bare rate");
+        assert!(
+            owned.failures >= at_the_turn,
+            "the run carries past the 阶: {} against {at_the_turn}",
+            owned.failures
+        );
         assert_eq!(
             art_view(&owned, 0, false).success_permille,
-            super::super::aptitude::success_permille(ArtGrade::Divine, 0)
+            super::super::aptitude::success_permille(ArtGrade::Divine, 0, owned.failures),
+            "the rate reads the whole book's count"
         );
     }
 

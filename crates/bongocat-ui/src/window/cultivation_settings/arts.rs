@@ -343,9 +343,10 @@ fn art_row(
             ],
         )
     };
-    // A run of failures is on the line beside the rate it bought: the rate is
-    // the number the user acts on, and this is why it is not the one 潜质 alone
-    // would promise.
+    // The failures this book has cost are on the line beside the rate they
+    // bought: the rate is the number the user acts on, and this is why it is not
+    // the one 潜质 alone would promise. The count is the whole 功法's, so it is
+    // read once and stays put as the 阶 turn over.
     let progress_line = if art.rank >= art.max_rank {
         progress_line
     } else if art.failures > 0 {
@@ -573,10 +574,12 @@ mod tests {
     /// attempt by about four parts in a thousand.
     #[test]
     fn the_profound_rate_at_negative_aptitude_is_what_the_row_says() {
-        let base = bongocat_pomodoro::success_permille(bongocat_pomodoro::ArtGrade::Profound, -36);
+        let base =
+            bongocat_pomodoro::success_permille(bongocat_pomodoro::ArtGrade::Profound, -36, 0);
         assert_eq!(base, 405, "420‰ × 1.01^-3.6");
-        let after = bongocat_pomodoro::compensated_success_permille(base, 1);
-        assert_eq!(after, 409, "one failure on this 阶");
+        let after =
+            bongocat_pomodoro::success_permille(bongocat_pomodoro::ArtGrade::Profound, -36, 1);
+        assert_eq!(after, 409, "one failure on the book, additively");
         assert!(
             permille_percent_label(after) != permille_percent_label(base),
             "the row has to show the compensation: {} vs {}",

@@ -61,25 +61,6 @@ pub const SUCCESS_CAP_PERMILLE: u32 = 995;
 /// 神阶 art, not incapable of ever reading it.
 pub const SUCCESS_FLOOR_PERMILLE: u32 = 1;
 
-/// What a run of failures at the *same* 阶 is worth, in parts per thousand.
-///
-/// The base rate multiplied by 1.01 once per failure already spent on this
-/// 阶: the body learns by being wrong, so a 神阶 art that has failed twenty
-/// times is no longer the same coin toss it was at the first attempt. The
-/// count belongs to one 阶 of one 功法 — the caller resets it when the 阶
-/// turns over — because an art is not easier for having been read badly at a
-/// shallower rung.
-///
-/// An ever-growing rate is still a rate: it is held to
-/// [`SUCCESS_CAP_PERMILLE`] so the die roll never becomes a formality.
-pub fn compensated_success_permille(base: u32, failures: u32) -> u32 {
-    // A save with a corrupt count cannot be allowed to overflow `powi` into an
-    // infinity the cast would then have to guess at.
-    let exponent = i32::try_from(failures.min(10_000)).unwrap_or(10_000);
-    let rate = f64::from(base) * SUCCESS_STEP.powi(exponent);
-    (rate.round() as u32).clamp(SUCCESS_FLOOR_PERMILLE, SUCCESS_CAP_PERMILLE)
-}
-
 /// The 潜质 a newborn body carries, rolled once and then written down.
 pub fn birth_aptitude(rng: &mut Rng) -> i32 {
     let span = u64::try_from(APTITUDE_BIRTH_SPAN_TENTHS * 2 + 1).unwrap_or(1);
@@ -101,15 +82,31 @@ pub fn points_f64(tenths: i32) -> f64 {
     f64::from(tenths) / 10.0
 }
 
-/// The success rate one attempt at the given grade carries at this 潜质, in
-/// parts per thousand.
+/// The success rate one attempt at the given grade carries, in parts per
+/// thousand: the grade's base, multiplied by 1.01 once per point of 潜质 and
+/// once per attempt this 功法 has already lost.
+///
+/// One factor, two counts. 潜质 and failures are the same kind of help — a body
+/// that is better at learning, and a body that has been wrong about *this* book
+/// before — so they go into one exponent rather than into two rates multiplied
+/// together: `base × 1.01^(潜质 + 失败)`. Two roundings would let a 玄阶 art at
+/// 潜质 4.3 and three failures read a thousandth or two under the number the
+/// formula on the page prints.
 ///
 /// The 潜质-zero ladder is authored: 黄 50%, 玄 42%, 地 35%, 天 20%, 神 5%. The
 /// 玄 step is the one interpolation in the row — the brief names 黄/地/天/神 —
 /// and it sits between its neighbours rather than beside one of them.
-pub fn success_permille(grade: ArtGrade, aptitude_tenths: i32) -> u32 {
+///
+/// `failures` belongs to the whole 功法 rather than to the 阶 it was spent on:
+/// the caller never resets it, so twenty bad attempts at a 神阶 book are twenty
+/// percent banked toward the rest of that book — and toward nothing else, since
+/// every art carries its own count.
+pub fn success_permille(grade: ArtGrade, aptitude_tenths: i32, failures: u32) -> u32 {
     let base = f64::from(base_success_permille(grade)) / 1_000.0;
-    let chance = base * SUCCESS_STEP.powf(points_f64(aptitude_tenths));
+    // A save with a corrupt count cannot be allowed to overflow `powf` into an
+    // infinity the cast would then have to guess at.
+    let spent = f64::from(failures.min(10_000));
+    let chance = base * SUCCESS_STEP.powf(points_f64(aptitude_tenths) + spent);
     let permille = (chance * 1_000.0).round();
     let clamped = permille.clamp(
         f64::from(SUCCESS_FLOOR_PERMILLE),
@@ -303,21 +300,25 @@ mod tests {
         assert!(base_success_permille(ArtGrade::Profound) < 500);
         assert!(base_success_permille(ArtGrade::Profound) > 350);
         for grade in ArtGrade::ALL {
-            assert_eq!(success_permille(grade, 0), base_success_permille(grade));
+            assert_eq!(
+                success_permille(grade, 0, 0),
+                base_success_permille(grade),
+                "{grade:?} at 潜质 zero with no failures is its base"
+            );
         }
     }
 
     #[test]
     fn each_point_of_aptitude_multiplies_the_base_rate_by_one_percent() {
         // 天阶 at 潜质 4 is 20% × 1.01⁴ = 208‰, rounded.
-        assert_eq!(success_permille(ArtGrade::Heaven, 40), 208);
+        assert_eq!(success_permille(ArtGrade::Heaven, 40, 0), 208);
         // 黄阶 at 潜质 100 doubles: 50% × 1.01¹⁰⁰ = 135% → held to the cap.
         assert_eq!(
-            success_permille(ArtGrade::Yellow, 1_000),
+            success_permille(ArtGrade::Yellow, 1_000, 0),
             SUCCESS_CAP_PERMILLE
         );
         // Negative 潜质 lowers it: 50% × 1.01⁻¹⁰.
-        assert_eq!(success_permille(ArtGrade::Yellow, -100), 453);
+        assert_eq!(success_permille(ArtGrade::Yellow, -100, 0), 453);
     }
 
     #[test]
@@ -368,27 +369,34 @@ mod tests {
         assert_eq!(marrow_needed(2_000, 2_000), 0);
     }
 
-    /// Each failure on the current 阶 is worth one percent on the next attempt,
-    /// and the run is capped rather than allowed to promise certainty.
+    /// A failure is worth one percent on the next attempt, in the same exponent
+    /// as 潜质: the two are added, not multiplied one rate by another.
     #[test]
-    fn a_run_of_failures_is_worth_one_percent_each_on_this_rank() {
-        let base = base_success_permille(ArtGrade::Heaven);
-        assert_eq!(compensated_success_permille(base, 0), base);
-        // 20 × 1.01 = 20.2 → 202‰.
-        assert_eq!(compensated_success_permille(base, 1), 202);
-        assert_eq!(compensated_success_permille(base, 4), 208);
+    fn a_failure_is_worth_one_percent_on_the_same_exponent_as_aptitude() {
+        // 天阶 at 潜质 0: 20% × 1.01¹ = 20.2 → 202‰.
+        assert_eq!(success_permille(ArtGrade::Heaven, 0, 1), 202);
+        assert_eq!(success_permille(ArtGrade::Heaven, 0, 4), 208);
         // Compounding, not adding: 20 × 1.01² = 20.4.
-        assert_eq!(compensated_success_permille(base, 2), 204);
+        assert_eq!(success_permille(ArtGrade::Heaven, 0, 2), 204);
+        // 潜质 and failures share one exponent: 4.0 points of 潜质 and two
+        // failures land on exactly 潜质 6 with no failures.
+        assert_eq!(
+            success_permille(ArtGrade::Heaven, 40, 2),
+            success_permille(ArtGrade::Heaven, 60, 0)
+        );
         // A very long run of bad luck lands on the cap, not past it.
         assert_eq!(
-            compensated_success_permille(base, 100_000),
+            success_permille(ArtGrade::Heaven, 0, 100_000),
             SUCCESS_CAP_PERMILLE
         );
         // And a rate that was already at the cap cannot be raised past it.
         assert_eq!(
-            compensated_success_permille(SUCCESS_CAP_PERMILLE, 10),
+            success_permille(ArtGrade::Yellow, 1_000, 10),
             SUCCESS_CAP_PERMILLE
         );
+        // The floor holds too: a 神阶 book in a hopeless body still reads above
+        // zero once the failures start to mount.
+        assert!(success_permille(ArtGrade::Divine, -100, 0) >= SUCCESS_FLOOR_PERMILLE);
     }
 
     #[test]

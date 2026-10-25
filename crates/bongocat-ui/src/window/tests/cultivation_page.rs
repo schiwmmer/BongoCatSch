@@ -158,10 +158,16 @@ fn hovering_an_attribute_puts_its_explanation_on_screen(cx: &mut TestAppContext)
         painted(visual, hint),
         "hovering an attribute must show what it does"
     );
+    // The explanation says what the attribute pays, and no longer names a
+    // school: neither 法术 nor 武术 survives on the page.
+    let desc = bongocat_i18n::text("en-US", bongocat_pomodoro::Attribute::Root.desc_key());
     assert!(
-        bongocat_i18n::text("en-US", bongocat_pomodoro::Attribute::Root.desc_key())
-            .contains("spell"),
-        "the explanation has to name the school the attribute feeds"
+        desc.contains("inner force"),
+        "the explanation has to say what the attribute pays: {desc}"
+    );
+    assert!(
+        !desc.contains("spell") && !desc.contains("martial"),
+        "a school has no place on the card: {desc}"
     );
 }
 
@@ -515,7 +521,6 @@ fn clicking_a_star_asks_the_worker_for_the_wager(cx: &mut TestAppContext) {
         rarity: Rarity::Divine,
         attributes: Attributes::new(0, 120, 40, 0),
         bonus: Derived::default(),
-        power: 900,
         equipped: false,
         star: 3,
         effect: Some(bongocat_pomodoro::GearEffect::Frost),

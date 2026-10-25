@@ -57,8 +57,7 @@ mod trial;
 mod tests;
 
 pub use aptitude::{
-    APTITUDE_MAX_TENTHS, AptitudeHerb, HerbView, base_success_permille,
-    compensated_success_permille, success_permille,
+    APTITUDE_MAX_TENTHS, AptitudeHerb, HerbView, base_success_permille, success_permille,
 };
 pub use arts::{
     APTITUDE_ART_IDS, APTITUDE_ART_TENTHS_PER_RANK, ART_COUNT, ArtBlueprint, ArtGrade, ArtKind,
