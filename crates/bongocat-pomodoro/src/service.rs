@@ -525,6 +525,10 @@ impl Drop for PomodoroService {
 /// The worker loop.
 fn run_worker(receiver: Receiver<PomodoroCommand>, shared: Arc<SharedState>, path: PathBuf) {
     set_worker_state(&shared, PomodoroWorkerState::Ready);
+    // The session the document was holding comes back before anything else: a
+    // quit or an upgrade is not an abandon, and the countdown has been running
+    // the whole time the application was not.
+    resume_session(&shared, &path);
     // The wall clock a countdown is measured against is the gap between these
     // readings, not a per-tick subtraction, so a late wake-up costs exactly the
     // time it was late.
@@ -558,8 +562,10 @@ fn run_worker(receiver: Receiver<PomodoroCommand>, shared: Arc<SharedState>, pat
     }
     set_worker_state(&shared, PomodoroWorkerState::Stopping);
     while receiver.try_recv().is_ok() {}
-    // The countdown is not in the document, so there is nothing to write on the
-    // way out; whatever the last durable command changed was already written.
+    // The countdown's own deadline is in the document — the instant it started,
+    // not the seconds it had left — so there is nothing to write on the way out:
+    // the next launch recomputes the remainder from that instant, and whatever
+    // the last durable command changed was already written.
     set_worker_state(&shared, PomodoroWorkerState::Stopped);
 }
 
@@ -591,6 +597,27 @@ fn take_whole_seconds(elapsed: Duration, carried: &mut Duration) -> Duration {
     let whole = Duration::from_secs(total.as_secs());
     *carried = total.saturating_sub(whole);
     whole
+}
+
+/// Pick up the session the document was holding.
+///
+/// The seconds between the last write and now belong to that session, so they
+/// are charged here rather than on a tick: a countdown that came due while the
+/// application was closed has to settle at launch, and one that is still running
+/// has to come back with what is actually left of it.
+fn resume_session(shared: &Arc<SharedState>, path: &Path) {
+    let mut inner = shared
+        .inner
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let completed = inner.domain.resume_live_session(now_unix()).is_some();
+    if completed {
+        inner.completed_sessions = inner.completed_sessions.saturating_add(1);
+    }
+    inner.publish();
+    inner.write_document(path);
+    drop(inner);
+    shared.changed.notify_all();
 }
 
 fn process_command(shared: &Arc<SharedState>, path: &Path, command: PomodoroCommand) {

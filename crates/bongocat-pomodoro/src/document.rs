@@ -1,4 +1,4 @@
-//! The persisted document: the tasks and the history, with no live session.
+//! The persisted document: the tasks, the history, and the session in flight.
 //!
 //! It is a separate file rather than a `config.json` field for the reason the
 //! interaction counters have: the focus history must survive the
@@ -92,6 +92,32 @@ impl TaskRecord {
     }
 }
 
+/// The session that was counting down when the document was written.
+///
+/// The timer used to be deliberately left out — "a countdown restored on a later
+/// launch would be a deadline that passed while the application was not running".
+/// It is in the document now because that deadline is exactly what the user
+/// wants honoured: an upgrade or a quit is not an abandon, and a session that
+/// was running has to come back running.
+///
+/// `running_since_unix` is what makes the wait honest. While a session runs, the
+/// wall clock is the countdown, so the record stores the instant it started and
+/// the time it had left at that instant; the state recomputes the remainder from
+/// those two numbers on the next launch, and a session whose time ran out while
+/// the application was closed comes back at zero and settles on the first tick.
+/// A paused session stores no instant, because a pause that kept spending time
+/// would not be a pause.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct LiveSessionRecord {
+    pub task_id: u64,
+    /// The seconds left when the session started running (or when it was
+    /// paused, for a paused one).
+    pub remaining_seconds: u32,
+    /// When the countdown started running, or `None` while it is paused.
+    #[serde(default)]
+    pub running_since_unix: Option<i64>,
+}
+
 /// The whole document: one file, one version.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Document {
@@ -118,6 +144,11 @@ pub struct Document {
     /// cultivator who has just started.
     #[serde(default)]
     pub cultivation: crate::CultivationDocument,
+    /// The session in flight, if any. Absent on a document written while
+    /// nothing was running, and on every document written by a build that did
+    /// not persist the timer at all.
+    #[serde(default)]
+    pub live: Option<LiveSessionRecord>,
 }
 
 impl Default for Document {
@@ -128,6 +159,7 @@ impl Default for Document {
             focus_minutes: crate::DEFAULT_FOCUS_MINUTES,
             total_completions: 0,
             cultivation: crate::CultivationDocument::default(),
+            live: None,
         }
     }
 }
@@ -239,6 +271,24 @@ mod tests {
         assert_eq!(document.tasks[0].completed_at_unix, None);
         assert!(document.tasks[0].completion_timestamps.is_empty());
         assert_eq!(document.focus_minutes, crate::DEFAULT_FOCUS_MINUTES);
+        assert_eq!(document.live, None, "an old document has no session in it");
+    }
+
+    #[test]
+    fn a_session_in_flight_round_trips() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let path = directory.path().join("pomodoro-tasks.json");
+        let mut document = Document::default();
+        document
+            .tasks
+            .push(TaskRecord::new(1, "write notes".into(), 2, 0));
+        document.live = Some(LiveSessionRecord {
+            task_id: 1,
+            remaining_seconds: 1_500,
+            running_since_unix: Some(1_700_000_000),
+        });
+        write_document(&path, &document).expect("write the document");
+        assert_eq!(read_document(&path), document);
     }
 
     #[test]

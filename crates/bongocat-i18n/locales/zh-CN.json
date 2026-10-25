@@ -873,6 +873,7 @@
     },
     "event": {
       "session": "完成修炼，成长 +%{growth}",
+      "absence": "%{days} 天未修炼，成长值 -%{charged}",
       "walk": "外出探索：%{outcome}",
       "train_failed": "修习《%{name}》未成，进度仍在",
       "train_progress": "修习《%{name}》有所精进",
@@ -942,7 +943,12 @@
       "span": "%{from}–%{to} 级"
     },
     "power_art": "内功 %{value}",
-    "power_external": "外功 +%{value}",
+    "power_art_bonus": "内功外显 %{value}",
+    "power_allocated": "已分配 %{value}",
+    "power_equipment_bonus": "装备外显 %{value}",
+    "power_external": "外功每击 +%{value}",
+    "power_synergy": "配对 %{value}",
+    "power_total": "总战力 %{value}",
     "aptitude_title": "潜质",
     "aptitude_hint": "潜质决定功法研习的成功率与速度：潜质为 0 时，成功率按品阶为黄 50%、玄 42%、地 35%、天 20%、神 5%，每阶所需番茄钟为印数的三倍；此后每 1 点潜质把成功率乘 1.01、把所需番茄钟乘 0.99（小数部分不超过 0.2 向下取整，超过则向上取整）。每满一百须服洗髓丹方能继续提升。另有十本专修潜质的功法（每品阶两本），每修成一阶按品阶加 0.2~2.0 点潜质。每次失败把成功率再乘 1.01，失败次数按整门功法累计，升阶不清零。",
     "aptitude_use": "服用",

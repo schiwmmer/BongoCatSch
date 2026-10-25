@@ -207,7 +207,11 @@ fn the_two_art_powers_are_shown_beside_the_attribute_totals(cx: &mut TestAppCont
     // pays no attribute at all and would otherwise be invisible).
     assert!(
         painted(visual, "cultivation-power-breakdown"),
-        "the level · gear · crop · 内功 · 外功 line must be on the page"
+        "the level · placed · gear · crop · 内功 line must be on the page"
+    );
+    assert!(
+        painted(visual, "cultivation-power-external-line"),
+        "外功 is priced on its own line, outside the total it would break"
     );
     assert!(
         !painted(visual, "cultivation-power-schools"),
@@ -775,6 +779,12 @@ fn the_page_explains_which_layer_each_number_belongs_to(cx: &mut TestAppContext)
     assert!(
         !cultivation.derived_breakdowns.is_empty(),
         "the page has an arithmetic to show behind each number"
+    );
+    assert_eq!(
+        cultivation.power_breakdown.parts_total(),
+        cultivation.power,
+        "the breakdown has to reach the number in the corner: {:?}",
+        cultivation.power_breakdown
     );
     let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
     let (_view, visual) = cultivation_page_with(cx, pomodoro);

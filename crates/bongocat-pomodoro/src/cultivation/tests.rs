@@ -17,6 +17,11 @@ fn day(number: i64) -> CalendarDay {
     CalendarDay::from_day_number(number)
 }
 
+/// The instant that local day opens, for a charge that wants a timestamp.
+fn day_unix(day: CalendarDay) -> i64 {
+    day.day_number() * 86_400
+}
+
 /// Set out and come home: what the road paid, once the walk is back.
 ///
 /// A walk pays nothing when it leaves any more — the tick that settles it is
@@ -138,11 +143,15 @@ fn a_missed_day_costs_growth_and_every_following_one_escalates() {
         ..CultivationDocument::default()
     });
     // The first day without a session costs the base penalty (stage one).
-    let first = cultivation.apply_absence(day(20_002)).expect("a charge");
+    let first = cultivation
+        .apply_absence(day(20_002), day_unix(day(20_002)))
+        .expect("a charge");
     assert_eq!(first.days, 1);
     assert_eq!(first.charged, ABSENCE_BASE_PENALTY);
     // Two more missed days each escalate by the step, at stage one.
-    let second = cultivation.apply_absence(day(20_004)).expect("a charge");
+    let second = cultivation
+        .apply_absence(day(20_004), day_unix(day(20_004)))
+        .expect("a charge");
     let day_two = (ABSENCE_BASE_PENALTY as f64 * 1.2_f64.powi(1)) as u32;
     let day_three = (ABSENCE_BASE_PENALTY as f64 * 1.2_f64.powi(2)) as u32;
     assert_eq!(second.days, 2);
@@ -161,9 +170,15 @@ fn the_same_day_is_never_charged_twice() {
         charged_through_day: Some(20_000),
         ..CultivationDocument::default()
     });
-    assert!(cultivation.apply_absence(day(20_002)).is_some());
     assert!(
-        cultivation.apply_absence(day(20_002)).is_none(),
+        cultivation
+            .apply_absence(day(20_002), day_unix(day(20_002)))
+            .is_some()
+    );
+    assert!(
+        cultivation
+            .apply_absence(day(20_002), day_unix(day(20_002)))
+            .is_none(),
         "a re-launch on the same day charges nothing"
     );
     assert_eq!(cultivation.document().growth, 1_000 - ABSENCE_BASE_PENALTY);
@@ -179,7 +194,7 @@ fn a_deeper_realm_pays_a_deeper_penalty() {
         ..CultivationDocument::default()
     });
     let shallow_charge = shallow
-        .apply_absence(day(20_002))
+        .apply_absence(day(20_002), day_unix(day(20_002)))
         .expect("a charge")
         .charged;
     let mut deep = Cultivation::new(CultivationDocument {
@@ -189,9 +204,116 @@ fn a_deeper_realm_pays_a_deeper_penalty() {
         charged_through_day: Some(20_000),
         ..CultivationDocument::default()
     });
-    let deep_charge = deep.apply_absence(day(20_002)).expect("a charge").charged;
+    let deep_charge = deep
+        .apply_absence(day(20_002), day_unix(day(20_002)))
+        .expect("a charge")
+        .charged;
     // Stage five (realm index four) multiplies the base by five.
     assert_eq!(deep_charge, shallow_charge * 5);
+}
+
+/// A charge made while nobody was looking is in the log afterwards.
+///
+/// The penalty is the one move the ladder makes on its own, so it belongs in the
+/// durable log rather than only in a notice the next quit forgets: this is the
+/// test for the report "a day went missing and nothing said so".
+#[test]
+fn a_charge_is_written_into_the_event_log() {
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        growth: 100_000,
+        last_active_day: Some(20_000),
+        charged_through_day: Some(20_000),
+        ..CultivationDocument::default()
+    });
+    let at = day_unix(day(20_002));
+    let charge = cultivation
+        .apply_absence(day(20_002), at)
+        .expect("a charge");
+    let logged = cultivation.view().events.iter().any(|event| {
+        event.at_unix == at
+            && event.detail
+                == EventDetail::Absence {
+                    days: charge.days,
+                    charged: charge.charged,
+                }
+    });
+    assert!(
+        logged,
+        "the charge has to survive the notice: {:?}",
+        cultivation.view().events
+    );
+    // And the charge is what it says it is: the growth it took is the drop the
+    // level made, so the line and the ladder agree.
+    assert_eq!(charge.charged, ABSENCE_BASE_PENALTY);
+    assert_eq!(cultivation.document().growth, 100_000 - charge.charged);
+}
+
+/// Every line of the power breakdown adds up to the total it explains.
+///
+/// The panel used to print five sources that summed to less than the number in
+/// the corner, because the points the user had placed and the gear's outright
+/// numbers were missing and the pairing bonus was counted per source instead of
+/// once over the whole body. This pins the arithmetic the page now prints.
+#[test]
+fn the_power_breakdown_adds_up_to_the_power_it_explains() {
+    let item = EquipmentRecord {
+        id: 1,
+        slot: EquipSlot::Weapon,
+        tier: 4,
+        rarity: Rarity::Rare,
+        attributes: Attributes::new(30, 40, 0, 20),
+        bonus: Derived {
+            attack: 60,
+            spell: 20,
+            ..Derived::default()
+        },
+        ..EquipmentRecord::default()
+    };
+    let cultivation = Cultivation::new(CultivationDocument {
+        growth: 20_000,
+        realm: 1,
+        allocated: Attributes::new(10, 20, 0, 30),
+        crop_bonus: Attributes::new(5, 0, 7, 0),
+        equipment: vec![item],
+        equipped: vec![Some(1), None, None, None],
+        ..CultivationDocument::default()
+    });
+    let breakdown = cultivation.power_breakdown();
+    assert_eq!(breakdown.total, cultivation.power());
+    assert_eq!(
+        breakdown.parts_total(),
+        breakdown.total,
+        "the lines have to add up to the number they explain: {breakdown:?}"
+    );
+    for (name, value) in [
+        ("level", breakdown.level),
+        ("allocated", breakdown.allocated),
+        ("equipment", breakdown.equipment),
+        ("equipment_bonus", breakdown.equipment_bonus),
+        ("crop", breakdown.crop),
+    ] {
+        assert!(
+            value > 0,
+            "{name} is missing from the breakdown: {breakdown:?}"
+        );
+    }
+    // The pairing the split loses is exactly the difference between reading the
+    // body whole and reading it source by source.
+    let whole = cultivation.attributes().power();
+    let by_source = breakdown.level
+        + breakdown.allocated
+        + breakdown.equipment
+        + breakdown.crop
+        + breakdown.art;
+    assert_eq!(
+        breakdown.synergy,
+        whole.saturating_sub(by_source),
+        "the residual is the pairing, not a rounding"
+    );
+    assert!(
+        breakdown.synergy > 0,
+        "two sources pay a pairing: {breakdown:?}"
+    );
 }
 
 #[test]
@@ -204,7 +326,9 @@ fn a_penalty_never_takes_back_the_realm_already_entered() {
         ..CultivationDocument::default()
     });
     // A month of missing sessions would cost far more than the realm floor.
-    let charge = cultivation.apply_absence(day(20_040)).expect("a charge");
+    let charge = cultivation
+        .apply_absence(day(20_040), day_unix(day(20_040)))
+        .expect("a charge");
     assert_eq!(charge.days, 39);
     assert_eq!(
         cultivation.document().growth,
@@ -621,7 +745,7 @@ fn an_absence_penalty_lowers_the_level_but_never_the_points_earned() {
     assert!(granted > 0, "level {level} has paid points");
 
     let charge = cultivation
-        .apply_absence(day(20_010))
+        .apply_absence(day(20_010), day_unix(day(20_010)))
         .expect("nine missed days");
     assert!(charge.charged > 0);
     assert!(cultivation.level() < level, "the ladder came down");
@@ -934,6 +1058,25 @@ fn one_walk_at_a_time_and_it_pays_when_it_comes_home() {
             .explore(start + WALK_SECONDS, ExplorationHours::Twelve)
             .is_some()
     );
+}
+
+/// A walk outlives the quit: the document keeps it, so reopening the app finds
+/// the cultivator still on the road with the time that is left rather than
+/// silently home again.
+#[test]
+fn a_walk_survives_a_restart() {
+    let started = 1_000;
+    let mut cultivation = Cultivation::default();
+    cultivation
+        .explore(started, ExplorationHours::Twelve)
+        .expect("the walk sets out");
+    let reloaded = Cultivation::new(cultivation.document().clone());
+    let walk = reloaded.walk().expect("still out after the restart");
+    assert_eq!(walk.ends_unix, started + WALK_SECONDS);
+    assert!(!walk.early, "a walk nobody called is still a walk");
+    let view = reloaded.view_on(started + 3_600, 0);
+    assert!(!view.exploration_ready, "still on the road");
+    assert_eq!(view.exploration_ready_at, Some(started + WALK_SECONDS));
 }
 
 /// 提前回返：the walk comes home with nothing, and the trip back is a third of

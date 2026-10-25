@@ -395,6 +395,52 @@ impl ExplorationFindView {
     }
 }
 
+/// The total power, cut into the sources that made it.
+///
+/// Every field except `external` adds up to [`Self::total`], `synergy`
+/// included: see [`Cultivation::power_breakdown`] for why the split needs a
+/// residual line at all. `external` is what the best 外功 adds to a blow and is
+/// deliberately outside the sum — a 外功 is not part of what the body is worth.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PowerBreakdown {
+    /// What the level alone carries.
+    pub level: u32,
+    /// What the points the user placed are worth.
+    pub allocated: u32,
+    /// The four attributes the worn gear carries.
+    pub equipment: u32,
+    /// What the worn gear adds outright — 攻击力, 生命值, 命中 and the rest.
+    pub equipment_bonus: u32,
+    /// The attributes the crops have paid.
+    pub crop: u32,
+    /// The attributes the 内功 have paid.
+    pub art: u32,
+    /// What the 内功 add outright.
+    pub art_bonus: u32,
+    /// What the best 外功 adds per blow, as power. Not part of [`Self::total`].
+    pub external: u32,
+    /// The pairing bonus the split cannot see: what the four attributes pay as
+    /// one body minus what the same attributes pay source by source.
+    pub synergy: u32,
+    /// The number every surface prints as 战力.
+    pub total: u32,
+}
+
+impl PowerBreakdown {
+    /// The sources as they add up, `synergy` included — the number that has to
+    /// equal [`Self::total`].
+    pub fn parts_total(self) -> u32 {
+        self.level
+            .saturating_add(self.allocated)
+            .saturating_add(self.equipment)
+            .saturating_add(self.equipment_bonus)
+            .saturating_add(self.crop)
+            .saturating_add(self.art)
+            .saturating_add(self.art_bonus)
+            .saturating_add(self.synergy)
+    }
+}
+
 /// Everything a surface reads in one value.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CultivationView {
@@ -423,6 +469,10 @@ pub struct CultivationView {
     /// The free points still waiting to be placed.
     pub free_points: u32,
     pub power: u32,
+    /// The total above, cut into the sources that made it. Every line of it adds
+    /// up to [`Self::power`], which is what lets the panel print a sum the user
+    /// can check against the number in the corner.
+    pub power_breakdown: PowerBreakdown,
     pub equipped: [Option<ItemView>; SLOT_COUNT],
     pub inventory: Vec<ItemView>,
     pub seeds: Vec<SeedView>,
@@ -1047,6 +1097,52 @@ impl Cultivation {
             .saturating_add(self.art_bonus().power())
     }
 
+    /// The total above, cut into the sources that made it — every line adding
+    /// up to [`Self::power`], including the one line that is not a source.
+    ///
+    /// A surface that printed the sources without that line printed a sum that
+    /// did not reach the total, which is what the panel used to do: four
+    /// attributes read as two schools pay a *pairing* bonus on the shorter half
+    /// of each pair, and a pairing counted per source is worth less than the
+    /// same pairing counted once over the whole body. Splitting the body into
+    /// five parts therefore loses `min(a, b) − Σ min(aᵢ, bᵢ)` on each half, and
+    /// that difference is [`PowerBreakdown::synergy`].
+    ///
+    /// The parts are the level, the points the user placed, the gear's own
+    /// attributes, what the gear adds outright, the crops, the 内功's
+    /// attributes, what the 内功 adds outright — and then the residual. 外功 is
+    /// priced separately by [`Self::external_power`] because it is not part of
+    /// this total: it is what a blow lands for, not what the body is worth.
+    pub fn power_breakdown(&self) -> PowerBreakdown {
+        let level = self.level_attributes().power();
+        let allocated = self.allocated_attributes().power();
+        let equipment = self.equipment_attributes().power();
+        let equipment_bonus = self.equipment_bonus().power();
+        let crop = self.crop_attributes().power();
+        let art = self.art_attributes().power();
+        let art_bonus = self.art_bonus().power();
+        let total = self.power();
+        let parts = level
+            .saturating_add(allocated)
+            .saturating_add(equipment)
+            .saturating_add(equipment_bonus)
+            .saturating_add(crop)
+            .saturating_add(art)
+            .saturating_add(art_bonus);
+        PowerBreakdown {
+            level,
+            allocated,
+            equipment,
+            equipment_bonus,
+            crop,
+            art,
+            art_bonus,
+            external: self.external_power(),
+            synergy: total.saturating_sub(parts),
+            total,
+        }
+    }
+
     /// What the 内功 alone are worth as power.
     ///
     /// Their attributes at the very scale the four attributes are read at, plus
@@ -1110,7 +1206,7 @@ impl Cultivation {
     /// Charged through yesterday, never through today: a day the user is still
     /// in cannot have been finished without a session, and charging it would
     /// punish someone for not having worked yet at nine in the morning.
-    pub fn apply_absence(&mut self, today: CalendarDay) -> Option<AbsenceCharge> {
+    pub fn apply_absence(&mut self, today: CalendarDay, now_unix: i64) -> Option<AbsenceCharge> {
         let last_active = self.document.last_active_day?;
         let charged_through = self.document.charged_through_day.unwrap_or(last_active);
         let first = charged_through.saturating_add(1);
@@ -1137,6 +1233,16 @@ impl Cultivation {
             charged: before.saturating_sub(self.document.growth),
         };
         self.last_absence = Some(charge);
+        // The log keeps the charge past the quit that ends the notice: it is the
+        // one move the ladder makes while nobody is watching, and a level the
+        // user cannot account for is a level they will report as a bug.
+        self.push_event(
+            now_unix,
+            EventDetail::Absence {
+                days: charge.days,
+                charged: charge.charged,
+            },
+        );
         Some(charge)
     }
 
@@ -1147,7 +1253,7 @@ impl Cultivation {
         today: CalendarDay,
         _focus_minutes: u32,
     ) -> SessionReward {
-        let absence = self.apply_absence(today);
+        let absence = self.apply_absence(today, now_unix);
         let today_number = today.day_number();
         // The session number resets on a new local day, which `last_active_day`
         // already records: the first sit-down of the day is number one, every
@@ -2839,6 +2945,7 @@ impl Cultivation {
             art_attributes,
             free_points: self.free_points(),
             power: self.power(),
+            power_breakdown: self.power_breakdown(),
             equipped,
             inventory,
             seeds,
@@ -3406,6 +3513,11 @@ mod tests {
         CalendarDay::from_day_number(number)
     }
 
+    /// The instant that local day opens, for a charge that wants a timestamp.
+    fn day_unix(day: CalendarDay) -> i64 {
+        day.day_number() * 86_400
+    }
+
     /// An even hundred holds a body until its 洗髓丹 are paid: the herb is not
     /// burned against a gate it did not open, and the pill count is the number
     /// the brief names — 200 costs two, 300 three.
@@ -3809,8 +3921,12 @@ mod tests {
 
         // Charged through yesterday: asking on the twentieth charges nothing,
         // because the twentieth is the day still being lived in.
-        let charged = trained.apply_absence(day(21)).expect("a day was charged");
-        let flat = bare.apply_absence(day(21)).expect("a day was charged");
+        let charged = trained
+            .apply_absence(day(21), day_unix(day(21)))
+            .expect("a day was charged");
+        let flat = bare
+            .apply_absence(day(21), day_unix(day(21)))
+            .expect("a day was charged");
         assert_eq!(charged.days, 1);
         assert_eq!(charged.charged, flat.charged * 2, "twice the bare penalty");
         assert_eq!(

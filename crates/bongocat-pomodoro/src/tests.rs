@@ -10,7 +10,8 @@ use std::time::Duration;
 
 use crate::{
     CalendarDay, CalendarDayTotal, DEFAULT_FOCUS_MINUTES, MIN_FOCUS_MINUTES, PomodoroCommand,
-    PomodoroState, PomodoroTaskStatus, Timer, month_grid, month_totals, sanitize_task_name,
+    PomodoroState, PomodoroTaskStatus, Timer, TimerState, month_grid, month_totals,
+    sanitize_task_name,
 };
 
 fn create(state: &mut PomodoroState, name: &str, estimated: u32) -> u64 {
@@ -183,8 +184,10 @@ fn a_day_total_splits_sessions_between_tasks_on_the_same_day() {
     assert_eq!(total.tasks, 2);
 }
 
+/// A restart is not an abandon: the history stays, and the session that was
+/// running comes back running with the time it actually has left.
 #[test]
-fn a_restart_keeps_the_history_and_drops_the_countdown() {
+fn a_restart_keeps_the_history_and_the_session_in_flight() {
     let directory = tempfile::tempdir().expect("a temporary directory");
     let path = directory.path().join("pomodoro-tasks.json");
 
@@ -193,28 +196,82 @@ fn a_restart_keeps_the_history_and_drops_the_countdown() {
     state.apply(PomodoroCommand::StartTask { task_id }, 1_000);
     state.advance(Duration::from_secs(1_500), 1_500);
     // One session done, and the next one left running when the machine goes
-    // away: the document must keep the first and drop the second.
+    // away: the document keeps both.
     assert_eq!(state.timer(), Timer::Idle);
     state.apply(PomodoroCommand::StartTask { task_id }, 2_000);
     state.advance(Duration::from_secs(60), 2_060);
     assert!(state.timer().state().is_running());
     crate::document::write_document(&path, state.document()).expect("write the document");
 
-    let reloaded = PomodoroState::load(&path);
+    let mut reloaded = PomodoroState::load(&path);
     let snapshot = reloaded.snapshot(1);
     assert_eq!(snapshot.tasks.len(), 1);
     assert_eq!(snapshot.tasks[0].name, "survives a restart");
     assert_eq!(snapshot.tasks[0].completed_pomodoros, 1);
-    assert_eq!(snapshot.timer, None, "a countdown is not restored");
+    let restored = snapshot.timer.expect("the session comes back");
+    assert_eq!(restored.task_id, task_id);
+    assert!(
+        restored.state.is_running(),
+        "it was running when it stopped"
+    );
+    assert_eq!(restored.total_seconds, DEFAULT_FOCUS_MINUTES * 60);
     assert!(snapshot.last_completion.is_none());
 
-    // Starting again from the task gives a whole session, not the leftover.
-    let mut reloaded = reloaded;
-    reloaded.apply(PomodoroCommand::StartTask { task_id }, 2_000);
+    // The wall clock kept running while the application did not: the record
+    // holds the instant the countdown started, so opening the app 1,100 seconds
+    // later finds 400 seconds left rather than the 1,500 it was written with.
+    assert!(reloaded.resume_live_session(3_100).is_none());
+    assert_eq!(reloaded.timer().remaining_seconds(), 400);
+}
+
+/// A session whose time ran out while the app was closed settles on the next
+/// launch: the growth and the count are paid, not quietly dropped.
+#[test]
+fn a_session_that_ran_out_while_closed_settles_on_the_next_launch() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let path = directory.path().join("pomodoro-tasks.json");
+
+    let mut state = PomodoroState::load(&path);
+    let task_id = create(&mut state, "finished while away", 1);
+    state.apply(PomodoroCommand::StartTask { task_id }, 1_000);
+    crate::document::write_document(&path, state.document()).expect("write the document");
+
+    let mut reloaded = PomodoroState::load(&path);
+    let completion = reloaded
+        .resume_live_session(1_000 + i64::from(DEFAULT_FOCUS_MINUTES) * 60 + 5)
+        .expect("the session came due while the app was shut");
+    assert_eq!(completion.task_id, task_id);
+    assert_eq!(reloaded.timer(), Timer::Idle);
+    let snapshot = reloaded.snapshot(2);
+    assert_eq!(snapshot.total_pomodoros, 1);
+    assert_eq!(snapshot.tasks[0].completed_pomodoros, 1);
+    assert_eq!(reloaded.document().live, None, "the session is over");
+}
+
+/// A paused session comes back paused, and the pause was not spent while the
+/// application was closed.
+#[test]
+fn a_paused_session_comes_back_paused_and_unchanged() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let path = directory.path().join("pomodoro-tasks.json");
+
+    let mut state = PomodoroState::load(&path);
+    let task_id = create(&mut state, "paused", 1);
+    state.apply(PomodoroCommand::StartTask { task_id }, 1_000);
+    state.advance(Duration::from_secs(300), 1_300);
+    state.apply(PomodoroCommand::Pause, 1_300);
+    crate::document::write_document(&path, state.document()).expect("write the document");
+
+    let mut reloaded = PomodoroState::load(&path);
+    assert_eq!(reloaded.timer().state(), TimerState::Paused);
     assert_eq!(
         reloaded.timer().remaining_seconds(),
-        DEFAULT_FOCUS_MINUTES * 60
+        DEFAULT_FOCUS_MINUTES * 60 - 300,
+        "a pause keeps the five minutes it had already spent"
     );
+    // A day later the pause still holds: nothing was spent while it was paused.
+    assert!(reloaded.resume_live_session(100_000).is_none());
+    assert_eq!(reloaded.timer().state(), TimerState::Paused);
 }
 
 #[test]

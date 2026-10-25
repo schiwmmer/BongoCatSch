@@ -873,6 +873,7 @@
     },
     "event": {
       "session": "Session finished, +%{growth} growth",
+      "absence": "%{days} days without practice — growth -%{charged}",
       "walk": "Walked out: %{outcome}",
       "train_failed": "Training “%{name}” came to nothing; the progress stays",
       "train_progress": "Training “%{name}” moved along",
@@ -942,7 +943,12 @@
       "span": "%{from}–%{to}"
     },
     "power_art": "Internal %{value}",
-    "power_external": "External +%{value}",
+    "power_art_bonus": "Internal lines %{value}",
+    "power_allocated": "Placed %{value}",
+    "power_equipment_bonus": "Gear lines %{value}",
+    "power_external": "External, per blow +%{value}",
+    "power_synergy": "Pairing %{value}",
+    "power_total": "Total %{value}",
     "aptitude_title": "Aptitude",
     "aptitude_hint": "Aptitude sets how reliably and how fast arts are learned: at 0 an attempt succeeds 50% (yellow) / 42% (profound) / 35% (earth) / 20% (heaven) / 5% (divine) and a rank costs three times the printed pomodoros; each point multiplies the rate by 1.01 and the cost by 0.99 (a fraction up to 0.2 rounds down, above it rounds up). Every hundred needs a Marrow Pill before it can move again. Ten arts — two per grade — are written for it: each rank they take adds 0.2 to 2.0 points by grade. Every failed attempt multiplies the success rate by another 1.01, and the count belongs to the whole art rather than to the 阶 it was spent on.",
     "aptitude_use": "Feed",

@@ -73,40 +73,50 @@ pub(super) fn attributes_panel(
                 attribute_hint(attribute.index(), name, explanation, hint_tokens)
             })
     });
-    // What the level, the gear, the crops and the two 功法 halves are each
-    // worth. The 内功 and 外功 lines are the two an art build reads: an 内功 pays
-    // attributes (and so is a slice of the total), while an 外功 pays no
-    // attribute at all and would otherwise be invisible.
-    let breakdown = format!(
-        "{} · {} · {} · {} · {}",
+    // Every source the total is made of, and then the total itself.
+    //
+    // The panel used to print five of them and stop, and the five did not add up
+    // to the number in the corner: the points the user had placed by hand were
+    // missing, the gear's outright combat numbers were missing, and the pairing
+    // bonus the two schools pay was counted once per source instead of once over
+    // the whole body. A breakdown that does not reach its own total is worse than
+    // none — it reads as a bug in the arithmetic rather than in the line — so
+    // every part the domain knows about is printed, a residual 配对 line carries
+    // whatever the split cannot see, and the row ends on the total it equals.
+    let breakdown = cultivation.power_breakdown;
+    let parts = [
+        ("cultivation.power_level", breakdown.level),
+        ("cultivation.power_allocated", breakdown.allocated),
+        ("cultivation.power_equipment", breakdown.equipment),
+        (
+            "cultivation.power_equipment_bonus",
+            breakdown.equipment_bonus,
+        ),
+        ("cultivation.power_crop", breakdown.crop),
+        ("cultivation.power_art", breakdown.art),
+        ("cultivation.power_art_bonus", breakdown.art_bonus),
+        ("cultivation.power_synergy", breakdown.synergy),
+    ]
+    .into_iter()
+    .map(|(key, value)| format_text(locale, key, &[("value", value.to_string())]))
+    .collect::<Vec<_>>()
+    .join(" · ");
+    let parts_line = format!(
+        "{} ＝ {}",
+        parts,
         format_text(
             locale,
-            "cultivation.power_level",
-            &[("value", cultivation.level_attributes.power().to_string())],
+            "cultivation.power_total",
+            &[("value", breakdown.total.to_string())],
         ),
-        format_text(
-            locale,
-            "cultivation.power_equipment",
-            &[(
-                "value",
-                cultivation.equipment_attributes.power().to_string()
-            )],
-        ),
-        format_text(
-            locale,
-            "cultivation.power_crop",
-            &[("value", cultivation.crop_attributes.power().to_string())],
-        ),
-        format_text(
-            locale,
-            "cultivation.power_art",
-            &[("value", cultivation.art_power.to_string())],
-        ),
-        format_text(
-            locale,
-            "cultivation.power_external",
-            &[("value", cultivation.external_power.to_string())],
-        ),
+    );
+    // 外功 is not part of the sum: it is what a blow lands for, not what the body
+    // is worth, so it is priced on its own line rather than folded into a total
+    // it would have broken.
+    let external_line = format_text(
+        locale,
+        "cultivation.power_external",
+        &[("value", breakdown.external.to_string())],
     );
 
     let panel = div()
@@ -136,9 +146,18 @@ pub(super) fn attributes_panel(
     panel.child(
         div()
             .id("cultivation-power-breakdown")
+            .flex()
+            .flex_col()
+            .gap_0p5()
             .text_xs()
             .text_color(tokens.muted)
-            .child(breakdown)
+            .child(div().child(parts_line))
+            .child(
+                div()
+                    .id("cultivation-power-external-line")
+                    .child(external_line)
+                    .test_support(),
+            )
             .test_support(),
     )
 }

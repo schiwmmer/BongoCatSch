@@ -201,6 +201,11 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             "cultivation.event.session",
             &[("growth", growth.to_string())],
         ),
+        EventDetail::Absence { days, charged } => format_text(
+            locale,
+            "cultivation.event.absence",
+            &[("days", days.to_string()), ("charged", charged.to_string())],
+        ),
         EventDetail::Walk {
             outcome,
             art,

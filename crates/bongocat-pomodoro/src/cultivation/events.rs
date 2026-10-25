@@ -43,6 +43,19 @@ pub enum EventDetail {
         /// What the session paid, in growth.
         growth: u32,
     },
+    /// One or more whole days passed without a session and were charged for.
+    ///
+    /// The charge is the only thing the ladder does that takes growth while
+    /// nobody is looking, so it belongs in the durable log rather than only in a
+    /// notice the next quit forgets. A user who wonders where a level went has
+    /// to be able to read the day it went on.
+    Absence {
+        /// How many days the charge covered.
+        days: u32,
+        /// What it took, in growth. Zero when the total was already at the
+        /// realm's floor, which the line still says rather than hiding.
+        charged: u32,
+    },
     /// A walk came back. The finds travel by name, the way the walk record has
     /// always carried them.
     Walk {

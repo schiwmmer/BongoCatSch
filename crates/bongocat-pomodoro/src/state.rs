@@ -12,7 +12,7 @@ use std::{collections::BTreeMap, time::Duration};
 use crate::{
     CalendarDay, CalendarDayTotal, CalendarTaskActivity, Cultivation, CultivationView, EquipSlot,
     MAX_FOCUS_MINUTES, MAX_TASK_NAME_CHARS, MIN_FOCUS_MINUTES, Refusal,
-    document::{Document, TaskRecord, TaskStatus, read_document},
+    document::{Document, LiveSessionRecord, TaskRecord, TaskStatus, read_document},
 };
 
 /// Whether a task is still being worked on or has been finished.
@@ -299,7 +299,9 @@ impl PomodoroCommand {
     /// only used to decide whether the document has to be written back.
     fn changes_the_document(&self) -> bool {
         match self {
-            Self::StartTask { .. } | Self::Pause | Self::Resume | Self::Abandon => false,
+            // The four timer commands are durable now: the session in flight is
+            // in the document, so a quit or an upgrade can pick it up.
+            Self::StartTask { .. } | Self::Pause | Self::Resume | Self::Abandon => true,
             Self::CreateTask { .. } | Self::SetTaskDone { .. } | Self::SetFocusMinutes { .. } => {
                 true
             }
@@ -366,11 +368,14 @@ impl PomodoroState {
         Self::from_document(Document::default(), utc_offset_seconds)
     }
 
-    /// The state a stored document produces.
+    /// The state a stored document produces, with the session it was holding.
     ///
-    /// The timer starts idle whatever the document says, because the document
-    /// cannot hold one: a countdown restored on a later launch would be a
-    /// deadline that passed while the application was not running.
+    /// A session in flight comes back as it was left — running, or paused where
+    /// the user paused it — because an upgrade or a quit is not an abandon. The
+    /// time that passed while the application was closed is charged by
+    /// [`Self::resume_live_session`], which the worker calls before it starts
+    /// counting: a countdown restored here is still the countdown it was, and
+    /// this method has no clock to spend against it.
     pub fn load(path: &std::path::Path) -> Self {
         Self::load_at(path, 0)
     }
@@ -382,15 +387,35 @@ impl PomodoroState {
 
     fn from_document(document: Document, utc_offset_seconds: i32) -> Self {
         let focus_minutes = clamp_focus_minutes(document.focus_minutes);
+        let session_seconds = focus_minutes.saturating_mul(60);
         let cultivation = Cultivation::new(document.cultivation.clone());
+        // A record naming a task the document no longer has is stale — the task
+        // was deleted before the write — so it is dropped rather than restored
+        // into a countdown that would complete into nothing.
+        let timer = document
+            .live
+            .filter(|live| document.tasks.iter().any(|task| task.id == live.task_id))
+            .map_or(Timer::Idle, |live| {
+                let remaining_seconds = live.remaining_seconds.min(session_seconds);
+                match live.running_since_unix {
+                    Some(_) => Timer::Running {
+                        task_id: live.task_id,
+                        remaining_seconds,
+                    },
+                    None => Timer::Paused {
+                        task_id: live.task_id,
+                        remaining_seconds,
+                    },
+                }
+            });
         Self {
-            session_seconds: focus_minutes * 60,
+            session_seconds,
             document: Document {
                 focus_minutes,
                 cultivation: cultivation.document().clone(),
                 ..document
             },
-            timer: Timer::Idle,
+            timer,
             completions: 0,
             last_completion: None,
             cultivation,
@@ -428,10 +453,10 @@ impl PomodoroState {
                 name,
                 estimated_pomodoros,
             } => self.create_task(name, estimated_pomodoros, now_unix),
-            PomodoroCommand::StartTask { task_id } => self.start_task(task_id),
-            PomodoroCommand::Pause => self.pause(),
-            PomodoroCommand::Resume => self.resume(),
-            PomodoroCommand::Abandon => self.abandon(),
+            PomodoroCommand::StartTask { task_id } => self.start_task(task_id, now_unix),
+            PomodoroCommand::Pause => self.pause(now_unix),
+            PomodoroCommand::Resume => self.resume(now_unix),
+            PomodoroCommand::Abandon => self.abandon(now_unix),
             PomodoroCommand::SetTaskDone { task_id, done } => {
                 self.set_task_done(task_id, done, now_unix)
             }
@@ -560,7 +585,7 @@ impl PomodoroState {
     /// away charges them on the first tick after loading.
     pub fn apply_absence(&mut self, now_unix: i64) -> bool {
         let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
-        if self.cultivation.apply_absence(today).is_none() {
+        if self.cultivation.apply_absence(today, now_unix).is_none() {
             return false;
         }
         self.sync_cultivation();
@@ -621,7 +646,7 @@ impl PomodoroState {
             .push(TaskRecord::new(id, name, estimated_pomodoros, now_unix));
     }
 
-    fn start_task(&mut self, task_id: u64) {
+    fn start_task(&mut self, task_id: u64, now_unix: i64) {
         if !self.document.tasks.iter().any(|task| task.id == task_id) {
             return;
         }
@@ -633,9 +658,10 @@ impl PomodoroState {
             task_id,
             remaining_seconds: self.session_seconds,
         };
+        self.mirror_live_session(Some(now_unix));
     }
 
-    fn pause(&mut self) {
+    fn pause(&mut self, now_unix: i64) {
         let Timer::Running {
             task_id,
             remaining_seconds,
@@ -647,9 +673,10 @@ impl PomodoroState {
             task_id,
             remaining_seconds,
         };
+        self.mirror_live_session(Some(now_unix));
     }
 
-    fn resume(&mut self) {
+    fn resume(&mut self, now_unix: i64) {
         let Timer::Paused {
             task_id,
             remaining_seconds,
@@ -663,12 +690,75 @@ impl PomodoroState {
             task_id,
             remaining_seconds,
         };
+        self.mirror_live_session(Some(now_unix));
     }
 
-    fn abandon(&mut self) {
+    fn abandon(&mut self, now_unix: i64) {
         if self.timer.task_id().is_some() {
             self.timer = Timer::Idle;
+            self.mirror_live_session(Some(now_unix));
         }
+    }
+
+    /// Write the countdown into the document, so the next launch picks it up.
+    ///
+    /// `running_since_unix` is when the countdown started running; a paused
+    /// session stores `None` so the next launch knows the clock is not against
+    /// it. The remaining time is written only on a transition, never on a tick:
+    /// a tick's write would rewrite the file once a second for a number the
+    /// elapsed time already accounts for.
+    fn mirror_live_session(&mut self, running_since_unix: Option<i64>) {
+        self.document.live = match self.timer {
+            Timer::Idle => None,
+            Timer::Running {
+                task_id,
+                remaining_seconds,
+            } => Some(LiveSessionRecord {
+                task_id,
+                remaining_seconds,
+                running_since_unix,
+            }),
+            Timer::Paused {
+                task_id,
+                remaining_seconds,
+            } => Some(LiveSessionRecord {
+                task_id,
+                remaining_seconds,
+                running_since_unix: None,
+            }),
+        };
+    }
+
+    /// Charge the session the wall clock spent while the app was not running.
+    ///
+    /// The worker calls this once, right after loading, before it starts
+    /// counting: a session that was running has been running the whole time, so
+    /// the remainder is what the record says minus the gap. A session whose time
+    /// ran out while the application was shut therefore comes home at zero and
+    /// settles here — its growth and its drop are paid on the next launch rather
+    /// than lost.
+    pub fn resume_live_session(&mut self, now_unix: i64) -> Option<PomodoroCompletion> {
+        let since = self
+            .document
+            .live
+            .and_then(|live| live.running_since_unix)?;
+        if self.timer.state() != TimerState::Running {
+            return None;
+        }
+        let closed = u32::try_from(now_unix.saturating_sub(since).max(0)).unwrap_or(u32::MAX);
+        // Nothing to charge and nothing due: a restored countdown with time left
+        // carries on from where it is. A record that came back empty is settled
+        // even at zero elapsed, because a countdown of zero that never settles
+        // would spin the worker's own wait at zero forever.
+        if closed == 0 && self.timer.remaining_seconds() > 0 {
+            return None;
+        }
+        // Re-anchor first: `advance` may end the session and clear the record,
+        // and a record left pointing at the old instant would be charged twice.
+        if let Some(live) = self.document.live.as_mut() {
+            live.running_since_unix = Some(now_unix);
+        }
+        self.advance(Duration::from_secs(u64::from(closed)), now_unix)
     }
 
     fn set_task_done(&mut self, task_id: u64, done: bool, now_unix: i64) {
@@ -723,6 +813,7 @@ impl PomodoroState {
     fn delete_task(&mut self, task_id: u64) {
         if self.timer.task_id() == Some(task_id) {
             self.timer = Timer::Idle;
+            self.mirror_live_session(None);
         }
         self.document.tasks.retain(|task| task.id != task_id);
     }
@@ -789,6 +880,7 @@ impl PomodoroState {
             }
         }
         self.timer = Timer::Idle;
+        self.mirror_live_session(Some(now_unix));
         // The lifetime total is not the sum of the task counters: deleting a
         // task takes its counter with it, and the work still happened.
         self.document.total_completions = self.document.total_completions.saturating_add(1);
@@ -1367,16 +1459,22 @@ mod tests {
         );
     }
 
+    /// The four timer commands outlive the session now: the countdown in flight
+    /// is in the document, so pausing, resuming, starting and abandoning all
+    /// have something to write.
     #[test]
     fn only_the_document_changing_commands_ask_for_a_write() {
-        assert!(!PomodoroState::command_writes_the_document(
+        assert!(PomodoroState::command_writes_the_document(
             &PomodoroCommand::Pause
         ));
-        assert!(!PomodoroState::command_writes_the_document(
+        assert!(PomodoroState::command_writes_the_document(
             &PomodoroCommand::Resume
         ));
-        assert!(!PomodoroState::command_writes_the_document(
+        assert!(PomodoroState::command_writes_the_document(
             &PomodoroCommand::Abandon
+        ));
+        assert!(PomodoroState::command_writes_the_document(
+            &PomodoroCommand::StartTask { task_id: 1 }
         ));
         assert!(PomodoroState::command_writes_the_document(
             &PomodoroCommand::CreateTask {
