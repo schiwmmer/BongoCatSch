@@ -101,14 +101,17 @@ mod tests {
 
     #[test]
     fn reaching_the_guardian_power_exactly_is_a_win() {
+        let attributes = Attributes::new(0, 500, 0, 0);
         let guardian = Guardian {
             target: Realm::Foundation,
-            power: 1_000,
+            power: attributes.power(),
         };
-        // 500 strength is 1,000 power exactly, on the scale the module uses.
-        let attributes = Attributes::new(0, 500, 0, 0);
         let report = resolve(attributes, guardian);
-        assert_eq!(report.player_power, 1_000);
+        assert_eq!(
+            report.player_power,
+            attributes.power(),
+            "the report prints the power the body carries"
+        );
         assert!(report.won);
     }
 }

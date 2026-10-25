@@ -98,6 +98,15 @@ pub fn layer_rank(level: u16) -> LayerRank {
     }
 }
 
+/// The growth one layer of the given realm costs.
+///
+/// Public because a penalty has to be spoken in the ladder's own unit: what a
+/// missed day costs is a number of *layers of the realm you are in*, not a
+/// number of growth points invented beside the curve.
+pub fn layer_growth(realm: u8) -> u32 {
+    stage_step(usize::from(realm))
+}
+
 /// Where a growth total sits on the ladder.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LevelProgress {

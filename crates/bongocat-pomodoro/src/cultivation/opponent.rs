@@ -31,11 +31,16 @@ use super::{
 /// How much gear an opponent may carry on top of its body, in parts per
 /// thousand of the body's own attribute points.
 ///
-/// Six tenths: the gear is a real bonus — that is the whole point of handing it
-/// to them — but it is capped, because an 极品 piece at a low realm is worth
-/// several bodies and would turn the first floor of the tower into a wall nobody
-/// climbs twice.
-const GEAR_SHARE_PERMILLE: u32 = 150;
+/// Eighteen hundredths: the gear is a real bonus — that is the whole point of
+/// handing it to them — but it is capped, because an 极品 piece at a low realm is
+/// worth several bodies and would turn the first floor of the tower into a wall
+/// nobody climbs twice.
+///
+/// The share is read against the body's *power*, so it had to move when the
+/// pairing bonus came out of the power formula: the allowance shrank with every
+/// body on the ladder while the pieces did not shrink as far, and a warden whose
+/// gear no longer fits is a warden softer than the floor below it.
+const GEAR_SHARE_PERMILLE: u32 = 180;
 
 /// How far the four attributes may drift apart because of the gear, in parts per
 /// thousand of the body's own value of that attribute.
@@ -311,10 +316,10 @@ fn scaled(attributes: Attributes, permille: i32) -> Attributes {
 /// the run-to-run difference between two fights of the same rung comes from.
 ///
 /// The check is the piece's *marginal* worth on the body it would join, not its
-/// standalone worth: the two schools pay a synergy bonus on the weaker half of
-/// each pair, so a piece can be worth more on a body than on its own — and an
-/// allowance read against the standalone number would let a piece through that
-/// the fight then reads at nearly half again as much.
+/// standalone worth: power is a weighted sum of the four attributes, so a piece
+/// that feeds an attribute a body already leans on pays differently from one
+/// that does not — and an allowance read against the standalone number would
+/// let a piece through that the fight then reads as more.
 fn wear(stance: Stance, body: &Attributes, tier: u8, rng: &mut Rng) -> Vec<EquipmentRecord> {
     // Measured in power rather than in raw points: the fight is decided on the
     // weighted sum, and two pieces worth the same points are not worth the same

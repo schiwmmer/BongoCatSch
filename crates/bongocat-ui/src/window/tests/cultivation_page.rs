@@ -322,6 +322,26 @@ fn a_free_attempt_is_fought_with_one_click(cx: &mut TestAppContext) {
     );
 }
 
+/// The board of jobs is on the page, three rows deep, and each row can be taken.
+#[gpui_kit::test]
+fn the_board_of_jobs_is_on_the_page(cx: &mut TestAppContext) {
+    let (_view, visual) = cultivation_page(cx);
+    visual.update(|window, cx| window.render_frame(cx));
+    scroll_until_visible(visual, "cultivation-jobs");
+    assert!(painted(visual, "cultivation-jobs"), "the board is drawn");
+    for slot in 0..3 {
+        assert!(
+            painted(visual, format!("cultivation-job-{slot}")),
+            "slot {slot} is missing from the board"
+        );
+    }
+    scroll_until_visible(visual, "cultivation-job-take-0");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-job-take-0", cx);
+    });
+}
+
 /// A walk under way is drawn as one: the panel counts down to its return and
 /// offers the way home instead of a second walk the domain would refuse.
 #[gpui_kit::test]

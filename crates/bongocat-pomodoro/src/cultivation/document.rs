@@ -139,6 +139,22 @@ pub struct CultivationDocument {
     /// chip the user picked last — so it outlives the walk it describes.
     #[serde(default)]
     pub last_exploration_hours: u8,
+    /// How many times the board has been re-rolled, ever.
+    ///
+    /// The board is a function of the day and this counter rather than a stored
+    /// list: a board written three realms ago would be pocket change today, and a
+    /// board a user never opened should not be the one they are handed next week.
+    /// A paid re-roll and a finished job both move it, so every outing is followed
+    /// by a fresh three.
+    #[serde(default)]
+    pub jobs_roll: u32,
+    /// The job being worked, if the cultivator is at one.
+    ///
+    /// A job holds the cultivator the way a walk does — it is hours of their day —
+    /// so the two cannot be done at once, and the one in flight has to outlive the
+    /// quit that would otherwise leave the hours unpaid.
+    #[serde(default)]
+    pub work: Option<crate::JobRun>,
     /// The walk under way, if the cultivator is out.
     ///
     /// A walk does not pay on the click any more: it pays when it comes home,

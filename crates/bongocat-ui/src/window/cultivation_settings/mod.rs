@@ -36,6 +36,7 @@ mod attributes;
 mod explore;
 mod garden;
 mod gear;
+mod jobs;
 mod proving;
 mod records;
 mod shop;
@@ -51,6 +52,7 @@ use attributes::{aptitude_panel, attributes_panel, derived_panel};
 use explore::{breakthrough_banner, breakthrough_panel, exploration_panel};
 use garden::{garden_panel, seed_panel};
 use gear::{equipment_panel, inventory_panel};
+use jobs::jobs_panel;
 // The history popup is mounted by the window frame beside the fight, so it
 // has to be visible past this module.
 use proving::proving_panel;
@@ -157,6 +159,7 @@ pub(super) fn content(
             locale,
             tokens,
         ))
+        .child(jobs_panel(&view, &cultivation, locale, tokens))
         .child(proving_panel(&view, &cultivation, locale, tokens))
         .child(trial_panel(&view, &cultivation, locale, tokens))
         .child(shop_panel(&view, &cultivation, open_offer, locale, tokens))

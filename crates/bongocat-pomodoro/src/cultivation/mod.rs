@@ -20,9 +20,10 @@
 //! * A realm ends at layer 100 and the next one opens only by beating its
 //!   guardian; the guardian is deliberately stronger than a naked cultivator at
 //!   that cap, so gear and herbs are the way through.
-//! * The four attributes feed two schools: 根骨 and 仙力 make the spell half,
-//!   力量 and 身法 the martial half, and each pair pays a synergy bonus on its
-//!   shorter side. See [`Attributes::power`].
+//! * The four attributes feed two halves: 根骨 and 仙力 make the spell half,
+//!   力量 and 身法 the martial half, and each half is the weighted sum of its
+//!   two attributes — linear, so a point is worth the same wherever it is
+//!   spent. See [`Attributes::power`].
 //! * Gear drops are one roll per session at [`EQUIPMENT_DROP_PERMILLE`], seeds
 //!   at [`SEED_DROP_PERMILLE`]; both are deliberately rare next to the growth
 //!   a session already pays.
@@ -46,6 +47,7 @@ mod events;
 mod explore;
 mod garden;
 mod items;
+mod jobs;
 mod opponent;
 mod proving;
 mod shop;
@@ -73,7 +75,7 @@ pub use battle::{BattleReport, Guardian};
 // else's business. A surface asks the state machine to fight, not the engine.
 pub use curve::{
     LAYERS_PER_REALM, LAYERS_PER_STAGE, LayerRank, LevelProgress, MAX_LEVEL, RANKS_PER_LAYER,
-    layer_rank, level_for_growth, threshold_for,
+    layer_growth, layer_rank, level_for_growth, threshold_for,
 };
 pub use daily::DailyKind;
 pub use document::CultivationDocument;
@@ -99,6 +101,9 @@ pub use items::{
     EquipSlot, EquipmentRecord, GearEffect, MAX_STAR, Rarity, SLOT_COUNT, STAR_SUCCESS_PERMILLE,
     star_multiplier_permille, star_success_permille,
 };
+pub use jobs::{
+    JOB_MAX_HOURS, JOB_MIN_HOURS, JOB_OFFER_COUNT, JobOffer, JobRun, job_stones, refresh_cost,
+};
 pub use proving::{ProvingOutcome, TRIAL_CHANCES_CAP};
 pub use shop::SESSION_EARNINGS;
 pub use shop::{
@@ -108,8 +113,8 @@ pub use shop::{
 pub use state::{
     AbsenceCharge, AptitudeUse, BreakthroughOutcome, CropView, Cultivation, CultivationView,
     DailyOutcome, Drop, DropView, ExplorationFindView, GuardianView, HarvestOutcome, ItemView,
-    PlotView, PowerBreakdown, SeedView, SessionReward, StarOutcome, TrainingView, TrialBlocked,
-    TrialOutcome,
+    JobView, PlotView, PowerBreakdown, SeedView, SessionReward, StarOutcome, TrainingView,
+    TrialBlocked, TrialOutcome,
 };
 pub use trade::{TradeRefusal, session_earnings};
 pub use trial::{
@@ -137,6 +142,13 @@ pub enum Refusal {
     /// A trial was asked for while the cultivator is still out on a walk: the
     /// tower is climbed at home, so an unreturned walk closes it.
     TrialOut,
+    /// A job was taken while the cultivator is already at one, or a walk was
+    /// started while they are working: both are hours of the same day, and the
+    /// cultivator is only in one place at a time.
+    Working,
+    /// A job was taken in a slot the board no longer holds — a day turned over
+    /// under a click on yesterday's board.
+    JobGone,
     /// A trial was asked for after the day's floors were used up.
     TrialDrained,
     /// A trial was asked for on a save that has already cleared the top floor.
@@ -159,6 +171,8 @@ impl Refusal {
             Self::TrialTop => "cultivation.trial.refuse_top",
             Self::ProvingSpent => "cultivation.proving.refuse_empty",
             Self::ProvingOut => "cultivation.proving.refuse_out",
+            Self::Working => "cultivation.jobs.refuse_working",
+            Self::JobGone => "cultivation.jobs.refuse_gone",
         }
     }
 }
@@ -178,13 +192,18 @@ pub const SESSION_BASE_GROWTH: u32 = 500;
 /// long session out-earn several short ones.
 const SESSION_GROWTH_STEP: f64 = 1.1;
 
-/// Growth the first missed day costs.
+/// How many layers of the realm the cultivator is standing in one missed day
+/// costs: five.
 ///
-/// Every further consecutive missed day costs more: see [`absence_penalty`]. The
-/// base is deliberately harsh so a day with no session is felt, but it is a fixed
-/// amount rather than a multiple of the base growth, which keeps a lapse from
-/// wiping out a single session's worth of progress in one stroke.
-pub const ABSENCE_BASE_PENALTY: u32 = 800;
+/// Spoken in layers rather than in growth because the ladder's own unit is the
+/// one the page already prints — a day's absence now costs the same *slice of
+/// the realm* at every depth, where a flat figure of eight hundred drifted from
+/// a third of a layer at the top of the ladder to eight of them at the bottom.
+/// Five is a deliberate over-payment: a day's sessions buy somewhere near two
+/// layers at the depths a save sits at, so missing one costs a little more than
+/// a day of work would have paid, and the streak's escalation is what makes a
+/// run of them bite.
+pub const ABSENCE_LAYERS_PER_DAY: u32 = 5;
 
 /// How much each extra consecutive missed day multiplies the base penalty by, per
 /// step past the first.
@@ -243,29 +262,27 @@ const SEED_RETURN_UPGRADE_PERCENT: u64 = 30;
 
 /// What one point of 根骨 adds to the spell half of the power.
 ///
-/// The channel matters, but the force matters more: 仙力 carries twice the
-/// weight of 根骨, so a spellcaster leans on mana while root is what lets the
-/// mana be spent at all.
-const ROOT_WEIGHT: i64 = 15;
+/// The channel matters, but the force matters more: 仙力 carries about a third
+/// again the weight of 根骨, so a spellcaster leans on mana while root is what
+/// lets the mana be spent at all.
+///
+/// The four weights are scaled by the same factor, which is why they read oddly
+/// next to the ones they replaced: taking the pairing bonus out of
+/// [`Attributes::power`] took a fifth off every power number on the ladder, and
+/// the weights are what put the scale back where the rest of the game had been
+/// tuned against it — the quality a power buys, the tier a power drops at and
+/// the guardian a power has to beat all read the *level* of this number, not
+/// the ratio between its halves.
+const ROOT_WEIGHT: i64 = 19;
 
 /// What one point of 仙力 adds to the spell half of the power.
-const MANA_WEIGHT: i64 = 20;
+const MANA_WEIGHT: i64 = 26;
 
 /// What one point of 力量 adds to the martial half of the power.
-const STRENGTH_WEIGHT: i64 = 20;
+const STRENGTH_WEIGHT: i64 = 26;
 
 /// What one point of 身法 adds to the martial half of the power.
-const AGILITY_WEIGHT: i64 = 12;
-
-/// What a balanced pair adds on top of its two weights, per point of the shorter
-/// half.
-///
-/// This is the link between the two attributes of a school: a spell needs both
-/// 根骨 and 仙力, a technique needs both 力量 and 身法, so the pair is scored by
-/// its weaker half as well as by its parts. Pouring every point into the heavier
-/// attribute of a pair therefore wastes the bonus, which is what makes the four
-/// numbers a decision instead of one number and three decorations.
-const PAIR_SYNERGY_WEIGHT: i64 = 10;
+const AGILITY_WEIGHT: i64 = 15;
 
 /// The power scale: the weighted sum is divided by this to reach the number the
 /// surfaces show and the fights compare.
@@ -494,40 +511,37 @@ impl Attributes {
     /// by this number alone, so the guardian's power and the cultivator's are
     /// computed the same way and can be shown side by side.
     ///
-    /// It is the sum of the two schools rather than one flat weighting, because
-    /// the four attributes are not four independent numbers: a spell needs a
-    /// body to channel it and a technique needs a body to land it. Splitting the
-    /// power into [`Self::spell_power`] and [`Self::martial_power`] lets a
-    /// surface show which half a piece of gear actually feeds.
+    /// It is the sum of the two halves rather than one flat weighting, and it is
+    /// *linear* in the four attributes: two sources added together are worth
+    /// exactly what each is worth alone, which is what lets the panel print a
+    /// breakdown whose lines add up to this number without a residual. See
+    /// [`super::PowerBreakdown`].
     pub fn power(self) -> u32 {
         self.spell_power().saturating_add(self.martial_power())
     }
 
     /// The spell half (法术): 根骨 carries the channel, 仙力 is the force.
     ///
-    /// The two are paired, so the weaker of them pays as well: each point of the
-    /// shorter half adds [`PAIR_SYNERGY_WEIGHT`] on top of its own weight. That
-    /// is what makes a spellcaster raise both instead of pouring everything into
-    /// the heavier attribute — a lopsided pair wastes the synergy.
+    /// Two weights and nothing else. There used to be a pairing bonus on the
+    /// shorter half of the two, and it went because it was unreadable: a bonus
+    /// that only exists when the two attributes happen to be close cannot be
+    /// seen on the panel, cannot be explained in one sentence, and made the
+    /// power breakdown disagree with its own total — see
+    /// [`super::PowerBreakdown`].
     pub fn spell_power(self) -> u32 {
         let root = i64::from(self.root).max(0);
         let mana = i64::from(self.mana).max(0);
-        let weighted =
-            root * ROOT_WEIGHT + mana * MANA_WEIGHT + root.min(mana) * PAIR_SYNERGY_WEIGHT;
-        scaled_power(weighted)
+        scaled_power(root * ROOT_WEIGHT + mana * MANA_WEIGHT)
     }
 
     /// The martial half (武术): 力量 is the force, 身法 is how well it lands.
     ///
-    /// Paired on the same rule as [`Self::spell_power`], so a fighter who only
-    /// stacks strength hits softer than one who trains both.
+    /// The same two weights and no pairing, so a point is worth what it says on
+    /// the card wherever it is spent.
     pub fn martial_power(self) -> u32 {
         let strength = i64::from(self.strength).max(0);
         let agility = i64::from(self.agility).max(0);
-        let weighted = strength * STRENGTH_WEIGHT
-            + agility * AGILITY_WEIGHT
-            + strength.min(agility) * PAIR_SYNERGY_WEIGHT;
-        scaled_power(weighted)
+        scaled_power(strength * STRENGTH_WEIGHT + agility * AGILITY_WEIGHT)
     }
 
     /// The points this set holds in total, used to count what has been spent.
@@ -1148,11 +1162,10 @@ pub fn session_growth(session_number: u32, stage: u32) -> u32 {
 /// cost to how far the cultivator has climbed, so a lapse at the top of the
 /// ladder is far dearer than one at the bottom — and at the starting realm
 /// (stage one) the first missed day is exactly [`ABSENCE_BASE_PENALTY`].
-pub fn absence_penalty(missed_streak: u32, stage: u32) -> u32 {
+pub fn absence_penalty(missed_streak: u32, layer_growth: u32) -> u32 {
     let exponent = f64::from(missed_streak);
-    let value = f64::from(ABSENCE_BASE_PENALTY)
-        * ABSENCE_PENALTY_STEP.powf(exponent)
-        * f64::from(stage.max(1));
+    let layers = f64::from(ABSENCE_LAYERS_PER_DAY) * ABSENCE_PENALTY_STEP.powf(exponent);
+    let value = layers * f64::from(layer_growth);
     value as u32
 }
 

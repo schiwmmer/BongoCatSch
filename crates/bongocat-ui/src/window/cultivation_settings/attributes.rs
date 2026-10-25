@@ -81,8 +81,8 @@ pub(super) fn attributes_panel(
     // bonus the two schools pay was counted once per source instead of once over
     // the whole body. A breakdown that does not reach its own total is worse than
     // none — it reads as a bug in the arithmetic rather than in the line — so
-    // every part the domain knows about is printed, a residual 配对 line carries
-    // whatever the split cannot see, and the row ends on the total it equals.
+    // every part the domain knows about is printed and the row ends on the total
+    // it equals.
     let breakdown = cultivation.power_breakdown;
     let parts = [
         ("cultivation.power_level", breakdown.level),
@@ -95,7 +95,6 @@ pub(super) fn attributes_panel(
         ("cultivation.power_crop", breakdown.crop),
         ("cultivation.power_art", breakdown.art),
         ("cultivation.power_art_bonus", breakdown.art_bonus),
-        ("cultivation.power_synergy", breakdown.synergy),
     ]
     .into_iter()
     .map(|(key, value)| format_text(locale, key, &[("value", value.to_string())]))

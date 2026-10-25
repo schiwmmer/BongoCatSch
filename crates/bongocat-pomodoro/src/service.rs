@@ -656,6 +656,11 @@ fn tick(shared: &Arc<SharedState>, path: &Path, elapsed: Duration) -> bool {
         inner.publish();
         inner.write_document(path);
     }
+    // And so does a job: it is hours of the cultivator's day, paid on the clock.
+    if inner.domain.apply_work_return(now) {
+        inner.publish();
+        inner.write_document(path);
+    }
     // The day opens once, whichever tick is the first of it: the morning event
     // is the ladder's one unprompted move, so it hangs off the same tick rather
     // than off a click the user might never make.

@@ -242,6 +242,14 @@ pub enum PomodoroCommand {
     /// Call the walk under way home early. It pays nothing, and the trip back
     /// is a third of the time already spent.
     ReturnWalk,
+    /// Take the job in that slot of the day's board.
+    ///
+    /// The slot rather than the job, for the reason the shelf is bought by slot:
+    /// the board is regenerated from the day, so a command naming the goods could
+    /// take tomorrow's job from yesterday's row.
+    AcceptJob { slot: usize },
+    /// Pay for a fresh board of jobs: three new draws, at the realm's price.
+    RefreshJobs,
     /// Climb one floor of the 锁妖塔: gated by the day's attempts and by being
     /// home rather than out on a walk.
     Tower,
@@ -318,6 +326,8 @@ impl PomodoroCommand {
             | Self::SelectArt { .. }
             | Self::Explore { .. }
             | Self::ReturnWalk
+            | Self::AcceptJob { .. }
+            | Self::RefreshJobs
             | Self::Tower
             | Self::Prove
             | Self::RecordInput { .. } => true,
@@ -507,6 +517,20 @@ impl PomodoroState {
             PomodoroCommand::ReturnWalk => {
                 self.cultivation.return_early(now_unix);
             }
+            PomodoroCommand::AcceptJob { slot } => {
+                let day = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
+                if let Err(refusal) = self
+                    .cultivation
+                    .accept_job(slot, now_unix, day.day_number())
+                {
+                    self.cultivation.note_refusal(refusal);
+                }
+            }
+            PomodoroCommand::RefreshJobs => {
+                if let Err(refusal) = self.cultivation.refresh_jobs() {
+                    self.cultivation.note_refusal(Refusal::Trade(refusal));
+                }
+            }
             PomodoroCommand::Tower => {
                 let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
                 self.cultivation.trial(now_unix, today.day_number());
@@ -603,6 +627,20 @@ impl PomodoroState {
     /// that quietly lost its find.
     pub fn apply_walk_return(&mut self, now_unix: i64) -> bool {
         if !self.cultivation.settle_walk(now_unix) {
+            return false;
+        }
+        self.sync_cultivation();
+        true
+    }
+
+    /// Settle a job that has come due, if one has. Returns whether anything
+    /// happened.
+    ///
+    /// The same tick that brings a walk home brings a job home: a job is hours of
+    /// the cultivator's day, and hours spent while the application was shut have
+    /// to be paid on the next launch rather than lost.
+    pub fn apply_work_return(&mut self, now_unix: i64) -> bool {
+        if self.cultivation.settle_work(now_unix).is_none() {
             return false;
         }
         self.sync_cultivation();

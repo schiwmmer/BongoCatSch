@@ -27,7 +27,7 @@ use super::{
     },
     base_attributes,
     battle::{guardian_for, resolve},
-    curve::{layer_rank, level_for_growth, stage_floor, threshold_for},
+    curve::{layer_growth, layer_rank, level_for_growth, stage_floor, threshold_for},
     daily::{
         DAILY_AMBUSH_STONES, DAILY_GIFT_STONES, DAILY_TRINKET_STONES, GiftKind, roll_gift,
         roll_kind,
@@ -174,6 +174,9 @@ pub struct TrialOutcome {
 pub enum TrialBlocked {
     /// The cultivator is still out on a walk: the tower is climbed at home.
     Out,
+    /// The cultivator is at a job: the tower is climbed at home, and a job is
+    /// hours of the same day a walk would have been.
+    Working,
     /// The day's floors are used up.
     Drained,
     /// Every floor of the tower is behind the save already.
@@ -185,6 +188,7 @@ impl TrialBlocked {
     pub const fn refusal(self) -> Refusal {
         match self {
             Self::Out => Refusal::TrialOut,
+            Self::Working => Refusal::Working,
             Self::Drained => Refusal::TrialDrained,
             Self::Top => Refusal::TrialTop,
         }
@@ -260,6 +264,33 @@ pub struct AptitudeUse {
     pub aptitude_tenths: i32,
     /// How many 洗髓丹 the move cost.
     pub marrow_spent: u32,
+}
+
+/// What one finished job paid.
+///
+/// Kept beside the walk's record for the same reason: the popup is a moment and
+/// the quit forgets it, and a page that could not say what the last job paid is a
+/// page whose money has no history.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WorkPaid {
+    /// How many 灵石 the job paid.
+    pub stones: u32,
+    /// How long the job took, in hours.
+    pub hours: u8,
+    /// The job's grade, which is what its purse was multiplied by.
+    pub grade: ArtGrade,
+}
+
+/// One job as a surface reads it: what it is, how long it takes and what it pays.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct JobView {
+    /// Its position on the board, which is what taking it names.
+    pub slot: usize,
+    pub tier: u8,
+    pub hours: u8,
+    pub grade: ArtGrade,
+    /// What it pays, as the range its purse opens between.
+    pub stones: (u32, u32),
 }
 
 /// One owned item, as a surface reads it.
@@ -397,10 +428,11 @@ impl ExplorationFindView {
 
 /// The total power, cut into the sources that made it.
 ///
-/// Every field except `external` adds up to [`Self::total`], `synergy`
-/// included: see [`Cultivation::power_breakdown`] for why the split needs a
-/// residual line at all. `external` is what the best 外功 adds to a blow and is
-/// deliberately outside the sum — a 外功 is not part of what the body is worth.
+/// Every field except `external` adds up to [`Self::total`] exactly: power is
+/// linear in the four attributes, so a source is worth on its own what it is
+/// worth in the sum. `external` is what the best 外功 adds to a blow and is
+/// deliberately outside that sum — a 外功 is not part of what the body is
+/// worth.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct PowerBreakdown {
     /// What the level alone carries.
@@ -419,16 +451,13 @@ pub struct PowerBreakdown {
     pub art_bonus: u32,
     /// What the best 外功 adds per blow, as power. Not part of [`Self::total`].
     pub external: u32,
-    /// The pairing bonus the split cannot see: what the four attributes pay as
-    /// one body minus what the same attributes pay source by source.
-    pub synergy: u32,
     /// The number every surface prints as 战力.
     pub total: u32,
 }
 
 impl PowerBreakdown {
-    /// The sources as they add up, `synergy` included — the number that has to
-    /// equal [`Self::total`].
+    /// The sources as they add up — the number that has to equal
+    /// [`Self::total`].
     pub fn parts_total(self) -> u32 {
         self.level
             .saturating_add(self.allocated)
@@ -437,7 +466,6 @@ impl PowerBreakdown {
             .saturating_add(self.crop)
             .saturating_add(self.art)
             .saturating_add(self.art_bonus)
-            .saturating_add(self.synergy)
     }
 }
 
@@ -485,6 +513,14 @@ pub struct CultivationView {
     pub last_breakthrough: Option<BreakthroughOutcome>,
     pub last_absence: Option<AbsenceCharge>,
     pub last_drop: Option<DropView>,
+    /// What the last finished job paid, kept past the quit that ends its popup.
+    pub last_work: Option<WorkPaid>,
+    /// The jobs on the board today, and the one being worked if there is one.
+    pub jobs: Vec<JobView>,
+    /// The job being worked, with the instant it comes due.
+    pub work: Option<super::JobRun>,
+    /// What a fresh board costs, at the realm the cultivator is worth.
+    pub job_refresh_cost: u32,
     /// The seed the most recent harvest gave back, if it gave one.
     pub last_seed_return: Option<SeedView>,
     /// Every 功法 owned, with the blueprint folded in.
@@ -718,6 +754,8 @@ pub struct Cultivation {
     last_exploration: Option<ExplorationOutcome>,
     /// What the last walk turned up, when it turned something up.
     last_exploration_found: Option<ExplorationFindView>,
+    /// What the last finished job paid.
+    last_work: Option<WorkPaid>,
     /// The floor the last trial settled, if one was climbed this session.
     last_trial: Option<TrialOutcome>,
     /// The 试炼 the last spent chance settled, if one was fought this session.
@@ -808,6 +846,7 @@ impl Cultivation {
             last_exploration_duel: None,
             last_exploration: None,
             last_exploration_found: None,
+            last_work: None,
             last_trial: None,
             last_proving: None,
             provings: 0,
@@ -1110,11 +1149,10 @@ impl Cultivation {
     ///
     /// The parts are the level, the points the user placed, the gear's own
     /// attributes, what the gear adds outright, the crops, the 内功's
-    /// attributes, what the 内功 adds outright — and then the residual. 外功 is
-    /// priced separately by [`Self::external_power`] because it is not part of
-    /// this total: it is what a blow lands for, not what the body is worth.
+    /// attributes and what the 内功 adds outright. 外功 is priced separately by
+    /// [`Self::external_power`] because it is not part of this total: it is what
+    /// a blow lands for, not what the body is worth.
     pub fn power_breakdown(&self) -> PowerBreakdown {
-        let level = self.level_attributes().power();
         let allocated = self.allocated_attributes().power();
         let equipment = self.equipment_attributes().power();
         let equipment_bonus = self.equipment_bonus().power();
@@ -1122,13 +1160,17 @@ impl Cultivation {
         let art = self.art_attributes().power();
         let art_bonus = self.art_bonus().power();
         let total = self.power();
-        let parts = level
-            .saturating_add(allocated)
+        // Every line above is a rounded number, so six of them can come to a
+        // point or two short of the whole. The level is the line that carries the
+        // difference: it is by far the largest, and a breakdown whose lines did
+        // not reach its own total is the report this panel exists to answer.
+        let rest = allocated
             .saturating_add(equipment)
             .saturating_add(equipment_bonus)
             .saturating_add(crop)
             .saturating_add(art)
             .saturating_add(art_bonus);
+        let level = total.saturating_sub(rest);
         PowerBreakdown {
             level,
             allocated,
@@ -1138,7 +1180,6 @@ impl Cultivation {
             art,
             art_bonus,
             external: self.external_power(),
-            synergy: total.saturating_sub(parts),
             total,
         }
     }
@@ -1216,10 +1257,12 @@ impl Cultivation {
         }
         let mut days = 0u32;
         let mut asked = 0u32;
-        let stage = self.realm().index() as u32 + 1;
         for _ in first..=last {
             asked = asked.saturating_add(scaled_growth(
-                absence_penalty(self.document.missed_streak, stage),
+                absence_penalty(
+                    self.document.missed_streak,
+                    layer_growth(self.document.realm),
+                ),
                 self.growth_multiplier_permille(),
             ));
             self.document.missed_streak = self.document.missed_streak.saturating_add(1);
@@ -2299,6 +2342,12 @@ impl Cultivation {
             self.note_refusal(Refusal::ExploreCooldown);
             return None;
         }
+        // A job holds the cultivator the way a walk does — it is hours of the
+        // same day — so the road is closed while one is being worked.
+        if self.document.work.is_some() {
+            self.note_refusal(Refusal::Working);
+            return None;
+        }
         let walk = super::WalkInProgress::started(now_unix, hours);
         self.document.last_exploration_unix = Some(now_unix);
         // The length is written down beside the instant, because the page draws
@@ -2495,6 +2544,102 @@ impl Cultivation {
         true
     }
 
+    /// The board of jobs on offer, for a local day.
+    ///
+    /// The board is a function of the day and of the realm the cultivator is
+    /// worth rather than a stored list: a board written three realms ago would be
+    /// pocket change today, and a board a user never opened should not be the one
+    /// they are handed next week. The counter is what a paid re-roll moves.
+    pub fn jobs(&self, day: i64) -> Vec<super::JobOffer> {
+        let tier = super::drop::tier_for_power(self.power());
+        let mut rng = Rng::seeded(
+            (day as u64)
+                .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+                .wrapping_add(
+                    u64::from(self.document.jobs_roll).wrapping_mul(0xBF58_476D_1CE4_E5B9),
+                ),
+        );
+        super::jobs::roll_jobs(&mut rng, tier)
+    }
+
+    /// Take the job in that slot of the board.
+    ///
+    /// Refused while the cultivator is out on a walk or already at a job: both are
+    /// hours of the same day, and a cultivator who can be in two places at once
+    /// has no reason to choose between them.
+    pub fn accept_job(
+        &mut self,
+        slot: usize,
+        now_unix: i64,
+        day: i64,
+    ) -> Result<super::JobRun, Refusal> {
+        if self.document.walk.is_some() {
+            return Err(Refusal::TrialOut);
+        }
+        if self.document.work.is_some() {
+            return Err(Refusal::Working);
+        }
+        let Some(offer) = self.jobs(day).get(slot).copied() else {
+            return Err(Refusal::JobGone);
+        };
+        let run = super::JobRun::started(offer, now_unix);
+        self.document.work = Some(run);
+        Ok(run)
+    }
+
+    /// Pay for a fresh board.
+    ///
+    /// The price is what stops the board being a slot machine: three draws at a
+    /// ten-thousandth, re-rolled until a 神阶 job turns up, would cost nothing at
+    /// all if this were free.
+    pub fn refresh_jobs(&mut self) -> Result<u32, TradeRefusal> {
+        let tier = super::drop::tier_for_power(self.power());
+        let cost = super::jobs::refresh_cost(tier);
+        if self.document.stones < cost {
+            return Err(TradeRefusal::NotEnoughStones);
+        }
+        self.document.stones = self.document.stones.saturating_sub(cost);
+        self.document.jobs_roll = self.document.jobs_roll.saturating_add(1);
+        Ok(cost)
+    }
+
+    /// Settle a job that has come due. Returns what it paid.
+    ///
+    /// Called by the worker's tick the way a walk's return is: a job is hours of
+    /// the cultivator's day, so it comes home on the clock rather than on a click,
+    /// and an app that was shut for the whole of it has to pay on the next launch
+    /// rather than lose the hours.
+    pub fn settle_work(&mut self, now_unix: i64) -> Option<WorkPaid> {
+        let run = self.document.work?;
+        if !run.is_done(now_unix) {
+            return None;
+        }
+        self.document.work = None;
+        let (low, high) = run.offer().stones();
+        let mut rng = self.rng(now_unix);
+        let span = u64::from(high.saturating_sub(low).saturating_add(1));
+        let stones = low.saturating_add(u32::try_from(rng.below(span)).unwrap_or(0));
+        self.document.stones = self.document.stones.saturating_add(stones);
+        // A finished job hands over a new board: the outing is over, and the next
+        // three are what the cultivator walks back into.
+        self.document.jobs_roll = self.document.jobs_roll.saturating_add(1);
+        let paid = WorkPaid {
+            stones,
+            hours: run.hours,
+            grade: run.grade,
+        };
+        self.last_work = Some(paid);
+        self.push_event(
+            now_unix,
+            EventDetail::Work {
+                stones,
+                hours: run.hours,
+                grade: run.grade,
+            },
+        );
+        Some(paid)
+    }
+
     /// Whether the cultivator is at home right now: no walk is under way.
     ///
     /// The walk is its own cooldown — the road pays when it comes home — so
@@ -2549,6 +2694,9 @@ impl Cultivation {
         }
         if !self.exploration_ready(now_unix) {
             return Some(TrialBlocked::Out);
+        }
+        if self.document.work.is_some() {
+            return Some(TrialBlocked::Working);
         }
         if self.trial_attempts_left(day) == 0 {
             return Some(TrialBlocked::Drained);
@@ -2973,6 +3121,21 @@ impl Cultivation {
             }),
             last_breakthrough: self.last_breakthrough.clone(),
             last_absence: self.last_absence,
+            last_work: self.last_work,
+            work: self.document.work,
+            job_refresh_cost: super::jobs::refresh_cost(super::drop::tier_for_power(self.power())),
+            jobs: self
+                .jobs(day)
+                .into_iter()
+                .enumerate()
+                .map(|(slot, offer)| JobView {
+                    slot,
+                    tier: offer.tier,
+                    hours: offer.hours,
+                    grade: offer.grade,
+                    stones: offer.stones(),
+                })
+                .collect(),
             last_drop: self.last_drop.clone().map(|drop| match drop {
                 Drop::Equipment(item) => DropView::Equipment(ItemView {
                     id: item.id,

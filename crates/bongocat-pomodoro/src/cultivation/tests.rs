@@ -142,23 +142,25 @@ fn a_missed_day_costs_growth_and_every_following_one_escalates() {
         charged_through_day: Some(20_000),
         ..CultivationDocument::default()
     });
-    // The first day without a session costs the base penalty (stage one).
+    // A missed day costs five layers of the realm it was missed in: 100 growth
+    // a layer at 炼气, so five hundred before the realm's own multiplier.
+    let base = |step: i32| {
+        (ABSENCE_LAYERS_PER_DAY as f64 * 1.2_f64.powi(step) * f64::from(layer_growth(0))) as u32
+    };
     let first = cultivation
         .apply_absence(day(20_002), day_unix(day(20_002)))
         .expect("a charge");
     assert_eq!(first.days, 1);
-    assert_eq!(first.charged, ABSENCE_BASE_PENALTY);
-    // Two more missed days each escalate by the step, at stage one.
+    assert_eq!(first.charged, base(0));
+    // Two more missed days each escalate by the step.
     let second = cultivation
         .apply_absence(day(20_004), day_unix(day(20_004)))
         .expect("a charge");
-    let day_two = (ABSENCE_BASE_PENALTY as f64 * 1.2_f64.powi(1)) as u32;
-    let day_three = (ABSENCE_BASE_PENALTY as f64 * 1.2_f64.powi(2)) as u32;
     assert_eq!(second.days, 2);
-    assert_eq!(second.charged, day_two + day_three);
+    assert_eq!(second.charged, base(1) + base(2));
     assert_eq!(
         cultivation.document().growth,
-        100_000 - ABSENCE_BASE_PENALTY - (day_two + day_three)
+        100_000 - base(0) - (base(1) + base(2))
     );
 }
 
@@ -181,7 +183,10 @@ fn the_same_day_is_never_charged_twice() {
             .is_none(),
         "a re-launch on the same day charges nothing"
     );
-    assert_eq!(cultivation.document().growth, 1_000 - ABSENCE_BASE_PENALTY);
+    assert_eq!(
+        cultivation.document().growth,
+        1_000 - ABSENCE_LAYERS_PER_DAY * layer_growth(0)
+    );
 }
 
 #[test]
@@ -208,8 +213,12 @@ fn a_deeper_realm_pays_a_deeper_penalty() {
         .apply_absence(day(20_002), day_unix(day(20_002)))
         .expect("a charge")
         .charged;
-    // Stage five (realm index four) multiplies the base by five.
-    assert_eq!(deep_charge, shallow_charge * 5);
+    // A layer of 化神 costs twenty-five times a layer of 炼气, and the penalty is
+    // spoken in layers, so the deeper realm pays exactly that much more.
+    assert_eq!(
+        deep_charge,
+        shallow_charge * layer_growth(4) / layer_growth(0)
+    );
 }
 
 /// A charge made while nobody was looking is in the log afterwards.
@@ -244,7 +253,11 @@ fn a_charge_is_written_into_the_event_log() {
     );
     // And the charge is what it says it is: the growth it took is the drop the
     // level made, so the line and the ladder agree.
-    assert_eq!(charge.charged, ABSENCE_BASE_PENALTY);
+    assert_eq!(
+        charge.charged,
+        ABSENCE_LAYERS_PER_DAY * layer_growth(0),
+        "one missed day is five layers of the realm it was missed in"
+    );
     assert_eq!(cultivation.document().growth, 100_000 - charge.charged);
 }
 
@@ -297,8 +310,8 @@ fn the_power_breakdown_adds_up_to_the_power_it_explains() {
             "{name} is missing from the breakdown: {breakdown:?}"
         );
     }
-    // The pairing the split loses is exactly the difference between reading the
-    // body whole and reading it source by source.
+    // Power is linear in the four attributes, so there is no residual: the body
+    // read whole is the body read source by source.
     let whole = cultivation.attributes().power();
     let by_source = breakdown.level
         + breakdown.allocated
@@ -306,13 +319,8 @@ fn the_power_breakdown_adds_up_to_the_power_it_explains() {
         + breakdown.crop
         + breakdown.art;
     assert_eq!(
-        breakdown.synergy,
-        whole.saturating_sub(by_source),
-        "the residual is the pairing, not a rounding"
-    );
-    assert!(
-        breakdown.synergy > 0,
-        "two sources pay a pairing: {breakdown:?}"
+        whole, by_source,
+        "a source is worth alone what it is worth in the sum: {breakdown:?}"
     );
 }
 
@@ -345,38 +353,32 @@ fn a_penalty_never_takes_back_the_realm_already_entered() {
 fn the_two_schools_read_only_their_own_attributes() {
     let spell = Attributes::new(10, 0, 10, 0);
     let martial = Attributes::new(0, 10, 0, 10);
-    assert_eq!(spell.spell_power(), 45, "根骨 10 + 仙力 10 with synergy");
+    assert_eq!(spell.spell_power(), 45, "根骨 10 × 19 + 仙力 10 × 26");
     assert_eq!(spell.martial_power(), 0, "a spell set fights no melee");
     assert_eq!(martial.spell_power(), 0, "a martial set casts nothing");
-    assert_eq!(
-        martial.martial_power(),
-        42,
-        "力量 10 + 身法 10 with synergy"
-    );
+    assert_eq!(martial.martial_power(), 41, "力量 10 × 26 + 身法 10 × 15");
     assert_eq!(
         spell.plus(martial).power(),
-        87,
-        "the total is the two schools, not a fourth weighting"
+        86,
+        "the total is the two halves, not a fourth weighting"
     );
 }
 
-/// Each pair pays for its shorter half, so twenty points spent evenly beat
-/// twenty poured into the heavier attribute alone.
+/// Power is linear in the four attributes: two sets added together are worth
+/// exactly what each is worth alone, which is what lets the panel's breakdown
+/// add up without a residual line.
 #[test]
-fn a_balanced_pair_out_powers_a_lopsided_one() {
-    let balanced = Attributes::new(10, 0, 10, 0);
-    let lopsided = Attributes::new(0, 0, 20, 0);
-    assert_eq!(lopsided.spell_power(), 40, "仙力 alone, no synergy");
+fn two_sources_are_worth_exactly_their_two_powers() {
+    let level = Attributes::new(930, 928, 928, 496);
+    let gear = Attributes::new(30, 40, 12, 21);
+    // Each half is rounded once, so the sum of two rounded halves can sit a
+    // point or two under the rounded whole — the pairing bonus that used to make
+    // the difference a systematic twenty percent is what is gone here.
+    let together = level.plus(gear).power();
+    let apart = level.power().saturating_add(gear.power());
     assert!(
-        balanced.spell_power() > lopsided.spell_power(),
-        "根骨 and 仙力 together must beat 仙力 alone"
-    );
-    let balanced = Attributes::new(0, 10, 0, 10);
-    let lopsided = Attributes::new(0, 20, 0, 0);
-    assert_eq!(lopsided.martial_power(), 40, "力量 alone, no synergy");
-    assert!(
-        balanced.martial_power() > lopsided.martial_power(),
-        "力量 and 身法 together must beat 力量 alone"
+        together.abs_diff(apart) <= 2,
+        "a point is worth the same wherever it was earned: {together} against {apart}"
     );
 }
 
@@ -1058,6 +1060,68 @@ fn one_walk_at_a_time_and_it_pays_when_it_comes_home() {
             .explore(start + WALK_SECONDS, ExplorationHours::Twelve)
             .is_some()
     );
+}
+
+/// A job is taken, held, and paid on the clock — and the board hands over a new
+/// three when it comes home.
+#[test]
+fn a_job_is_taken_and_paid_when_it_comes_due() {
+    let mut cultivation = Cultivation::default();
+    let board = cultivation.jobs(20_000);
+    assert_eq!(board.len(), JOB_OFFER_COUNT);
+    let offer = board[0];
+    let before = cultivation.document().stones;
+    let run = cultivation
+        .accept_job(0, 1_000, 20_000)
+        .expect("the job is taken");
+    assert_eq!(run.ends_unix, 1_000 + offer.seconds());
+    // A second job is refused while the first is in hand: both are hours of the
+    // same day.
+    assert!(cultivation.accept_job(1, 1_100, 20_000).is_err());
+    // Not due yet, so nothing is paid.
+    assert!(cultivation.settle_work(1_000).is_none());
+    let (low, high) = offer.stones();
+    let paid = cultivation
+        .settle_work(run.ends_unix)
+        .expect("the job is paid");
+    assert!(
+        paid.stones >= low && paid.stones <= high,
+        "{paid:?} outside the purse {low}..{high}"
+    );
+    assert_eq!(cultivation.document().stones, before + paid.stones);
+    assert!(cultivation.document().work.is_none());
+    // The board turned over: a finished job hands the cultivator a new three.
+    assert_eq!(cultivation.document().jobs_roll, 1);
+    // And the log says what it paid, which is the only place it survives a quit.
+    let logged = cultivation.view().events.iter().any(|event| {
+        matches!(
+            event.detail,
+            EventDetail::Work { stones, .. } if stones == paid.stones
+        )
+    });
+    assert!(logged, "the purse has to be readable after the quit");
+}
+
+/// A job and a walk are the same hours, so neither can be taken while the other
+/// is in hand.
+#[test]
+fn a_job_and_a_walk_cannot_be_done_at_once() {
+    let mut cultivation = Cultivation::default();
+    cultivation
+        .explore(1_000, ExplorationHours::Four)
+        .expect("the walk sets out");
+    assert!(
+        cultivation.accept_job(0, 1_100, 20_000).is_err(),
+        "the road is closed while the walk is out"
+    );
+    cultivation.settle_walk(1_000 + WALK_SECONDS);
+    let run = cultivation
+        .accept_job(0, 2_000, 20_000)
+        .expect("the job is taken once the walk is home");
+    assert!(cultivation.explore(2_100, ExplorationHours::Four).is_none());
+    // Working closes the tower for the same reason: it is climbed at home.
+    assert!(cultivation.trial_blocked(2_100, 20_000).is_some());
+    let _ = run;
 }
 
 /// A walk outlives the quit: the document keeps it, so reopening the app finds
@@ -1779,6 +1843,7 @@ fn a_build_is_measured_against_what_its_level_alone_pays() {
 #[test]
 fn every_opponent_walks_in_with_gear_and_a_move() {
     let mut seen_gear = std::collections::BTreeSet::new();
+    let mut seen_worth = std::collections::BTreeSet::new();
     for (index, realm) in Realm::ALL.iter().enumerate() {
         let level = realm.cap_level();
         let rival = super::opponent::guardian(*realm, Realm::from_index(index + 1));
@@ -1799,12 +1864,25 @@ fn every_opponent_walks_in_with_gear_and_a_move() {
         );
         assert!(rival.fighter.health > 0, "it has to have health to lose");
         seen_gear.insert(rival.gear.len());
+        // A guardian has two slots and the allowance is generous enough that both
+        // are usually filled, so the variety between two realms is what the gear
+        // is *worth* rather than how many pieces there are.
+        seen_worth.insert(
+            rival
+                .attributes
+                .power()
+                .saturating_sub(base_attributes(level).power()),
+        );
     }
+    assert!(
+        seen_gear.len() == 1 && seen_gear.contains(&2),
+        "a guardian wears both of its slots: {seen_gear:?}"
+    );
     // Two realms do not have to dress alike: the roll is where the variety
     // between two guardians on the same ladder comes from.
     assert!(
-        seen_gear.len() > 1,
-        "every guardian on the ladder carries the same amount of gear: {seen_gear:?}"
+        seen_worth.len() > 1,
+        "every guardian on the ladder wears gear worth the same: {seen_worth:?}"
     );
 }
 

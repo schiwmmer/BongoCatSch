@@ -43,6 +43,16 @@ pub enum EventDetail {
         /// What the session paid, in growth.
         growth: u32,
     },
+    /// A job came home and was paid for: the purse, the hours it cost and the
+    /// grade that sized it.
+    Work {
+        /// What it paid, in 灵石.
+        stones: u32,
+        /// How long it took, in hours.
+        hours: u8,
+        /// The job's grade, the way every other line names one.
+        grade: super::ArtGrade,
+    },
     /// One or more whole days passed without a session and were charged for.
     ///
     /// The charge is the only thing the ladder does that takes growth while
