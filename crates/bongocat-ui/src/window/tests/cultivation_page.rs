@@ -14,11 +14,11 @@ use super::*;
 use crate::window::cultivation_duel;
 use crate::window::cultivation_settings;
 use bongocat_pomodoro::{
-    ArtOutcome, Attribute, Attributes, CropRecord, Cultivation, CultivationDocument, DailyKind,
-    DailyOutcome, Derived, DuelReport, DuelRound, EventDetail, EventRecord, ExplorationFindView,
-    ExplorationOutcome, Fighter, ItemView, LAYERS_PER_STAGE, OwnedArt, PLAYER_NAME, PlotRecord,
-    PomodoroCommand, PomodoroSnapshot, PomodoroState, Rarity, SeedGrade, SeedStack, TrainingView,
-    TrialBlocked, TrialOutcome, WANDERER_NAME, threshold_for,
+    ArtGrade, ArtOutcome, Attribute, Attributes, CropRecord, Cultivation, CultivationDocument,
+    DailyKind, DailyOutcome, Derived, DuelReport, DuelRound, EventDetail, EventRecord,
+    ExplorationFindView, ExplorationOutcome, Fighter, ItemView, LAYERS_PER_STAGE, OwnedArt,
+    PLAYER_NAME, PlotRecord, PomodoroCommand, PomodoroSnapshot, PomodoroState, Rarity, SeedGrade,
+    SeedStack, TrainingView, TrialBlocked, TrialOutcome, WANDERER_NAME, threshold_for,
 };
 use gpui_kit::{ScrollDelta, point};
 
@@ -340,6 +340,71 @@ fn the_board_of_jobs_is_on_the_page(cx: &mut TestAppContext) {
         window.render_frame(cx);
         window.click("cultivation-job-take-0", cx);
     });
+}
+
+/// Every rule on the page is read beside its title, not filed behind a hover.
+///
+/// The hints used to sit in hover cards, which made them a thing a user had to
+/// discover by accident; a walk taken without reading the road's rules was a
+/// walk taken blind. They are now part of the header, so a frame that paints the
+/// panel paints its rule too.
+#[gpui_kit::test]
+fn every_rule_is_read_beside_its_title(cx: &mut TestAppContext) {
+    let (_view, visual) = cultivation_page(cx);
+    visual.update(|window, cx| window.render_frame(cx));
+    for hint in [
+        "cultivation-explore-hint",
+        "cultivation-trial-hint",
+        "cultivation-proving-hint",
+        "cultivation-jobs-hint",
+        "cultivation-derived_hint",
+        "cultivation-shop-shelf",
+    ] {
+        scroll_until_visible(visual, hint);
+        visual.update(|window, cx| window.render_frame(cx));
+        assert!(
+            painted(visual, hint),
+            "{hint} has to be on screen with its title, not behind a hover"
+        );
+    }
+    // And none of them went back to a card that only opens on a pointer.
+    for card in [
+        "cultivation-hint-explore-body",
+        "cultivation-hint-trial-body",
+        "cultivation-hint-proving-body",
+    ] {
+        assert!(!painted(visual, card), "{card} should no longer exist");
+    }
+}
+
+/// A finished job says what it actually came home with, windfall included.
+///
+/// The wage in flight is the figure the board printed — 潜质 has not had its
+/// turn — but once the job is paid the line has to name the real purse, or the
+/// crit the domain rolled would be invisible.
+#[gpui_kit::test]
+fn a_finished_job_says_what_it_paid(cx: &mut TestAppContext) {
+    let mut cultivation = at_the_cap();
+    cultivation.last_work = Some(bongocat_pomodoro::WorkPaid {
+        stones: 108,
+        hours: 12,
+        grade: ArtGrade::Earth,
+        multiplier: 3,
+    });
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    scroll_until_visible(visual, "cultivation-jobs-paid");
+    assert!(
+        painted(visual, "cultivation-jobs-paid"),
+        "the last job's purse, and its multiplier, have to be readable"
+    );
+    // A job in hand draws the countdown instead, so the two lines never compete.
+    assert!(
+        !painted(visual, "cultivation-jobs-working"),
+        "a paid job and a job in hand are not both on the page"
+    );
+    assert!(published(&sink).is_empty(), "and no command was published");
 }
 
 /// A walk under way is drawn as one: the panel counts down to its return and

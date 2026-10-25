@@ -63,23 +63,18 @@ pub(super) fn proving_panel(
         )
     };
     let color = if ready { tokens.text } else { tokens.muted };
-    let hint = text(locale, "cultivation.proving.hint");
+    // The rules read beside the title rather than behind it.
     div()
         .id("cultivation-proving")
         .flex()
         .flex_col()
         .gap_1()
-        .child(
-            HoverCard::new("cultivation-hint-proving")
-                .trigger(div().id("cultivation-proving-title").child(section_title(
-                    locale,
-                    "cultivation.proving.title",
-                    tokens,
-                )))
-                .open_delay(Duration::from_millis(120))
-                .content(move |_, _, _| hint_body("cultivation-hint-proving-body", hint, tokens))
-                .into_any_element(),
-        )
+        .child(section_header(
+            locale,
+            "cultivation.proving.title",
+            "cultivation.proving.hint",
+            tokens,
+        ))
         .child(
             div()
                 .flex()

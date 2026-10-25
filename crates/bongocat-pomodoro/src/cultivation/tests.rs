@@ -1080,13 +1080,17 @@ fn a_job_is_taken_and_paid_when_it_comes_due() {
     assert!(cultivation.accept_job(1, 1_100, 20_000).is_err());
     // Not due yet, so nothing is paid.
     assert!(cultivation.settle_work(1_000).is_none());
-    let (low, high) = offer.stones();
+    let wage = offer.stones();
     let paid = cultivation
         .settle_work(run.ends_unix)
         .expect("the job is paid");
     assert!(
-        paid.stones >= low && paid.stones <= high,
-        "{paid:?} outside the purse {low}..{high}"
+        paid.stones == wage * paid.multiplier,
+        "{paid:?} against the wage {wage}"
+    );
+    assert!(
+        paid.multiplier == 1 || paid.multiplier == 2 || paid.multiplier == 3,
+        "{paid:?}"
     );
     assert_eq!(cultivation.document().stones, before + paid.stones);
     assert!(cultivation.document().work.is_none());

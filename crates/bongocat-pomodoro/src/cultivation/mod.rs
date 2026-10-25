@@ -114,7 +114,7 @@ pub use state::{
     AbsenceCharge, AptitudeUse, BreakthroughOutcome, CropView, Cultivation, CultivationView,
     DailyOutcome, Drop, DropView, ExplorationFindView, GuardianView, HarvestOutcome, ItemView,
     JobView, PlotView, PowerBreakdown, SeedView, SessionReward, StarOutcome, TrainingView,
-    TrialBlocked, TrialOutcome,
+    TrialBlocked, TrialOutcome, WorkPaid,
 };
 pub use trade::{TradeRefusal, session_earnings};
 pub use trial::{

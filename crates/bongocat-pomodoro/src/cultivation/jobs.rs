@@ -6,6 +6,17 @@
 //! same hours spent on a job pay a fifth more than the same hours on the road,
 //! and they pay it in 灵石 rather than in a roll that might come up empty.
 //!
+//! The purse is a **figure**, not a range. A walk opens a purse somewhere between
+//! two numbers because it is a roll; a job is a wage, and a wage the user cannot
+//! read before taking it is not a wage. So the job pays the middle of the walk's
+//! own range, a fifth over — the same expectation the range carried, printed as
+//! one number the board can be judged on.
+//!
+//! What the wage cannot carry, 潜质 does: a cultivator with 潜质 to spare has a
+//! hand that turns up early. Each whole point of it is a 0.11% chance the job
+//! comes home at double and a 0.01% chance at triple, which is the one place the
+//! ladder lets an attribute widen a purse rather than a fighter.
+//!
 //! Three offers hang on the board at a time, and each carries two dice the user
 //! reads before taking it:
 //!
@@ -50,6 +61,14 @@ const JOB_OVER_WALK_PERMILLE: u64 = 1_200;
 /// last.
 const JOB_GRADE_MULTIPLIER_PERMILLE: [u64; 5] = [1_000, 1_600, 2_400, 3_600, 5_400];
 
+/// What ten whole points of 潜质 add to the chance a finished job pays double, in
+/// parts per thousand: 0.11% a point is 1.1 of them, so ten points is eleven.
+const JOB_DOUBLE_PERMILLE_PER_TEN_POINTS: u64 = 11;
+
+/// What ten whole points of 潜质 add to the chance a finished job pays triple, in
+/// parts per thousand: 0.01% a point is a tenth of one, so ten points is one.
+const JOB_TRIPLE_PERMILLE_PER_TEN_POINTS: u64 = 1;
+
 /// What the board charges to be re-rolled, per tier of the cultivator's own
 /// realm, in 灵石.
 ///
@@ -74,8 +93,8 @@ pub struct JobOffer {
 }
 
 impl JobOffer {
-    /// What this job pays, as the range its purse opens between.
-    pub fn stones(self) -> (u32, u32) {
+    /// What this job pays, as the one figure the board can be read against.
+    pub fn stones(self) -> u32 {
         job_stones(self.tier, self.hours, self.grade)
     }
 
@@ -127,24 +146,55 @@ impl JobRun {
     }
 }
 
-/// What one job pays, as the range its purse opens between.
+/// What one job pays, as the one figure it is.
 ///
 /// Priced off the walk it stands in for: the road's own purse, at this job's tier
 /// and widened by this job's hours, then a fifth again and then the grade. The
-/// hours widen it *linearly* — a job twice as long pays twice as much — because a
-/// job is a rate, not a roll, and a rate that paid more per hour the longer it ran
-/// would make the longest job the only job.
-pub fn job_stones(tier: u8, hours: u8, grade: ArtGrade) -> (u32, u32) {
+/// walk opens a range and a job pays its middle, so the expectation is exactly
+/// the fifth over the road the trade promised — and the board can be read before
+/// anything is taken. The hours widen it *linearly* — a job twice as long pays
+/// twice as much — because a job is a rate, not a roll, and a rate that paid more
+/// per hour the longer it ran would make the longest job the only job.
+pub fn job_stones(tier: u8, hours: u8, grade: ArtGrade) -> u32 {
     let hours = u64::from(hours.clamp(JOB_MIN_HOURS, JOB_MAX_HOURS));
     let purse = WALK_STONES.scaled(hours * 250);
-    let (min, max) = purse.at(tier);
+    let (low, high) = purse.at(tier);
+    let middle = (u64::from(low) + u64::from(high)) / 2;
+    let over = middle * JOB_OVER_WALK_PERMILLE / 1_000;
     let grade_permille = JOB_GRADE_MULTIPLIER_PERMILLE[grade.index()];
-    let scale = |value: u32| -> u32 {
-        let over = u64::from(value) * JOB_OVER_WALK_PERMILLE / 1_000;
-        let paid = over * grade_permille / 1_000;
-        u32::try_from(paid.max(1)).unwrap_or(u32::MAX)
-    };
-    (scale(min), scale(max))
+    let paid = over * grade_permille / 1_000;
+    u32::try_from(paid.max(1)).unwrap_or(u32::MAX)
+}
+
+/// What a 潜质 is worth as a chance, in parts per thousand.
+///
+/// 潜质 is stored in tenths and is allowed to be negative — a cultivator born
+/// clumsy has nothing to offer a hand that turns up early — so a negative reads
+/// as no chance at all rather than as a negative one. The rounding is to the
+/// nearest part per thousand rather than down: a low 潜质 should still be able
+/// to crit, just rarely.
+fn crit_chance_permille(tenths: i32, per_ten_points: u64) -> u64 {
+    let tenths = u64::try_from(tenths.max(0)).unwrap_or(0);
+    // A point is ten tenths, so ten points are a hundred of them.
+    (tenths * per_ten_points + 50) / 100
+}
+
+/// What a finished job paid its wage at: one, two or three times.
+///
+/// Rolled once, when the job comes home, off the cultivator's 潜质. The two
+/// chances are read together and the deeper one wins, so a triple is a triple
+/// and not a double that happens to be a triple.
+pub fn crit_multiplier(rng: &mut Rng, aptitude_tenths: Option<i32>) -> u32 {
+    let tenths = aptitude_tenths.unwrap_or(0);
+    let triple = crit_chance_permille(tenths, JOB_TRIPLE_PERMILLE_PER_TEN_POINTS);
+    let double = crit_chance_permille(tenths, JOB_DOUBLE_PERMILLE_PER_TEN_POINTS);
+    if rng.below(1_000) < triple {
+        3
+    } else if rng.below(1_000) < double {
+        2
+    } else {
+        1
+    }
 }
 
 /// Roll the board: [`JOB_OFFER_COUNT`] jobs around the cultivator's tier.
@@ -175,20 +225,27 @@ mod tests {
     use crate::cultivation::ArtGrade;
 
     #[test]
-    fn a_job_pays_a_fifth_over_the_walk_it_stands_in_for() {
-        // Twelve hours at the fourth tier: the road's purse is 25–51.
+    fn a_job_pays_a_fifth_over_the_middle_of_the_walk_it_stands_in_for() {
+        // Twelve hours at the fourth tier: the road's purse is 25–51, so its
+        // middle is 38 and a fifth over that is 45.
         let walk = WALK_STONES.scaled(3_000).at(4);
+        let middle = (u64::from(walk.0) + u64::from(walk.1)) / 2;
         let job = job_stones(4, 12, ArtGrade::Yellow);
+        let expected = middle * 1_200 / 1_000;
         assert!(
-            walk.0 > 0 && job.0 >= walk.0,
-            "a 黄阶 job pays at least the road"
+            u64::from(job).abs_diff(expected) <= 2,
+            "{job} against a walk at {walk:?}"
         );
-        // A fifth over, within the rounding of two integer scalings.
-        let expected = u64::from(walk.0) * 1_200 / 1_000;
-        assert!(
-            u64::from(job.0).abs_diff(expected) <= 2,
-            "{job:?} against a walk at {walk:?}"
-        );
+    }
+
+    #[test]
+    fn a_job_is_one_figure_not_a_range() {
+        // The board is read before anything is taken, so the same job prices the
+        // same every time it is asked.
+        let first = job_stones(5, 12, ArtGrade::Heaven);
+        let second = job_stones(5, 12, ArtGrade::Heaven);
+        assert_eq!(first, second);
+        assert!(first > 0, "{first}");
     }
 
     #[test]
@@ -197,7 +254,7 @@ mod tests {
         let tier = 4;
         let payouts: Vec<u32> = ArtGrade::ALL
             .into_iter()
-            .map(|grade| job_stones(tier, hours, grade).0)
+            .map(|grade| job_stones(tier, hours, grade))
             .collect();
         // Strictly better at every step, and the 神阶 job pays several times the
         // 黄阶 one.
@@ -211,10 +268,10 @@ mod tests {
     fn a_longer_job_pays_more_at_the_same_rate() {
         let short = job_stones(4, 4, ArtGrade::Earth);
         let long = job_stones(4, 24, ArtGrade::Earth);
-        assert!(long.0 >= short.0 * 5, "{short:?} to {long:?}");
+        assert!(long >= short * 5, "{short} to {long}");
         // And it is the same rate: six times the hours is six times the purse.
-        let per_hour_short = short.0 / 4;
-        let per_hour_long = long.0 / 24;
+        let per_hour_short = short / 4;
+        let per_hour_long = long / 24;
         assert!(
             per_hour_long.abs_diff(per_hour_short) <= 1,
             "{per_hour_short} an hour against {per_hour_long}"
@@ -261,5 +318,68 @@ mod tests {
         assert!(!run.is_done(1_000 + 8 * 3_600 - 1));
         assert!(run.is_done(1_000 + 8 * 3_600));
         assert_eq!(run.offer(), offer);
+    }
+
+    #[test]
+    fn a_point_of_aptitude_is_the_hundredth_of_a_percent_it_was_asked_for() {
+        // Ten points of 潜质: 0.11% at double and 0.01% at triple.
+        assert_eq!(
+            crit_chance_permille(100, JOB_DOUBLE_PERMILLE_PER_TEN_POINTS),
+            11
+        );
+        assert_eq!(
+            crit_chance_permille(100, JOB_TRIPLE_PERMILLE_PER_TEN_POINTS),
+            1
+        );
+        // A hundred points: eleven times that.
+        assert_eq!(
+            crit_chance_permille(1_000, JOB_DOUBLE_PERMILLE_PER_TEN_POINTS),
+            110
+        );
+        // A clumsy cultivator offers nothing, and a negative offers less.
+        assert_eq!(
+            crit_chance_permille(0, JOB_DOUBLE_PERMILLE_PER_TEN_POINTS),
+            0
+        );
+        assert_eq!(
+            crit_chance_permille(-50, JOB_TRIPLE_PERMILLE_PER_TEN_POINTS),
+            0
+        );
+    }
+
+    #[test]
+    fn the_deeper_crit_is_the_rarer_one() {
+        // Over a great many hands, doubles happen, triples happen less, and the
+        // ratio is the one the ladder asked for.
+        let tenths = Some(500); // fifty points: 5.5% double, 0.5% triple
+        let mut double = 0u32;
+        let mut triple = 0u32;
+        let mut rng = Rng::seeded(0xC_C17);
+        for _ in 0..200_000 {
+            match crit_multiplier(&mut rng, tenths) {
+                3 => triple += 1,
+                2 => double += 1,
+                _ => {}
+            }
+        }
+        assert!(
+            double > 0 && triple > 0,
+            "{double} doubles, {triple} triples"
+        );
+        assert!(
+            triple * 10 < double,
+            "{double} doubles against {triple} triples"
+        );
+        // And it is roughly the share asked for, not a share of a share.
+        let share = double * 1_000 / 200_000;
+        assert!((45..=70).contains(&share), "{share}‰ doubled");
+    }
+
+    #[test]
+    fn a_cultivator_with_no_aptitude_never_crits() {
+        let mut rng = Rng::seeded(0x0B0B_5C17);
+        for _ in 0..1_000 {
+            assert_eq!(crit_multiplier(&mut rng, None), 1);
+        }
     }
 }

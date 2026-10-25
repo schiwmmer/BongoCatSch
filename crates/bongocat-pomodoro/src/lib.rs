@@ -81,7 +81,7 @@ pub use cultivation::{
     STAR_SUCCESS_PERMILLE, SaleKind, SeedGrade, SeedStack, SeedView, SessionReward, ShopOffer,
     ShopOfferView, StarOutcome, TRIAL_ATTEMPTS_PER_DAY, TRIAL_CHANCES_CAP, TRIAL_MAX_FLOOR,
     TRIAL_OPPONENT_NAME, TradeRefusal, TrainingView, TrialBlocked, TrialOutcome, WALK_RECORD_CAP,
-    WANDERER_NAME, WalkInProgress, WalkRecord, absence_penalty, art_aptitude_tenths,
+    WANDERER_NAME, WalkInProgress, WalkRecord, WorkPaid, absence_penalty, art_aptitude_tenths,
     art_aptitude_tenths_at, art_attributes, art_bonus, art_bonus_at, art_payout_at, art_price,
     art_view, base_attributes, base_success_permille, blueprint, discipline_bonus, discipline_cap,
     equipment_price, external_damage, external_power_gain, floor_level, grow_seconds,

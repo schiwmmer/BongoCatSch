@@ -23,7 +23,12 @@ pub(super) fn shop_panel(
         .gap_2()
         // Marked so a frame can be asked whether the market is on screen at all.
         .test_support()
-        .child(section_title(locale, "cultivation.shop.title", tokens))
+        .child(section_header(
+            locale,
+            "cultivation.shop.title",
+            "cultivation.shop.shelf",
+            tokens,
+        ))
         .child(
             div()
                 .id("cultivation-shop-stones")
@@ -35,12 +40,6 @@ pub(super) fn shop_panel(
                     &[("stones", cultivation.stones.to_string())],
                 ))
                 .test_support(),
-        )
-        .child(
-            div()
-                .text_xs()
-                .text_color(tokens.muted)
-                .child(text(locale, "cultivation.shop.shelf")),
         );
 
     if cultivation.shop_offers.is_empty() {

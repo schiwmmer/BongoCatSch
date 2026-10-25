@@ -273,12 +273,14 @@ pub struct AptitudeUse {
 /// page whose money has no history.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct WorkPaid {
-    /// How many 灵石 the job paid.
+    /// How many 灵石 the job paid, the wage and any 潜质's windfall together.
     pub stones: u32,
     /// How long the job took, in hours.
     pub hours: u8,
-    /// The job's grade, which is what its purse was multiplied by.
+    /// The job's grade, which is what its wage was multiplied by.
     pub grade: ArtGrade,
+    /// What 潜质 did to the wage: one, two or three times.
+    pub multiplier: u32,
 }
 
 /// One job as a surface reads it: what it is, how long it takes and what it pays.
@@ -289,8 +291,8 @@ pub struct JobView {
     pub tier: u8,
     pub hours: u8,
     pub grade: ArtGrade,
-    /// What it pays, as the range its purse opens between.
-    pub stones: (u32, u32),
+    /// What it pays, as the one figure the board is read against.
+    pub stones: u32,
 }
 
 /// One owned item, as a surface reads it.
@@ -2615,10 +2617,12 @@ impl Cultivation {
             return None;
         }
         self.document.work = None;
-        let (low, high) = run.offer().stones();
+        // The wage is the figure the board printed; 潜质 is the only thing that
+        // moves it, and it is rolled once, here, off the cultivator's own.
+        let wage = run.offer().stones();
         let mut rng = self.rng(now_unix);
-        let span = u64::from(high.saturating_sub(low).saturating_add(1));
-        let stones = low.saturating_add(u32::try_from(rng.below(span)).unwrap_or(0));
+        let multiplier = super::jobs::crit_multiplier(&mut rng, self.document.aptitude_tenths);
+        let stones = wage.saturating_mul(multiplier);
         self.document.stones = self.document.stones.saturating_add(stones);
         // A finished job hands over a new board: the outing is over, and the next
         // three are what the cultivator walks back into.
@@ -2627,6 +2631,7 @@ impl Cultivation {
             stones,
             hours: run.hours,
             grade: run.grade,
+            multiplier,
         };
         self.last_work = Some(paid);
         self.push_event(
@@ -2635,6 +2640,7 @@ impl Cultivation {
                 stones,
                 hours: run.hours,
                 grade: run.grade,
+                multiplier,
             },
         );
         Some(paid)

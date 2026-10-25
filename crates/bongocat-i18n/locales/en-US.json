@@ -810,7 +810,7 @@
     },
     "jobs": {
       "title": "Odd jobs",
-      "hint": "Take a job and see it out: the purse follows the realm, the hours and the grade, at a fifth over what the same hours on the road would pay.",
+      "hint": "Take a job and see it out: the wage is a figure, sized by the realm, the hours and the grade at a fifth over the middle of what the same hours on the road would pay. Each point of 潜质 is a further 0.11% chance it comes home at double and 0.01% at triple.",
       "row": "tier %{tier} · %{hours}h · %{stones} stones",
       "accept": "Take it",
       "refresh": "Reroll",
@@ -818,7 +818,8 @@
       "working": "Working a %{grade} job, %{hours}h, for %{stones} stones",
       "due": "Done in %{hours}h %{minutes}m",
       "refuse_working": "The job in hand is not finished",
-      "refuse_gone": "Someone else took that job"
+      "refuse_gone": "Someone else took that job",
+      "paid": "Last job paid %{stones} stones (×%{multiplier})"
     },
     "explore": {
       "attempt": "Take a walk",
@@ -885,7 +886,7 @@
     },
     "event": {
       "session": "Session finished, +%{growth} growth",
-      "work": "Job finished — %{stones} stones for %{hours}h",
+      "work": "Worked %{hours}h for %{stones} stones (×%{multiplier})",
       "absence": "%{days} days without practice — growth -%{charged}",
       "walk": "Walked out: %{outcome}",
       "train_failed": "Training “%{name}” came to nothing; the progress stays",

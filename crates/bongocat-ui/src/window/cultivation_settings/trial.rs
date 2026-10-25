@@ -60,26 +60,18 @@ pub(super) fn trial_panel(
     } else {
         tokens.danger
     };
-    // The rules of the tower, behind the title: a panel that printed them under
-    // the button every day would be four lines of prose nobody re-reads, and the
-    // page's other explanations already live behind a hover.
-    let hint = text(locale, "cultivation.trial.hint");
+    // The rules of the tower read beside the title rather than behind it.
     let mut panel = div()
         .id("cultivation-trial")
         .flex()
         .flex_col()
         .gap_1()
-        .child(
-            HoverCard::new("cultivation-hint-trial")
-                .trigger(div().id("cultivation-trial-title").child(section_title(
-                    locale,
-                    "cultivation.trial.title",
-                    tokens,
-                )))
-                .open_delay(Duration::from_millis(120))
-                .content(move |_, _, _| hint_body("cultivation-hint-trial-body", hint, tokens))
-                .into_any_element(),
-        )
+        .child(section_header(
+            locale,
+            "cultivation.trial.title",
+            "cultivation.trial.hint",
+            tokens,
+        ))
         // Marked so a frame can be asked whether the tower is on the page.
         .test_support();
     // What the next climb is: the floor and the warden waiting on it. Once the

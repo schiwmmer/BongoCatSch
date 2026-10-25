@@ -770,6 +770,41 @@ fn section_title(locale: &str, key: &'static str, tokens: Tokens) -> impl IntoEl
         .child(text(locale, key))
 }
 
+/// A section's header: its title, and the rule it plays by beside it.
+///
+/// The hints used to hang under their titles on a line of their own, which spent
+/// a whole row of the page on prose and left the eye to jump a gap before it
+/// reached the numbers. Read beside the title they cost nothing, are read
+/// anyway, and the panel starts one row higher.
+///
+/// The hint takes the rest of the row and wraps inside it, so a short rule is one
+/// line and a long one is two — never a second line of the panel's own. It carries
+/// its key as an id so a frame can be asked whether the rule is on screen at all,
+/// which is the difference between a hint that is read and one that is filed
+/// behind a hover.
+fn section_header(
+    locale: &str,
+    key: &'static str,
+    hint_key: &'static str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap_2()
+        .child(section_title(locale, key, tokens))
+        .child(
+            div()
+                .id(hint_key.replace('.', "-"))
+                .flex_1()
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(text(locale, hint_key))
+                .test_support(),
+        )
+}
+
 /// An item's display line: its xianxia name when it has one, else the slot, and
 /// in both cases the tier, the quality and the stars. The name is what tells two
 /// same-slot, same-tier drops apart, so it leads the line when present.

@@ -261,26 +261,20 @@ pub(super) fn exploration_panel(
         };
         chip
     });
-    // The rules of the road, behind the title: four lines of prose under the
-    // buttons every day would be the page explaining itself at length, and the
-    // page's other explanations already live behind a hover.
-    let hint = text(locale, "cultivation.explore.hint");
+    // The rules of the road read beside the title rather than behind it: the page
+    // used to hide four lines of prose under a hover nobody thought to seek, and
+    // a rule nobody reads is a rule the walk keeps breaking.
     div()
         .id("cultivation-exploration")
         .flex()
         .flex_col()
         .gap_1()
-        .child(
-            HoverCard::new("cultivation-hint-explore")
-                .trigger(div().id("cultivation-explore-title").child(section_title(
-                    locale,
-                    "cultivation.explore.title",
-                    tokens,
-                )))
-                .open_delay(Duration::from_millis(120))
-                .content(move |_, _, _| hint_body("cultivation-hint-explore-body", hint, tokens))
-                .into_any_element(),
-        )
+        .child(section_header(
+            locale,
+            "cultivation.explore.title",
+            "cultivation.explore.hint",
+            tokens,
+        ))
         .child(div().flex().flex_row().gap_2().children(chips))
         .child(
             div()

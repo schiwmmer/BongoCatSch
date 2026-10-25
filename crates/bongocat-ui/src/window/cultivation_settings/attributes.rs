@@ -207,14 +207,13 @@ pub(super) fn derived_panel(
         .flex()
         .flex_col()
         .gap_1()
-        .child(section_title(locale, "cultivation.derived", tokens))
+        .child(section_header(
+            locale,
+            "cultivation.derived",
+            "cultivation.derived_hint",
+            tokens,
+        ))
         .child(div().flex().flex_row().flex_wrap().gap_2().children(chips))
-        .child(
-            div()
-                .text_xs()
-                .text_color(tokens.muted)
-                .child(text(locale, "cultivation.derived_hint")),
-        )
 }
 
 /// The eight shown numbers a fighter walks in with.

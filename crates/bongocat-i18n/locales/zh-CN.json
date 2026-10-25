@@ -810,7 +810,7 @@
     },
     "jobs": {
       "title": "打工",
-      "hint": "接一份活，按时辰交工：工钱按阶级、时长与品阶算，是同阶级同耗时探索收益的一点二倍。",
+      "hint": "接一份活，按时辰交工：工钱是固定数，按阶级、时长与品阶算，取同阶级同耗时探索收益中数的一点二倍。潜质每 1 点另有 0.11% 概率暴击得双倍、0.01% 得三倍。",
       "row": "%{tier} 阶 · %{hours} 小时 · %{stones} 灵石",
       "accept": "接取",
       "refresh": "刷新",
@@ -818,7 +818,8 @@
       "working": "正在做 %{grade} 的活，%{hours} 小时，工钱 %{stones} 灵石",
       "due": "%{hours} 小时 %{minutes} 分后交工",
       "refuse_working": "手上的活还没交工",
-      "refuse_gone": "这份活已经被人接走了"
+      "refuse_gone": "这份活已经被人接走了",
+      "paid": "上工交工：%{stones} 灵石（%{multiplier} 倍）"
     },
     "explore": {
       "attempt": "外出探索",
@@ -885,7 +886,7 @@
     },
     "event": {
       "session": "完成修炼，成长 +%{growth}",
-      "work": "打工交工，得 %{stones} 灵石（%{hours} 小时）",
+      "work": "打工 %{hours} 小时，得 %{stones} 灵石（%{multiplier} 倍）",
       "absence": "%{days} 天未修炼，成长值 -%{charged}",
       "walk": "外出探索：%{outcome}",
       "train_failed": "修习《%{name}》未成，进度仍在",
