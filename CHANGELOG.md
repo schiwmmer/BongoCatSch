@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### ⚖️ Balance
+
+- 悟心草 and 慧心草 no longer roll their own "one day in four / one day in ten"; they share the ordinary seed pool, so a shelf's seed row is one of four attributes plus the two 潜质 herbs at equal odds. Each herb now turns up exactly as often as any single seed does, and the 洗髓丹 remains the one 潜质 item rolled on its own, at one day in two hundred.
+- Every 内功's per-阶 payout is raised by about a third: 3 / 8 / 12 / 18 / 27 by grade (was 2 / 6 / 9 / 14 / 21), so a 玄阶 first 阶 pays eighty hit or evade rather than sixty.
+- A harvest now pays by the hour spent growing it, anchored on "one pomodoro is worth about three hours in the ground": 1.4 points an hour at 地, 0.84 at 玄, 3.5 at 神. The fourth-tier 玄阶 seed drops from twelve points to ten and the first two tiers fall from six-to-eight to one; the grade ladder stretches from 400 / 700 / 1000 / 1500 / 2200 to 250 / 600 / 1000 / 1600 / 2500. The top of the growing ladder is compressed at the same time — a day at the fifth tier, a week at the tenth — because a payout per hour against a trebling wait would put the tenth tier a year out and make both its number and its price fiction.
+- A seed is priced at "its points × 14 灵石": the fourth-tier 玄阶 seed goes 98 → 140, and a cheap low-grade herb is now cheap because it pays little rather than because it is the efficient row.
+- Exploration pays on return: setting out only writes down the road, and the find, the fight and the purse are all rolled when the walk is home. A walk can be called home early; a called walk finds nothing, and the return trip costs a third of the time already spent. The 锁妖塔 and 试炼 are therefore closed only while the cultivator is genuinely out, and open the moment the walk is due home.
+
 ### ✨ Features
 
 - The model window's right-click menu now follows the session: "Start Pomodoro" when there is none, "Pause" and "Abandon" while one counts, "Resume" and "Abandon" while one is paused. The countdown's own right-click offers the same abandon — a session the user no longer wants no longer has to be paused before it can be thrown away.

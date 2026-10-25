@@ -15,6 +15,7 @@ use super::{
     curve::{self, level_for_growth, stage_floor},
     duel::{DUEL_RECORD_CAP, DuelRecord},
     events::{EVENT_LOG_CAP, EventRecord},
+    explore::WalkInProgress,
     explore::WalkRecord,
 };
 
@@ -134,12 +135,17 @@ pub struct CultivationDocument {
     pub last_exploration_unix: Option<i64>,
     /// How many hours that walk was taken for.
     ///
-    /// The cooldown is the length's own, so the length has to be written down
-    /// beside the instant: read back as a twelve-hour walk, a four-hour one
-    /// would hold the next walk for eight hours it never spent. Zero is a save
-    /// written before walks had lengths, and is read as the old ten hours.
+    /// The chosen length is a preference as well as a fact — the page draws the
+    /// chip the user picked last — so it outlives the walk it describes.
     #[serde(default)]
     pub last_exploration_hours: u8,
+    /// The walk under way, if the cultivator is out.
+    ///
+    /// A walk does not pay on the click any more: it pays when it comes home,
+    /// which is the whole reason its length is a choice. An absent walk is a
+    /// cultivator at home and free to set out again.
+    #[serde(default)]
+    pub walk: Option<WalkInProgress>,
     /// How many walks have been taken — the 游历 dimension's own count, kept in
     /// the document because a dimension that forgot its training on every restart
     /// would never fill its bar.
@@ -406,6 +412,19 @@ impl CultivationDocument {
         // A hand-edited document cannot claim a 潜质 outside the band.
         if let Some(tenths) = self.aptitude_tenths {
             self.aptitude_tenths = Some(super::aptitude::clamp_tenths(tenths));
+        }
+        // A walk's end is what its length says or what the return trip said: a
+        // stored end before its own start, or one past the length's ceiling, is
+        // a hand edit, and either would let a save sit out for ever or come home
+        // before it left. The length itself is a preference and reads as the
+        // middle one when it names nothing.
+        if let Some(walk) = self.walk.as_mut() {
+            walk.hours = super::ExplorationHours::from_hours(walk.hours).hours();
+            let latest = walk
+                .started_unix
+                .saturating_add(super::ExplorationHours::from_hours(walk.hours).seconds());
+            walk.ends_unix = walk.ends_unix.clamp(walk.started_unix, latest);
+            self.last_exploration_hours = walk.hours;
         }
         self
     }

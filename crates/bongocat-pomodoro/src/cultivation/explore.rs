@@ -20,14 +20,6 @@ use super::Rng;
 /// player who goes and trains comes back the same day.
 pub const BREAKTHROUGH_COOLDOWN_SECONDS: i64 = 12 * 60 * 60;
 
-/// How long the walk that was taken tied the cultivator up, for a save written
-/// before the walk had a length.
-///
-/// Ten hours was the only length there was; a save that carries no length of
-/// its own is read as having taken one of those, so an upgraded install does
-/// not find its cooldown suddenly gone.
-pub const LEGACY_EXPLORATION_COOLDOWN_SECONDS: i64 = 10 * 60 * 60;
-
 /// How long a walk takes, which is also what it is worth.
 ///
 /// The same road, walked for longer, finds more: the length is the one lever
@@ -354,26 +346,79 @@ pub(crate) fn roll_stones(rng: &mut Rng, purse: StonePurse, tier: u8) -> u32 {
     min.saturating_add(u32::try_from(rng.below(u64::from(span))).unwrap_or(0))
 }
 
-/// How long the last walk holds the next one off, in seconds.
+/// A walk under way: when it left, when it comes home, and whether the user
+/// called it back early.
 ///
-/// A zero is a save written before the road had lengths — the field could not
-/// exist on it — and is read as the old ten hours rather than as "no cooldown
-/// at all", which would hand an upgraded save a second walk for free.
-pub const fn cooldown_seconds(stored: i64) -> i64 {
-    if stored > 0 {
-        stored
-    } else {
-        LEGACY_EXPLORATION_COOLDOWN_SECONDS
+/// A walk is a stretch of time rather than a click that pays immediately: the
+/// cultivator is *out*, and what the road turned up is only known when they are
+/// back. That is the whole reason the length is a choice — a twelve-hour walk is
+/// twelve hours of not being able to walk again.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct WalkInProgress {
+    /// When the walk left.
+    pub started_unix: i64,
+    /// When it comes home — the instant its find is settled.
+    pub ends_unix: i64,
+    /// The length that was chosen, as hours.
+    pub hours: u8,
+    /// Whether the user called the walk home early.
+    ///
+    /// A called walk pays nothing: the road is not walked, so there is nothing
+    /// on it. What it costs is the return trip, which is a third of the time
+    /// already spent — a user cannot recall a walk for free and set off again.
+    #[serde(default)]
+    pub early: bool,
+}
+
+impl WalkInProgress {
+    /// A walk that left just now, for the length chosen.
+    pub fn started(started_unix: i64, hours: ExplorationHours) -> Self {
+        Self {
+            started_unix,
+            ends_unix: started_unix.saturating_add(hours.seconds()),
+            hours: hours.hours(),
+            early: false,
+        }
+    }
+
+    /// The same walk, called home at `now_unix`.
+    ///
+    /// The return trip is a third of the time already spent: the road home is
+    /// shorter than the road out, but it is not free, and a walk recalled at the
+    /// eleventh hour cannot be a walk that never happened. A walk recalled the
+    /// moment it left still owes [`MIN_RETURN_SECONDS`], so the button is never
+    /// a way to undo a walk for nothing.
+    pub fn called_home(self, now_unix: i64) -> Self {
+        let spent = now_unix.saturating_sub(self.started_unix).max(0);
+        Self {
+            ends_unix: now_unix.saturating_add((spent / 3).max(MIN_RETURN_SECONDS)),
+            early: true,
+            ..self
+        }
+    }
+
+    /// Whether the walk is home at this instant.
+    pub fn is_home(&self, now_unix: i64) -> bool {
+        now_unix >= self.ends_unix
+    }
+
+    /// How long is left before the walk is home; zero once it is.
+    pub fn remaining_seconds(&self, now_unix: i64) -> i64 {
+        self.ends_unix.saturating_sub(now_unix).max(0)
+    }
+
+    /// The length as its own enum.
+    pub fn length(&self) -> ExplorationHours {
+        ExplorationHours::from_hours(self.hours)
     }
 }
 
-/// Whether a walk is owed: the cooldown its own length set has run out.
-pub fn exploration_ready(last: Option<i64>, last_seconds: i64, now_unix: i64) -> bool {
-    match last {
-        None => true,
-        Some(last) => now_unix.saturating_sub(last) >= cooldown_seconds(last_seconds),
-    }
-}
+/// The least a return trip can take, in seconds.
+///
+/// Six: a walk recalled the moment it left still has to be recalled, and a trip
+/// that ended in the same second the button was pressed would read as a walk
+/// that never started rather than as one that came home.
+pub const MIN_RETURN_SECONDS: i64 = 6;
 
 /// Whether the guardian can be fought again: the cooldown after a loss has run
 /// out.
@@ -499,22 +544,45 @@ mod tests {
     }
 
     #[test]
-    fn both_cooldowns_run_out() {
-        assert!(exploration_ready(None, 0, 0));
-        assert!(!exploration_ready(
-            Some(1_000),
-            4 * 3_600,
-            1_000 + 4 * 3_600 - 1
-        ));
-        assert!(exploration_ready(Some(1_000), 4 * 3_600, 1_000 + 4 * 3_600));
-        // A save written before the road had lengths is read as the old ten
-        // hours, not as a road with no cooldown.
-        assert_eq!(cooldown_seconds(0), LEGACY_EXPLORATION_COOLDOWN_SECONDS);
-        assert!(!exploration_ready(
-            Some(1_000),
-            0,
-            1_000 + LEGACY_EXPLORATION_COOLDOWN_SECONDS - 1
-        ));
+    fn a_walk_is_out_for_its_own_length_and_comes_home_with_nothing_until_it_does() {
+        let start = 1_000;
+        let walk = WalkInProgress::started(start, ExplorationHours::Four);
+        assert_eq!(walk.ends_unix, start + 4 * 3_600);
+        assert!(!walk.early, "a walk that was not called is a walk");
+        assert!(!walk.is_home(start));
+        assert!(!walk.is_home(start + 4 * 3_600 - 1));
+        assert!(walk.is_home(start + 4 * 3_600));
+        assert_eq!(walk.remaining_seconds(start), 4 * 3_600);
+        assert_eq!(walk.remaining_seconds(start + 4 * 3_600 + 9_999), 0);
+        assert_eq!(walk.length(), ExplorationHours::Four);
+    }
+
+    /// 提前回返：the walk pays nothing, and the trip home is a third of the time
+    /// already spent — never less than a moment's worth.
+    #[test]
+    fn a_called_walk_owes_a_third_of_the_time_it_spent() {
+        let start = 1_000;
+        let walk = WalkInProgress::started(start, ExplorationHours::Twelve);
+        let called = walk.called_home(start + 6 * 3_600);
+        assert!(called.early);
+        assert_eq!(
+            called.ends_unix,
+            start + 6 * 3_600 + 2 * 3_600,
+            "six hours out is two hours home"
+        );
+        assert!(!called.is_home(start + 7 * 3_600));
+        assert!(called.is_home(start + 8 * 3_600));
+        // Called the instant it left: the floor, not zero.
+        let at_once = walk.called_home(start);
+        assert_eq!(at_once.ends_unix, start + MIN_RETURN_SECONDS);
+        assert!(!at_once.is_home(start));
+        // A clock that went backwards cannot hand out a free walk.
+        let backwards = walk.called_home(start - 600);
+        assert_eq!(backwards.ends_unix, start - 600 + MIN_RETURN_SECONDS);
+    }
+
+    #[test]
+    fn the_guardian_cooldown_runs_out() {
         assert!(breakthrough_ready(None, 0));
         assert!(!breakthrough_ready(Some(500), 499));
         assert!(breakthrough_ready(Some(500), 500));

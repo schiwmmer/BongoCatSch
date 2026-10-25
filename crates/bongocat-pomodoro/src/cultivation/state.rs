@@ -36,8 +36,7 @@ use super::{
     events::{BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind},
     explore::{
         BONUS_STONES, GUARDIAN_STONES, TRIAL_STONES, WALK_STONES, WANDERER_STONES, WalkRecord,
-        breakthrough_ready, cooldown_seconds, exploration_ready, roll_stones, roll_victory,
-        roll_walk,
+        breakthrough_ready, roll_stones, roll_victory, roll_walk,
     },
     garden::{
         CropRecord, PlotRecord, SeedGrade, harvest_points, plot_price, roll_seed_grade, seed_name,
@@ -496,6 +495,11 @@ pub struct CultivationView {
     pub exploration_ready_at: Option<i64>,
     /// How long the last walk was, which is what set that instant.
     pub exploration_hours: super::ExplorationHours,
+    /// Whether the walk under way has already been called home.
+    ///
+    /// A called walk still owes its return trip, so the page keeps it on the
+    /// road rather than offering to call it twice.
+    pub walk_early: bool,
     /// The instant the guardian can be fought again, while a loss still holds
     /// the attempt.
     pub breakthrough_ready_at: Option<i64>,
@@ -2172,27 +2176,74 @@ impl Cultivation {
         found
     }
 
-    /// Walk out of the door once every ten hours.
+    /// Set out on one walk, for the length chosen.
     ///
-    /// Returns `None` while the walk is still on cooldown, and says why in
-    /// [`Self::last_refusal`] so the page can show it: a button that does
-    /// nothing has to say that it is cooling down rather than look broken. A
-    /// walk that meets someone settles that fight the same way a breakthrough
-    /// does, and losing it costs nothing but the walk.
+    /// Nothing is paid here: the road pays when the walk comes home, which is
+    /// [`Self::settle_walk`] and the worker's tick. Returns the walk that
+    /// started, and `None` while another is still out — with the refusal noted
+    /// so the page can say why. A walk whose time has already passed is settled
+    /// first, so a save that was never ticked (a launch after a night away) can
+    /// still set out the moment it is opened.
     pub fn explore(
         &mut self,
         now_unix: i64,
         hours: super::ExplorationHours,
-    ) -> Option<ExplorationOutcome> {
-        if !self.exploration_ready(now_unix) {
+    ) -> Option<super::WalkInProgress> {
+        self.settle_walk(now_unix);
+        if self.document.walk.is_some() {
             self.note_refusal(Refusal::ExploreCooldown);
             return None;
         }
+        let walk = super::WalkInProgress::started(now_unix, hours);
         self.document.last_exploration_unix = Some(now_unix);
-        // The length is written down beside the instant, because the cooldown
-        // is the length's own: a four-hour walk read back as a twelve-hour one
-        // would hold the next walk for eight hours it never spent.
+        // The length is written down beside the instant, because the page draws
+        // the chip the user picked last: a four-hour walk read back as a
+        // twelve-hour one would draw the wrong chip under the right countdown.
         self.document.last_exploration_hours = hours.hours();
+        self.document.walk = Some(walk);
+        Some(walk)
+    }
+
+    /// Call the walk home early.
+    ///
+    /// The find is forfeit — the road is not walked, so there is nothing on it —
+    /// and the return trip is a third of the time already spent, so calling a
+    /// walk back is a way to stop paying attention to it rather than a way to
+    /// undo it.
+    pub fn return_early(&mut self, now_unix: i64) -> bool {
+        let Some(walk) = self.document.walk else {
+            self.note_refusal(Refusal::ExploreCooldown);
+            return false;
+        };
+        if walk.early {
+            return false;
+        }
+        self.document.walk = Some(walk.called_home(now_unix));
+        true
+    }
+
+    /// Settle the walk that is home: roll what it turned up, pay it, and let the
+    /// cultivator be at home again.
+    ///
+    /// Returns whether anything was settled. A walk still out answers `false`
+    /// and nothing moves; a walk called home comes back empty, because a called
+    /// walk is a walk that was not taken.
+    pub fn settle_walk(&mut self, now_unix: i64) -> bool {
+        let Some(walk) = self.document.walk else {
+            return false;
+        };
+        if !walk.is_home(now_unix) {
+            return false;
+        }
+        self.document.walk = None;
+        if walk.early {
+            // Called home: no find, no purse, no record. The walk did not
+            // happen, which is exactly what it pays for having been called.
+            self.document.last_exploration_unix = Some(now_unix);
+            return true;
+        }
+        let hours = walk.length();
+        self.document.last_exploration_unix = Some(now_unix);
         // Counted here rather than on the outcome: a walk that found nothing is
         // still a walk a surface has not shown yet.
         self.document.explorations = self.document.explorations.saturating_add(1);
@@ -2336,34 +2387,36 @@ impl Cultivation {
                 stones,
             },
         );
-        Some(outcome)
+        true
+    }
+
+    /// Whether the cultivator is at home right now: no walk is under way.
+    ///
+    /// The walk is its own cooldown — the road pays when it comes home — so
+    /// being home is the whole gate. A walk whose time has passed is settled by
+    /// the worker's tick, and by [`Self::explore`] on the way in, so this never
+    /// says "out" about a walk that is already back.
+    pub fn exploration_ready(&self, now_unix: i64) -> bool {
+        match self.document.walk {
+            None => true,
+            // A walk whose time is up is home whether or not the tick has come
+            // round to settle it yet: a page that said "still out" about a walk
+            // that is back would be reading the clock wrong, not the walk.
+            Some(walk) => walk.is_home(now_unix),
+        }
+    }
+
+    /// The walk under way, if the cultivator is out.
+    pub fn walk(&self) -> Option<super::WalkInProgress> {
+        self.document.walk
+    }
+
+    /// The instant the walk under way comes home, while one is out.
+    pub fn walk_home_at(&self) -> Option<i64> {
+        self.document.walk.map(|walk| walk.ends_unix)
     }
 
     /// The floor the next attempt climbs.
-    ///
-    /// A trial only ever offers the floor above the highest one cleared: the
-    /// climb is a frontier, not a menu, so re-fighting ground already held
-    /// cannot be used to farm a tier the save has outgrown.
-    /// Whether a walk is owed right now.
-    ///
-    /// Read through the length the last walk was taken at: the cooldown is that
-    /// walk's own, so a short walk comes back sooner than a long one.
-    pub fn exploration_ready(&self, now_unix: i64) -> bool {
-        exploration_ready(
-            self.document.last_exploration_unix,
-            self.stored_walk_seconds(),
-            now_unix,
-        )
-    }
-
-    /// How long the last walk holds the next one off, in seconds.
-    ///
-    /// Zero hours is a save written before walks had lengths, and
-    /// [`cooldown_seconds`] reads that as the old ten hours.
-    pub fn stored_walk_seconds(&self) -> i64 {
-        cooldown_seconds(i64::from(self.document.last_exploration_hours) * 3_600)
-    }
-
     pub fn trial_next_floor(&self) -> u16 {
         self.document.trial_floor.saturating_add(1)
     }
@@ -2407,6 +2460,9 @@ impl Cultivation {
     /// nothing but the attempt, and leaves the frontier where it stood, so the
     /// tower is a wall to be worn down rather than a ladder that drops.
     pub fn trial(&mut self, now_unix: i64, day: i64) -> Option<TrialOutcome> {
+        // A walk that is home is settled first: the courtyard is closed to a
+        // walk that is *out*, not to one whose find has not been read yet.
+        self.settle_walk(now_unix);
         if let Some(blocked) = self.trial_blocked(now_unix, day) {
             self.note_refusal(blocked.refusal());
             return None;
@@ -2493,6 +2549,7 @@ impl Cultivation {
     /// the 锁妖塔's base table: a seed most often, gear sometimes, a 功法 almost
     /// never. What the two dungeons differ in is when they pay, not what.
     pub fn proving(&mut self, now_unix: i64) -> Option<ProvingOutcome> {
+        self.settle_walk(now_unix);
         if !self.exploration_ready(now_unix) {
             self.note_refusal(Refusal::ProvingOut);
             return None;
@@ -2858,13 +2915,14 @@ impl Cultivation {
                 self.document.breakthrough_blocked_until,
                 now_unix,
             ),
-            exploration_ready_at: self
-                .document
-                .last_exploration_unix
-                .map(|last| last.saturating_add(self.stored_walk_seconds())),
+            exploration_ready_at: self.walk_home_at(),
             exploration_hours: super::ExplorationHours::from_hours(
                 self.document.last_exploration_hours,
             ),
+            // Whether the walk under way has already been called home: the page
+            // draws the button as "on its way back" rather than offering to
+            // call a called walk.
+            walk_early: self.document.walk.is_some_and(|walk| walk.early),
             breakthrough_ready_at: self.document.breakthrough_blocked_until,
             breakthrough_attempts: self.breakthrough_attempts,
             explorations: self.document.explorations,
@@ -3715,7 +3773,11 @@ mod tests {
         // a walk that meets someone may train 战斗 as well — so the number the
         // page shows is read back rather than assumed.
         for step in 0..20 {
-            cultivation.explore(1_000 + step * WALK_SECONDS, ExplorationHours::Twelve);
+            let at = 1_000 + step * WALK_SECONDS;
+            cultivation.explore(at, ExplorationHours::Twelve);
+            // A walk trains the 游历 dimension when it comes home, so the test
+            // brings it home on the same clock the next walk starts on.
+            cultivation.settle_walk(at + WALK_SECONDS);
         }
         let view = cultivation.view();
         assert!(
@@ -3771,11 +3833,13 @@ mod tests {
     fn the_record_keeps_the_last_eight_fights_newest_first() {
         let mut cultivation = at_the_first_cap();
         for step in 0..60 {
-            let _ = cultivation.explore(100_000 + step * WALK_SECONDS, ExplorationHours::Twelve);
+            let at = 100_000 + step * WALK_SECONDS;
+            let _ = cultivation.explore(at, ExplorationHours::Twelve);
+            cultivation.settle_walk(at + WALK_SECONDS);
         }
         // Fought last, so the guardian's line is the newest one: a window of eight
         // would otherwise push it out, which is the window working, not failing.
-        let _ = cultivation.breakthrough(100_000 + 60 * WALK_SECONDS);
+        let _ = cultivation.breakthrough(100_000 + 60 * WALK_SECONDS + 1);
         let view = cultivation.view();
         assert_eq!(
             view.duel_record.len(),
@@ -3814,6 +3878,18 @@ mod tests {
     #[test]
     fn only_wins_train_the_battle_dimension() {
         let mut cultivation = at_the_first_cap();
+        // One 外功 taken to its last 阶: a body that can win a road fight. At the
+        // cap with every book still at rank zero the player swings bare-handed
+        // against a wanderer carrying an art, and loses every meeting — which
+        // would leave this test asserting nothing about wins at all.
+        cultivation.document.arts.push(OwnedArt {
+            art_id: 404,
+            rank: 6,
+            progress: 0,
+            failures: 0,
+            outcome: None,
+        });
+        cultivation.document.selected_art = Some(404);
         let _ = cultivation.breakthrough(1_000);
         assert_eq!(
             discipline_bonus(Discipline::Fight, 0, 0, cultivation.realm()),
@@ -3822,15 +3898,21 @@ mod tests {
         );
 
         for step in 0..40 {
-            let _ = cultivation.explore(100_000 + step * WALK_SECONDS, ExplorationHours::Twelve);
+            let at = 100_000 + step * WALK_SECONDS;
+            let _ = cultivation.explore(at, ExplorationHours::Twelve);
+            cultivation.settle_walk(at + WALK_SECONDS);
         }
         let view = cultivation.view();
-        let won = view
-            .duel_record
-            .iter()
-            .filter(|line| line.kind == FightKind::Wanderer && line.won)
-            .count() as u32;
-        assert!(won > 0, "forty walks should have met someone: {view:?}");
+        // The record is a window of eight, so the count read here is the
+        // document's own — the same number the growth formula reads.
+        let won = cultivation.document().battle_wins;
+        assert!(won > 0, "forty walks should have won one: {view:?}");
+        assert!(
+            view.duel_record
+                .iter()
+                .any(|line| line.kind == FightKind::Wanderer),
+            "and the record says who was met"
+        );
         assert_eq!(
             discipline_bonus(Discipline::Fight, 0, won, view.realm),
             DISCIPLINE_STEP_PERMILLE * won.min(DISCIPLINE_STEP_CAP),
@@ -3870,7 +3952,10 @@ mod tests {
     #[test]
     fn the_tower_opens_only_at_home_and_only_while_the_day_has_floors() {
         let mut cultivation = a_bare_save_at(20);
-        cultivation.document.last_exploration_unix = Some(1_000);
+        cultivation.document.walk = Some(super::super::WalkInProgress::started(
+            1_000,
+            ExplorationHours::Four,
+        ));
         assert_eq!(cultivation.trial_blocked(1_001, 9), Some(TrialBlocked::Out));
         assert!(
             cultivation.trial(1_001, 9).is_none(),
@@ -3882,7 +3967,7 @@ mod tests {
         );
 
         // Home: five floors belong to the day, and the sixth does not.
-        cultivation.document.last_exploration_unix = None;
+        cultivation.document.walk = None;
         let mut climbed = 0;
         for step in 0..TRIAL_ATTEMPTS_PER_DAY {
             let now = 10_000 + i64::from(step) * 60;
@@ -4237,7 +4322,9 @@ mod tests {
                     realm: realm.index() as u8,
                     ..CultivationDocument::default()
                 });
-                let _ = cultivation.explore(1_000 + step * 100_000, ExplorationHours::Twelve);
+                let at = 1_000 + step * 100_000;
+                let _ = cultivation.explore(at, ExplorationHours::Twelve);
+                cultivation.settle_walk(at + ExplorationHours::Twelve.seconds());
                 if let Some(stones) = cultivation
                     .view()
                     .last_exploration_found

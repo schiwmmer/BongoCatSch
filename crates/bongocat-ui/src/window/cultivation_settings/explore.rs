@@ -153,17 +153,18 @@ pub(super) fn breakthrough_banner(
 
 /// The walk out of the door, at whichever of the three lengths is chosen.
 ///
-/// Gated by the cooldown alone — the thing being rationed is the player's
-/// attention, not a cost — and the countdown says when the next one is owed.
-/// The button is offered whether or not one is owed: a walk that is not owed
-/// says so, and a button that quietly disappeared would leave the user
-/// wondering whether the page was broken or the walk was.
+/// The road pays when the walk comes home, so the panel has two faces: at home
+/// it offers the three lengths and the button that sets out; out on the road it
+/// draws the countdown to the walk's return and the one button that calls it
+/// back. A walk that is called back pays nothing — the road is not walked — and
+/// the trip home is a third of the time already spent, which is the price of
+/// changing one's mind.
 ///
 /// The three lengths are the walk's one lever. A longer walk finds more —
-/// every chance it rolls is multiplied by the chip's own figure — and holds the
-/// cultivator for longer, so the choice is how finely the day's rolls are cut
-/// rather than which chip is better. The chosen length is drawn as the
-/// selected chip and the countdown below it is that length's own.
+/// every chance it rolls is multiplied by the chip's own figure — and keeps the
+/// cultivator out for longer, so the choice is how finely the day's rolls are
+/// cut rather than which chip is better. The chosen length is drawn as the
+/// selected chip and the countdown below it is that walk's own.
 pub(super) fn exploration_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
@@ -171,10 +172,23 @@ pub(super) fn exploration_panel(
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
-    let button = Button::new("cultivation-explore-attempt")
-        .small()
-        .label(text(locale, "cultivation.explore.attempt"))
-        .on_click({
+    let at_home = cultivation.exploration_ready;
+    let mut button = if at_home {
+        Button::new("cultivation-explore-attempt")
+            .small()
+            .label(text(locale, "cultivation.explore.attempt"))
+    } else {
+        let label_key = if cultivation.walk_early {
+            "cultivation.explore.returning"
+        } else {
+            "cultivation.explore.return"
+        };
+        Button::new("cultivation-explore-return")
+            .small()
+            .label(text(locale, label_key))
+    };
+    if at_home {
+        button = button.on_click({
             let view = view.clone();
             move |_, _, cx| {
                 view.update(cx, |view, cx| {
@@ -188,14 +202,29 @@ pub(super) fn exploration_panel(
                 });
             }
         });
-    let status = if cultivation.exploration_ready {
+    } else if !cultivation.walk_early {
+        // A walk already on its way home is drawn, not offered: a second call
+        // would only rewrite a return trip already under way, and a button that
+        // looks live but does nothing reads as broken.
+        button = button.on_click({
+            let view = view.clone();
+            move |_, _, cx| {
+                view.update(cx, |view, cx| {
+                    let _ = view.pomodoro.try_publish(PomodoroCommand::ReturnWalk);
+                    cx.notify();
+                });
+            }
+        });
+    }
+    let status = if at_home {
         text(locale, "cultivation.explore.ready").to_string()
     } else {
-        cooldown_line(
-            cultivation.exploration_ready_at,
-            "cultivation.explore.held",
-            locale,
-        )
+        let key = if cultivation.walk_early {
+            "cultivation.explore.returning_in"
+        } else {
+            "cultivation.explore.eta"
+        };
+        cooldown_line(cultivation.exploration_ready_at, key, locale)
     };
     let chips = ExplorationHours::ALL.into_iter().map(move |hours| {
         let selected = hours == chosen;

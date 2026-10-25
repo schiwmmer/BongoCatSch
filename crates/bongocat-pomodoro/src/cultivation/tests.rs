@@ -17,6 +17,24 @@ fn day(number: i64) -> CalendarDay {
     CalendarDay::from_day_number(number)
 }
 
+/// Set out and come home: what the road paid, once the walk is back.
+///
+/// A walk pays nothing when it leaves any more — the tick that settles it is
+/// what pays — so every test that wants a walk's find has to walk it and bring
+/// it home. The clock moves by the walk's own length, which is the same instant
+/// the old cooldown used to free up, so a day still holds the same number of
+/// walks it always did.
+fn walk(
+    cultivation: &mut Cultivation,
+    now_unix: i64,
+    hours: ExplorationHours,
+) -> Option<ExplorationOutcome> {
+    cultivation.explore(now_unix, hours)?;
+    let home = now_unix.saturating_add(hours.seconds());
+    cultivation.settle_walk(home);
+    cultivation.view_on(home, 0).last_exploration
+}
+
 /// A cultivator at the first realm's last layer, with nothing equipped.
 fn at_the_first_cap() -> Cultivation {
     Cultivation::new(CultivationDocument {
@@ -875,36 +893,78 @@ fn a_loss_costs_gear_sometimes_and_never_everything() {
     );
 }
 
-/// Exploration is rationed by a cooldown, and a walk is never free of
-/// consequences: it pays something, or it meets someone.
+/// One walk at a time, and it pays when it comes home rather than when it
+/// leaves: the walk itself is the wait, so there is no second cooldown beside
+/// it.
 #[test]
-fn one_walk_every_twelve_hours() {
+fn one_walk_at_a_time_and_it_pays_when_it_comes_home() {
+    let start = 10_000;
     let mut cultivation = Cultivation::default();
-    let first = cultivation
-        .explore(10_000, ExplorationHours::Twelve)
-        .expect("the first walk is owed");
+    let started = cultivation
+        .explore(start, ExplorationHours::Twelve)
+        .expect("the first walk sets out");
+    assert_eq!(started.ends_unix, start + WALK_SECONDS);
+    assert!(!started.early, "a walk nobody called is a walk");
     assert!(
         cultivation
-            .explore(10_001, ExplorationHours::Twelve)
+            .explore(start + 1, ExplorationHours::Twelve)
             .is_none(),
-        "the walk is not owed"
+        "a walk already out is the only gate there is"
     );
-    // The panel reads the same rule the walk does, from the clock it is handed.
+    // The panel reads the same rule from the clock it is handed, and counts
+    // down to the return rather than to a cooldown of its own.
+    let underway = cultivation.view_on(start + 1, 0);
+    assert!(!underway.exploration_ready, "still on the road");
+    assert_eq!(underway.exploration_ready_at, Some(start + WALK_SECONDS));
+    // Nothing is paid on the way out.
+    assert!(cultivation.view().last_exploration.is_none());
     assert!(
-        !cultivation.view_on(10_001, 10_001).exploration_ready,
-        "the second walk is not owed yet"
+        !cultivation.settle_walk(start + WALK_SECONDS - 1),
+        "not home yet"
     );
+    assert!(cultivation.settle_walk(start + WALK_SECONDS), "home");
+    let home = cultivation.view_on(start + WALK_SECONDS, 0);
+    assert!(home.exploration_ready, "home again, and owed a walk");
+    assert!(home.last_exploration.is_some(), "the road paid on return");
+    assert_eq!(home.explorations, 1, "the walk counted once");
+    // And the next walk can start at once: what used to be the cooldown is the
+    // walk itself.
     assert!(
         cultivation
-            .view_on(10_000 + WALK_SECONDS, 10_000)
-            .exploration_ready
+            .explore(start + WALK_SECONDS, ExplorationHours::Twelve)
+            .is_some()
     );
-    let second = cultivation
-        .explore(10_000 + WALK_SECONDS, ExplorationHours::Twelve)
-        .expect("the cooldown has run out");
-    // Whatever the walk was, the panel can say what came of it.
-    assert_eq!(cultivation.view().last_exploration, Some(second));
-    let _ = first;
+}
+
+/// 提前回返：the walk comes home with nothing, and the trip back is a third of
+/// the time already spent.
+#[test]
+fn a_called_walk_pays_nothing() {
+    let start = 1_000;
+    let mut cultivation = Cultivation::default();
+    cultivation
+        .explore(start, ExplorationHours::Twelve)
+        .expect("the walk sets out");
+    assert!(cultivation.return_early(start + 6 * 3_600), "called home");
+    let called = cultivation.walk().expect("still on the way back");
+    assert!(called.early);
+    assert_eq!(
+        called.ends_unix,
+        start + 8 * 3_600,
+        "six hours out, two back"
+    );
+    // The return trip is not over yet, and a second call changes nothing.
+    assert!(!cultivation.settle_walk(start + 7 * 3_600));
+    assert!(!cultivation.return_early(start + 7 * 3_600));
+    assert!(cultivation.settle_walk(start + 8 * 3_600));
+    let home = cultivation.view_on(start + 8 * 3_600, 0);
+    assert!(home.exploration_ready);
+    assert!(
+        home.last_exploration.is_none(),
+        "a called walk pays nothing at all"
+    );
+    assert_eq!(home.explorations, 0, "a called walk does not count");
+    assert_eq!(cultivation.stones(), 0, "and fills no purse");
 }
 
 /// A walk that turns something up says what it turned up: the herb, the piece,
@@ -919,8 +979,11 @@ fn a_walk_says_what_it_turned_up() {
     let mut purse_only = 0;
     for clock in 0..40_i64 {
         let mut cultivation = Cultivation::default();
-        let Some(outcome) = cultivation.explore(1_000 + clock * 100_000, ExplorationHours::Twelve)
-        else {
+        let Some(outcome) = walk(
+            &mut cultivation,
+            1_000 + clock * 100_000,
+            ExplorationHours::Twelve,
+        ) else {
             continue;
         };
         let turned_up = cultivation.view().last_exploration_found.clone();
@@ -983,8 +1046,18 @@ fn a_fight_and_a_walk_each_count_once() {
     let mut walking = Cultivation::default();
     assert_eq!(walking.view().explorations, 0);
     let _ = walking.explore(5_000, ExplorationHours::Twelve);
-    assert_eq!(walking.view().explorations, 1, "the walk counted");
+    assert_eq!(
+        walking.view().explorations,
+        0,
+        "a walk still on the road has not counted"
+    );
     assert!(walking.explore(5_001, ExplorationHours::Twelve).is_none());
+    walking.settle_walk(5_000 + WALK_SECONDS);
+    assert_eq!(
+        walking.view().explorations,
+        1,
+        "the walk counted when it came home"
+    );
     assert_eq!(
         walking.view().explorations,
         1,
@@ -1020,8 +1093,11 @@ fn a_walk_can_turn_up_stones() {
     let mut turned_up = 0;
     for clock in 0..60_i64 {
         let mut cultivation = Cultivation::default();
-        let Some(outcome) = cultivation.explore(1_000 + clock * 100_000, ExplorationHours::Twelve)
-        else {
+        let Some(outcome) = walk(
+            &mut cultivation,
+            1_000 + clock * 100_000,
+            ExplorationHours::Twelve,
+        ) else {
             continue;
         };
         let found = cultivation.view().last_exploration_found.clone();
@@ -1057,8 +1133,11 @@ fn a_walk_can_turn_up_stones() {
 fn a_walk_that_was_beaten_pays_nothing() {
     for clock in 0..60_i64 {
         let mut cultivation = Cultivation::default();
-        let Some(outcome) = cultivation.explore(1_000 + clock * 100_000, ExplorationHours::Twelve)
-        else {
+        let Some(outcome) = walk(
+            &mut cultivation,
+            1_000 + clock * 100_000,
+            ExplorationHours::Twelve,
+        ) else {
             continue;
         };
         if outcome != ExplorationOutcome::Defeat {
@@ -1092,10 +1171,7 @@ fn a_quiet_walk_carries_no_fight_into_its_popup() {
     let mut cultivation = Cultivation::default();
     let mut met_someone = false;
     for attempt in 0..300_i64 {
-        if cultivation
-            .explore(attempt * step, ExplorationHours::Twelve)
-            .is_none()
-        {
+        if walk(&mut cultivation, attempt * step, ExplorationHours::Twelve).is_none() {
             continue;
         }
         if cultivation.view().last_exploration_duel.is_some() {
@@ -1108,7 +1184,7 @@ fn a_quiet_walk_carries_no_fight_into_its_popup() {
     // nothing to replay and no verdict to draw.
     let mut quiet = None;
     for attempt in 300..600_i64 {
-        let Some(outcome) = cultivation.explore(attempt * step, ExplorationHours::Twelve) else {
+        let Some(outcome) = walk(&mut cultivation, attempt * step, ExplorationHours::Twelve) else {
             continue;
         };
         if !matches!(

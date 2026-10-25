@@ -312,29 +312,34 @@ fn a_free_attempt_is_fought_with_one_click(cx: &mut TestAppContext) {
     );
 }
 
-/// A walk that is not owed is still offered, and asking for one anyway reaches
-/// the worker: the page says why it is refused rather than pretending the
-/// button was never there.
+/// A walk under way is drawn as one: the panel counts down to its return and
+/// offers the way home instead of a second walk the domain would refuse.
 #[gpui_kit::test]
-fn a_walk_that_is_not_owed_is_still_offered_and_asks(cx: &mut TestAppContext) {
+fn a_walk_under_way_offers_to_come_home(cx: &mut TestAppContext) {
     let mut cultivation = at_the_cap();
     cultivation.exploration_ready = false;
+    cultivation.exploration_ready_at = None;
+    cultivation.walk_early = false;
     let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
     let (_view, visual) = cultivation_page_with(cx, pomodoro);
     visual.update(|window, cx| window.render_frame(cx));
     assert!(
-        painted(visual, "cultivation-explore-attempt"),
-        "the walk must be offered whether or not one is owed"
+        painted(visual, "cultivation-explore-return"),
+        "a walk under way offers the way home"
     );
-    scroll_until_visible(visual, "cultivation-explore-attempt");
+    assert!(
+        !painted(visual, "cultivation-explore-attempt"),
+        "and does not offer a second walk it would only refuse"
+    );
+    scroll_until_visible(visual, "cultivation-explore-return");
     visual.update(|window, cx| {
         window.render_frame(cx);
-        window.click("cultivation-explore-attempt", cx);
+        window.click("cultivation-explore-return", cx);
     });
     let commands = published(&sink);
     assert!(
-        matches!(commands.as_slice(), [PomodoroCommand::Explore { .. }]),
-        "the click asks the worker anyway, and the worker refuses it: {commands:?}"
+        matches!(commands.as_slice(), [PomodoroCommand::ReturnWalk]),
+        "the click asks the worker to call the walk home: {commands:?}"
     );
 }
 

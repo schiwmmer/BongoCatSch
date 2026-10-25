@@ -90,7 +90,7 @@ pub use duel::{
 pub use events::{BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind};
 pub use explore::{
     BREAKTHROUGH_COOLDOWN_SECONDS, ENCOUNTER_PERMILLE, ExplorationHours, ExplorationOutcome,
-    VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkRecord, cooldown_seconds,
+    VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkInProgress, WalkRecord,
 };
 pub use garden::{
     CropRecord, FREE_PLOT_COUNT, MAX_PLOT_COUNT, MAX_SEED_TIER, PlotRecord, SeedGrade, SeedStack,
@@ -103,8 +103,8 @@ pub use items::{
 pub use proving::{ProvingOutcome, TRIAL_CHANCES_CAP};
 pub use shop::SESSION_EARNINGS;
 pub use shop::{
-    SHOP_MAX_OFFERS, SHOP_MIN_OFFERS, ShopOffer, ShopOfferView, art_price, equipment_price,
-    offers_for_day, roll_offers, seed_price, star_up_cost,
+    SEED_STONES_PER_POINT, SHOP_MAX_OFFERS, SHOP_MIN_OFFERS, ShopOffer, ShopOfferView, art_price,
+    equipment_price, offers_for_day, roll_offers, seed_price, star_up_cost,
 };
 pub use state::{
     AbsenceCharge, AptitudeUse, BreakthroughOutcome, CropView, Cultivation, CultivationView,

@@ -623,6 +623,12 @@ fn tick(shared: &Arc<SharedState>, path: &Path, elapsed: Duration) -> bool {
         inner.publish();
         inner.write_document(path);
     }
+    // A walk pays when it comes home, not when it is set out on, so the same
+    // tick that charges the day has to notice a road that has been walked.
+    if inner.domain.apply_walk_return(now) {
+        inner.publish();
+        inner.write_document(path);
+    }
     // The day opens once, whichever tick is the first of it: the morning event
     // is the ladder's one unprompted move, so it hangs off the same tick rather
     // than off a click the user might never make.

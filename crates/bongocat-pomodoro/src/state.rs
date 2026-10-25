@@ -232,12 +232,16 @@ pub enum PomodoroCommand {
     /// Choose which 功法 the next finished pomodoro trains. `None` stops
     /// training: a session then pays growth alone.
     SelectArt { art_id: Option<u64> },
-    /// Walk out of the door: one exploration, gated by its own cooldown.
+    /// Walk out of the door: one exploration, which comes home with its find.
     ///
     /// `hours` is how long the walk is taken for: the same road, walked for
     /// longer, finds more and holds the cultivator longer — four, eight or
-    /// twelve, and anything else is read as eight.
+    /// twelve, and anything else is read as eight. The walk pays nothing until
+    /// it is back: see [`Self::ReturnWalk`].
     Explore { hours: crate::ExplorationHours },
+    /// Call the walk under way home early. It pays nothing, and the trip back
+    /// is a third of the time already spent.
+    ReturnWalk,
     /// Climb one floor of the 锁妖塔: gated by the day's attempts and by being
     /// home rather than out on a walk.
     Tower,
@@ -311,6 +315,7 @@ impl PomodoroCommand {
             | Self::Breakthrough
             | Self::SelectArt { .. }
             | Self::Explore { .. }
+            | Self::ReturnWalk
             | Self::Tower
             | Self::Prove
             | Self::RecordInput { .. } => true,
@@ -474,6 +479,9 @@ impl PomodoroState {
             PomodoroCommand::Explore { hours } => {
                 self.cultivation.explore(now_unix, hours);
             }
+            PomodoroCommand::ReturnWalk => {
+                self.cultivation.return_early(now_unix);
+            }
             PomodoroCommand::Tower => {
                 let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
                 self.cultivation.trial(now_unix, today.day_number());
@@ -553,6 +561,23 @@ impl PomodoroState {
     pub fn apply_absence(&mut self, now_unix: i64) -> bool {
         let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
         if self.cultivation.apply_absence(today).is_none() {
+            return false;
+        }
+        self.sync_cultivation();
+        true
+    }
+
+    /// Settle a walk that has come home, if one has. Returns whether anything
+    /// happened.
+    ///
+    /// Called by the worker's tick beside the absence charge and the morning
+    /// event, for the same reason: the road pays on the clock rather than on a
+    /// click. A machine left running, or launched after a night away, has to
+    /// find the walk already back and pay what it turned up — a walk whose find
+    /// only arrived if the user happened to click something would be a walk
+    /// that quietly lost its find.
+    pub fn apply_walk_return(&mut self, now_unix: i64) -> bool {
+        if !self.cultivation.settle_walk(now_unix) {
             return false;
         }
         self.sync_cultivation();

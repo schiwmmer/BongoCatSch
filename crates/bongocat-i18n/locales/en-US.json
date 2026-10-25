@@ -816,14 +816,17 @@
       "found_gear": "Gear found: %{name}",
       "found_seed": "Seed found: %{name}",
       "found_stones": "Stones found: %{value}",
-      "held": "Another walk in %{hours}h %{minutes}m",
+      "eta": "Home in %{hours}h %{minutes}m",
       "nothing": "Nothing came of it.",
-      "ready": "A walk is owed.",
+      "ready": "You are home, and free to set out.",
+      "return": "Come home early",
+      "returning": "On the way back",
+      "returning_in": "On the way back · %{hours}h %{minutes}m to go",
       "refuse_cooldown": "The last walk has not come back yet — wait a while longer.",
       "title": "Exploration",
       "victory": "The wanderer was beaten, and paid for it.",
       "hours": "%{hours}h · ×%{mult}",
-      "hint": "The length of a walk sets what it can find: four hours at the base chances, eight at ×2.1, twelve at ×3.2. The walk holds you for the same length afterwards, so a day holds six short walks or two long ones — about the same total either way."
+      "hint": "A walk pays when it comes home: what the road turned up is settled on the way back. Four hours at the base chances, eight at ×2.1, twelve at ×3.2. A walk can be called home early, but a called walk finds nothing — and the trip back costs a third of the time already spent."
     },
     "trial": {
       "title": "Demon-Locking Tower",

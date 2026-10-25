@@ -150,30 +150,44 @@ mod tests {
         }
     }
 
-    /// A herb costs less than a garment at its own rung of the two ladders: a
-    /// 黄阶 herb under plain cloth, a 地阶 one under 精良 cloth, a 神阶 one under
-    /// 传说. One is repeatable and the other is not, so the herb never wins its
-    /// own comparison — but a 神阶 herb may well cost more than the plainest
-    /// garment, and that is the grade being worth something rather than a bug.
+    /// A seed is priced off what it pays — its points at one rate — rather than
+    /// off its tier or its grade, and the rate sits under the 功法's own: the
+    /// herb is the cheap way into an attribute, the book is the permanent one.
+    ///
+    /// The old rule was "a herb costs less than the garment of its own rung".
+    /// It cannot hold once the harvest is paid by the hour: a 神阶 seed of the
+    /// tenth tier pays two hundred and thirty-five points, and no garment in
+    /// the game pays that. What has to hold instead is that the price is the
+    /// points and nothing else — so a cheap seed is cheap because it pays
+    /// little, not because it is a bargain.
     #[test]
-    fn a_herb_costs_less_than_the_garment_of_its_own_rung() {
-        use crate::cultivation::Rarity;
-        let rungs = [
-            (crate::cultivation::SeedGrade::Yellow, Rarity::Common),
-            (crate::cultivation::SeedGrade::Profound, Rarity::Fine),
-            (crate::cultivation::SeedGrade::Earth, Rarity::Rare),
-            (crate::cultivation::SeedGrade::Heaven, Rarity::Immortal),
-            (crate::cultivation::SeedGrade::Divine, Rarity::Legendary),
-        ];
+    fn a_seed_is_priced_by_the_points_it_pays() {
+        use crate::cultivation::{Rarity, SeedGrade, harvest_points, seed_price};
+        assert_eq!(crate::cultivation::SEED_STONES_PER_POINT, 14);
         for tier in 1..=10u8 {
-            for (grade, rarity) in rungs {
-                assert!(
-                    crate::cultivation::seed_price(tier, grade)
-                        < crate::cultivation::equipment_price(tier, rarity),
-                    "seed tier {tier} {grade:?} costs more than the {rarity:?} garment beside it"
+            for grade in SeedGrade::ALL {
+                assert_eq!(
+                    seed_price(tier, grade),
+                    harvest_points(tier, grade) as u32 * crate::cultivation::SEED_STONES_PER_POINT,
+                    "tier {tier} {grade:?} is priced off its points"
                 );
             }
+            // The cheap rows stay cheap: a 黄阶 herb of any tier is under the
+            // plainest garment of its own tier, which is what keeps a beginner's
+            // purchase a beginner's purchase.
+            assert!(
+                seed_price(tier, SeedGrade::Yellow)
+                    < crate::cultivation::equipment_price(tier, Rarity::Common),
+                "tier {tier}: a cheap herb must cost less than plain cloth"
+            );
         }
+        // And a herb is under the book of its grade: the 神阶 seed of the fourth
+        // tier pays forty-two points and costs less than the 神阶 功法 beside it.
+        assert!(
+            seed_price(4, SeedGrade::Divine)
+                < crate::cultivation::art_price(SeedGrade::Divine.as_art_grade()),
+            "a herb must never cost more than the book it is graded beside"
+        );
     }
 
     /// The shop pays exactly half of what it asks.

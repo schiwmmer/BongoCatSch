@@ -283,13 +283,16 @@ pub fn blueprint(id: u64) -> ArtBlueprint {
 /// 攻击力 stands in for a third of a point of 力量 — so the three shapes are
 /// worth the same at the same grade and the choice between them is flavour,
 /// not a trap.
-/// The per-阶 payout by grade: 2, 6, 9, 14, 21.
+/// The per-阶 payout by grade: 3, 8, 12, 18, 27.
 ///
-/// 玄 is one and a half times the old four — the brief's own anchor — and every
-/// step after it is at least half again as large as the one below, so a 神阶
-/// 内功 is not a 黄阶 one with a longer climb. Neighbouring grades are never
-/// "about the same": the 玄→地 step is the shallowest at ×1.5.
-const INTERNAL_MAGNITUDES: [i32; 5] = [2, 6, 9, 14, 21];
+/// Raised from 2, 6, 9, 14, 21 — a third again on every rung — because the two
+/// halves of the ladder have to be read against each other: an hour in the
+/// ground pays what an hour in the ground pays, and a session at the desk has
+/// to be worth more than a herb somebody planted. 玄 stays the one and a third
+/// of the old four the brief anchored it on, and every step after it is at
+/// least half again the one below, so a 神阶 内功 is not a 黄阶 one with a
+/// longer climb.
+const INTERNAL_MAGNITUDES: [i32; 5] = [3, 8, 12, 18, 27];
 
 fn internal_gain(grade: ArtGrade, rng: &mut Rng) -> (Attributes, Derived) {
     let magnitude = INTERNAL_MAGNITUDES[grade.index()];
@@ -1058,11 +1061,11 @@ mod tests {
     }
 
     /// Every grade's per-阶 payout is clearly larger than the one below, and 玄
-    /// is exactly one and a half times the old figure of four.
+    /// sits a third above the figure it used to carry.
     #[test]
     fn the_grade_payouts_are_far_apart_and_anchor_on_profound() {
         let magnitudes = INTERNAL_MAGNITUDES;
-        assert_eq!(magnitudes[1], 6, "玄阶 is the old 4 × 1.5");
+        assert_eq!(magnitudes[1], 8, "玄阶 pays eight a 阶");
         for pair in magnitudes.windows(2) {
             assert!(
                 pair[1] * 2 >= pair[0] * 3,
