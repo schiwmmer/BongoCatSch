@@ -685,7 +685,7 @@
       "aptitude": "aptitude +%{value} a rank"
     },
     "derived": "Shown",
-    "derived_hint": "Follows from the four attributes; no point can be placed here",
+    "derived_hint": "From the four attributes; no points here",
     "formula": {
       "line": "%{base} + %{attribute} %{value} × %{per} = %{result}",
       "capped": "%{formula} (capped at %{cap})",
@@ -810,7 +810,7 @@
     },
     "jobs": {
       "title": "Odd jobs",
-      "hint": "Take a job and see it out: the wage is a figure, sized by the realm, the hours and the grade at a fifth over the middle of what the same hours on the road would pay. Each point of 潜质 is a further 0.11% chance it comes home at double and 0.01% at triple.",
+      "hint": "Fixed wage; 潜质: 0.11% per point ×2, 0.01% ×3.",
       "row": "tier %{tier} · %{hours}h · %{stones} stones",
       "accept": "Take it",
       "refresh": "Reroll",
@@ -838,7 +838,7 @@
       "title": "Exploration",
       "victory": "The wanderer was beaten, and paid for it.",
       "hours": "%{hours}h · ×%{mult}",
-      "hint": "A walk pays when it comes home: what the road turned up is settled on the way back. Four hours at the base chances, eight at ×2.1, twelve at ×3.2. A walk can be called home early, but a called walk finds nothing — and the trip back costs a third of the time already spent."
+      "hint": "Walk the hours out or come home with nothing."
     },
     "trial": {
       "title": "Demon-Locking Tower",
@@ -848,7 +848,7 @@
       "attempts_left": "%{left}/%{total} climbs left today",
       "cleared": "Cleared through floor %{floor}",
       "top": "The tower is cleared; no floor is left to climb.",
-      "hint": "Each warden is a level deeper than the last — floor one is a level-one cultivator. A cleared floor always pays stones, and may pay a seed, gear or an art.",
+      "hint": "Wardens deepen each floor; a clear floor always pays.",
       "won": "Floor %{floor} cleared.",
       "lost": "Floor %{floor} was too much.",
       "refuse_out": "Still out on a walk — the tower opens once you are home.",
@@ -982,7 +982,7 @@
       "title": "Trial",
       "attempt": "Trial",
       "chances": "Trial chances %{left}/%{total}",
-      "hint": "Every finished pomodoro earns one trial chance, ten at most. A trial is fought at home: a walk you have not returned from closes it. The opponent is levelled to you, and a win pays loot at the base chances — a seed most often, gear sometimes, an art almost never.",
+      "hint": "One trial per finished pomodoro; none while away.",
       "won": "The trial was passed.",
       "lost": "The trial was too much; nothing came of it.",
       "refuse_empty": "No trial chance banked: finish a pomodoro to earn one",

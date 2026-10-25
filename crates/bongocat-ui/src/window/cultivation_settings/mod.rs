@@ -777,11 +777,12 @@ fn section_title(locale: &str, key: &'static str, tokens: Tokens) -> impl IntoEl
 /// reached the numbers. Read beside the title they cost nothing, are read
 /// anyway, and the panel starts one row higher.
 ///
-/// The hint takes the rest of the row and wraps inside it, so a short rule is one
-/// line and a long one is two — never a second line of the panel's own. It carries
-/// its key as an id so a frame can be asked whether the rule is on screen at all,
-/// which is the difference between a hint that is read and one that is filed
-/// behind a hover.
+/// The rule is one line and stays one line: each hint is written short enough to
+/// sit beside its title, and the row truncates with an ellipsis rather than
+/// wrapping to a second — a hint that runs to two lines is the thing this
+/// replaced. It carries its key as an id so a frame can be asked whether the
+/// rule is on screen at all, which is the difference between a hint that is read
+/// and one that is filed behind a hover.
 fn section_header(
     locale: &str,
     key: &'static str,
@@ -791,15 +792,17 @@ fn section_header(
     div()
         .flex()
         .flex_row()
-        .items_start()
+        .items_center()
         .gap_2()
         .child(section_title(locale, key, tokens))
         .child(
             div()
                 .id(hint_key.replace('.', "-"))
                 .flex_1()
+                .min_w_0()
                 .text_xs()
                 .text_color(tokens.muted)
+                .truncate()
                 .child(text(locale, hint_key))
                 .test_support(),
         )

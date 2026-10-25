@@ -140,3 +140,44 @@ fn the_shipped_catalog_list_matches_the_files() {
         assert_eq!(locale_code(locale), locale);
     }
 }
+
+/// The rules a section header prints beside its title stay on one line.
+///
+/// A header's rule is not a paragraph: it shares a row with the title, takes the
+/// width that is left, and truncates rather than wraps. The tightest width that
+/// ever has to hold one is the narrowest settings window — 640 — less the 220
+/// sidebar, less the page's own padding, less the title and the gap: about 338
+/// pixels. At the 12px a hint is set in, a half-width glyph is six of them, so a
+/// rule that fits is one of 56 half-width units or fewer.
+///
+/// The unit counts a full-width glyph as two, which is what makes one budget
+/// serve both catalogs: a 22-character 中文 rule and a 53-character English one
+/// are the same width on screen.
+#[test]
+fn a_section_header_rule_fits_beside_its_title() {
+    const RULES: [&str; 6] = [
+        "cultivation.explore.hint",
+        "cultivation.trial.hint",
+        "cultivation.proving.hint",
+        "cultivation.jobs.hint",
+        "cultivation.derived_hint",
+        "cultivation.shop.shelf",
+    ];
+    const BUDGET: usize = 56;
+    for locale in LOCALES {
+        let messages = messages(locale);
+        for key in RULES {
+            let rule = messages
+                .get(key)
+                .unwrap_or_else(|| panic!("{key} missing from {locale}"));
+            let width = rule
+                .chars()
+                .map(|c| usize::from(!c.is_ascii()) + 1)
+                .sum::<usize>();
+            assert!(
+                width <= BUDGET,
+                "{key} in {locale} is {width} half-widths wide (budget {BUDGET}): {rule}"
+            );
+        }
+    }
+}

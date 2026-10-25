@@ -347,7 +347,8 @@ fn the_board_of_jobs_is_on_the_page(cx: &mut TestAppContext) {
 /// The hints used to sit in hover cards, which made them a thing a user had to
 /// discover by accident; a walk taken without reading the road's rules was a
 /// walk taken blind. They are now part of the header, so a frame that paints the
-/// panel paints its rule too.
+/// panel paints its rule too — and the rule is one line: a hint that wrapped to a
+/// second would cost the panel the row this move saved.
 #[gpui_kit::test]
 fn every_rule_is_read_beside_its_title(cx: &mut TestAppContext) {
     let (_view, visual) = cultivation_page(cx);
@@ -365,6 +366,14 @@ fn every_rule_is_read_beside_its_title(cx: &mut TestAppContext) {
         assert!(
             painted(visual, hint),
             "{hint} has to be on screen with its title, not behind a hover"
+        );
+        // One line of text is one line tall. The harness window is far narrower
+        // than a desktop's, so a hint that fits two lines here would fit three
+        // out there — the ellipsis is what keeps it to one.
+        let height = visual.update(|window, _| window.find(hint).bounds().size.height);
+        assert!(
+            height <= px(24.0),
+            "{hint} wrapped to {height:?}; a rule is one line or it is a paragraph"
         );
     }
     // And none of them went back to a card that only opens on a pointer.
