@@ -886,6 +886,7 @@
     },
     "event": {
       "session": "完成修炼，成长 +%{growth}",
+      "found": "番茄钟掉落",
       "work": "打工 %{hours} 小时，得 %{stones} 灵石（%{multiplier} 倍）",
       "absence": "%{days} 天未修炼，成长值 -%{charged}",
       "walk": "外出探索：%{outcome}",

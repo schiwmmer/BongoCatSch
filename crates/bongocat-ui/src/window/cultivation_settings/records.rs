@@ -224,6 +224,14 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             "cultivation.event.session",
             &[("growth", growth.to_string())],
         ),
+        // The ordinary find of a finished pomodoro, named the way a walk names
+        // its own: the same three keys, so "found a herb" cannot be worded two
+        // different ways depending on where it was found.
+        EventDetail::Found { gear, seed } => {
+            let mut line = text(locale, "cultivation.event.found").to_string();
+            push_finds(&mut line, None, gear.as_deref(), seed.as_deref(), locale);
+            line
+        }
         EventDetail::Absence { days, charged } => format_text(
             locale,
             "cultivation.event.absence",
@@ -781,6 +789,18 @@ mod tests {
             "the stamp leads the line: {line}"
         );
         assert!(line.ends_with("成长 +500"), "and the event follows: {line}");
+    }
+
+    /// An ordinary find of a finished pomodoro is named in the log too, not
+    /// only in the notice the next quit forgets.
+    #[test]
+    fn an_ordinary_pomodoro_find_is_named() {
+        let detail = EventDetail::Found {
+            gear: None,
+            seed: Some("云芝".to_owned()),
+        };
+        let line = event_line(&detail, "zh-CN");
+        assert!(line.contains("云芝"), "the herb is named: {line}");
     }
 
     /// A harvest names the seed it gave back, not only the points it paid: the

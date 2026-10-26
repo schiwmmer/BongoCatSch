@@ -886,6 +886,7 @@
     },
     "event": {
       "session": "Session finished, +%{growth} growth",
+      "found": "Pomodoro find",
       "work": "Worked %{hours}h for %{stones} stones (×%{multiplier})",
       "absence": "%{days} days without practice — growth -%{charged}",
       "walk": "Walked out: %{outcome}",

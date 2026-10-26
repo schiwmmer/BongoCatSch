@@ -43,6 +43,21 @@ pub enum EventDetail {
         /// What the session paid, in growth.
         growth: u32,
     },
+    /// A finished pomodoro's ordinary find: the gear or the herb the drop roll
+    /// paid beside the growth.
+    ///
+    /// The jackpot has a line of its own ([`Self::Bonus`]); this is the ordinary
+    /// one, which used to exist only in the notice above the log. A herb that
+    /// arrived that way had no history at all, so a satchel could gain a seed
+    /// the user was never told about.
+    Found {
+        /// The piece of gear it turned up, by name.
+        #[serde(default)]
+        gear: Option<String>,
+        /// The herb it turned up, by name.
+        #[serde(default)]
+        seed: Option<String>,
+    },
     /// A job came home and was paid for: the purse, the hours it cost, the grade
     /// that sized it, and what 潜质 did to the wage.
     Work {

@@ -1624,12 +1624,29 @@ impl Cultivation {
             // the kind said "gear" and the ladder said "not this time", and the
             // only honest thing to report is the second one.
             let item = self.push_equipment(strength, &mut rng)?;
+            // Written to the log as it is paid, the way the jackpot is: an
+            // ordinary find that lived only in the notice left the satchel with
+            // a piece of gear the history never mentioned.
+            self.push_event(
+                now_unix,
+                EventDetail::Found {
+                    gear: item.name.clone(),
+                    seed: None,
+                },
+            );
             return Some(Drop::Equipment(item));
         }
         if roll < EQUIPMENT_DROP_PERMILLE + SEED_DROP_PERMILLE {
             let attribute = Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
             let grade = roll_seed_grade(&mut rng);
-            self.push_seed(attribute, strength.tier(), grade, &mut rng);
+            let seed = self.push_seed(attribute, strength.tier(), grade, &mut rng);
+            self.push_event(
+                now_unix,
+                EventDetail::Found {
+                    gear: None,
+                    seed: seed.name.clone(),
+                },
+            );
             return Some(Drop::Seed {
                 attribute,
                 tier: strength.tier(),
