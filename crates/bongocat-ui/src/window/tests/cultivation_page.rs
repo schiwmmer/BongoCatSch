@@ -108,6 +108,18 @@ fn scroll_until_visible(visual: &mut VisualTestContext, id: &'static str) {
                 .is_some_and(|snapshot| snapshot.visible())
         });
         if visible {
+            // One more line: a row that has only just come into view sits
+            // against the fold, and a click aimed at its centre can land
+            // outside the window. The extra line settles it inside without
+            // scrolling a short page past its end — the scroll clamps.
+            visual.update(|window, cx| {
+                window.scroll(
+                    ElementId::from("cultivation-page-harness"),
+                    ScrollDelta::Lines(point(0.0, -1.0)),
+                    cx,
+                );
+                window.render_frame(cx);
+            });
             return;
         }
         visual.update(|window, cx| {
@@ -204,14 +216,17 @@ fn the_two_art_powers_are_shown_beside_the_attribute_totals(cx: &mut TestAppCont
     visual.update(|window, cx| window.render_frame(cx));
     // 法术 and 武术 used to sit here and said nothing a user could act on: the
     // two powers that do are the 内功 (a slice of the total) and the 外功 (which
-    // pays no attribute at all and would otherwise be invisible).
+    // pays no attribute at all).
     assert!(
         painted(visual, "cultivation-power-breakdown"),
         "the level · placed · gear · crop · 内功 line must be on the page"
     );
+    // The 外功 line under the attributes is gone on purpose: the swings are
+    // priced on the learned-功法 panel, and a second copy of the number here
+    // only asked the user which of the two to believe.
     assert!(
-        painted(visual, "cultivation-power-external-line"),
-        "外功 is priced on its own line, outside the total it would break"
+        !painted(visual, "cultivation-power-external-line"),
+        "外功 belongs to the learned-功法 panel, not to the attribute totals"
     );
     assert!(
         !painted(visual, "cultivation-power-schools"),
@@ -753,6 +768,9 @@ fn the_page_draws_the_next_session_worth_and_the_record(cx: &mut TestAppContext)
                     won: true,
                     stage: Some(1),
                     stones: None,
+                    gear: None,
+                    art: None,
+                    seed: None,
                 },
             },
             EventRecord {

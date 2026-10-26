@@ -98,6 +98,20 @@ pub enum EventDetail {
         /// The purse the win turned up, when it turned one up.
         #[serde(default)]
         stones: Option<u32>,
+        /// The piece of gear the win took off the guardian, by name.
+        ///
+        /// A breakthrough pays three things beside the realm — a 功法, a piece
+        /// of gear and sometimes a herb — and a line that named only the purse
+        /// left the bag disagreeing with the log. Older events predate the
+        /// fields and read as a win that simply said less.
+        #[serde(default)]
+        gear: Option<String>,
+        /// The 功法 the win paid, by name.
+        #[serde(default)]
+        art: Option<String>,
+        /// The herb the win turned up, by name.
+        #[serde(default)]
+        seed: Option<String>,
     },
     /// A 试炼 floor was climbed. The warden is the tower's own; what the win
     /// turned up travels by name, the way a walk's finds do.
@@ -154,6 +168,14 @@ pub enum EventDetail {
         name: Option<String>,
         /// What the harvest added to that attribute, permanently.
         points: i32,
+        /// The seed the pull gave back, by name.
+        ///
+        /// A harvest rolls for a seed of its own, and that roll is the only
+        /// thing keeping a garden from running dry — so it belongs on the same
+        /// line as the points, not only in the notice the next quit forgets.
+        /// Older harvests predate the field and read as a pull that gave none.
+        #[serde(default)]
+        seed: Option<String>,
     },
     /// The day opened with something: an ambush, a gift, or a coin in the dust.
     ///

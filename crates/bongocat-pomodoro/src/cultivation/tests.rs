@@ -577,16 +577,26 @@ fn a_harvest_is_logged_with_its_herb_and_its_points() {
         .expect("the harvest is logged")
         .detail
         .clone();
-    assert_eq!(
-        event,
+    // The seed the pull gave back is a roll of its own, so the line is read
+    // field by field: what the crop was and what it paid are the two things the
+    // test is about, and the returned herb (if any) is named beside them.
+    match event {
         EventDetail::Harvested {
-            attribute: Attribute::Mana,
-            tier: 3,
-            grade: SeedGrade::Earth,
-            name: Some("青芝".to_owned()),
-            points: harvest_points(3, SeedGrade::Earth),
+            attribute,
+            tier,
+            grade,
+            name,
+            points,
+            ..
+        } => {
+            assert_eq!(attribute, Attribute::Mana);
+            assert_eq!(tier, 3);
+            assert_eq!(grade, SeedGrade::Earth);
+            assert_eq!(name, Some("青芝".to_owned()));
+            assert_eq!(points, harvest_points(3, SeedGrade::Earth));
         }
-    );
+        other => panic!("a harvest line, not {other:?}"),
+    }
 }
 
 #[test]

@@ -148,6 +148,9 @@ pub struct BreakthroughOutcome {
     pub granted_art: Option<String>,
     /// The purse a win turned up, beside the 功法 and the gear.
     pub stones: Option<u32>,
+    /// The herb a win turned up, by name: the one find a breakthrough makes
+    /// that used to reach the bag without the log ever saying so.
+    pub seed: Option<String>,
 }
 
 /// What one 试炼 floor came to.
@@ -551,6 +554,10 @@ pub struct CultivationView {
     pub aptitude_tenths: i32,
     /// The 潜质 items held, in [`AptitudeHerb::ALL`] order.
     pub aptitude_herbs: [u32; 3],
+    /// What opening the gate ahead costs in 洗髓丹, or `None` at the top of the
+    /// band. Read off the same rule the crossing charges, so the satchel's
+    /// button prices the gate exactly what a herb would have paid for it.
+    pub marrow_gate_cost: Option<u32>,
     /// How many levels the ladder holds in all: [`MAX_LEVEL`], carried so a
     /// surface can print "347 / 1000" without importing the ladder's size.
     pub total_levels: u16,
@@ -1125,6 +1132,78 @@ impl Cultivation {
         })
     }
 
+    /// Feed a herb that has just been found, the moment it is found.
+    ///
+    /// The page used to hold the three 潜质 items in a row of their own with a
+    /// 服用 button beside each; a herb that the body takes on arrival needs
+    /// neither the row nor the button. What is held is written first, so a body
+    /// that cannot take it — the band is full, or the gate ahead has no pill for
+    /// it — simply keeps it in the bag, where the satchel offers the button the
+    /// page no longer carries.
+    fn feed_found_herb(&mut self, herb: super::AptitudeHerb, now_unix: i64) {
+        match herb {
+            super::AptitudeHerb::Insight => {
+                self.document.insight_herbs = self.document.insight_herbs.saturating_add(1);
+            }
+            super::AptitudeHerb::Wisdom => {
+                self.document.wisdom_herbs = self.document.wisdom_herbs.saturating_add(1);
+            }
+            // A pill is never fed to the body: it opens a gate, and gates are
+            // opened from the satchel by the hand that wants them opened.
+            super::AptitudeHerb::Marrow => {
+                self.document.marrow_pills = self.document.marrow_pills.saturating_add(1);
+                return;
+            }
+        }
+        // A refusal is not a failure to report: the herb is in the bag and the
+        // satchel offers it, which is what a hoarded herb always was.
+        let _ = self.use_aptitude_herb(herb, now_unix);
+    }
+
+    /// Spend 洗髓丹 to open the gate ahead: 潜质 is carried up to the next even
+    /// hundred, at that gate's own price.
+    ///
+    /// A pill on its own has nothing to feed, so the only thing it can buy is a
+    /// gate — the same gate a herb would have had to cross, at the same price
+    /// [`super::aptitude::marrow_needed`] charges. What it skips is the herbs
+    /// that would have carried the body up to that hundred; what it does not
+    /// skip is the gate itself, which is why a body cannot be bought to the top
+    /// of the band without spending the pills the ladder asks for.
+    pub fn use_marrow_pill(&mut self, now_unix: i64) -> Result<AptitudeUse, TradeRefusal> {
+        let total = self.aptitude_tenths();
+        let Some((target, cost)) = super::aptitude::next_gate(total) else {
+            return Err(TradeRefusal::AptitudeCapped);
+        };
+        if self.document.marrow_pills < cost {
+            return Err(TradeRefusal::NotEnoughMarrow);
+        }
+        self.document.marrow_pills = self.document.marrow_pills.saturating_sub(cost);
+        // The points gear and 内功 pay outright ride beside the born value, so
+        // the move is written against the same total the page prints.
+        let outright = total.saturating_sub(self.document.aptitude_tenths.unwrap_or(0));
+        self.document.aptitude_tenths = Some(super::aptitude::clamp_tenths(
+            target.saturating_sub(outright),
+        ));
+        let aptitude_tenths = self.aptitude_tenths();
+        let gained_tenths = aptitude_tenths.saturating_sub(total);
+        let herb = super::AptitudeHerb::Marrow;
+        self.push_event(
+            now_unix,
+            EventDetail::Aptitude {
+                herb,
+                gained_tenths,
+                value_tenths: aptitude_tenths,
+                marrow: cost,
+            },
+        );
+        Ok(AptitudeUse {
+            herb,
+            gained_tenths,
+            aptitude_tenths,
+            marrow_spent: cost,
+        })
+    }
+
     /// The combat power everything together buys.
     ///
     /// The attributes' own two schools, plus what the outright combat numbers
@@ -1593,14 +1672,16 @@ impl Cultivation {
         }
         edge += BONUS_INSIGHT_PERMILLE;
         if roll < edge {
-            self.document.insight_herbs = self.document.insight_herbs.saturating_add(1);
+            // Straight into the body: a herb found is a herb taken, and the
+            // page no longer keeps a shelf of them waiting for a button.
+            self.feed_found_herb(super::AptitudeHerb::Insight, now_unix);
             return Some(Drop::Herb {
                 herb: super::AptitudeHerb::Insight,
             });
         }
         edge += BONUS_WISDOM_PERMILLE;
         if roll < edge {
-            self.document.wisdom_herbs = self.document.wisdom_herbs.saturating_add(1);
+            self.feed_found_herb(super::AptitudeHerb::Wisdom, now_unix);
             return Some(Drop::Herb {
                 herb: super::AptitudeHerb::Wisdom,
             });
@@ -1798,15 +1879,18 @@ impl Cultivation {
         self.document.harvests = self.document.harvests.saturating_add(1);
         let mut rng = self.rng(now_unix);
         let seed = seed_return(crop.attribute, crop.tier, &mut rng);
+        // The name travels with the stack it landed in, so the notice and the
+        // log can both say which herb came back rather than "a seed".
+        let mut seed_name = None;
         if let Some((attribute, tier, grade)) = seed {
-            self.push_seed(attribute, tier, grade, &mut rng);
+            seed_name = self.push_seed(attribute, tier, grade, &mut rng).name;
         }
         self.last_seed_return = seed.map(|(attribute, tier, grade)| SeedView {
             attribute,
             tier,
             grade,
             count: 1,
-            name: None,
+            name: seed_name.clone(),
             sell_price: seed_sell_price(attribute, tier, grade),
         });
         // The line names the herb and what it paid, because "a crop came up" is
@@ -1819,6 +1903,7 @@ impl Cultivation {
                 grade: crop.grade,
                 name: crop.name.clone(),
                 points,
+                seed: seed_name,
             },
         );
         Some(HarvestOutcome { crop, seed })
@@ -1974,6 +2059,7 @@ impl Cultivation {
                 lost,
                 granted_art: None,
                 stones: None,
+                seed: None,
             };
             self.last_breakthrough = Some(outcome.clone());
             // The realm it failed to open is still named: a loss is history
@@ -1984,6 +2070,9 @@ impl Cultivation {
                     won: false,
                     stage: Some(guardian.target.index() as u8),
                     stones: None,
+                    gear: None,
+                    art: None,
+                    seed: None,
                 },
             );
             return Some(outcome);
@@ -1996,14 +2085,24 @@ impl Cultivation {
         self.enter_realm(guardian, &rival, duel, now_unix);
         let outcome = self.last_breakthrough.clone();
         // The log is written after the settlement so the line carries the
-        // realm that was opened *and* the purse that came with it: the event is
-        // one line about one event, not two half-lines about a fight and a buy.
+        // realm that was opened *and* everything that came with it — purse,
+        // 功法, gear and herb: the event is one line about one event, not two
+        // half-lines about a fight and a buy. A win that left its finds out of
+        // the log left a bag the user could not check against it.
         self.push_event(
             now_unix,
             EventDetail::Breakthrough {
                 won: true,
                 stage: Some(guardian.target.index() as u8),
                 stones: outcome.as_ref().and_then(|outcome| outcome.stones),
+                gear: outcome
+                    .as_ref()
+                    .and_then(|outcome| outcome.reward.as_ref())
+                    .and_then(|item| item.name.clone()),
+                art: outcome
+                    .as_ref()
+                    .and_then(|outcome| outcome.granted_art.clone()),
+                seed: outcome.as_ref().and_then(|outcome| outcome.seed.clone()),
             },
         );
         outcome
@@ -2253,10 +2352,16 @@ impl Cultivation {
         // A win always pays a 功法 — that is the promise the fight is made for —
         // and it is the book the guardian was swinging.
         let granted_art = self.take_art(rival, target, now_unix);
+        // The herb is named here rather than only folded into the bag: it is the
+        // rarest thing a realm hands over, and a log that stayed silent about it
+        // left the user finding a seed they could not account for.
+        let mut seed = None;
         if rng.below(1_000) < VICTORY_SEED_PERMILLE {
             let attribute = Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
             let grade = roll_seed_grade(&mut rng);
-            self.push_seed(attribute, strength.tier(), grade, &mut rng);
+            seed = self
+                .push_seed(attribute, strength.tier(), grade, &mut rng)
+                .name;
         }
         // The guardian's purse, drawn after the 功法 and the gear because those
         // are what a breakthrough is *for*: the money is what a realm's treasury
@@ -2281,6 +2386,7 @@ impl Cultivation {
             lost: None,
             granted_art,
             stones,
+            seed,
         };
         self.last_breakthrough = Some(outcome);
     }
@@ -3177,6 +3283,7 @@ impl Cultivation {
             external_power: self.external_power(),
             aptitude_tenths,
             aptitude_herbs: self.aptitude_herbs(),
+            marrow_gate_cost: super::aptitude::next_gate(aptitude_tenths).map(|(_, cost)| cost),
             total_levels: MAX_LEVEL,
             realm_full: self.level() >= self.realm().cap_level(),
             selected_art: self.document.selected_art,
@@ -3441,15 +3548,10 @@ impl Cultivation {
                 self.grant_art_book(art_id);
             }
             ShopOffer::Herb { herb } => {
-                // The herbs go straight into the bag: nothing here is planted
-                // or worn, so the purchase is the whole transaction.
+                // The two 潜质 herbs are fed on arrival — the row that used to
+                // hold them on the page is gone — while a 洗髓丹 lands in the bag,
+                // because a pill is spent by opening a gate from the satchel.
                 match herb {
-                    super::AptitudeHerb::Insight => {
-                        self.document.insight_herbs = self.document.insight_herbs.saturating_add(1);
-                    }
-                    super::AptitudeHerb::Wisdom => {
-                        self.document.wisdom_herbs = self.document.wisdom_herbs.saturating_add(1);
-                    }
                     super::AptitudeHerb::Marrow => {
                         self.document.marrow_pills = self.document.marrow_pills.saturating_add(1);
                         self.push_event(
@@ -3459,6 +3561,7 @@ impl Cultivation {
                             },
                         );
                     }
+                    _ => self.feed_found_herb(herb, now_unix),
                 }
             }
         }
@@ -3731,12 +3834,74 @@ mod tests {
             cultivation.use_aptitude_herb(AptitudeHerb::Insight, 10),
             Err(TradeRefusal::HerbNotHeld)
         );
-        // The pill is not a herb: there is no command that burns one on its own.
+        // The pill is not a herb: feeding one to the body is refused, because a
+        // pill has nothing to feed — it opens a gate, and that is
+        // [`Cultivation::use_marrow_pill`].
         assert_eq!(
             cultivation.use_aptitude_herb(AptitudeHerb::Marrow, 10),
             Err(TradeRefusal::HerbNotHeld)
         );
         assert_eq!(cultivation.aptitude_tenths(), 0);
+    }
+
+    /// The pill on its own buys the gate ahead, at the price the crossing asks:
+    /// one price for one gate, whether a herb or a hand opens it.
+    #[test]
+    fn a_pill_on_its_own_opens_the_gate_ahead_at_that_gates_price() {
+        let mut cultivation = Cultivation::new(CultivationDocument {
+            aptitude_tenths: Some(50),
+            marrow_pills: 3,
+            ..CultivationDocument::default()
+        });
+        assert_eq!(cultivation.view().marrow_gate_cost, Some(1));
+        let first = cultivation
+            .use_marrow_pill(10)
+            .expect("the first hundred is one pill");
+        assert_eq!(first.marrow_spent, 1);
+        assert_eq!(
+            first.aptitude_tenths, 1_000,
+            "carried to the hundred itself"
+        );
+        assert_eq!(cultivation.aptitude_herbs()[2], 2, "one pill was spent");
+        // The line is written, so the satchel and the log agree about the jump.
+        assert!(
+            matches!(
+                cultivation.view().events.first().map(|event| &event.detail),
+                Some(EventDetail::Aptitude { marrow: 1, .. })
+            ),
+            "the pill is logged as a 潜质 move"
+        );
+        // The gate ahead is now the two-hundredth, and it costs two.
+        assert_eq!(cultivation.view().marrow_gate_cost, Some(2));
+        let second = cultivation
+            .use_marrow_pill(10)
+            .expect("the two-hundredth costs two");
+        assert_eq!(second.marrow_spent, 2);
+        assert_eq!(second.aptitude_tenths, 2_000);
+        assert_eq!(cultivation.aptitude_herbs()[2], 0);
+        // Nothing left to pay with: the refusal costs nothing.
+        assert_eq!(
+            cultivation.use_marrow_pill(10),
+            Err(TradeRefusal::NotEnoughMarrow)
+        );
+        assert_eq!(cultivation.aptitude_tenths(), 2_000);
+    }
+
+    /// The top of the band has no gate past it, so there is nothing to buy and
+    /// no pill is burned finding that out.
+    #[test]
+    fn a_body_at_the_top_of_the_band_has_no_gate_left_to_buy() {
+        let mut cultivation = Cultivation::new(CultivationDocument {
+            aptitude_tenths: Some(crate::cultivation::APTITUDE_MAX_TENTHS),
+            marrow_pills: 9,
+            ..CultivationDocument::default()
+        });
+        assert_eq!(cultivation.view().marrow_gate_cost, None);
+        assert_eq!(
+            cultivation.use_marrow_pill(10),
+            Err(TradeRefusal::AptitudeCapped)
+        );
+        assert_eq!(cultivation.aptitude_herbs()[2], 9, "no pill is burned");
     }
 
     /// The 潜质 an art asks of the body is the one the page shows, and it is

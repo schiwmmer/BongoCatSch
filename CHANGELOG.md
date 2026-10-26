@@ -79,6 +79,11 @@
 - A walk's cooldown drops from twelve hours to ten: a day still holds two walks, but a morning walk means the afternoon has to be spent on something else first.
 - The guardian's own body is trimmed (health 1.5 → 1.3, attack 1.2 → 1.15) to make room for what it wears: turning up bare-handed is harder than it was, and turning up in the four pieces of the realm is more reliable than it was.
 
+- Every "Recent events" line now leads with the local date and time (e.g. `2026-10-26 21:03`), on the page and in the full-history popup alike: the record piles up across days, and a list that says what happened but never when reads yesterday and this morning as one entry.
+- The event log stops dropping rewards: a won breakthrough writes its art, gear, herb and purse into the same line, and a harvest adds the seed it gave back. Those used to appear once in a popup and nowhere else, which left a seed sitting in the satchel with no history to explain where it came from.
+- Aptitude herbs are fed on arrival: Insight and Wisdom Herbs go into the body the moment a drop, a purchase or the morning gift hands one over, so the count stays at zero and the row of items with its feed buttons is gone. A herb is kept only when the body cannot take it — the band is full, or the gate ahead has no pill — and the satchel's button feeds it then.
+- Marrow Pills move into the satchel and can be spent on their own: "Use · N pills" opens the gate ahead at exactly the price that gate always charged (one for the first hundred, two for the second), carrying aptitude to that hundred itself. It is the only way to spend a pill other than crossing a gate with a herb.
+
 ### 🗑️ Removals
 
 - The interaction-count ladder is gone: the thousand level names, the ten-title pacing, the 2,000,000-keystroke ceiling and the chime that fired as the count crossed a threshold. Presses are still counted and stored, but nothing displays them any more; levels now come from the Pomodoro cultivation ladder.
@@ -106,6 +111,9 @@
 - Every derived number's hover card gains an even-spread line: what the same four attributes would buy spread evenly, and how far the current build is from it (`+`, `-` or `±0`). The 潜质 card now explains what 潜质 actually decides — how often 功法 training fails — instead of borrowing the generic sentence.
 - Counts in the millions are printed to two decimals (`1.23M`) while thousands keep one (`54.7K`): a tenth of a million is a hundred thousand, so one decimal printed figures tens of thousands apart as the same number.
 - A seed row on the market shelf now carries its grade beside the name — 黄 / 玄 / 地 / 天 / 神 in the grade's own colour, the same ramp the 功法 and gear wear. The name was already painted that way, but the name is also the first thing a narrow row truncates and it spells the grade out last; with a tag of its own, the grade survives a squeezed row.
+
+- The attribute panel no longer prints the external-art per-blow line: an 外功's multiplier, cost and mastery share are already on the learned-功法 panel, and a second copy under the attributes only asked the user which number to believe.
+- 潜质 no longer owns a row: the three items and their feed buttons are gone (herbs are fed on arrival, pills live in the satchel), while 潜质 itself stays as one of the derived-attribute chips.
 
 ### 🌍 Localization
 

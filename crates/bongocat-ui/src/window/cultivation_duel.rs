@@ -1250,6 +1250,7 @@ mod tests {
                 lost: None,
                 granted_art: Some("一门功法".to_owned()),
                 stones: None,
+                seed: None,
             }),
         );
         assert_eq!(guardian.opponent(), GUARDIAN_NAME);

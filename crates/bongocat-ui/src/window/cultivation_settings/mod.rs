@@ -48,7 +48,7 @@ pub(super) use attributes::{CombatStats, derived_rows};
 use arts::{arts_panel, mastered_panel};
 #[cfg(test)]
 pub(super) use attributes::derived_formula;
-use attributes::{aptitude_panel, attributes_panel, derived_panel};
+use attributes::{attributes_panel, derived_panel};
 use explore::{breakthrough_banner, breakthrough_panel, exploration_panel};
 use garden::{garden_panel, seed_panel};
 use gear::{equipment_panel, inventory_panel};
@@ -126,7 +126,6 @@ pub(super) fn content(
         .child(record_section(&view, &cultivation, locale, tokens))
         .child(attributes_panel(&view, &cultivation, locale, tokens))
         .child(derived_panel(&cultivation, locale, tokens))
-        .child(aptitude_panel(&view, &cultivation, locale, tokens))
         .child(equipment_panel(
             &view,
             &cultivation,

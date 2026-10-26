@@ -172,6 +172,25 @@ pub fn marrow_needed(current_tenths: i32, target_tenths: i32) -> u32 {
     need
 }
 
+/// The next even-hundred gate the body stands under, and what opening it costs.
+///
+/// `None` once 潜质 has reached [`APTITUDE_MAX_TENTHS`]: the top of the band has
+/// no gate past it, so there is nothing for a pill to buy there. The price is
+/// the gate's own number — the hundredth one pill, the two-hundredth two — the
+/// same rule [`marrow_needed`] charges when a herb crosses, so a pill spent on
+/// its own and a pill spent by a herb cost the same for the same gate.
+pub fn next_gate(total_tenths: i32) -> Option<(i32, u32)> {
+    let current = total_tenths.max(0);
+    if current >= APTITUDE_MAX_TENTHS {
+        return None;
+    }
+    // The gate ahead, never the one the body already stands on: a body at 100.0
+    // has paid for 100 and is not charged for it twice.
+    let gate = current / APTITUDE_GATE_TENTHS + 1;
+    let target = gate * APTITUDE_GATE_TENTHS;
+    (target <= APTITUDE_MAX_TENTHS).then(|| (target, u32::try_from(gate).unwrap_or(u32::MAX)))
+}
+
 /// The lowest chance a fight drops a 洗髓丹: one in a hundred thousand, in parts
 /// per million.
 pub const MARROW_COMBAT_FLOOR_PPM: u64 = 10;
@@ -346,6 +365,21 @@ mod tests {
         // The boundary itself is a keeper: a body one point further along must
         // not pay a whole extra session for a rounding coin flip.
         assert_eq!(required_pomodoros(10, 0), 30);
+    }
+
+    #[test]
+    fn the_next_gate_is_the_hundred_ahead_and_costs_its_own_number() {
+        // A body below zero stands under the first gate: one pill pays it.
+        assert_eq!(next_gate(-36), Some((1_000, 1)));
+        assert_eq!(next_gate(0), Some((1_000, 1)));
+        // Inside the first hundred the gate ahead is still the first one.
+        assert_eq!(next_gate(990), Some((1_000, 1)));
+        // Standing *on* a hundred means that one is behind it, not ahead.
+        assert_eq!(next_gate(1_000), Some((2_000, 2)));
+        assert_eq!(next_gate(1_999), Some((2_000, 2)));
+        // The last gate is the tenth; past it there is nothing left to buy.
+        assert_eq!(next_gate(9_990), Some((10_000, 10)));
+        assert_eq!(next_gate(10_000), None);
     }
 
     #[test]

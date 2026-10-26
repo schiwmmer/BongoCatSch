@@ -42,6 +42,9 @@ pub(super) fn record_section(
         .child(section_title(locale, "cultivation.record.title", tokens))
         // Marked so a frame can be asked whether the record is on screen.
         .test_support();
+    // The offset is read once per render rather than once per line: every line
+    // on the page belongs to the same local clock.
+    let offset = bongocat_platform::local_utc_offset_seconds();
     if cultivation.events.is_empty() {
         return column.child(
             div()
@@ -63,7 +66,7 @@ pub(super) fn record_section(
                 .id(format!("cultivation-event-{index}"))
                 .text_xs()
                 .text_color(tokens.muted)
-                .child(event_line(&event.detail, locale))
+                .child(event_line_with_stamp(event, locale, offset))
                 .test_support(),
         );
     }
@@ -136,7 +139,11 @@ pub(in crate::window) fn events_overlay(
                 .id(format!("cultivation-history-event-{index}"))
                 .text_xs()
                 .text_color(tokens.muted)
-                .child(event_line(&event.detail, locale))
+                .child(event_line_with_stamp(
+                    event,
+                    locale,
+                    bongocat_platform::local_utc_offset_seconds(),
+                ))
                 .test_support(),
         );
     }
@@ -191,6 +198,22 @@ pub(in crate::window) fn events_overlay(
                 .test_support(),
         )
         .into_any_element()
+}
+
+/// One event as the page prints it: the local instant it happened, then the line.
+///
+/// The record outlives the day it was written on, so a list without its clocks
+/// reads as one undated column: "the herb I pulled yesterday, or the one from
+/// this morning" is a question only the stamp answers. The instant comes from
+/// the same calendar the rest of the product reads, so a line written at 23:50
+/// and one written at 00:10 are two different local days here as they are
+/// everywhere else.
+fn event_line_with_stamp(event: &EventRecord, locale: &str, offset_seconds: i32) -> String {
+    format!(
+        "{} {}",
+        crate::pomodoro_window::view::format_local_timestamp(event.at_unix, offset_seconds),
+        event_line(&event.detail, locale)
+    )
 }
 
 /// One event, as a line the user reads.
@@ -288,7 +311,14 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
                 &[("name", name.clone()), ("rank", rank.to_string())],
             )
         }
-        EventDetail::Breakthrough { won, stage, stones } => {
+        EventDetail::Breakthrough {
+            won,
+            stage,
+            stones,
+            gear,
+            art,
+            seed,
+        } => {
             // A win names the realm it opened, the way the sticky notice above
             // this log used to: the notice is gone because the log is the same
             // line said twice, but the realm it named is not lost.
@@ -311,6 +341,19 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
                 )
                 .to_string(),
             };
+            // Everything a won realm handed over rides on the line: the 功法 it
+            // always pays, the gear it always pays, the herb it sometimes pays
+            // and the purse on top. A log that named only the realm left the
+            // bag and the history disagreeing about what the fight was worth.
+            if *won {
+                push_finds(
+                    &mut line,
+                    art.as_deref(),
+                    gear.as_deref(),
+                    seed.as_deref(),
+                    locale,
+                );
+            }
             push_stones(&mut line, *stones, locale);
             line
         }
@@ -444,18 +487,34 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             grade,
             name,
             points,
-        } => format_text(
-            locale,
-            "cultivation.event.harvested",
-            &[
-                (
-                    "seed",
-                    seed_label(locale, *attribute, *tier, *grade, name.as_deref()),
-                ),
-                ("attribute", text(locale, attribute.name_key()).to_string()),
-                ("points", points.to_string()),
-            ],
-        ),
+            seed,
+        } => {
+            let mut line = format_text(
+                locale,
+                "cultivation.event.harvested",
+                &[
+                    (
+                        "seed",
+                        seed_label(locale, *attribute, *tier, *grade, name.as_deref()),
+                    ),
+                    ("attribute", text(locale, attribute.name_key()).to_string()),
+                    ("points", points.to_string()),
+                ],
+            );
+            // The seed a pull gives back is half of what a harvest is worth,
+            // and it used to live only in the notice the next quit forgot.
+            if let Some(returned) = seed {
+                line.push_str(&format!(
+                    " · {}",
+                    format_text(
+                        locale,
+                        "cultivation.notice.seed_return",
+                        &[("seed", returned.clone())]
+                    )
+                ));
+            }
+            line
+        }
         // 千分之一: what the pomodoro paid beside its growth. One line, and it
         // names the shape the luck took rather than saying "something".
         EventDetail::Bonus { find } => format_text(
@@ -706,6 +765,60 @@ fn push_finds(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every line carries the instant it happened, in the local calendar the
+    /// task rows use: a record that outlives the day it was written on is a
+    /// list of undated lines without it.
+    #[test]
+    fn a_line_says_when_it_happened_before_what_happened() {
+        let event = EventRecord {
+            at_unix: 0,
+            detail: EventDetail::Session { growth: 500 },
+        };
+        let line = event_line_with_stamp(&event, "zh-CN", 0);
+        assert!(
+            line.starts_with("1970-01-01 00:00 "),
+            "the stamp leads the line: {line}"
+        );
+        assert!(line.ends_with("成长 +500"), "and the event follows: {line}");
+    }
+
+    /// A harvest names the seed it gave back, not only the points it paid: the
+    /// returned herb is the half of a pull that keeps a garden going, and it
+    /// used to exist only in a notice the next quit forgot.
+    #[test]
+    fn a_harvest_names_the_seed_it_gave_back() {
+        let detail = EventDetail::Harvested {
+            attribute: Attribute::Mana,
+            tier: 3,
+            grade: SeedGrade::Earth,
+            name: Some("青芝".to_owned()),
+            points: 10,
+            seed: Some("云芝".to_owned()),
+        };
+        let line = event_line(&detail, "zh-CN");
+        assert!(line.contains("青芝"), "the crop it pulled: {line}");
+        assert!(line.contains("云芝"), "and the seed it gave back: {line}");
+    }
+
+    /// A won realm names everything it handed over — 功法, gear, herb and purse
+    /// — because a bag that disagrees with the log is a bag the user cannot
+    /// check.
+    #[test]
+    fn a_breakthrough_names_the_finds_it_paid() {
+        let detail = EventDetail::Breakthrough {
+            won: true,
+            stage: Some(1),
+            stones: Some(40),
+            gear: Some("青锋".to_owned()),
+            art: Some("玄冰诀".to_owned()),
+            seed: Some("云芝".to_owned()),
+        };
+        let line = event_line(&detail, "zh-CN");
+        for name in ["玄冰诀", "青锋", "云芝", "40"] {
+            assert!(line.contains(name), "{name} is on the line: {line}");
+        }
+    }
 
     /// A bought herb says what a harvest of it pays — the attribute and the
     /// points — beside its name: a purchase line that only named the herb left

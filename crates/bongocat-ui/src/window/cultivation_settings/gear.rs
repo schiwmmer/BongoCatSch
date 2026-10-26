@@ -92,7 +92,8 @@ pub(super) fn inventory_panel(
         .flex()
         .flex_col()
         .gap_1()
-        .child(section_title(locale, "cultivation.inventory.title", tokens));
+        .child(section_title(locale, "cultivation.inventory.title", tokens))
+        .children(consumable_rows(view, cultivation, locale, tokens));
     if cultivation.inventory.is_empty() {
         return panel.child(
             div()
@@ -168,4 +169,103 @@ pub(super) fn inventory_panel(
     });
     panel = panel.children(rows);
     panel
+}
+
+/// The 潜质 consumables the satchel carries: 洗髓丹 always, the two herbs only
+/// while one is actually being held.
+///
+/// The 潜质 panel used to keep all three in a row of its own, with a 服用 button
+/// beside each. A herb is fed the moment it is found now, so what is left is a
+/// pill and the gate ahead of it: one button that spends that gate's own number
+/// of pills to carry 潜质 up to the next even hundred. A herb only appears here
+/// when the body could not take it — the band was full, or the gate had no pill
+/// — and then the button is the one the page no longer carries.
+fn consumable_rows(
+    view: &Entity<SettingsView>,
+    cultivation: &CultivationView,
+    locale: &str,
+    tokens: Tokens,
+) -> Vec<gpui_kit::AnyElement> {
+    let mut rows: Vec<gpui_kit::AnyElement> = Vec::new();
+    // The pill is always on the list, even at ×0: it is the one thing the page
+    // has no other way to spend, and a row that only appeared after a drop rare
+    // enough to be a legend would be a mechanic found by accident.
+    let pills = cultivation.aptitude_herbs[2];
+    let gate = cultivation.marrow_gate_cost;
+    let label = match gate {
+        Some(cost) => format_text(
+            locale,
+            "cultivation.herb.use_pill",
+            &[("pills", cost.to_string())],
+        ),
+        None => text(locale, "cultivation.aptitude_refuse_capped").to_string(),
+    };
+    rows.push(
+        div()
+            .id("cultivation-herb-marrow")
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .py_1()
+            .child(div().text_xs().text_color(tokens.text).child(format!(
+                "{} ×{pills}",
+                text(locale, AptitudeHerb::Marrow.name_key())
+            )))
+            .child(
+                Button::new("cultivation-use-marrow")
+                    .ghost()
+                    .small()
+                    .label(label)
+                    .disabled(gate.is_none())
+                    .on_click({
+                        let view = view.clone();
+                        move |_, _, cx| {
+                            view.update(cx, |view, cx| {
+                                let _ = view.pomodoro.try_publish(PomodoroCommand::UseMarrowPill);
+                                view.poll_pomodoro(cx);
+                            });
+                        }
+                    }),
+            )
+            .test_support()
+            .into_any_element(),
+    );
+    for (index, herb) in AptitudeHerb::ALL.into_iter().enumerate() {
+        let held = cultivation.aptitude_herbs[index];
+        if herb == AptitudeHerb::Marrow || held == 0 {
+            continue;
+        }
+        let label = format!("{} ×{held}", text(locale, herb.name_key()));
+        rows.push(
+            div()
+                .id(format!("cultivation-held-herb-{index}"))
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .py_1()
+                .child(div().text_xs().text_color(tokens.text).child(label))
+                .child(
+                    Button::new(format!("cultivation-use-held-herb-{index}"))
+                        .ghost()
+                        .small()
+                        .label(text(locale, "cultivation.aptitude_use"))
+                        .on_click({
+                            let view = view.clone();
+                            move |_, _, cx| {
+                                view.update(cx, |view, cx| {
+                                    let _ = view
+                                        .pomodoro
+                                        .try_publish(PomodoroCommand::UseAptitudeHerb { herb });
+                                    view.poll_pomodoro(cx);
+                                });
+                            }
+                        }),
+                )
+                .test_support()
+                .into_any_element(),
+        );
+    }
+    rows
 }

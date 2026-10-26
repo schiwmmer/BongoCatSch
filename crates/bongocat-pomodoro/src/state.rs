@@ -287,10 +287,14 @@ pub enum PomodoroCommand {
     StarEquipment { item_id: u64 },
     /// Feed one 潜质 herb to the body: 悟心草 or 慧心草.
     ///
-    /// 洗髓丹 is deliberately not a command of its own: it is spent by the herb
-    /// that crosses an even hundred, so a user cannot burn one on a gate they
-    /// are not standing at.
+    /// The page feeds a herb the moment it is found, so this command only ever
+    /// fires for a herb that was held back — a body at the top of its band, or
+    /// one whose gate had no pill — and the satchel is where it is offered.
     UseAptitudeHerb { herb: crate::AptitudeHerb },
+    /// Spend 洗髓丹 on the gate ahead: 潜质 is carried up to the next even
+    /// hundred at that gate's own price. Refused when the purse cannot cover it
+    /// or the band is already at its top.
+    UseMarrowPill,
     /// Mark the day's morning event as shown, so the window does not replay it.
     ///
     /// `day` is the local day the event belongs to. A surface sends it when it
@@ -341,6 +345,7 @@ impl PomodoroCommand {
             | Self::SellSeed { .. }
             | Self::StarEquipment { .. }
             | Self::UseAptitudeHerb { .. }
+            | Self::UseMarrowPill
             | Self::AcknowledgeDailyEvent { .. } => true,
         }
     }
@@ -578,6 +583,11 @@ impl PomodoroState {
             }
             PomodoroCommand::UseAptitudeHerb { herb } => {
                 if let Err(refusal) = self.cultivation.use_aptitude_herb(herb, now_unix) {
+                    self.cultivation.note_refusal(Refusal::Trade(refusal));
+                }
+            }
+            PomodoroCommand::UseMarrowPill => {
+                if let Err(refusal) = self.cultivation.use_marrow_pill(now_unix) {
                     self.cultivation.note_refusal(Refusal::Trade(refusal));
                 }
             }

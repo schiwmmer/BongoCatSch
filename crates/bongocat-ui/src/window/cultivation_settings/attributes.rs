@@ -2,7 +2,7 @@
 //! the free points go, and the two power lines every fight reads.
 
 use super::*;
-use bongocat_pomodoro::{AptitudeHerb, Derived, DerivedBreakdown, Fighter};
+use bongocat_pomodoro::{Derived, DerivedBreakdown, Fighter};
 
 /// The four attributes, what each source contributes, and the free points the
 /// levels have paid.
@@ -110,13 +110,9 @@ pub(super) fn attributes_panel(
         ),
     );
     // 外功 is not part of the sum: it is what a blow lands for, not what the body
-    // is worth, so it is priced on its own line rather than folded into a total
-    // it would have broken.
-    let external_line = format_text(
-        locale,
-        "cultivation.power_external",
-        &[("value", breakdown.external.to_string())],
-    );
+    // is worth. It is not printed here either — the learned-功法 panel is where
+    // the swings are, and a second copy of the number under the attributes only
+    // asked the user which of the two to believe.
 
     let panel = div()
         .id("cultivation-attributes")
@@ -151,12 +147,6 @@ pub(super) fn attributes_panel(
             .text_xs()
             .text_color(tokens.muted)
             .child(div().child(parts_line))
-            .child(
-                div()
-                    .id("cultivation-power-external-line")
-                    .child(external_line)
-                    .test_support(),
-            )
             .test_support(),
     )
 }
@@ -643,118 +633,6 @@ fn attribute_hint(
                 .child(explanation),
         )
         .test_support()
-}
-
-/// 潜质 and the three things that move it.
-///
-/// One panel rather than three chips scattered around, because the number and
-/// its only three sources are one decision: a user reading "潜质 4.7" has to be
-/// able to see, in the same glance, that the way up is a herb and that every
-/// hundred is a gate a pill opens.
-pub(super) fn aptitude_panel(
-    view: &Entity<SettingsView>,
-    cultivation: &CultivationView,
-    locale: &str,
-    tokens: Tokens,
-) -> impl IntoElement {
-    let herbs = AptitudeHerb::ALL
-        .into_iter()
-        .zip(cultivation.aptitude_herbs)
-        .map(|(herb, held)| {
-            let mut chip = div()
-                .id(format!("cultivation-herb-{}", herb_index(herb)))
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_1()
-                .px_2()
-                .py_1()
-                .rounded_md()
-                .bg(tokens.overlay)
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(tokens.muted)
-                        .child(text(locale, herb.name_key())),
-                )
-                .child(div().text_xs().child(format!("×{held}")));
-            // Only the two herbs can be fed: a 洗髓丹 is spent by the move that
-            // crosses an even hundred, so a button of its own would be a button
-            // that has nothing to do until the herb beside it is pressed.
-            if herb.gain_tenths().is_some() {
-                chip = chip.child(
-                    Button::new(format!("cultivation-use-herb-{}", herb_index(herb)))
-                        .ghost()
-                        .small()
-                        .label(text(locale, "cultivation.aptitude_use"))
-                        .disabled(held == 0)
-                        .on_click({
-                            let view = view.clone();
-                            move |_, _, cx| {
-                                view.update(cx, |view, cx| {
-                                    let _ = view
-                                        .pomodoro
-                                        .try_publish(PomodoroCommand::UseAptitudeHerb { herb });
-                                    view.poll_pomodoro(cx);
-                                });
-                            }
-                        }),
-                );
-            }
-            chip.test_support()
-        });
-    // The number, the three items and the sentence that explains them are one
-    // row rather than four: this panel sits under a long column of others, and a
-    // block of its own height would push the fight and the walk off the fold.
-    // The explanation hangs off the number instead of taking a line of its own.
-    let hint_title = text(locale, "cultivation.aptitude_title");
-    let hint_body = text(locale, "cultivation.aptitude_hint");
-    div()
-        .id("cultivation-aptitude")
-        .flex()
-        .flex_col()
-        .gap_1()
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .flex_wrap()
-                .items_center()
-                .gap_2()
-                .child(
-                    HoverCard::new("cultivation-hint-aptitude")
-                        .trigger(
-                            div()
-                                .id("cultivation-aptitude-value")
-                                .text_xs()
-                                .child(format_text(
-                                    locale,
-                                    "cultivation.aptitude",
-                                    &[("value", super::tenths_text(cultivation.aptitude_tenths))],
-                                ))
-                                .test_support(),
-                        )
-                        .open_delay(Duration::from_millis(120))
-                        .content(move |_, _, _| {
-                            hint_body_with_title(
-                                "cultivation-hint-aptitude-body",
-                                hint_title,
-                                hint_body,
-                                tokens,
-                            )
-                        })
-                        .into_any_element(),
-                )
-                .children(herbs),
-        )
-}
-
-/// Where a 潜质 item sits in the panel's row: the enum's own order.
-fn herb_index(herb: AptitudeHerb) -> usize {
-    AptitudeHerb::ALL
-        .iter()
-        .position(|candidate| *candidate == herb)
-        .unwrap_or(0)
 }
 
 #[cfg(test)]
