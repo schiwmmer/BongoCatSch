@@ -39,6 +39,7 @@ CONVENTIONS = ROOT / "docs" / "changelog-conventions.md"
 SECTION_VOCABULARY = (
     ("⚠", "Upgrade Notice", "升级说明"),
     ("✨", "Features", "新功能"),
+    ("⚖", "Balance", "平衡调整"),
     ("🐛", "Bug Fixes", "问题修复"),
     ("⚡", "Performance", "性能优化"),
     ("🔐", "Security", "安全"),

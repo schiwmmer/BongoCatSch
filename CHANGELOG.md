@@ -15,6 +15,7 @@
 - Exploration pays on return: setting out only writes down the road, and the find, the fight and the purse are all rolled when the walk is home. A walk can be called home early; a called walk finds nothing, and the return trip costs a third of the time already spent. The 锁妖塔 and 试炼 are therefore closed only while the cultivator is genuinely out, and open the moment the walk is due home.
 - A failed attempt now goes into the same exponent as 潜质: success = the grade's base × 1.01^(aptitude + failures). The count belongs to the whole book — it carries past a 阶, stands until the art is finished, and every art keeps its own. Each row prints how many attempts that art has lost.
 - Equipment no longer shows the "spell / martial / power" line, and `ItemView` has lost its power field with it. The four attribute cards drop their "pairs with X in the spell/martial school" note, and the power hint now says the number follows from the attributes, the arts and the gear together. Spell power and spell resist stay as combat numbers on the attribute page, on gear and in the fight report.
+- A won 试炼 always pays 灵石: the courtyard used to roll one exclusive find — a herb, gear, a 功法, or nothing — and "nothing" was the biggest slice, so a clean win could pay the cultivator nothing at all and leave the log reading a bare "Proving won." Every win now pays a purse of its own, priced by realm like every other purse (above a walk, below a tower floor), named in the event log and in the fight report.
 
 ### ✨ Features
 
@@ -29,7 +30,6 @@
 - The tower is renamed 锁妖塔; the panel's rules and every line it prints follow the new name.
 - A new 试炼 panel sits directly under the walk: every finished pomodoro banks one trial chance (ten at most), and a chance buys a randomised fight levelled to the cultivator. A win pays the tower's base table — a seed most often, gear sometimes, an art almost never — and a loss costs nothing but the chance.
 - Walks now come in three lengths — 4, 8 and 12 hours — picked with a chip above the button. Every chance a walk rolls is multiplied by the chip's own figure (×1, ×2.1, ×3.2), and the walk holds the cultivator for exactly that length, so a day holds six short walks or two long ones for about the same total.
-- A failed attempt at a 功法 now counts: the next attempt at the same 阶 succeeds at 1.01× per failure already spent on it, each 功法 tracks its own run, and the run is forgotten the moment the 阶 turns over. The row prints the run beside the rate it bought.
 
 - The realm line is a control now: clicking it unfolds the whole ladder — the level on the thousand ("347 / 1000"), the rule that converts a realm, layer and rank into it (`(realm − 1) × 100 + layer × 10 + rank`, layers counted from 0), and all ten rungs with the current one marked.
 - The attribute panel drops the two school figures that decided nothing and shows the two halves that do: 内功 power, what the inner arts are worth at the same scale as the four attributes, and 外功 power, what the best outer art adds per blow over a bare hand.
@@ -114,6 +114,7 @@
 
 - The attribute panel no longer prints the external-art per-blow line: an 外功's multiplier, cost and mastery share are already on the learned-功法 panel, and a second copy under the attributes only asked the user which number to believe.
 - 潜质 no longer owns a row: the three items and their feed buttons are gone (herbs are fed on arrival, pills live in the satchel), while 潜质 itself stays as one of the derived-attribute chips.
+- The satchel lists only what it holds: the 洗髓丹 row disappears entirely at zero and comes back, with its "Use · N pills" button, once one is in hand; a held herb behaves the same way.
 
 ### 🌍 Localization
 

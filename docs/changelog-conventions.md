@@ -24,6 +24,7 @@ release 正文和 App 内更新窗口读的是同一个文件），读者会在�
 | --- | --- | --- |
 | ⚠️ | Upgrade Notice | 升级说明 |
 | ✨ | Features | 新功能 |
+| ⚖️ | Balance | 平衡调整 |
 | 🐛 | Bug Fixes | 问题修复 |
 | ⚡️ | Performance | 性能优化 |
 | 🔐 | Security | 安全 |

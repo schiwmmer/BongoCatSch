@@ -1299,6 +1299,42 @@ fn clicking_the_tower_asks_the_worker_for_a_floor(cx: &mut TestAppContext) {
     );
 }
 
+/// The satchel lists the 潜质 items it actually holds: a permanent "洗髓丹 ×0"
+/// row would be an empty shelf talking about an item the user does not have.
+#[gpui_kit::test]
+fn the_satchel_hides_the_pill_at_zero(cx: &mut TestAppContext) {
+    let mut cultivation = Cultivation::default().view();
+    cultivation.aptitude_herbs = [0, 0, 0];
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    // `AptitudeHerb::ALL` order: 悟心草, 慧心草, 洗髓丹 — the pill is index 2.
+    assert!(
+        !painted(visual, "cultivation-held-herb-2"),
+        "a pill nobody holds is not a row in the satchel"
+    );
+}
+
+/// A pill that is held is a row with its price on it: the button spends that
+/// gate's own number of pills, and the number is what the label says.
+#[gpui_kit::test]
+fn the_satchel_shows_a_held_pill_and_its_gate_price(cx: &mut TestAppContext) {
+    let mut cultivation = Cultivation::default().view();
+    cultivation.aptitude_herbs = [0, 0, 2];
+    cultivation.marrow_gate_cost = Some(1);
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-held-herb-2"),
+        "the held pill is listed"
+    );
+    assert!(
+        painted(visual, "cultivation-use-marrow"),
+        "with the button that opens the gate"
+    );
+}
+
 /// A closed tower says which wall was hit and cannot be clicked through: the
 /// day's floors and the walk are rules, not suggestions.
 #[gpui_kit::test]

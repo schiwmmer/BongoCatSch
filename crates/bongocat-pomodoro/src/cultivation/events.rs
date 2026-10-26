@@ -148,6 +148,12 @@ pub enum EventDetail {
         art: Option<String>,
         gear: Option<String>,
         seed: Option<String>,
+        /// The purse the win paid, which every fight pays and this one used to
+        /// keep out of the log: a win whose roll came up empty read as a win
+        /// that paid nothing at all. An old save's events predate the field and
+        /// read as exactly that, which is what they were.
+        #[serde(default)]
+        stones: Option<u32>,
     },
     /// Something was bought at the market, for this much.
     ///

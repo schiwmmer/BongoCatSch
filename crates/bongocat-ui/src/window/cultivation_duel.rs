@@ -877,6 +877,19 @@ fn payoff_lines(duel: &CultivationDuel, locale: &str, tokens: Tokens) -> Vec<gpu
                     tokens.accent,
                 ));
             }
+            // The purse a win always pays, on the same footing as the finds: a
+            // bout that returned nothing but a verdict read as a wasted chance.
+            if let Some(amount) = outcome.found.stones {
+                lines.push(payoff(
+                    "cultivation-duel-proving-stones",
+                    format_text(
+                        locale,
+                        "cultivation.duel.reward_stones",
+                        &[("value", amount.to_string())],
+                    ),
+                    tokens.accent,
+                ));
+            }
         }
         CultivationDuelPayload::Daily(outcome) => {
             let key = if outcome.won {

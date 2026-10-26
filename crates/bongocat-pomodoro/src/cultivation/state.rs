@@ -35,8 +35,8 @@ use super::{
     duel::{DUEL_RECORD_CAP, DuelRecord, FightKind, duel},
     events::{BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind},
     explore::{
-        BONUS_STONES, GUARDIAN_STONES, TRIAL_STONES, WALK_STONES, WANDERER_STONES, WalkRecord,
-        breakthrough_ready, roll_stones, roll_victory, roll_walk,
+        BONUS_STONES, GUARDIAN_STONES, PROVING_STONES, TRIAL_STONES, WALK_STONES, WANDERER_STONES,
+        WalkRecord, breakthrough_ready, roll_stones, roll_victory, roll_walk,
     },
     garden::{
         CropRecord, PlotRecord, SeedGrade, harvest_points, plot_price, roll_seed_grade, seed_name,
@@ -2968,6 +2968,14 @@ impl Cultivation {
                 }
                 TrialReward::Nothing => {}
             }
+            // Every fight pays a purse of its own size (ADR-0096), and the
+            // courtyard was the one that did not: its only reward was the
+            // exclusive roll above, which comes up empty most of the time, so a
+            // clean win could pay the cultivator nothing at all. The purse is
+            // drawn at the realm the bout was fought in, like every other one.
+            let stones = roll_stones(&mut rng, PROVING_STONES, tier);
+            self.document.stones = self.document.stones.saturating_add(stones);
+            found.stones = Some(stones);
             // A beaten challenger can leave a 洗髓丹 behind, on the same odds
             // every other fight rolls: the pill is not a tower's privilege.
             self.roll_marrow_from_combat(rival.attributes.power(), &mut rng, now_unix);
@@ -2979,6 +2987,7 @@ impl Cultivation {
                 art: found.art.clone(),
                 gear: found.gear.as_ref().and_then(|item| item.name.clone()),
                 seed: found.seed.as_ref().and_then(|seed| seed.name.clone()),
+                stones: found.stones,
             },
         );
         let outcome = ProvingOutcome { duel, found };
@@ -3981,6 +3990,52 @@ mod tests {
             cultivation.view().last_proving.is_some(),
             "the popup has a report to replay"
         );
+    }
+
+    /// A won 试炼 pays a purse of its own, and the log says so.
+    ///
+    /// The courtyard used to pay its exclusive roll and nothing else, so a clean
+    /// win whose roll came up empty read as "试炼获胜。" and a chance spent for
+    /// free. Every other fight pays a purse; this one does now too.
+    #[test]
+    fn a_won_proving_pays_a_purse_the_log_names() {
+        let mut paid = None;
+        for step in 0..40i64 {
+            let mut cultivation = Cultivation::new(CultivationDocument {
+                proving_tokens: 1,
+                ..CultivationDocument::default()
+            });
+            let before = cultivation.view().stones;
+            let Some(outcome) = cultivation.proving(1_000 + step * 7) else {
+                continue;
+            };
+            if !outcome.duel.won {
+                continue;
+            }
+            let purse = outcome.found.stones.expect("a win pays a purse");
+            assert!(purse > 0, "a purse is never empty");
+            assert_eq!(
+                cultivation.view().stones,
+                before + purse,
+                "the purse is credited to the cultivator"
+            );
+            match cultivation
+                .view()
+                .events
+                .first()
+                .map(|event| event.detail.clone())
+            {
+                Some(EventDetail::Proving {
+                    won: true,
+                    stones: Some(logged),
+                    ..
+                }) => assert_eq!(logged, purse, "the line names the purse it paid"),
+                other => panic!("the newest line is the bout: {other:?}"),
+            }
+            paid = Some(purse);
+            break;
+        }
+        assert!(paid.is_some(), "forty bouts should win at least one");
     }
 
     /// 试炼 is fought at home: a walk that has not come back closes the courtyard

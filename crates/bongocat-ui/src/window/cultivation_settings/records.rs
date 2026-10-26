@@ -386,6 +386,7 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             art,
             gear,
             seed,
+            stones,
         } => {
             let mut line = format_text(
                 locale,
@@ -404,6 +405,9 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
                     seed.as_deref(),
                     locale,
                 );
+                // The purse is the half a win always pays, so the line never
+                // reads as a fight that cost a chance and returned nothing.
+                push_stones(&mut line, *stones, locale);
             }
             line
         }

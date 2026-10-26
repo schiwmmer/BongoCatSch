@@ -174,6 +174,16 @@ pub(crate) const TRIAL_STONES: StonePurse = StonePurse { min: 12, max: 18 };
 /// is for. Its finding roll leans the same way: gear over herbs.
 pub(crate) const WANDERER_STONES: StonePurse = StonePurse { min: 20, max: 34 };
 
+/// What winning a 试炼 in the courtyard pays.
+///
+/// The courtyard is the fourth place a fight happens and the one that used to
+/// pay no purse at all: its reward was a single exclusive roll, and most rolls
+/// come up empty, so a clean win could leave the log reading "试炼获胜。" and
+/// nothing else. Sized above a walk because it is a fight and below a tower
+/// floor because the opponent is the cultivator's own level rather than a
+/// warden that climbs with the tower.
+pub(crate) const PROVING_STONES: StonePurse = StonePurse { min: 6, max: 10 };
+
 /// What beating a realm's guardian pays. The richest purse, because a guardian
 /// guards a realm and its treasury both, and because it is the rarest fight on
 /// the ladder.
@@ -186,11 +196,12 @@ pub(crate) const GUARDIAN_STONES: StonePurse = StonePurse { min: 38, max: 66 };
 /// of a road's walk would be a strange thing to be a thousandth.
 pub(crate) const BONUS_STONES: StonePurse = StonePurse { min: 50, max: 90 };
 
-/// The purses are ordered on purpose — a walk under a floor, a floor under a
-/// wanderer, a wanderer under a guardian — because that ordering is both the
-/// difficulty and the emphasis, and a retune that broke it would flatten four
-/// sources into one.
-const _: () = assert!(WALK_STONES.max < TRIAL_STONES.min);
+/// The purses are ordered on purpose — a walk under a courtyard bout, a bout
+/// under a floor, a floor under a wanderer, a wanderer under a guardian —
+/// because that ordering is both the difficulty and the emphasis, and a retune
+/// that broke it would flatten the sources into one.
+const _: () = assert!(WALK_STONES.max < PROVING_STONES.min);
+const _: () = assert!(PROVING_STONES.max < TRIAL_STONES.min);
 const _: () = assert!(TRIAL_STONES.max < WANDERER_STONES.min);
 const _: () = assert!(WANDERER_STONES.max < GUARDIAN_STONES.min);
 
