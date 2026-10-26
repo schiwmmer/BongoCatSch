@@ -375,6 +375,152 @@ impl PlotRecord {
     }
 }
 
+/// The highest rank a garden can be coaxed to.
+///
+/// Fifteen against a seed's ten, so the top of the garden is five whole ranks
+/// above the deepest seed — wide enough that a gardener who has spent on it
+/// can plant anything, narrow enough that getting there is the game.
+pub const MAX_GARDEN_RANK: u8 = 15;
+
+/// What a seed's grade asks of the garden, in tenths of a rank.
+///
+/// 黄 / 玄 / 地 / 天 / 神 = 0 / 0.6 / 1.3 / 1.9 / 2.5. The grade is read as
+/// *extra depth the gardener has to make up* rather than as a subtraction from
+/// the odds: a 神阶 seed is the same plant a 黄阶 one is, grown two and a half
+/// ranks deeper, which is why planting one in a garden that has not earned those
+/// ranks fails often enough to be a decision.
+///
+/// In tenths, and integer throughout, because "`f64::powf` rounded" is a phrase
+/// that belongs in neither a save file nor a test assertion.
+const GRADE_STEP_TENTHS: [i32; 5] = [0, 6, 13, 19, 25];
+
+/// The odds one tenth of a rank above the seed buys, in permille: four, so a
+/// whole rank is forty.
+const UP_PERMILLE_PER_TENTH: i32 = 4;
+
+/// What one tenth of a rank below the seed leaves: 984‰.
+///
+/// Compounded ten times that is 0.8503 — the 0.85 a whole rank below used to be
+/// worth, kept to three decimals so the odds stay integers. Cutting it into
+/// tenths is the whole reason the grade can be charged in ranks instead of in
+/// points of success: one curve now answers both questions.
+const DOWN_PERMILLE_PER_TENTH: i32 = 984;
+
+/// The odds no planting falls below: eight percent, so even a 神阶 seed of the
+/// tenth rank in a first-rank bed is a gamble and not a null-result.
+const PLANT_FLOOR_PERMILLE: i32 = 80;
+
+/// What odds a planting stands at, in parts per thousand.
+///
+/// One comparison, one number: the garden's rank against the seed's tier, with
+/// the seed's grade counted as depth the gardener has to make up.
+///
+/// ```text
+/// tenths = 10 × (garden rank − seed tier) − grade step
+/// tenths ≥ 0 → 800 + 4 × tenths, capped at 1000      (80% at parity, +4%/rank)
+/// tenths < 0 → 800 × 0.984^|tenths|, floored at 80
+/// ```
+///
+/// So parity between garden and seed is eighty percent — the anchor — and it
+/// falls away in *both* directions from there: every rank the seed is deeper
+/// costs fifteen percent of what is left, every rank the garden has earned pays
+/// four points of what is missing. A 神阶 seed is worth exactly its own extra
+/// two and a half ranks, which is why a first-rank bed meets one at 13% and a
+/// full garden still meets the tenth rank at 90%.
+pub fn plant_permille(rank: u8, tier: u8, grade: SeedGrade) -> u32 {
+    let depth = (i32::from(rank) - i32::from(tier.clamp(1, MAX_SEED_TIER))) * 10
+        - GRADE_STEP_TENTHS[grade.index()];
+    if depth >= 0 {
+        return (800 + UP_PERMILLE_PER_TENTH * depth).min(1_000) as u32;
+    }
+    // Every tenth below the seed compounds once. A hundred and fifteen steps at
+    // worst (a 神阶 tenth-tier seed in a first-rank bed), which is nothing to
+    // count through and exactly reproducible — there is no float in this loop to
+    // disagree with the table the page prints.
+    let mut odds = 800;
+    for _ in 0..-depth {
+        odds = (odds * DOWN_PERMILLE_PER_TENTH + 500) / 1_000;
+    }
+    odds.max(PLANT_FLOOR_PERMILLE) as u32
+}
+
+/// Only a planting with odds at least this good is counted towards the safety
+/// net: below even money the gardener is gambling, and a gamble is priced by
+/// what it pays, not comforted by what comes next.
+pub const PITY_MIN_PERMILLE: u32 = 500;
+
+/// How many counted failures in a row it takes before the next planting of that
+/// kind comes up whatever the odds say.
+pub const PITY_STREAK: u32 = 2;
+
+/// The 造化 the next rank needs, banked from every crop whether it came up or
+/// not.
+///
+/// Five times the rank squared: twenty to reach the third, eighty to reach the
+/// fifth, nine hundred and eighty for the last one. The increment grows on
+/// purpose — reaching the fourth rank is a season's gardening, the fifteenth is
+/// a career's — while the shape stays a thing the surface can put in a sentence.
+pub const fn rank_xp(garden_rank: u8) -> i64 {
+    let rank = if garden_rank == 0 {
+        1_i64
+    } else {
+        garden_rank as i64
+    };
+    5 * rank * rank
+}
+
+/// Everything that has to have been harvested to stand at this rank: the sum of
+/// `rank_xp` below it, `5(n−1)n(2n−1)/6` rather than a loop.
+pub const fn rank_xp_total(garden_rank: u8) -> i64 {
+    let mut n = garden_rank as i64;
+    if n > MAX_GARDEN_RANK as i64 {
+        n = MAX_GARDEN_RANK as i64;
+    }
+    5 * (n - 1) * n * (2 * n - 1) / 6
+}
+
+/// What the next rank costs in 灵石: `50 + 30(g−1) + 15(g−1)²`.
+///
+/// Read against [`rank_xp`] rather than invented, and this is why: a harvested
+/// herb is worth its points twice over — the points themselves, or points × 14
+/// sold at the market — so a rank priced in 灵石 is really priced in *how much
+/// of the harvest the gardener has to sell instead of keeping*. The whole ladder
+/// is fifteen thousand seven hundred and fifteen stones, which is twenty-two
+/// percent of what the harvest it takes to reach the top would sell for. Twenty
+/// two is the number chosen: a cheaper ladder never once asks "keep it or sell
+/// it", and a dearer one takes the choice away by making keeping pointless.
+pub const fn rank_cost(garden_rank: u8) -> u32 {
+    let step = if garden_rank == 0 {
+        0_i64
+    } else {
+        garden_rank as i64 - 1
+    };
+    (50 + 30 * step + 15 * step * step) as u32
+}
+
+/// The rank a gardener with this much 造化 banked stands at.
+///
+/// Every whole rank whose cumulative threshold the bank has reached, once per
+/// launch at most, so a loop over fifteen thresholds costs nothing to read.
+pub fn rank_for_xp(garden_xp: i64) -> u8 {
+    let mut rank = 1;
+    while rank < MAX_GARDEN_RANK && garden_xp >= rank_xp_total(rank + 1) {
+        rank += 1;
+    }
+    rank
+}
+
+/// The 造化 a crop pays even when it does not come up: a fifth of what the
+/// harvest would have paid, and never less than one.
+///
+/// Failure has to cost something or the odds are decoration — the seed is gone,
+/// and the bed is free again — but it should not cost *everything*, or a gardener
+/// who meets a rare seed too early learns to plant nothing at all. The fifth is
+/// the lesson: you learn from what killed the seedling.
+pub fn wither_points(tier: u8, grade: SeedGrade) -> i32 {
+    (harvest_points(tier, grade) + 4) / 5
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -533,5 +679,176 @@ mod tests {
         assert_eq!(plot_price(5), Some(300));
         assert_eq!(plot_price(8), Some(2400));
         assert_eq!(plot_price(9), None, "nine is the whole garden");
+    }
+
+    /// ADR-0098's two anchors, and they pin the whole curve between them: the
+    /// garden meeting a seed of its own depth — ungraded — stands at eighty
+    /// percent, and even a garden with nothing left to learn still meets a 神阶
+    /// seed of the tenth tier at ninety. Everything else in the table is what
+    /// those two leave room for.
+    #[test]
+    fn the_planting_odds_anchor_on_parity_and_on_the_full_garden() {
+        for tier in 1..=MAX_SEED_TIER {
+            assert_eq!(
+                plant_permille(tier, tier, SeedGrade::Yellow),
+                800,
+                "tier {tier}: parity is eighty percent"
+            );
+        }
+        assert_eq!(
+            plant_permille(MAX_GARDEN_RANK, MAX_SEED_TIER, SeedGrade::Divine),
+            900,
+            "the brief's own calibration"
+        );
+        // Every grade asks for another half-rank of garden: 0, 0.6, 1.3, 1.9
+        // and 2.5 ranks, read off the same curve the tier difference is.
+        let at_parity: Vec<u32> = SeedGrade::ALL
+            .into_iter()
+            .map(|grade| plant_permille(5, 5, grade))
+            .collect();
+        assert_eq!(at_parity, vec![800, 726, 648, 588, 534], "{at_parity:?}");
+        assert!(
+            at_parity.windows(2).all(|pair| pair[1] < pair[0]),
+            "a better herb is a harder herb"
+        );
+    }
+
+    /// The lever is the garden's own rank, and it is worth four points up and
+    /// fifteen percent down — asymmetric on purpose, because the cost of aiming
+    /// too high has to sting more than the gain of waiting until the garden is
+    /// ready.
+    #[test]
+    fn one_rank_is_four_percent_up_and_fifteen_percent_down() {
+        let up: Vec<u32> = (0..=5)
+            .map(|step| plant_permille(5 + step, 5, SeedGrade::Yellow))
+            .collect();
+        assert_eq!(up, vec![800, 840, 880, 920, 960, 1_000], "{up:?}");
+        // Five ranks above the seed is a certainty and stays one: there is no
+        // odds above certain, and the top of the garden is exactly five above
+        // the deepest seed.
+        assert_eq!(plant_permille(MAX_GARDEN_RANK, 5, SeedGrade::Yellow), 1_000);
+        let down: Vec<u32> = (1..=9)
+            .map(|step| plant_permille(10 - step, 10, SeedGrade::Yellow))
+            .collect();
+        assert_eq!(
+            down,
+            vec![681, 579, 493, 419, 357, 304, 259, 219, 188],
+            "{down:?}"
+        );
+        for pair in down.windows(2) {
+            assert!(
+                pair[1] < pair[0],
+                "every rank deeper has to cost something: {pair:?}"
+            );
+        }
+        // There is a floor, and it is not zero: the worst planting in the game
+        // is still a gamble rather than a refusal.
+        assert_eq!(plant_permille(1, MAX_SEED_TIER, SeedGrade::Divine), 127);
+        assert!(plant_permille(1, MAX_SEED_TIER, SeedGrade::Divine) >= PLANT_FLOOR_PERMILLE as u32);
+    }
+
+    /// The whole matrix: fifteen ranks against ten tiers, every cell from
+    /// [`plant_permille`]. Written out rather than asserted in a loop because a
+    /// loop would pass on any monotone function — this is the table ADR-0098
+    /// §2.6 says the surface prints.
+    #[test]
+    fn the_fifteen_ranks_against_the_ten_tiers() {
+        let expected: [[u32; MAX_SEED_TIER as usize]; MAX_GARDEN_RANK as usize] = [
+            [800, 681, 579, 493, 419, 357, 304, 259, 219, 188],
+            [840, 800, 681, 579, 493, 419, 357, 304, 259, 219],
+            [880, 840, 800, 681, 579, 493, 419, 357, 304, 259],
+            [920, 880, 840, 800, 681, 579, 493, 419, 357, 304],
+            [960, 920, 880, 840, 800, 681, 579, 493, 419, 357],
+            [1_000, 960, 920, 880, 840, 800, 681, 579, 493, 419],
+            [1_000, 1_000, 960, 920, 880, 840, 800, 681, 579, 493],
+            [1_000, 1_000, 1_000, 960, 920, 880, 840, 800, 681, 579],
+            [1_000, 1_000, 1_000, 1_000, 960, 920, 880, 840, 800, 681],
+            [1_000, 1_000, 1_000, 1_000, 1_000, 960, 920, 880, 840, 800],
+            [1_000, 1_000, 1_000, 1_000, 1_000, 1_000, 960, 920, 880, 840],
+            [
+                1_000, 1_000, 1_000, 1_000, 1_000, 1_000, 1_000, 960, 920, 880,
+            ],
+            [
+                1_000, 1_000, 1_000, 1_000, 1_000, 1_000, 1_000, 1_000, 960, 920,
+            ],
+            [
+                1_000, 1_000, 1_000, 1_000, 1_000, 1_000, 1_000, 1_000, 1_000, 960,
+            ],
+            [
+                1_000, 1_000, 1_000, 1_000, 1_000, 1_000, 1_000, 1_000, 1_000, 1_000,
+            ],
+        ];
+        for (offset, row) in expected.iter().enumerate() {
+            let rank = offset as u8 + 1;
+            let read: Vec<u32> = (1..=MAX_SEED_TIER)
+                .map(|tier| plant_permille(rank, tier, SeedGrade::Yellow))
+                .collect();
+            assert_eq!(&read[..], &row[..], "rank {rank}");
+        }
+    }
+
+    /// What the ladder costs, and why: the whole fifteen ranks ask for fifteen
+    /// thousand seven hundred and fifteen stones, and twenty-two percent of
+    /// what the harvest it takes would be worth sold instead of kept. The second
+    /// number is the one chosen; the first is arithmetic.
+    #[test]
+    fn the_rank_ladder_costs_a_fifth_of_the_harvest() {
+        let mut xp = 0_i64;
+        let mut stones = 0_u32;
+        for rank in 1..MAX_GARDEN_RANK {
+            xp += rank_xp(rank);
+            stones += rank_cost(rank);
+        }
+        assert_eq!(xp, rank_xp_total(MAX_GARDEN_RANK));
+        assert_eq!(xp, 5_075, "five thousand and seventy-five points");
+        assert_eq!(stones, 15_715, "fifteen thousand seven hundred and fifteen");
+        // Because XP *is* harvest points, and a herb sells for its points times
+        // fourteen, the stones are really "what fraction of the harvest did you
+        // sell".
+        let percent = u64::from(stones) * 100 / (u64::try_from(xp).unwrap() * 14);
+        assert_eq!(percent, 22, "twenty-two percent of the harvest, sold");
+        // The thresholds rise, and the increments rise faster still: the last
+        // rank is two hundred times the first.
+        for rank in 2..MAX_GARDEN_RANK {
+            assert!(rank_xp(rank) > rank_xp(rank - 1), "rank {rank}");
+            assert!(rank_cost(rank) > rank_cost(rank - 1), "rank {rank}");
+        }
+        assert_eq!(rank_xp(1), 5, "the first step is one crop");
+        assert_eq!(rank_cost(1), 50);
+    }
+
+    /// Reading a bank back into a rank is the migration every old save takes,
+    /// and it has to agree with the ladder above however the two drift.
+    #[test]
+    fn a_bank_of_harvests_reads_back_as_the_rank_it_earned() {
+        assert_eq!(rank_for_xp(0), 1);
+        assert_eq!(rank_for_xp(4), 1, "one short of the second rank");
+        assert_eq!(rank_for_xp(5), 2);
+        assert_eq!(rank_for_xp(300), 6, "a hundred harvests of gardening");
+        assert_eq!(rank_for_xp(5_075), MAX_GARDEN_RANK);
+        assert_eq!(rank_for_xp(i64::MAX), MAX_GARDEN_RANK);
+        for rank in 2..=MAX_GARDEN_RANK {
+            let growing = rank_xp_total(rank);
+            assert_eq!(rank_for_xp(growing), rank, "exactly at {growing}");
+            assert_eq!(rank_for_xp(growing - 1), rank - 1);
+        }
+    }
+
+    /// A seedling that dies still teaches something: a fifth of the crop it
+    /// would have been, and never nothing.
+    #[test]
+    fn what_a_dead_seedling_teaches() {
+        for tier in 1..=MAX_SEED_TIER {
+            for grade in SeedGrade::ALL {
+                let due = wither_points(tier, grade);
+                assert!(due >= 1, "tier {tier} {grade:?} teaches nothing");
+                assert!(
+                    due <= harvest_points(tier, grade),
+                    "a failure pays more than the crop it stood in for"
+                );
+            }
+        }
+        assert_eq!(wither_points(MAX_SEED_TIER, SeedGrade::Divine), 48);
+        assert_eq!(wither_points(1, SeedGrade::Yellow), 1);
     }
 }

@@ -198,6 +198,36 @@ pub enum EventDetail {
         #[serde(default)]
         seed: Option<String>,
     },
+    /// A planting did not come up: the seed went into the ground and died there.
+    ///
+    /// The garden used to have nothing to report but successes, which is a log
+    /// that quietly disagrees with the satchel — a seed is gone and no line
+    /// says where to. The odds ride along because "it failed" and "it failed at
+    /// ninety-five percent" are not the same news, and the failure still taught
+    /// something, so its 造化 does too.
+    Withered {
+        attribute: Attribute,
+        #[serde(default)]
+        tier: u8,
+        #[serde(default)]
+        grade: super::SeedGrade,
+        #[serde(default)]
+        name: Option<String>,
+        /// The odds it went in at, in permille.
+        #[serde(default)]
+        permille: u32,
+        /// The 造化 a dead seedling still pays: see [`super::wither_points`].
+        #[serde(default)]
+        xp: i32,
+    },
+    /// The garden was raised a rank, for this much 灵石.
+    GardenRank {
+        /// The rank it stands at now.
+        rank: u8,
+        /// What the rank cost, in 灵石.
+        #[serde(default)]
+        stones: u32,
+    },
     /// The day opened with something: an ambush, a gift, or a coin in the dust.
     ///
     /// One line for all three because it is one thing that happened to the

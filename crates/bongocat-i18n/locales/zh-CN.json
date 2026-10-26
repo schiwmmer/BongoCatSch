@@ -768,7 +768,15 @@
       "buy_plot": "购置灵田 · %{price} 灵石",
       "refuse_limit": "灵田已开垦到上限",
       "growing_hours": "%{hours} 小时后成熟",
-      "growing_days": "%{days} 天后成熟"
+      "growing_days": "%{days} 天后成熟",
+      "rank": "仙草园 %{rank} 阶",
+      "rank_top": "仙草园已臻圆满",
+      "xp": "造化 %{have} / %{need}",
+      "upgrade": "进阶 · %{price} 灵石",
+      "refuse_capped": "仙草园已臻圆满",
+      "refuse_xp": "造化不足，还需多加采撷",
+      "plant_odds": "成活率 %{percent}%",
+      "odds_certain": "此番必成"
     },
     "breakthrough": {
       "title": "破境",
@@ -900,6 +908,8 @@
       "sold": "售出 %{what}，得 %{stones} 灵石",
       "harvest": "仙草园收成了一株。",
       "harvested": "仙草园收成 %{seed}，%{attribute} +%{points}",
+      "withered": "%{seed} 未能成活（%{percent}%）· 心得 +%{xp}",
+      "rank_up": "仙草园晋至 %{rank} 阶（花 %{stones} 灵石）",
       "bought_bare": "购入 %{what}",
       "star_success": "%{name} 升星成功，%{stars}（花 %{stones} 灵石）",
       "star_failed": "%{name} 升星失败，降至 %{star} 星（花 %{stones} 灵石）",

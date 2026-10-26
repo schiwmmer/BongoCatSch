@@ -768,7 +768,15 @@
       "buy_plot": "Buy a plot · %{price} stones",
       "refuse_limit": "the garden already holds every plot it can",
       "growing_hours": "ready in %{hours}h",
-      "growing_days": "ready in %{days}d"
+      "growing_days": "ready in %{days}d",
+      "rank": "Garden rank %{rank}",
+      "rank_top": "The garden wants for nothing",
+      "xp": "Mastery %{have} / %{need}",
+      "upgrade": "Raise a rank · %{price} stones",
+      "refuse_capped": "the garden is tended as well as it can be",
+      "refuse_xp": "too little mastery banked for the next rank",
+      "plant_odds": "%{percent}% to take",
+      "odds_certain": "certain to take"
     },
     "breakthrough": {
       "title": "Breakthrough",
@@ -900,6 +908,8 @@
       "sold": "Sold %{what} for %{stones} stones",
       "harvest": "A crop was pulled.",
       "harvested": "Harvested %{seed} — %{attribute} +%{points}",
+      "withered": "%{seed} did not take (%{percent}%) — learned +%{xp}",
+      "rank_up": "The garden rose to rank %{rank} (%{stones} stones)",
       "bought_bare": "Bought %{what}",
       "star_success": "%{name} rose a star — %{stars} (%{stones} stones)",
       "star_failed": "%{name} fell back to %{star} stars (%{stones} stones)",

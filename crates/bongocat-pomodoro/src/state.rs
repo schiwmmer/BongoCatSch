@@ -216,6 +216,9 @@ pub enum PomodoroCommand {
     /// Buy one more garden plot with 灵石, past the four the garden starts
     /// with. Refused once the garden holds its ninth.
     BuyPlot,
+    /// Raise the garden one rank for 灵石, once the harvests have earned it.
+    /// Refused without the 造化, without the coins, or at the top of the ladder.
+    UpgradeGarden,
     /// Wear one owned item in its slot.
     EquipItem { item_id: u64 },
     /// Take whatever is worn in a slot off.
@@ -323,6 +326,7 @@ impl PomodoroCommand {
             Self::PlantSeed { .. }
             | Self::HarvestPlot { .. }
             | Self::BuyPlot
+            | Self::UpgradeGarden
             | Self::EquipItem { .. }
             | Self::UnequipSlot { .. }
             | Self::AllocateAttribute { .. }
@@ -494,6 +498,11 @@ impl PomodoroState {
             }
             PomodoroCommand::BuyPlot => {
                 if let Err(refusal) = self.cultivation.buy_plot(now_unix) {
+                    self.cultivation.note_refusal(Refusal::Trade(refusal));
+                }
+            }
+            PomodoroCommand::UpgradeGarden => {
+                if let Err(refusal) = self.cultivation.upgrade_garden(now_unix) {
                     self.cultivation.note_refusal(Refusal::Trade(refusal));
                 }
             }

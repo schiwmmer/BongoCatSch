@@ -40,6 +40,13 @@ pub enum TradeRefusal {
     AlreadySold,
     /// The garden already holds every plot it can: nine is the whole estate.
     PlotLimit,
+    /// The garden is already tended as well as a garden can be: fifteen is the
+    /// whole ladder, and a sixteenth rank would be a button that does nothing.
+    GardenCapped,
+    /// The bank holds too little 造化 for the next rank: a rank is earned in
+    /// harvests as well as bought in stones, and the disappointment needs its
+    /// own sentence — "灵石不够" would send the user off to earn the wrong thing.
+    NotEnoughRankXp,
     /// The piece already holds every star it can: ten is the whole sky.
     StarCapped,
     /// The 潜质 herb asked for is not in the bag.
@@ -67,6 +74,8 @@ impl TradeRefusal {
             Self::AlreadyOwned => "cultivation.shop.refuse_already",
             Self::AlreadySold => "cultivation.shop.refuse_sold",
             Self::PlotLimit => "cultivation.garden.refuse_limit",
+            Self::GardenCapped => "cultivation.garden.refuse_capped",
+            Self::NotEnoughRankXp => "cultivation.garden.refuse_xp",
             Self::StarCapped => "cultivation.shop.refuse_star_capped",
             Self::HerbNotHeld => "cultivation.aptitude_refuse_herb",
             Self::AptitudeCapped => "cultivation.aptitude_refuse_capped",

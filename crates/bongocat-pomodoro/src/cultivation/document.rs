@@ -10,13 +10,15 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ART_COUNT, Attributes, EquipmentRecord, FREE_PLOT_COUNT, MAX_LEVEL, MAX_PLOT_COUNT, OwnedArt,
-    PlotRecord, RECENT_ARTS_CAP, SLOT_COUNT, STAGE_COUNT, SeedStack, blueprint,
+    ART_COUNT, Attributes, EquipmentRecord, FREE_PLOT_COUNT, MAX_GARDEN_RANK, MAX_LEVEL,
+    MAX_PLOT_COUNT, OwnedArt, PlotRecord, RECENT_ARTS_CAP, SLOT_COUNT, STAGE_COUNT, SeedStack,
+    blueprint,
     curve::{self, level_for_growth, stage_floor},
     duel::{DUEL_RECORD_CAP, DuelRecord},
     events::{EVENT_LOG_CAP, EventRecord},
     explore::WalkInProgress,
     explore::WalkRecord,
+    garden::rank_for_xp,
 };
 
 /// The [`curve::CURVE_REV`] a document carries when nothing was stored: a fresh
@@ -72,6 +74,25 @@ pub struct CultivationDocument {
     /// whatever has been bought since.
     #[serde(default)]
     pub plots: Vec<PlotRecord>,
+    /// How well the garden is tended: the rank a planting's odds are read
+    /// against, from one to [`MAX_GARDEN_RANK`].
+    ///
+    /// Missing from every save written before plantings could fail, which is
+    /// why it is a plain number that starts at nothing and is derived once, on
+    /// load, rather than a default that would hand every old save the first
+    /// rank — and with it a tenth-rank seed at nineteen percent.
+    #[serde(default)]
+    pub garden_rank: u8,
+    /// The 造化 banked towards the next rank: what the harvests paid, and a
+    /// fifth of what the ones that withered would have.
+    #[serde(default)]
+    pub garden_xp: i64,
+    /// How many plantings at even money or better have failed in a row.
+    ///
+    /// Only those count towards [`PITY_STREAK`]: below even money the gardener
+    /// is gambling on purpose, and a gamble is priced by its odds alone.
+    #[serde(default)]
+    pub plant_fail_streak: u32,
     /// The attribute points the harvests have paid, permanently.
     #[serde(default)]
     pub crop_bonus: Attributes,
@@ -355,6 +376,19 @@ impl CultivationDocument {
         self.plots.truncate(MAX_PLOT_COUNT);
         self.plots
             .resize(FREE_PLOT_COUNT.max(self.plots.len()), PlotRecord::default());
+        // A garden from before plantings could fail never lost a crop, so it is
+        // read onto the new ladder by the only number it has that says how much
+        // gardening was done: one ordinary harvest for every crop pulled. An
+        // absence requirement would make an untouched save's first planting a
+        // coin-flip at the tenth rank, and a gardener coming back to an old
+        // save should keep the garden they had, not inherit a worse one.
+        if self.garden_rank == 0 {
+            let earned = i64::from(self.harvests) * 3;
+            self.garden_rank = rank_for_xp(earned);
+            self.garden_xp = self.garden_xp.max(earned);
+        }
+        self.garden_rank = self.garden_rank.clamp(1, MAX_GARDEN_RANK);
+        self.garden_xp = self.garden_xp.max(0);
         let highest = self.equipment.iter().map(|item| item.id).max().unwrap_or(0);
         self.next_item_id = self.next_item_id.max(highest.saturating_add(1));
         // An equipped id that names nothing — a document edited by hand, or an

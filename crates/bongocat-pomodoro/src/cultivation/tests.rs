@@ -40,6 +40,19 @@ fn walk(
     cultivation.view_on(home, 0).last_exploration
 }
 
+/// A garden tended to the top of the ladder.
+///
+/// Nothing ever failed in these tests because nothing could: planting was a put
+/// with no roll. The ones below are about ripening, paying and counting rather
+/// than about odds, and the top rank is where every seed still comes up and they
+/// still say exactly what they said. What it costs to get there is
+/// `the_garden_is_raised_with_harvests_and_bought_with_stones`.
+fn tended(cultivation: Cultivation) -> Cultivation {
+    let mut document = cultivation.document().clone();
+    document.garden_rank = MAX_GARDEN_RANK;
+    Cultivation::new(document)
+}
+
 /// A cultivator at the first realm's last layer, with nothing equipped.
 fn at_the_first_cap() -> Cultivation {
     Cultivation::new(CultivationDocument {
@@ -512,9 +525,13 @@ fn growth_beyond_the_cap_is_kept_but_buys_no_layers() {
 
 #[test]
 fn a_planted_seed_ripens_on_the_clock_and_pays_an_attribute() {
-    let mut cultivation = Cultivation::default();
+    let mut cultivation = tended(Cultivation::default());
     document_seeds(&mut cultivation, Attribute::Root, 1, 1);
-    assert!(cultivation.plant(Attribute::Root, 1, SeedGrade::Earth, 1_000));
+    assert_eq!(
+        cultivation.plant(Attribute::Root, 1, SeedGrade::Earth, 1_000),
+        Some(PlantOutcome::Planted),
+        "a first-tier seed comes up in a top-rank garden"
+    );
     let planted = cultivation.view().plots[0]
         .crop
         .clone()
@@ -524,8 +541,9 @@ fn a_planted_seed_ripens_on_the_clock_and_pays_an_attribute() {
         cultivation.harvest(0, 1_000).is_none(),
         "an unripe crop is not pickable"
     );
-    assert!(
-        !cultivation.plant(Attribute::Strength, 1, SeedGrade::Earth, 1_000),
+    assert_eq!(
+        cultivation.plant(Attribute::Strength, 1, SeedGrade::Earth, 1_000),
+        None,
         "a seed the cultivator does not own cannot be planted"
     );
     let harvested = cultivation
@@ -549,7 +567,10 @@ fn a_planted_seed_ripens_on_the_clock_and_pays_an_attribute() {
 /// check the attribute gain against.
 #[test]
 fn a_harvest_is_logged_with_its_herb_and_its_points() {
-    let mut document = CultivationDocument::default();
+    let mut document = CultivationDocument {
+        garden_rank: MAX_GARDEN_RANK,
+        ..CultivationDocument::default()
+    };
     document.seeds.push(SeedStack {
         attribute: Attribute::Mana,
         tier: 3,
@@ -558,7 +579,10 @@ fn a_harvest_is_logged_with_its_herb_and_its_points() {
         name: Some("青芝".to_owned()),
     });
     let mut cultivation = Cultivation::new(document);
-    assert!(cultivation.plant(Attribute::Mana, 3, SeedGrade::Earth, 0));
+    assert_eq!(
+        cultivation.plant(Attribute::Mana, 3, SeedGrade::Earth, 0),
+        Some(PlantOutcome::Planted)
+    );
     assert_eq!(
         cultivation.view().plots[0]
             .crop
@@ -601,15 +625,207 @@ fn a_harvest_is_logged_with_its_herb_and_its_points() {
 
 #[test]
 fn a_seed_stack_is_spent_one_planting_at_a_time() {
-    let mut cultivation = Cultivation::default();
+    let mut cultivation = tended(Cultivation::default());
     document_seeds(&mut cultivation, Attribute::Mana, 1, 2);
-    assert!(cultivation.plant(Attribute::Mana, 1, SeedGrade::Earth, 0));
-    assert!(cultivation.plant(Attribute::Mana, 1, SeedGrade::Earth, 0));
-    assert!(
-        !cultivation.plant(Attribute::Mana, 1, SeedGrade::Earth, 0),
+    // Twice over, because what is being counted is the stack going down: one
+    // seed out of two at a time, until there is nothing left to give.
+    for _ in 0..2 {
+        assert_eq!(
+            cultivation.plant(Attribute::Mana, 1, SeedGrade::Earth, 0),
+            Some(PlantOutcome::Planted)
+        );
+    }
+    assert_eq!(
+        cultivation.plant(Attribute::Mana, 1, SeedGrade::Earth, 0),
+        None,
         "the stack is empty"
     );
     assert!(cultivation.view().seeds.is_empty());
+}
+
+/// Planting above your station. A tenth-tier 神阶 seed in a first-rank garden
+/// comes up one time in eight, and the other seven are what this test is about:
+/// what a failure takes, and when it takes it.
+#[test]
+fn a_planting_that_does_not_take_costs_the_seed_and_not_the_plot() {
+    let mut cultivation = Cultivation::default();
+    assert_eq!(
+        plant_permille(1, MAX_SEED_TIER, SeedGrade::Divine),
+        127,
+        "asking a first-rank bed for the rarest herb in the game"
+    );
+    let mut found = None;
+    // The failures are found rather than staged: the roll is seeded by the clock
+    // the test hands in, so share the Diamonds among sixty-four plantings and one
+    // of them will not come up.
+    for step in 0..64i64 {
+        let at = step * (grow_seconds(MAX_SEED_TIER) + 1) + 1;
+        document_seed(
+            &mut cultivation,
+            Attribute::Root,
+            MAX_SEED_TIER,
+            SeedGrade::Divine,
+        );
+        let before = cultivation.view().garden_xp;
+        match cultivation.plant(Attribute::Root, MAX_SEED_TIER, SeedGrade::Divine, at) {
+            // Put the bed back: only the failures are being counted.
+            Some(PlantOutcome::Planted) => {
+                cultivation.harvest(0, at + grow_seconds(MAX_SEED_TIER));
+            }
+            Some(PlantOutcome::Withered { permille, xp }) => {
+                found = Some((permille, xp, before));
+                break;
+            }
+            None => panic!("the seed was there and every plot was free"),
+        }
+    }
+    let (permille, xp, before) = found.expect("sixty-four tries find one failure");
+    assert_eq!(permille, 127);
+    assert_eq!(xp, wither_points(MAX_SEED_TIER, SeedGrade::Divine));
+    let view = cultivation.view();
+    // The bed frees itself at once, which is the whole reason the roll happens
+    // now rather than on the day ten days later the crop would have been ripe:
+    // a failure that cost ten days and a plot is a mechanic nobody uses twice.
+    assert!(
+        view.plots.iter().all(|plot| plot.crop.is_none()),
+        "the plot is free again before the line is written"
+    );
+    assert_eq!(
+        view.garden_xp,
+        before + i64::from(xp),
+        "a dead seedling still teaches something"
+    );
+    assert!(
+        view.seeds
+            .iter()
+            .all(|seed| !(seed.tier == MAX_SEED_TIER && seed.grade == SeedGrade::Divine)),
+        "the seed is spent, or the odds print a lie"
+    );
+    assert!(
+        matches!(
+            view.events.first().map(|event| &event.detail),
+            Some(EventDetail::Withered { .. })
+        ),
+        "and the log says where the seed went"
+    );
+}
+
+/// The safety net, and the price of gambling below it.
+#[test]
+fn bad_luck_above_even_money_stops_at_two() {
+    let document = CultivationDocument {
+        garden_rank: 5,
+        plant_fail_streak: PITY_STREAK,
+        ..CultivationDocument::default()
+    };
+    let mut cultivation = Cultivation::new(document);
+    document_seed(&mut cultivation, Attribute::Root, 5, SeedGrade::Earth);
+    assert!(plant_permille(5, 5, SeedGrade::Earth) >= PITY_MIN_PERMILLE);
+    assert!(cultivation.planting_is_certain(5, SeedGrade::Earth));
+    assert_eq!(
+        cultivation.plant(Attribute::Root, 5, SeedGrade::Earth, 1_000),
+        Some(PlantOutcome::Planted),
+        "two counted failures buy the third however the odds read"
+    );
+    assert!(
+        !cultivation.planting_is_certain(5, SeedGrade::Earth),
+        "and then nothing is owed until the luck turns again"
+    );
+    // Below even money nothing is counted either way: a gamble is priced by its
+    // own odds, and smoothing it would make the long shot the better bet.
+    let document = CultivationDocument {
+        plant_fail_streak: PITY_STREAK,
+        ..CultivationDocument::default()
+    };
+    let gambler = Cultivation::new(document);
+    assert!(plant_permille(1, MAX_SEED_TIER, SeedGrade::Divine) < PITY_MIN_PERMILLE);
+    assert!(!gambler.planting_is_certain(MAX_SEED_TIER, SeedGrade::Divine));
+}
+
+/// Two gates that cannot buy each other: the rank is earned in harvests and
+/// paid for in coins, and neither alone opens it.
+#[test]
+fn the_garden_is_raised_with_harvests_and_bought_with_stones() {
+    let document = CultivationDocument {
+        garden_xp: rank_xp_total(2),
+        stones: 10_000,
+        ..CultivationDocument::default()
+    };
+    let mut cultivation = Cultivation::new(document);
+    assert_eq!(cultivation.upgrade_garden(0), Ok(2));
+    let view = cultivation.view();
+    assert_eq!(view.garden_rank, 2);
+    assert_eq!(view.garden_xp_needed, rank_xp_total(3));
+    assert_eq!(view.garden_upgrade_cost, Some(rank_cost(2)));
+    assert!(
+        matches!(
+            view.events.first().map(|event| &event.detail),
+            Some(EventDetail::GardenRank { rank: 2, .. })
+        ),
+        "and the log keeps it"
+    );
+    // The coins are still there and the next rank still is not: no harvest has
+    // been banked towards it.
+    assert_eq!(
+        cultivation.upgrade_garden(0),
+        Err(TradeRefusal::NotEnoughRankXp)
+    );
+    // Nor do harvests alone: a gardener who kept every herb has nothing to
+    // spend, and that is what choosing to keep them cost.
+    let spent = cultivation.document().clone();
+    {
+        let mut document = spent.clone();
+        document.garden_xp = rank_xp_total(MAX_GARDEN_RANK);
+        document.stones = 0;
+        let mut poor = Cultivation::new(document);
+        assert_eq!(poor.upgrade_garden(0), Err(TradeRefusal::NotEnoughStones));
+    }
+    let mut document = spent;
+    document.stones = 10_000;
+    document.garden_rank = MAX_GARDEN_RANK;
+    let mut cultivation = Cultivation::new(document);
+    assert_eq!(
+        cultivation.upgrade_garden(0),
+        Err(TradeRefusal::GardenCapped)
+    );
+    assert_eq!(
+        cultivation.view().garden_upgrade_cost,
+        None,
+        "there is no sixteenth rung to sell"
+    );
+}
+
+/// What a save written before plantings could fail wakes up as. Those gardens
+/// never lost a crop, so they are read onto the new ladder by the only number
+/// that says how much gardening was done — and a gardener coming back after a
+/// year finds the garden they left rather than a first-rank bed.
+#[test]
+fn an_old_save_keeps_the_garden_it_earned() {
+    let old = Cultivation::new(CultivationDocument {
+        harvests: 100,
+        ..CultivationDocument::default()
+    });
+    let view = old.view();
+    assert_eq!(view.garden_rank, 6, "a hundred harvests of gardening");
+    assert_eq!(view.garden_xp, 300, "one ordinary crop each");
+    assert_eq!(view.garden_upgrade_cost, Some(rank_cost(6)));
+    // Monotone, so migrating two saves cannot read them out of order.
+    for count in [1, 10, 50, 100, 1_000] {
+        let earned = Cultivation::new(CultivationDocument {
+            harvests: count,
+            ..CultivationDocument::default()
+        });
+        assert!(
+            earned.view().garden_rank <= view.garden_rank || count > 100,
+            "{count} harvests reads above 100"
+        );
+    }
+    assert_eq!(Cultivation::default().view().garden_rank, 1);
+    assert_eq!(
+        Cultivation::default().view().garden_xp_needed,
+        rank_xp_total(2),
+        "the first rung is one crop away"
+    );
 }
 
 #[test]
@@ -693,6 +909,20 @@ fn document_seeds(cultivation: &mut Cultivation, attribute: Attribute, tier: u8,
         tier,
         grade: SeedGrade::Earth,
         count,
+        name: None,
+    });
+    *cultivation = Cultivation::new(document);
+}
+
+/// One seed of one grade: the grade matters now, because it is half of what the
+/// planting's odds are read against.
+fn document_seed(cultivation: &mut Cultivation, attribute: Attribute, tier: u8, grade: SeedGrade) {
+    let mut document = cultivation.document().clone();
+    document.seeds.push(SeedStack {
+        attribute,
+        tier,
+        grade,
+        count: 1,
         name: None,
     });
     *cultivation = Cultivation::new(document);
@@ -827,12 +1057,15 @@ fn a_harvest_gives_a_seed_back_about_one_time_in_seven() {
 
 #[test]
 fn a_harvest_that_gives_a_seed_back_puts_it_in_the_satchel() {
-    let mut cultivation = Cultivation::default();
+    let mut cultivation = tended(Cultivation::default());
     let mut returned = None;
     for step in 0..200i64 {
         let planted_at = step * 10_000;
         document_seeds(&mut cultivation, Attribute::Mana, 2, 1);
-        assert!(cultivation.plant(Attribute::Mana, 2, SeedGrade::Earth, planted_at));
+        assert_eq!(
+            cultivation.plant(Attribute::Mana, 2, SeedGrade::Earth, planted_at),
+            Some(PlantOutcome::Planted)
+        );
         let outcome = cultivation
             .harvest(0, planted_at + grow_seconds(2))
             .expect("a ripe crop");

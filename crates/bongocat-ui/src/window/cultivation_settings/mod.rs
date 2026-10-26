@@ -21,7 +21,7 @@ use bongocat_pomodoro::{
     MarrowSource, MasteredArtView, PlotView, PomodoroCommand, Rarity, Realm, SaleKind, SeedGrade,
     ShopOffer, ShopOfferView, TRIAL_ATTEMPTS_PER_DAY, TrialBlocked, art_bonus_at, art_payout_at,
     blueprint, grow_seconds, harvest_points, mastered_art_bonus_payout, mastered_art_payout,
-    star_multiplier_permille,
+    plant_permille, star_multiplier_permille,
 };
 
 use gpui_kit::component::Sizable as _;

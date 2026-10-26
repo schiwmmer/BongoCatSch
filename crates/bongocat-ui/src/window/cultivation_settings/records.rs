@@ -411,6 +411,41 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             }
             line
         }
+        EventDetail::Withered {
+            attribute,
+            tier,
+            grade,
+            name,
+            permille,
+            xp,
+        } =>
+        // A planting that did not take. The seed is gone and nothing else is:
+        // the bed is free again, and the log is where a missing seed has to show
+        // up if the satchel is not to be quietly wrong. Its odds ride along
+        // because failing at ninety-five and failing at thirty are not the same
+        // piece of news, and the gardener is entitled to know which happened.
+        {
+            format_text(
+                locale,
+                "cultivation.event.withered",
+                &[
+                    (
+                        "seed",
+                        seed_label(locale, *attribute, *tier, *grade, name.as_deref()),
+                    ),
+                    ("percent", (permille / 10).to_string()),
+                    ("xp", compact_number(u64::try_from(*xp).unwrap_or(0))),
+                ],
+            )
+        }
+        EventDetail::GardenRank { rank, stones } => format_text(
+            locale,
+            "cultivation.event.rank_up",
+            &[
+                ("rank", rank.to_string()),
+                ("stones", compact_number(u64::from(*stones))),
+            ],
+        ),
         EventDetail::Daily {
             kind,
             won,

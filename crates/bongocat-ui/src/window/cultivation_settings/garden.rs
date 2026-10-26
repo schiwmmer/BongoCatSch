@@ -136,7 +136,7 @@ pub(super) fn seed_panel(
                 seed.tier,
                 seed.grade.index()
             ))
-            .flex_1()
+            .w_full()
             .min_w_0()
             .truncate()
             .text_xs()
@@ -156,6 +156,39 @@ pub(super) fn seed_panel(
                     });
                 }
             });
+        // The odds, under every seed's name and before anything is planted: this
+        // garden, this herb, right now. A success rate the user can read makes
+        // planting a decision rather than a purchase; the number is the domain's
+        // own, so the page cannot promise odds the planting will not get.
+        let odds_line = if cultivation.garden_pity_ready {
+            text(locale, "cultivation.garden.odds_certain").to_string()
+        } else {
+            let percent = (plant_permille(cultivation.garden_rank, seed.tier, seed.grade) + 5) / 10;
+            format_text(
+                locale,
+                "cultivation.garden.plant_odds",
+                &[("percent", percent.to_string())],
+            )
+        };
+        let named = div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .child(name)
+            .child(
+                div()
+                    .id(format!(
+                        "cultivation-seed-odds-{}-{}-{}",
+                        seed.attribute.index(),
+                        seed.tier,
+                        seed.grade.index()
+                    ))
+                    .text_xs()
+                    .text_color(tokens.muted)
+                    .child(odds_line)
+                    .test_support(),
+            );
         let mut row = div()
             .id(format!(
                 "cultivation-seed-{}-{}-{}",
@@ -173,7 +206,7 @@ pub(super) fn seed_panel(
                     .flex_row()
                     .items_center()
                     .gap_2()
-                    .child(name)
+                    .child(named)
                     .child(button)
                     // One seed at a time: a stack of ten is nine seeds and one of
                     // them, and which one the user wants to keep is not a question
@@ -266,6 +299,78 @@ fn growing_line(locale: &str, remaining: i64) -> String {
     }
 }
 
+/// The garden's own ladder: how well it is tended, what the next rung asks for,
+/// and what it costs.
+///
+/// Above the plots rather than beside them, because every percentage further
+/// down the page is read against this number — the same seed lines up
+/// differently here than it did one rank ago, and knowing why is the difference
+/// between odds displayed and odds understood.
+fn garden_rank_row(
+    view: &Entity<SettingsView>,
+    cultivation: &CultivationView,
+    locale: &str,
+    tokens: Tokens,
+) -> gpui_kit::AnyElement {
+    let mut row = div()
+        .id("cultivation-garden-rank")
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(div().text_xs().text_color(tokens.muted).child(format_text(
+            locale,
+            "cultivation.garden.rank",
+            &[("rank", cultivation.garden_rank.to_string())],
+        )))
+        .test_support();
+    let Some(price) = cultivation.garden_upgrade_cost else {
+        return row
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(tokens.muted)
+                    .child(text(locale, "cultivation.garden.rank_top")),
+            )
+            .into_any_element();
+    };
+    row = row
+        .child(div().text_xs().text_color(tokens.muted).child(format_text(
+            locale,
+            "cultivation.garden.xp",
+            &[
+                (
+                    "have",
+                    compact_number(u64::try_from(cultivation.garden_xp).unwrap_or(0)),
+                ),
+                (
+                    "need",
+                    compact_number(u64::try_from(cultivation.garden_xp_needed).unwrap_or(0)),
+                ),
+            ],
+        )))
+        .child(
+            Button::new("cultivation-upgrade-garden")
+                .ghost()
+                .small()
+                .label(format_text(
+                    locale,
+                    "cultivation.garden.upgrade",
+                    &[("price", compact_number(u64::from(price)))],
+                ))
+                .on_click({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            let _ = view.pomodoro.try_publish(PomodoroCommand::UpgradeGarden);
+                            view.poll_pomodoro(cx);
+                        });
+                    }
+                }),
+        );
+    row.into_any_element()
+}
+
 /// The garden: the plots three to a row — empty, growing, or ready to pick —
 /// and, while the garden still has room to grow, the plot that 灵石 can buy.
 pub(super) fn garden_panel(
@@ -282,6 +387,7 @@ pub(super) fn garden_panel(
         .flex_col()
         .gap_1()
         .child(section_title(locale, "cultivation.garden.title", tokens))
+        .child(garden_rank_row(view, cultivation, locale, tokens))
         .test_support();
     for (row_index, chunk) in cultivation.plots.chunks(3).enumerate() {
         let mut row = div()

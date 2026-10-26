@@ -39,8 +39,9 @@ use super::{
         WalkRecord, breakthrough_ready, roll_stones, roll_victory, roll_walk,
     },
     garden::{
-        CropRecord, PlotRecord, SeedGrade, harvest_points, plot_price, roll_seed_grade, seed_name,
-        seed_return,
+        CropRecord, MAX_GARDEN_RANK, PITY_MIN_PERMILLE, PITY_STREAK, PlotRecord, SeedGrade,
+        harvest_points, plant_permille, plot_price, rank_cost, rank_xp_total, roll_seed_grade,
+        seed_name, seed_return, wither_points,
     },
     growth_permille,
     items::roll_equipment,
@@ -513,6 +514,24 @@ pub struct CultivationView {
     /// What one more garden plot would cost, and `None` once the garden holds
     /// every plot it can.
     pub next_plot_price: Option<u32>,
+    /// How well the garden is tended: the rank every planting's odds are read
+    /// against.
+    pub garden_rank: u8,
+    /// The 造化 banked towards the next rank, and what that rank asks for.
+    ///
+    /// Carried as the pair rather than as a ratio because the surface has to
+    /// draw a bar and a number, and a bar whose ceiling it had to recompute is
+    /// a bar that can disagree with the price below it. Both read zero-filed at
+    /// the top rank: there is no sixteenth apple to reach for.
+    pub garden_xp: i64,
+    pub garden_xp_needed: i64,
+    /// What the next rank costs in 灵石, and `None` once the garden is at the
+    /// top of the ladder.
+    pub garden_upgrade_cost: Option<u32>,
+    /// Whether the next planting is owed one: two counted failures in a row have
+    /// earned it whatever the seed asks for, and the surface says so rather than
+    /// letting the streak do its work invisibly.
+    pub garden_pity_ready: bool,
     /// The guardian offered right now: present only at a realm's last layer.
     pub guardian: Option<GuardianView>,
     pub last_breakthrough: Option<BreakthroughOutcome>,
@@ -1843,34 +1862,132 @@ impl Cultivation {
     ) -> SeedView {
         self.push_seed_named(attribute, tier, grade, None, rng)
     }
+}
 
+/// What came of planting one seed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PlantOutcome {
+    /// The seed took, and the crop is in the ground: from here it can only be
+    /// picked, never lost.
+    Planted,
+    /// It did not take. The seed is spent, the plot frees itself at once, and
+    /// the gardener keeps what killed it — see [`wither_points`].
+    Withered {
+        /// The odds it went in at, so the line can say how close it was: losing
+        /// at ninety-five percent is not the same news as losing at thirty.
+        permille: u32,
+        /// The 造化 the failure still paid.
+        xp: i32,
+    },
+}
+
+impl Cultivation {
     /// Plant one seed in the first empty plot.
     ///
-    /// Returns whether anything was planted: no seed of that kind, or no empty
-    /// plot, leaves the garden exactly as it was. The grade is part of what the
-    /// seed *is*, so a named seed stack is planted by all three numbers.
+    /// The roll happens **now**, while the seed is still in hand, and never at
+    /// harvest: a tenth-rank seed asks for ten days of the user's bed, and an
+    /// answer ten days late is a punishment they will simply stop asking for.
+    /// A crop that survived its planting cannot be lost afterwards, which is why
+    /// the plot below is only ever handed to a planting that has already come up.
+    ///
+    /// Returns what became of it, or `None` when there was no seed of that kind
+    /// or nowhere to put one — nothing is spent in either of those cases.
     pub fn plant(
         &mut self,
         attribute: Attribute,
         tier: u8,
         grade: SeedGrade,
         now_unix: i64,
-    ) -> bool {
-        let Some(stack) = self.document.seeds.iter_mut().find(|stack| {
-            stack.attribute == attribute && stack.tier == tier && stack.grade == grade
-        }) else {
-            return false;
+    ) -> Option<PlantOutcome> {
+        // Decided before anything is taken, because the two reads below borrow
+        // the document's own fields and cannot see past themselves.
+        let permille = plant_permille(self.document.garden_rank, tier, grade);
+        let certain = self.planting_is_certain(tier, grade);
+        let took = {
+            let mut rng = self.rng(now_unix);
+            certain || rng.below(1_000) < u64::from(permille)
         };
+        let stack = self.document.seeds.iter_mut().find(|stack| {
+            stack.attribute == attribute && stack.tier == tier && stack.grade == grade
+        })?;
         // The plot inherits the herb's name: the seed stack is spent one
         // planting at a time and the name is the only thing that survives it.
         let name = stack.name.clone();
-        let Some(plot) = self.document.plots.iter_mut().find(|plot| plot.is_empty()) else {
-            return false;
-        };
-        plot.crop = Some(CropRecord::planted(attribute, tier, grade, name, now_unix));
+        let plot = self
+            .document
+            .plots
+            .iter_mut()
+            .find(|plot| plot.is_empty())?;
         stack.count = stack.count.saturating_sub(1);
         self.document.seeds.retain(|stack| stack.count > 0);
-        true
+        if took {
+            self.document.plant_fail_streak = 0;
+            plot.crop = Some(CropRecord::planted(attribute, tier, grade, name, now_unix));
+            return Some(PlantOutcome::Planted);
+        }
+        // Gone, but not grown: the seed is spent, which is what makes the odds
+        // worth printing, and the bed it wanted is free again before the line is
+        // written. Nothing waits and nothing is owed.
+        let xp = wither_points(tier, grade);
+        self.document.garden_xp = self.document.garden_xp.saturating_add(i64::from(xp));
+        if permille >= PITY_MIN_PERMILLE {
+            self.document.plant_fail_streak = self.document.plant_fail_streak.saturating_add(1);
+        }
+        self.push_event(
+            now_unix,
+            EventDetail::Withered {
+                attribute,
+                tier,
+                grade,
+                name,
+                permille,
+                xp,
+            },
+        );
+        Some(PlantOutcome::Withered { permille, xp })
+    }
+
+    /// Whether the safety net has run out of patience: two counted failures in a
+    /// row at even money or better, and the next planting comes up whatever its
+    /// odds said.
+    ///
+    /// Below even money nothing is counted and nothing is owed — planting a
+    /// tenth-rank seed in a first-rank bed is a gamble the user chose, and part
+    /// of what a gamble pays is its own uncertainty.
+    pub fn planting_is_certain(&self, tier: u8, grade: SeedGrade) -> bool {
+        plant_permille(self.document.garden_rank, tier, grade) >= PITY_MIN_PERMILLE
+            && self.document.plant_fail_streak >= PITY_STREAK
+    }
+
+    /// Raise the garden one rank, paid in 灵石 and earned in harvests.
+    ///
+    /// Two gates rather than one, and deliberately unlike each other: the 造化
+    /// comes only from planting and cannot be bought, while the stones come from
+    /// *selling what was planted* and cannot be farmed. One is the gardener's
+    /// patience, the other is how much of the harvest they were willing to give
+    /// up for this instead. See [`rank_cost`] for why the price is what it is.
+    pub fn upgrade_garden(&mut self, now_unix: i64) -> Result<u8, TradeRefusal> {
+        let rank = self.document.garden_rank;
+        if rank >= MAX_GARDEN_RANK {
+            return Err(TradeRefusal::GardenCapped);
+        }
+        if self.document.garden_xp < rank_xp_total(rank + 1) {
+            return Err(TradeRefusal::NotEnoughRankXp);
+        }
+        let price = rank_cost(rank);
+        if self.document.stones < price {
+            return Err(TradeRefusal::NotEnoughStones);
+        }
+        self.document.stones -= price;
+        self.document.garden_rank = rank.saturating_add(1);
+        self.push_event(
+            now_unix,
+            EventDetail::GardenRank {
+                rank: self.document.garden_rank,
+                stones: price,
+            },
+        );
+        Ok(self.document.garden_rank)
     }
 
     /// Pick a ripe crop, if the plot holds one.
@@ -1894,6 +2011,10 @@ impl Cultivation {
         // Counted here rather than on the seed roll: a crop that returned nothing
         // was still pulled, and the 造化 dimension is fed by pulling.
         self.document.harvests = self.document.harvests.saturating_add(1);
+        // The garden learns from being gardened: the crop's own points are the
+        // 造化 towards its next rank, so a herb kept is also a herb counted, and
+        // there is no second currency to plant for.
+        self.document.garden_xp = self.document.garden_xp.saturating_add(i64::from(points));
         let mut rng = self.rng(now_unix);
         let seed = seed_return(crop.attribute, crop.tier, &mut rng);
         // The name travels with the stack it landed in, so the notice and the
@@ -3253,6 +3374,16 @@ impl Cultivation {
             // full: the buy button reads this rather than recomputing the
             // table, so the number on it is the number the domain charges.
             next_plot_price: plot_price(self.document.plots.len()),
+            garden_rank: self.document.garden_rank,
+            garden_xp: self.document.garden_xp,
+            garden_xp_needed: if self.document.garden_rank < MAX_GARDEN_RANK {
+                rank_xp_total(self.document.garden_rank.saturating_add(1))
+            } else {
+                0
+            },
+            garden_upgrade_cost: (self.document.garden_rank < MAX_GARDEN_RANK)
+                .then(|| rank_cost(self.document.garden_rank)),
+            garden_pity_ready: self.document.plant_fail_streak >= PITY_STREAK,
             guardian: self.guardian().map(|guardian| GuardianView {
                 target: guardian.target,
                 power: guardian.power,
