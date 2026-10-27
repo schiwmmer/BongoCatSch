@@ -699,6 +699,11 @@
       "baseline": "level %{level} base: %{baseline} · yours: %{result} · %{delta}"
     },
     "bonus": "Outright: %{lines}",
+    "set": {
+      "line": "%{set} ×%{count}: %{lines}"
+    },
+    "gear_sets": "Equipment sets",
+    "art_sets": "Art families",
     "quality": {
       "common": "Common",
       "fine": "Fine",
@@ -747,6 +752,7 @@
       "star_line": "%{stars} · all attributes ×%{percent}%",
       "star_button": "Star up %{stones}",
       "effect_line": "Effect %{effect}: %{detail}",
+      "set_line": "Set: %{set}",
       "details": "Constitution %{root} · Strength %{strength} · Mana %{mana} · Agility %{agility}",
       "equip": "Equip",
       "unequip": "Take off"

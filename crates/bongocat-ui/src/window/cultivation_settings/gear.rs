@@ -70,13 +70,39 @@ pub(super) fn equipment_panel(
         row
     });
 
-    div()
+    let mut panel = div()
         .id("cultivation-equipment")
         .flex()
         .flex_col()
         .gap_1()
         .child(section_title(locale, "cultivation.equipment", tokens))
-        .children(rows)
+        .children(rows);
+    // The sets the body is wearing, each on its own line: two 曜日 pieces are a
+    // set and pay, so the panel says what the wear bought. A body with no set
+    // on it prints nothing — a line that reads "no set" is a shelf where none
+    // is, not a fact.
+    if !cultivation.gear_sets.is_empty() {
+        panel = panel.child(
+            div()
+                .id("cultivation-gear-sets")
+                .flex()
+                .flex_col()
+                .gap_0p5()
+                .child(section_title(locale, "cultivation.gear_sets", tokens))
+                .children(cultivation.gear_sets.iter().map(|set_view| {
+                    div()
+                        .text_xs()
+                        .text_color(tokens.accent)
+                        .child(set_bonus_line(
+                            locale,
+                            set_view.set.name(),
+                            set_view.pieces,
+                            &set_view.bonus,
+                        ))
+                })),
+        );
+    }
+    panel
 }
 
 /// The satchel: everything owned and not worn.

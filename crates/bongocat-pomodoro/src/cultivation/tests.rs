@@ -2872,6 +2872,7 @@ fn a_star_is_worth_five_to_eight_percent_of_everything() {
         star: 0,
         effect: None,
         name: Some("试剑".to_owned()),
+        set: None,
     };
     let mut starred = base.clone();
     starred.star = 1;
@@ -2906,6 +2907,7 @@ fn a_star_costs_half_of_what_the_piece_sells_for() {
         star: 0,
         effect: None,
         name: None,
+        set: None,
     };
     let sell = shop::ShopOffer::Equipment(item.clone()).sell_price();
     let cost = star_up_cost(&item);
@@ -2966,6 +2968,7 @@ fn a_failure_never_walks_a_piece_past_its_first_star() {
         star: 1,
         effect: None,
         name: None,
+        set: None,
     };
     // The clock whose roll fails at the first star: a fresh save per candidate,
     // so the observation is the first attempt's own and nothing that came
@@ -3002,6 +3005,7 @@ fn a_star_the_purse_cannot_cover_is_refused() {
         star: 0,
         effect: None,
         name: None,
+        set: None,
     };
     let cost = star_up_cost(&item);
     let mut cultivation = owning_one(item.clone(), cost - 1);
@@ -3032,6 +3036,7 @@ fn a_full_piece_refuses_the_wager() {
         star: MAX_STAR,
         effect: None,
         name: None,
+        set: None,
     };
     let mut cultivation = owning_one(item.clone(), 5_000);
     assert_eq!(
@@ -3059,6 +3064,7 @@ fn a_divine_pieces_effect_reaches_the_other_side_of_the_fight() {
         star: 0,
         effect: Some(GearEffect::Frost),
         name: Some("寒霜剑【寒霜】".to_owned()),
+        set: None,
     };
     let mut cultivation = owning_one(blade.clone(), 0);
     let plain = cultivation.fighter(&mut Rng::seeded(1));
@@ -3108,4 +3114,219 @@ fn the_morning_event_is_seen_once_and_remembered() {
     // A second call the same day opens nothing, and the next day opens again.
     assert!(cultivation.daily_event(2_000, 40).is_none());
     assert!(cultivation.daily_event(3_000, 41).is_some());
+}
+
+/// Two 内功 of one 前缀 are one set; a lone book is a collection of one, and
+/// two books of different 前缀 are two collections.
+#[test]
+fn two_books_of_one_prefix_are_a_set_and_a_lone_book_is_not() {
+    let book = |id: u64| OwnedArt {
+        art_id: id,
+        rank: 3,
+        progress: 0,
+        failures: 0,
+        copies: 1,
+        outcome: None,
+    };
+    // ids 1 and 81 are both 内功 (odd) and both carry prefix 0: ((id-1)/2) % 40
+    // is 0 and 40%40. ids 1 and 3 carry 0 and 1.
+    assert_eq!(
+        art_set_bonus(&[book(1)]).power(),
+        0,
+        "a lone book is not a set"
+    );
+    let pair = art_set_bonus(&[book(1), book(81)]);
+    assert!(
+        pair.power() > 0,
+        "two books of one prefix pay their set: {pair:?}"
+    );
+    assert_eq!(
+        art_set_bonus(&[book(1), book(3)]).power(),
+        0,
+        "two books of different prefixes are two collections"
+    );
+}
+
+/// The set bonus lands on the family's primary combat number and grows with
+/// how many books the family holds: an extra book is another step of the step.
+#[test]
+fn an_art_set_pays_its_familys_primary_combat_number_and_scales() {
+    let book = |id: u64| OwnedArt {
+        art_id: id,
+        rank: 1,
+        progress: 0,
+        failures: 0,
+        copies: 1,
+        outcome: None,
+    };
+    // Two same-prefix books that pay attack (the 刚 family) and nothing else.
+    let mut pair_ids = None;
+    'outer: for a in 1..=ART_COUNT {
+        if a % 2 == 0 {
+            continue;
+        }
+        for b in (a + 1..=ART_COUNT).step_by(2) {
+            let probe = art_set_bonus(&[book(a), book(b)]);
+            if probe.attack > 0 && probe.health == 0 && probe.spell == 0 && probe.speed == 0 {
+                pair_ids = Some((a, b));
+                break 'outer;
+            }
+        }
+    }
+    let (a, b) = pair_ids.expect("a 刚 family pair must pay attack only");
+    // A third book of the *same* 前缀 deepens the set. Same-prefix 内功 ids
+    // differ by multiples of 80, so one always exists below ART_COUNT.
+    let mut third = None;
+    for c in 1..=ART_COUNT {
+        if c % 2 == 0 || c == a || c == b {
+            continue;
+        }
+        if super::arts::prefix_of(c) == super::arts::prefix_of(a) {
+            third = Some(c);
+            break;
+        }
+    }
+    let c = third.expect("a third same-prefix 内功 must exist below ART_COUNT");
+    let pair = art_set_bonus(&[book(a), book(b)]);
+    let three = art_set_bonus(&[book(a), book(b), book(c)]);
+    assert!(pair.attack > 0, "the pair pays attack");
+    assert!(
+        three.attack > pair.attack,
+        "a third book of the same 前缀 deepens the set: {} against {}",
+        three.attack,
+        pair.attack
+    );
+}
+
+/// Two pieces of gear worn from one set are a set; a lone worn piece is a
+/// collection, and two pieces of different sets are two collections. A set is
+/// read off what is worn, not what is owned.
+#[test]
+fn two_worn_pieces_of_one_set_are_a_set_and_a_lone_piece_is_not() {
+    let piece = |set: Option<GearSet>, tier: u8| EquipmentRecord {
+        id: 0,
+        slot: EquipSlot::Weapon,
+        tier,
+        rarity: Rarity::Rare,
+        attributes: Attributes::default(),
+        bonus: Derived::default(),
+        star: 0,
+        effect: None,
+        name: None,
+        set,
+    };
+    assert_eq!(gear_set_bonus(&[piece(Some(GearSet::Sun), 5)]).power(), 0);
+    let pair = gear_set_bonus(&[piece(Some(GearSet::Sun), 5), piece(Some(GearSet::Sun), 5)]);
+    assert!(
+        pair.attack >= 30 && pair.spell >= 15,
+        "曜日 × 2 at tier 5 pays 攻 30 法 15: {pair:?}"
+    );
+    assert_eq!(
+        gear_set_bonus(&[piece(Some(GearSet::Sun), 5), piece(Some(GearSet::Abyss), 5),]).power(),
+        0,
+        "two pieces of different sets are not one set"
+    );
+}
+
+/// The set's name is the prefix its pieces carry: a 曜日 piece is named 曜日…,
+/// and a guardian's piece carries no set at all.
+#[test]
+fn a_sets_name_is_the_prefix_its_pieces_carry() {
+    let mut rng = Rng::seeded(7);
+    let name = super::items::equipment_name(EquipSlot::Weapon, Some(GearSet::Sun), &mut rng);
+    assert!(
+        name.starts_with("曜日"),
+        "a 曜日 piece is named 曜日…: {name}"
+    );
+    let mut rng = Rng::seeded(8);
+    let solo = super::items::roll_equipment_solo(0, 5, Rarity::Rare, &mut rng);
+    assert_eq!(solo.set, None, "a guardian's gear belongs to nothing");
+}
+
+/// A rolled piece that carries a set is named after it, so the set is readable
+/// off the name — the naming *is* the association.
+#[test]
+fn a_drop_keeps_its_set_and_name_across_the_roll() {
+    let mut rng = Rng::seeded(21);
+    let item = super::items::roll_equipment(0, 5, Rarity::Rare, &mut rng);
+    if let Some(set) = item.set {
+        let prefix = set.name();
+        assert!(
+            item.name
+                .as_deref()
+                .is_some_and(|name| name.starts_with(prefix)),
+            "a {prefix} piece is named {prefix}…: {:?}",
+            item.name
+        );
+    } else {
+        assert!(item.name.is_some());
+    }
+}
+
+/// The per-set views a surface reads add up to the total the fight reads: two
+/// sets and a lone piece are two views, and the sum of their bonuses is exactly
+/// the total [`gear_set_bonus`] pays.
+#[test]
+fn the_worn_set_views_add_up_to_the_set_bonus() {
+    let piece = |id: u64, set: Option<GearSet>, tier: u8| EquipmentRecord {
+        id,
+        slot: EquipSlot::Weapon,
+        tier,
+        rarity: Rarity::Rare,
+        attributes: Attributes::default(),
+        bonus: Derived::default(),
+        star: 0,
+        effect: None,
+        name: None,
+        set,
+    };
+    let worn = vec![
+        piece(1, Some(GearSet::Sun), 5),
+        piece(2, Some(GearSet::Sun), 5),
+        piece(3, Some(GearSet::Abyss), 3),
+        piece(4, Some(GearSet::Abyss), 3),
+        piece(5, None, 4),
+    ];
+    let views = gear_set_views(&worn);
+    assert_eq!(views.len(), 2, "two active sets, one lone piece");
+    let sum = views
+        .iter()
+        .fold(Derived::default(), |total, view| total.plus(view.bonus));
+    assert_eq!(sum, gear_set_bonus(&worn), "views add up to the total");
+    let sun = views
+        .iter()
+        .find(|view| view.set == GearSet::Sun)
+        .expect("曜日 is one of the active sets");
+    assert_eq!(sun.pieces, 2, "a two-piece set is two pieces");
+    assert!(sun.bonus.attack > 0, "曜日 pays 攻");
+}
+
+/// The per-family views a surface reads add up to the total the fight reads:
+/// one pair and one lone book are one view, and its bonus is exactly the total
+/// [`art_set_bonus`] pays.
+#[test]
+fn the_art_set_views_add_up_to_the_set_bonus() {
+    let book = |id: u64| OwnedArt {
+        art_id: id,
+        rank: 1,
+        progress: 0,
+        failures: 0,
+        copies: 1,
+        outcome: None,
+    };
+    // 1 and 81 share 前缀 0; 3 is 前缀 1.
+    let owned = vec![book(1), book(81), book(3)];
+    let views = art_set_views(&owned);
+    assert_eq!(views.len(), 1, "only the 前缀-0 pair is a set");
+    let sum = views
+        .iter()
+        .fold(Derived::default(), |total, view| total.plus(view.bonus));
+    assert_eq!(sum, art_set_bonus(&owned), "views add up to the total");
+    let family = &views[0];
+    assert_eq!(family.prefix, 0);
+    assert_eq!(family.books, 2);
+    assert!(
+        family.bonus.power() > 0,
+        "the 前缀-0 family pays its primary line"
+    );
 }

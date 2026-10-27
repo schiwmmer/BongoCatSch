@@ -699,6 +699,11 @@
       "baseline": "等级 %{level} 的基础为 %{baseline} · 你为 %{result} · 相差 %{delta}"
     },
     "bonus": "外显：%{lines}",
+    "set": {
+      "line": "%{set} ×%{count}：%{lines}"
+    },
+    "gear_sets": "装备套装",
+    "art_sets": "功法家族",
     "quality": {
       "common": "普通",
       "fine": "优秀",
@@ -747,6 +752,7 @@
       "star_line": "%{stars} · 全属性 ×%{percent}%",
       "star_button": "升星 %{stones}",
       "effect_line": "特效 %{effect}：%{detail}",
+      "set_line": "套装：%{set}",
       "details": "根骨 %{root} · 力量 %{strength} · 法力 %{mana} · 身法 %{agility}",
       "equip": "装备",
       "unequip": "卸下"

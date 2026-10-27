@@ -325,6 +325,7 @@ pub fn roll_offers(day_number: i64, realm: Realm, seed: u64) -> Vec<ShopOffer> {
                 );
                 item.name = Some(super::items::equipment_display_name(
                     item.slot,
+                    item.set,
                     item.effect,
                     &mut rng,
                 ));

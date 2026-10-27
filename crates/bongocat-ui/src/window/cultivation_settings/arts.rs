@@ -35,6 +35,30 @@ pub(super) fn arts_panel(
             .iter()
             .map(|art| art_row(view, art, locale, tokens)),
     );
+    // The families the shelf holds, each on its own line: two books of one 前缀
+    // are a family and pay, so the panel says what the shelf bought. A shelf
+    // with no family on it prints nothing.
+    if !cultivation.art_sets.is_empty() {
+        panel = panel.child(
+            div()
+                .id("cultivation-art-sets")
+                .flex()
+                .flex_col()
+                .gap_0p5()
+                .child(section_title(locale, "cultivation.art_sets", tokens))
+                .children(cultivation.art_sets.iter().map(|set_view| {
+                    div()
+                        .text_xs()
+                        .text_color(tokens.accent)
+                        .child(set_bonus_line(
+                            locale,
+                            bongocat_pomodoro::art_prefix_name(set_view.prefix),
+                            set_view.books,
+                            &set_view.bonus,
+                        ))
+                })),
+        );
+    }
     panel
 }
 

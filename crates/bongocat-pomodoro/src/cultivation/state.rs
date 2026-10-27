@@ -14,16 +14,17 @@
 use std::array;
 
 use super::{
-    ART_COUNT, ArtGrade, ArtKind, ArtOutcome, ArtStrike, ArtView, Attribute, Attributes,
-    BONUS_GEAR_PERMILLE, BONUS_INSIGHT_PERMILLE, BONUS_SEED_PERMILLE, BONUS_STONES_PERMILLE,
-    BONUS_WISDOM_PERMILLE, BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport, CultivationDocument,
-    DailyKind, Derived, DerivedBreakdown, DuelReport, EQUIPMENT_DROP_PERMILLE, EquipSlot,
-    EquipmentRecord, ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, GearEffect, Guardian,
-    MAX_LEVEL, MAX_STAR, MasteredArtView, OwnedArt, PLAYER_NAME, RECENT_ARTS_CAP, Rarity, Realm,
-    Refusal, Rng, SEED_DROP_PERMILLE, SESSION_BONUS_PERMILLE, SLOT_COUNT, SeedStack,
-    VICTORY_SEED_PERMILLE, absence_penalty, art_attributes, art_view,
+    ART_COUNT, ArtGrade, ArtKind, ArtOutcome, ArtSetView, ArtStrike, ArtView, Attribute,
+    Attributes, BONUS_GEAR_PERMILLE, BONUS_INSIGHT_PERMILLE, BONUS_SEED_PERMILLE,
+    BONUS_STONES_PERMILLE, BONUS_WISDOM_PERMILLE, BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport,
+    CultivationDocument, DailyKind, Derived, DerivedBreakdown, DuelReport, EQUIPMENT_DROP_PERMILLE,
+    EquipSlot, EquipmentRecord, ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, GearEffect,
+    GearSetView, Guardian, MAX_LEVEL, MAX_STAR, MasteredArtView, OwnedArt, PLAYER_NAME,
+    RECENT_ARTS_CAP, Rarity, Realm, Refusal, Rng, SEED_DROP_PERMILLE, SESSION_BONUS_PERMILLE,
+    SLOT_COUNT, SeedStack, VICTORY_SEED_PERMILLE, absence_penalty, art_attributes, art_view,
     arts::{
-        art_bonus, blueprint, mastered_art_attributes, mastered_art_bonus, mastered_art_view, train,
+        art_bonus, art_set_bonus, art_set_views, blueprint, mastered_art_attributes,
+        mastered_art_bonus, mastered_art_view, train,
     },
     base_attributes,
     battle::{guardian_for, resolve},
@@ -44,7 +45,7 @@ use super::{
         seed_name, seed_return, wither_points,
     },
     growth_permille,
-    items::roll_equipment,
+    items::{gear_set_bonus, gear_set_views, roll_equipment},
     mastery_permille,
     opponent::{self, Opponent},
     proving::{ProvingOutcome, TRIAL_CHANCES_CAP},
@@ -381,6 +382,9 @@ pub struct ItemView {
     pub star_cost: Option<u32>,
     /// The xianxia-given name the drop carried, if any.
     pub name: Option<String>,
+    /// The set this piece belongs to, when it is a set piece. A set's pieces all
+    /// carry the same name prefix, and two or more worn pay the set's bonus.
+    pub set: Option<super::items::GearSet>,
     /// What the 集市 pays for it, in 灵石.
     ///
     /// Carried on the view rather than derived at the surface because the price
@@ -591,6 +595,9 @@ pub struct CultivationView {
     pub power_breakdown: PowerBreakdown,
     pub equipped: [Option<ItemView>; SLOT_COUNT],
     pub inventory: Vec<ItemView>,
+    /// Every active 装备 set: one entry per set with two or more pieces worn,
+    /// with what the wearing pays. Empty when no set is active.
+    pub gear_sets: Vec<GearSetView>,
     pub seeds: Vec<SeedView>,
     pub plots: Vec<PlotView>,
     /// What one more garden plot would cost, and `None` once the garden holds
@@ -640,6 +647,9 @@ pub struct CultivationView {
     /// Kept apart from [`Self::arts`] because the two are sold differently: a
     /// book can be sold, and what it taught cannot be taken back by selling it.
     pub mastered_arts: Vec<MasteredArtView>,
+    /// Every active 功法 family: one entry per 前缀 with two or more books,
+    /// with what the holding pays. Empty when no set is active.
+    pub art_sets: Vec<ArtSetView>,
     /// What the trained 内功 have paid in total.
     pub art_attributes: Attributes,
     /// What those 内功 are worth as battle power, at the same scale the total
@@ -1051,16 +1061,19 @@ impl Cultivation {
     /// had to convert it back into 力量 to show it would be showing a number
     /// nobody wears.
     pub fn equipment_bonus(&self) -> Derived {
+        let worn: Vec<EquipmentRecord> = self.equipped_items().collect();
         let mut total = Derived::default();
-        for item in self.equipped_items() {
+        for item in &worn {
             total = total.plus(item.effective_bonus());
         }
-        total
+        total.plus(gear_set_bonus(&worn))
     }
 
     /// The combat numbers the trained 内功 pay outright.
     pub fn art_bonus(&self) -> Derived {
-        art_bonus(&self.document.arts).plus(mastered_art_bonus(&self.document.mastered_arts))
+        art_bonus(&self.document.arts)
+            .plus(mastered_art_bonus(&self.document.mastered_arts))
+            .plus(art_set_bonus(&self.document.arts))
     }
 
     /// The nine numbers this cultivator fights with: the four attributes read
@@ -3885,6 +3898,7 @@ impl Cultivation {
             }
         }
         inventory.sort_by_key(|item| std::cmp::Reverse(item.id));
+        let worn: Vec<EquipmentRecord> = self.equipped_items().collect();
         let mut seeds: Vec<SeedView> = self.document.seeds.iter().map(seed_view).collect();
         seeds.sort_by(|left, right| {
             right
@@ -3913,6 +3927,7 @@ impl Cultivation {
             power_breakdown: self.power_breakdown(),
             equipped,
             inventory,
+            gear_sets: gear_set_views(&worn),
             seeds,
             plots: self
                 .document
@@ -3986,6 +4001,7 @@ impl Cultivation {
                     effect: item.effect,
                     star_cost: (!item.star_capped()).then(|| star_up_cost(&item)),
                     name: item.name.clone(),
+                    set: item.set,
                     sell_price: shop::ShopOffer::Equipment(item.clone()).sell_price(),
                 }),
                 Drop::Seed {
@@ -4004,6 +4020,7 @@ impl Cultivation {
             last_seed_return: self.last_seed_return.clone(),
             arts,
             mastered_arts,
+            art_sets: art_set_views(&self.document.arts),
             art_power: self.art_power(),
             external_power: self.external_power(),
             aptitude_tenths,
@@ -4130,6 +4147,7 @@ impl Cultivation {
             // would be a button that lies.
             star_cost: (!item.star_capped()).then(|| star_up_cost(item)),
             name: item.name.clone(),
+            set: item.set,
             sell_price: shop::ShopOffer::Equipment(item.clone()).sell_price(),
         }
     }

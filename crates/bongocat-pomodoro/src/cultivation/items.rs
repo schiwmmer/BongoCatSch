@@ -317,6 +317,169 @@ impl DerivedLine {
     }
 }
 
+/// The named families a piece of gear may belong to.
+///
+/// A set is the only kinship the naming promises: two 曜日 pieces are one set,
+/// and the set's name is the prefix every one of them carries — so a row that
+/// reads 曜日剑 and a row that reads 曜日袍 are two pieces of one set, by the
+/// name alone. A piece outside a set keeps the old random epithet and belongs
+/// to nothing.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GearSet {
+    /// 曜日: 攻 and 法, the sun's two edges.
+    #[default]
+    Sun,
+    /// 寒渊: 血 and 抗, the depth that holds.
+    Abyss,
+    /// 惊雷: 速 and 命, the strike that comes before the sound.
+    Storm,
+    /// 沧澜: 法 and 抗, the tide that wears a shore.
+    Tide,
+    /// 磐岳: 血 and 闪, the mountain that does not move.
+    Crag,
+    /// 疾风: 命 and 闪, the wind that is not there to be hit.
+    Gale,
+    /// 玄铁: 攻 and 血, the blade that is also a wall.
+    Iron,
+    /// 幽冥: 法 and 血, the breath that both wounds and holds.
+    Nether,
+}
+
+impl GearSet {
+    /// Every set, in display order.
+    pub const ALL: [Self; 8] = [
+        Self::Sun,
+        Self::Abyss,
+        Self::Storm,
+        Self::Tide,
+        Self::Crag,
+        Self::Gale,
+        Self::Iron,
+        Self::Nether,
+    ];
+
+    /// The set at a position in [`Self::ALL`], clamped to the last one.
+    pub fn from_index(index: usize) -> Self {
+        Self::ALL[index.min(Self::ALL.len() - 1)]
+    }
+
+    /// The set's name: the prefix its pieces carry, and the word a surface
+    /// prints beside them.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Sun => "曜日",
+            Self::Abyss => "寒渊",
+            Self::Storm => "惊雷",
+            Self::Tide => "沧澜",
+            Self::Crag => "磐岳",
+            Self::Gale => "疾风",
+            Self::Iron => "玄铁",
+            Self::Nether => "幽冥",
+        }
+    }
+
+    /// The combat numbers a set pays, and how much one extra worn piece is
+    /// worth per tier in each: `(line, amount)`.
+    ///
+    /// The amount is per extra piece per tier, so a three-piece 曜日 set at
+    /// tier five pays two extras at five tiers of the pair. The lines are the
+    /// set's own — a 寒渊 set never pays 攻 because a set that paid everything
+    /// would be a set that was one number with eight names.
+    const fn lines(self) -> &'static [(DerivedLine, u32)] {
+        match self {
+            Self::Sun => &[(DerivedLine::Attack, 6), (DerivedLine::Spell, 3)],
+            Self::Abyss => &[(DerivedLine::Health, 10), (DerivedLine::Resist, 4)],
+            Self::Storm => &[(DerivedLine::Speed, 5), (DerivedLine::Hit, 3)],
+            Self::Tide => &[(DerivedLine::Spell, 7), (DerivedLine::Resist, 2)],
+            Self::Crag => &[(DerivedLine::Health, 8), (DerivedLine::Evade, 3)],
+            Self::Gale => &[(DerivedLine::Hit, 4), (DerivedLine::Evade, 4)],
+            Self::Iron => &[(DerivedLine::Attack, 5), (DerivedLine::Health, 5)],
+            Self::Nether => &[(DerivedLine::Spell, 6), (DerivedLine::Health, 4)],
+        }
+    }
+
+    /// The set bonus a set of worn pieces pays, at a tier.
+    ///
+    /// Two pieces is one extra, three is two: the bonus is what *beyond the
+    /// first* the set is worth, so a lone 曜日 blade is not a set and pays
+    /// nothing. The tier is the best the set holds — a piece at a high realm
+    /// is the same set as a piece at a low one, and it is the high one that
+    /// sets how deep the kinship bites.
+    fn bonus(self, extra: u32, tier: u8) -> Derived {
+        let mut total = Derived::default();
+        for (line, amount) in self.lines() {
+            line.add_to(&mut total, extra * u32::from(tier.max(1)) * amount);
+        }
+        total
+    }
+}
+
+/// The combat numbers the **worn** gear pays as set bonuses.
+///
+/// A set is read off what is worn, not what is owned: three 曜日 pieces in a
+/// satchel are a collection, three on the body are a set. Counts a set twice
+/// across slots — a 曜日 blade and a 曜日 robe are two pieces of one set.
+pub fn gear_set_bonus(worn: &[EquipmentRecord]) -> Derived {
+    let mut total = Derived::default();
+    let mut sets: std::collections::BTreeMap<GearSet, Vec<&EquipmentRecord>> =
+        std::collections::BTreeMap::new();
+    for item in worn {
+        if let Some(set) = item.set {
+            sets.entry(set).or_default().push(item);
+        }
+    }
+    for (set, pieces) in sets {
+        if pieces.len() < 2 {
+            continue;
+        }
+        let extra = u32::try_from(pieces.len() - 1).unwrap_or(u32::MAX);
+        let tier = pieces.iter().map(|piece| piece.tier).max().unwrap_or(1);
+        total = total.plus(set.bonus(extra, tier));
+    }
+    total
+}
+
+/// One active 装备 set, as a surface reads it: the set, how many of its pieces
+/// are worn, and what the wearing pays.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GearSetView {
+    pub set: GearSet,
+    /// How many pieces of the set are worn. Never one — a lone piece is a
+    /// collection, and only two or more are a set.
+    pub pieces: u8,
+    pub bonus: Derived,
+}
+
+/// Every active 装备 set, one entry per set with two or more pieces worn.
+///
+/// The total of the `bonus` fields is exactly [`gear_set_bonus`] — the same
+/// grouping run the same way, so the surface can print "曜日 ×2 攻+30 法+15"
+/// per set without recomputing the arithmetic itself.
+pub fn gear_set_views(worn: &[EquipmentRecord]) -> Vec<GearSetView> {
+    let mut sets: std::collections::BTreeMap<GearSet, Vec<&EquipmentRecord>> =
+        std::collections::BTreeMap::new();
+    for item in worn {
+        if let Some(set) = item.set {
+            sets.entry(set).or_default().push(item);
+        }
+    }
+    let mut views = Vec::new();
+    for (set, pieces) in sets {
+        if pieces.len() < 2 {
+            continue;
+        }
+        let extra = u32::try_from(pieces.len() - 1).unwrap_or(u32::MAX);
+        let tier = pieces.iter().map(|piece| piece.tier).max().unwrap_or(1);
+        views.push(GearSetView {
+            set,
+            pieces: u8::try_from(pieces.len()).unwrap_or(u8::MAX),
+            bonus: set.bonus(extra, tier),
+        });
+    }
+    views
+}
+
 /// One owned piece of gear.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct EquipmentRecord {
@@ -344,6 +507,10 @@ pub struct EquipmentRecord {
     /// before names existed, and on items the user has always owned unnamed.
     #[serde(default)]
     pub name: Option<String>,
+    /// The set this piece belongs to, if it carries one. `None` is a piece
+    /// outside any set, and an old save's gear reads that way.
+    #[serde(default)]
+    pub set: Option<GearSet>,
 }
 
 /// The epithets a blade, robe or boot may carry: one of these prefixes a noun to
@@ -408,14 +575,20 @@ const BOOTS_NOUNS: &[&str] = &[
 /// prefix and noun can never collide across slots and every slot alone offers
 /// hundreds of names. The draw is deterministic in the roll, which keeps a drop
 /// reproducible from its seed.
-pub(crate) fn equipment_name(slot: EquipSlot, rng: &mut Rng) -> String {
+pub(crate) fn equipment_name(slot: EquipSlot, set: Option<GearSet>, rng: &mut Rng) -> String {
     let nouns = match slot {
         EquipSlot::Weapon => WEAPON_NOUNS,
         EquipSlot::Clothes => CLOTHES_NOUNS,
         EquipSlot::Pants => PANTS_NOUNS,
         EquipSlot::Boots => BOOTS_NOUNS,
     };
-    let prefix = EQUIPMENT_PREFIXES[rng.below(EQUIPMENT_PREFIXES.len() as u64) as usize];
+    // A set's prefix is its name: two pieces of one set share the prefix, so
+    // the set is readable off the name. A piece without a set keeps the old
+    // random epithet — the set and the epithet are the two ways a name reads.
+    let prefix = match set {
+        Some(set) => set.name(),
+        None => EQUIPMENT_PREFIXES[rng.below(EQUIPMENT_PREFIXES.len() as u64) as usize],
+    };
     let noun = nouns[rng.below(nouns.len() as u64) as usize];
     format!("{prefix}{noun}")
 }
@@ -427,10 +600,11 @@ pub(crate) fn equipment_name(slot: EquipSlot, rng: &mut Rng) -> String {
 /// that only existed in the detail panel would be invisible in all three.
 pub(crate) fn equipment_display_name(
     slot: EquipSlot,
+    set: Option<GearSet>,
     effect: Option<GearEffect>,
     rng: &mut Rng,
 ) -> String {
-    let name = equipment_name(slot, rng);
+    let name = equipment_name(slot, set, rng);
     match effect {
         Some(effect) => format!("{name}【{}】", effect.tag()),
         None => name,
@@ -642,6 +816,31 @@ const fn combat_lines(rarity: Rarity) -> usize {
 /// effect, the attributes and the outright combat numbers are rolled here, so a
 /// caller only decides how deep and how good the find is.
 pub fn roll_equipment(id: u64, tier: u8, rarity: Rarity, rng: &mut Rng) -> EquipmentRecord {
+    roll_equipment_with(id, tier, rarity, roll_set(rng), rng)
+}
+
+/// Roll a piece that belongs to no set: the guardian's way in.
+///
+/// A guardian's gear is trimmed to a fixed share of the realm's power, and a
+/// set bonus would be a second, untrimmed source on top of it — the wall would
+/// stand a little higher on the days it drew a set. So a guardian's pieces
+/// carry none, and the naming falls back to the random epithet.
+pub(crate) fn roll_equipment_solo(
+    id: u64,
+    tier: u8,
+    rarity: Rarity,
+    rng: &mut Rng,
+) -> EquipmentRecord {
+    roll_equipment_with(id, tier, rarity, None, rng)
+}
+
+fn roll_equipment_with(
+    id: u64,
+    tier: u8,
+    rarity: Rarity,
+    set: Option<GearSet>,
+    rng: &mut Rng,
+) -> EquipmentRecord {
     let slot = EquipSlot::from_index(rng.below(SLOT_COUNT as u64) as usize);
     // 成色: the slot and the quality decide what a piece is worth, not what it
     // reads. Six percent either way on the budget means two blades of one tier
@@ -718,7 +917,24 @@ pub fn roll_equipment(id: u64, tier: u8, rarity: Rarity, rng: &mut Rng) -> Equip
         bonus,
         star: 0,
         effect,
-        name: Some(equipment_display_name(slot, effect, rng)),
+        name: Some(equipment_display_name(slot, set, effect, rng)),
+        set,
+    }
+}
+
+/// Whether a fresh drop carries a set, and which one.
+///
+/// Half the finds belong to nothing — a set that every piece belonged to would
+/// be the only kind of gear there is, and a 曜日 that is never not a set is a
+/// 曜日 that is not a choice. The set is rolled off the same stream that names
+/// the piece, so a drop stays reproducible from its seed.
+fn roll_set(rng: &mut Rng) -> Option<GearSet> {
+    if rng.below(2) == 0 {
+        None
+    } else {
+        Some(GearSet::from_index(
+            rng.below(GearSet::ALL.len() as u64) as usize
+        ))
     }
 }
 

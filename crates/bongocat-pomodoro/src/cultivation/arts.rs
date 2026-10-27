@@ -640,17 +640,34 @@ impl CombatLine {
     /// scale, and neither shape is the trap.
     fn add_to(self, bonus: &mut Derived, magnitude: i32) {
         let magnitude = magnitude.max(0);
-        let (slot, rate) = match self {
-            Self::Attack => (&mut bonus.attack, 3),
-            Self::Health => (&mut bonus.health, 20),
-            Self::Inner => (&mut bonus.inner, 8),
-            Self::Spell => (&mut bonus.spell, 3),
-            Self::Resist => (&mut bonus.resist, 2),
-            Self::Speed => (&mut bonus.speed, 2),
-            Self::Hit => (&mut bonus.hit, 10),
-            Self::Evade => (&mut bonus.evade, 10),
+        let rate = match self {
+            Self::Attack => 3,
+            Self::Health => 20,
+            Self::Inner => 8,
+            Self::Spell => 3,
+            Self::Resist => 2,
+            Self::Speed => 2,
+            Self::Hit => 10,
+            Self::Evade => 10,
         };
-        *slot = slot.saturating_add((magnitude * rate) as u32);
+        self.add_points(bonus, u32::try_from(magnitude * rate).unwrap_or(u32::MAX));
+    }
+
+    /// Add to this line's own number directly, without the conversion the
+    /// budget reads at. The set bonus is an output — a family that is attack
+    /// pays attack, not the 力量 behind it — so it adds to the number itself.
+    fn add_points(self, bonus: &mut Derived, points: u32) {
+        let slot = match self {
+            Self::Attack => &mut bonus.attack,
+            Self::Health => &mut bonus.health,
+            Self::Inner => &mut bonus.inner,
+            Self::Spell => &mut bonus.spell,
+            Self::Resist => &mut bonus.resist,
+            Self::Speed => &mut bonus.speed,
+            Self::Hit => &mut bonus.hit,
+            Self::Evade => &mut bonus.evade,
+        };
+        *slot = slot.saturating_add(points);
     }
 }
 
@@ -1117,6 +1134,111 @@ pub fn mastered_art_bonus_payout(art_id: u64) -> Derived {
 pub fn art_bonus_at(art_id: u64, rank: u8) -> Derived {
     let blueprint = blueprint(art_id);
     scale_bonus(blueprint.bonus, i64::from(rank), 1_000)
+}
+
+/// What one extra book of a 功法 family is worth, per point of the family's
+/// best grade, in the family's primary combat number.
+///
+/// The step is deliberately a quiet one: the set is a bonus for collecting a
+/// school, not a second copy of every book in it.
+const ART_SET_STEP: u32 = 4;
+
+/// The set bonus the 功法 pay: for every 前缀 family with two or more books on
+/// the shelf, the family's primary combat number is paid again at a share that
+/// grows with how many books the family holds and with the best grade among
+/// them.
+///
+/// The prefix *is* the set — see [`ART_PREFIXES`] — so two 九霄 books are one
+/// family by construction and the set's name is the name its books share. The
+/// bonus is a combat number because the family's identity is a combat line:
+/// the 刚 family is attack, the 轻 family is footwork, and a family that paid
+/// its set in 根骨 would be paying a number its books never promised.
+pub fn art_set_bonus(owned: &[OwnedArt]) -> Derived {
+    let mut total = Derived::default();
+    let mut families: std::collections::BTreeMap<usize, Vec<&OwnedArt>> =
+        std::collections::BTreeMap::new();
+    for art in owned {
+        families.entry(prefix_of(art.art_id)).or_default().push(art);
+    }
+    for (prefix_index, books) in families {
+        if books.len() < 2 {
+            continue;
+        }
+        let archetype = archetype_of(prefix_index);
+        let primary = archetype.lines[0].0;
+        let best = books
+            .iter()
+            .map(|book| blueprint(book.art_id).grade)
+            .max()
+            .unwrap_or(ArtGrade::Yellow);
+        let magnitude = INTERNAL_MAGNITUDES[best.index()];
+        let extra = u32::try_from(books.len() - 1).unwrap_or(u32::MAX);
+        primary.add_points(&mut total, extra * magnitude as u32 * ART_SET_STEP);
+    }
+    total
+}
+
+/// One active 功法 family, as a surface reads it: the 前缀, how many books the
+/// family holds, and what the holding pays.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArtSetView {
+    /// The 前缀 index — the set's name is [`ART_PREFIXES`]`[prefix]`.
+    pub prefix: usize,
+    /// How many books the family holds. Never one — a lone book is not a set.
+    pub books: u8,
+    pub bonus: Derived,
+}
+
+/// Every active 功法 family, one entry per 前缀 with two or more books.
+///
+/// The total of the `bonus` fields is exactly [`art_set_bonus`] — the same
+/// grouping run the same way, so the surface can print "九霄 ×2 攻+…" per set
+/// without recomputing the arithmetic itself.
+pub fn art_set_views(owned: &[OwnedArt]) -> Vec<ArtSetView> {
+    let mut families: std::collections::BTreeMap<usize, Vec<&OwnedArt>> =
+        std::collections::BTreeMap::new();
+    for art in owned {
+        families.entry(prefix_of(art.art_id)).or_default().push(art);
+    }
+    let mut views = Vec::new();
+    for (prefix_index, books) in families {
+        if books.len() < 2 {
+            continue;
+        }
+        let archetype = archetype_of(prefix_index);
+        let primary = archetype.lines[0].0;
+        let best = books
+            .iter()
+            .map(|book| blueprint(book.art_id).grade)
+            .max()
+            .unwrap_or(ArtGrade::Yellow);
+        let magnitude = INTERNAL_MAGNITUDES[best.index()];
+        let extra = u32::try_from(books.len() - 1).unwrap_or(u32::MAX);
+        views.push(ArtSetView {
+            prefix: prefix_index,
+            books: u8::try_from(books.len()).unwrap_or(u8::MAX),
+            bonus: {
+                let mut bonus = Derived::default();
+                primary.add_points(&mut bonus, extra * magnitude as u32 * ART_SET_STEP);
+                bonus
+            },
+        });
+    }
+    views
+}
+
+/// The prefix an 功法 id carries: the fastest-moving part of its name, and the
+/// set it belongs to. See [`ART_PREFIXES`] — every book of one prefix is one
+/// family, so the grouping can be read straight off the id.
+pub fn prefix_of(id: u64) -> usize {
+    let index = (id.clamp(1, ART_COUNT) - 1) as usize;
+    (index / 2) % ART_PREFIXES.len()
+}
+
+/// The name a 前缀 family is set to — the word its books share, and the one a
+/// surface prints beside the family's bonus.
+pub fn art_prefix_name(prefix: usize) -> &'static str {
+    ART_PREFIXES[prefix % ART_PREFIXES.len()]
 }
 
 /// The combat numbers every owned 内功 has paid so far, outright.

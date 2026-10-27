@@ -698,6 +698,7 @@ fn clicking_a_star_asks_the_worker_for_the_wager(cx: &mut TestAppContext) {
         effect: Some(bongocat_pomodoro::GearEffect::Frost),
         star_cost: Some(350),
         name: Some("玄霜剑【寒霜】".to_owned()),
+        set: None,
         sell_price: 700,
     };
     cultivation.inventory = vec![

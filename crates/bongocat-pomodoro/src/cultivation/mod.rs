@@ -62,14 +62,16 @@ mod tests;
 pub use aptitude::{
     APTITUDE_MAX_TENTHS, AptitudeHerb, HerbStack, HerbView, base_success_permille, success_permille,
 };
+pub use arts::art_prefix_name;
 pub use arts::{
     APTITUDE_ART_IDS, APTITUDE_ART_TENTHS_PER_RANK, ART_COUNT, ArtBlueprint, ArtGrade, ArtKind,
-    ArtOutcome, ArtView, MasteredArtView, OwnedArt, RECENT_ARTS_CAP, StrikeEffect, StrikeShape,
-    art_aptitude_tenths, art_aptitude_tenths_at, art_attributes, art_bonus, art_bonus_at,
-    art_payout_at, art_view, blueprint, external_damage, external_power_gain,
-    mastered_art_aptitude_payout, mastered_art_aptitude_tenths, mastered_art_attributes,
-    mastered_art_bonus, mastered_art_bonus_payout, mastered_art_payout, mastered_art_view,
-    mastery_permille, printed_pomodoros, required_pomodoros,
+    ArtOutcome, ArtSetView, ArtView, MasteredArtView, OwnedArt, RECENT_ARTS_CAP, StrikeEffect,
+    StrikeShape, art_aptitude_tenths, art_aptitude_tenths_at, art_attributes, art_bonus,
+    art_bonus_at, art_payout_at, art_set_bonus, art_set_views, art_view, blueprint,
+    external_damage, external_power_gain, mastered_art_aptitude_payout,
+    mastered_art_aptitude_tenths, mastered_art_attributes, mastered_art_bonus,
+    mastered_art_bonus_payout, mastered_art_payout, mastered_art_view, mastery_permille, prefix_of,
+    printed_pomodoros, required_pomodoros,
 };
 pub use battle::{BattleReport, Guardian};
 // `duel` itself stays crate-private: it takes the seeded `Rng`, which is nobody
@@ -101,8 +103,9 @@ pub use garden::{
     wither_points,
 };
 pub use items::{
-    EquipSlot, EquipmentRecord, GearEffect, MAX_STAR, Rarity, SLOT_COUNT, STAR_SUCCESS_PERMILLE,
-    star_multiplier_permille, star_success_permille,
+    EquipSlot, EquipmentRecord, GearEffect, GearSet, GearSetView, MAX_STAR, Rarity, SLOT_COUNT,
+    STAR_SUCCESS_PERMILLE, gear_set_bonus, gear_set_views, star_multiplier_permille,
+    star_success_permille,
 };
 pub use jobs::{
     JOB_MAX_HOURS, JOB_MIN_HOURS, JOB_OFFER_COUNT, JobOffer, JobRun, job_stones, refresh_cost,

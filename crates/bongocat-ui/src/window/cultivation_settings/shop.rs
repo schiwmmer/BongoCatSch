@@ -304,6 +304,7 @@ fn shop_offer_detail(
                 // wagered on: the wager belongs to what the buyer already owns.
                 star_cost: None,
                 name: item.name.clone(),
+                set: item.set,
                 sell_price,
             },
             locale,
@@ -460,6 +461,7 @@ fn shop_offer_label(offer: &ShopOffer, locale: &str) -> String {
                 effect: item.effect,
                 star_cost: None,
                 name: item.name.clone(),
+                set: item.set,
                 sell_price: offer.sell_price(),
             },
         ),

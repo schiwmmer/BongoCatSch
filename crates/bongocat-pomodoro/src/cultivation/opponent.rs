@@ -25,7 +25,7 @@ use super::duel::{GUARDIAN_NAME, WANDERER_NAME};
 use super::trial::{TRIAL_OPPONENT_NAME, floor_level, floor_realm};
 use super::{
     ArtGrade, ArtKind, ArtStrike, Attribute, Attributes, Derived, EquipmentRecord, Fighter, Realm,
-    Rng, SLOT_COUNT, base_attributes, items::roll_equipment,
+    Rng, SLOT_COUNT, base_attributes, items::roll_equipment_solo,
 };
 
 /// How much gear an opponent may carry on top of its body, in parts per
@@ -350,7 +350,7 @@ fn wear(stance: Stance, body: &Attributes, tier: u8, rng: &mut Rng) -> Vec<Equip
     let mut wardrobe: Vec<EquipmentRecord> = Vec::with_capacity(SLOT_COUNT * 2);
     for _ in 0..SLOT_COUNT * 2 {
         let rarity = super::drop::roll_quality(rng, factor).unwrap_or(super::Rarity::Common);
-        wardrobe.push(roll_equipment(0, tier, rarity, rng));
+        wardrobe.push(roll_equipment_solo(0, tier, rarity, rng));
     }
     let mut worn: Vec<EquipmentRecord> = Vec::with_capacity(stance.gear_slots());
     for item in wardrobe {

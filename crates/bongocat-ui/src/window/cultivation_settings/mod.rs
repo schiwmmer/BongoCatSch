@@ -770,6 +770,15 @@ fn item_detail(item: &ItemView, locale: &str, tokens: Tokens) -> impl IntoElemen
             ],
         ));
     }
+    // The set, when the piece is a set piece: the name is the prefix the piece
+    // carries, and the page says it so a 曜日 blade and a 曜日 robe read as kin.
+    if let Some(set) = item.set {
+        panel = panel.child(format_text(
+            locale,
+            "cultivation.item.set_line",
+            &[("set", set.name().to_owned())],
+        ));
+    }
     panel
 }
 
@@ -960,6 +969,31 @@ pub(super) fn bonus_segment(locale: &str, bonus: &Derived) -> Option<String> {
     let lines = bonus_lines(locale, bonus);
     (!lines.is_empty())
         .then(|| format_text(locale, "cultivation.bonus", &[("lines", lines.join(" · "))]))
+}
+
+/// One active set as a line the page prints under its panel: the name the set's
+/// pieces share, how many are active, and what the active count pays.
+///
+/// The bonus reads through the same lines a piece's own bonus reads through, so
+/// a set's 攻击力 and a piece's 攻击力 cannot be printed by two rules.
+pub(super) fn set_bonus_line(locale: &str, name: &str, count: u8, bonus: &Derived) -> String {
+    let lines = bonus_lines(locale, bonus);
+    let lines = if lines.is_empty() {
+        // A set can only pay what it is, so this is a set that pays nothing —
+        // which a surface prints as the count alone rather than as a bare "：".
+        "—".to_owned()
+    } else {
+        lines.join(" · ")
+    };
+    format_text(
+        locale,
+        "cultivation.set.line",
+        &[
+            ("set", name.to_owned()),
+            ("count", count.to_string()),
+            ("lines", lines),
+        ],
+    )
 }
 
 /// The catalog key naming what an effect does to the other side of a fight.
