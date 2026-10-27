@@ -16,6 +16,7 @@
 - A failed attempt now goes into the same exponent as 潜质: success = the grade's base × 1.01^(aptitude + failures). The count belongs to the whole book — it carries past a 阶, stands until the art is finished, and every art keeps its own. Each row prints how many attempts that art has lost.
 - Equipment no longer shows the "spell / martial / power" line, and `ItemView` has lost its power field with it. The four attribute cards drop their "pairs with X in the spell/martial school" note, and the power hint now says the number follows from the attributes, the arts and the gear together. Spell power and spell resist stay as combat numbers on the attribute page, on gear and in the fight report.
 - A won 试炼 always pays 灵石: the courtyard used to roll one exclusive find — a herb, gear, a 功法, or nothing — and "nothing" was the biggest slice, so a clean win could pay the cultivator nothing at all and leave the log reading a bare "Proving won." Every win now pays a purse of its own, priced by realm like every other purse (above a walk, below a tower floor), named in the event log and in the fight report.
+- A 功法 can now be found twice, the way a piece of gear can: the drop pool used to be "the books not on the shelf", which made every 功法 drop a guaranteed new one. The roll now runs over the whole grade, and landing on a book already on the shelf folds the second copy into it — the 阶, the banked progress and the failures it has cost all stay exactly where they were (a 5/10 stays 5/10) and the reading carries on. A 功法 learned outright is never handed over again: there is nothing left in that book to learn.
 
 ### ✨ Features
 
@@ -115,6 +116,7 @@
 - The attribute panel no longer prints the external-art per-blow line: an 外功's multiplier, cost and mastery share are already on the learned-功法 panel, and a second copy under the attributes only asked the user which number to believe.
 - 潜质 no longer owns a row: the three items and their feed buttons are gone (herbs are fed on arrival, pills live in the satchel), while 潜质 itself stays as one of the derived-attribute chips.
 - The satchel lists only what it holds: the 洗髓丹 row disappears entirely at zero and comes back, with its "Use · N pills" button, once one is in hand; a held herb behaves the same way.
+- A harvest in the event log now says how much 造化 it banked beside the attribute points: pulling a crop feeds the body and the garden at once, and the log used to print only the first half, so the garden bar moved with nothing saying why. A save from before the field says nothing rather than printing a "+0" the pull never paid.
 
 ### 🌍 Localization
 

@@ -908,6 +908,7 @@
       "sold": "Sold %{what} for %{stones} stones",
       "harvest": "A crop was pulled.",
       "harvested": "Harvested %{seed} — %{attribute} +%{points}",
+      "harvested_xp": "mastery +%{xp}",
       "withered": "%{seed} did not take (%{percent}%) — learned +%{xp}",
       "rank_up": "The garden rose to rank %{rank} (%{stones} stones)",
       "bought_bare": "Bought %{what}",

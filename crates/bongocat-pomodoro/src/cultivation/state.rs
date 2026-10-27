@@ -1555,46 +1555,32 @@ impl Cultivation {
         true
     }
 
-    /// Learn a 功法 the cultivator does not own yet.
+    /// Find a 功法 of the asked-for grade — a book the cultivator may well
+    /// already own.
     ///
-    /// Returns whether anything was gained: every 功法 of the asked-for grade is
-    /// already owned, the next grade down is tried, and only a cultivator who
-    /// owns all five hundred walks away with nothing.
+    /// The roll is over the grade's whole catalogue rather than over the books
+    /// missing from the shelf: a 功法 can be found twice, the way a piece of
+    /// gear can, and the second copy is folded into the book already in hand
+    /// (see [`Self::keep_art_book`]) rather than being swapped for one the
+    /// cultivator has never met.
     ///
-    /// A 功法 that has already been learned outright is not given again: it is
-    /// known, and a second book of it would be a thing the page could not say
-    /// anything true about.
+    /// A 功法 learned outright is the one thing left out of the pool: there is
+    /// no book left in it, so a second copy would teach nothing. Only a grade
+    /// whose every 功法 is learned sends the roll down a grade, and only a
+    /// cultivator who knows all five hundred walks away with nothing.
     pub fn grant_art(&mut self, grade: ArtGrade, now_unix: i64) -> Option<ArtView> {
         let mut rng = self.rng(now_unix);
         for grade in ArtGrade::ALL.iter().rev().skip_while(|g| **g != grade) {
-            let unowned: Vec<u64> = (1..=ART_COUNT)
+            let pool: Vec<u64> = (1..=ART_COUNT)
                 .filter(|id| {
-                    blueprint(*id).grade == *grade
-                        && !self.document.arts.iter().any(|art| art.art_id == *id)
-                        && !self.document.mastered_arts.contains(id)
+                    blueprint(*id).grade == *grade && !self.document.mastered_arts.contains(id)
                 })
                 .collect();
-            if unowned.is_empty() {
+            if pool.is_empty() {
                 continue;
             }
-            let art_id = unowned[rng.below(unowned.len() as u64) as usize];
-            self.document.arts.push(OwnedArt {
-                art_id,
-                // A book on the shelf is not yet any of it learned: the first
-                // 阶 is what the sessions buy.
-                rank: 0,
-                progress: 0,
-                outcome: None,
-                failures: 0,
-            });
-            if self.document.selected_art.is_none() {
-                self.document.selected_art = Some(art_id);
-            }
-            return Some(art_view(
-                self.document.arts.last()?,
-                self.aptitude_tenths(),
-                true,
-            ));
+            let art_id = pool[rng.below(pool.len() as u64) as usize];
+            return self.keep_art_book(art_id);
         }
         None
     }
@@ -1603,23 +1589,52 @@ impl Cultivation {
     ///
     /// The counterpart to [`Self::grant_art`]: a walk or a fight pays a 功法
     /// nobody chose, while the market stocks a specific one and sells that one.
-    /// A book the cultivator already has, or a 功法 they have already learned,
-    /// is not given again — the shelf names a 功法, and handing over a second
-    /// copy of one they already hold would be a market that sells what it does
-    /// not show.
+    /// The shelf names a 功法, so a book already on it is folded in rather than
+    /// swapped for another ([`Self::keep_art_book`]).
+    ///
+    /// The market itself is the one place that never hands over a second copy:
+    /// buying one would charge stones for a book the buyer already holds, so
+    /// [`Self::buy_from_shop`] refuses before it charges (see
+    /// [`TradeRefusal::AlreadyOwned`]).
     pub(crate) fn grant_art_book(&mut self, art_id: u64) -> Option<ArtView> {
+        self.keep_art_book(art_id)
+    }
+
+    /// Put one 功法 book on the shelf, or keep the copy already sitting there.
+    ///
+    /// A book the cultivator is still reading is not started over: a second copy
+    /// of a 功法 already in hand is the *same* book, so the 阶 it stands at, the
+    /// pomodoros banked toward the next one and the failures it has already cost
+    /// stay exactly where they were and the reading carries on. Nothing is
+    /// reset — a duplicate is a book already held, not a fresh first page.
+    ///
+    /// A 功法 learned outright has no book left in it, so nothing about a second
+    /// copy would be new and nothing is handed over.
+    fn keep_art_book(&mut self, art_id: u64) -> Option<ArtView> {
         if !(1..=ART_COUNT).contains(&art_id) {
             return None;
         }
-        if self.document.arts.iter().any(|art| art.art_id == art_id)
-            || self.document.mastered_arts.contains(&art_id)
+        let aptitude_tenths = self.aptitude_tenths();
+        if let Some(index) = self
+            .document
+            .arts
+            .iter()
+            .position(|art| art.art_id == art_id)
         {
+            let selected = self.document.selected_art == Some(art_id);
+            return Some(art_view(
+                &self.document.arts[index],
+                aptitude_tenths,
+                selected,
+            ));
+        }
+        if self.document.mastered_arts.contains(&art_id) {
             return None;
         }
         self.document.arts.push(OwnedArt {
             art_id,
-            // The same zero the walks and the shelf start a book at: owning it
-            // is not having learned any of it.
+            // A book on the shelf is not yet any of it learned: the first 阶 is
+            // what the sessions buy.
             rank: 0,
             progress: 0,
             outcome: None,
@@ -1628,10 +1643,11 @@ impl Cultivation {
         if self.document.selected_art.is_none() {
             self.document.selected_art = Some(art_id);
         }
+        let selected = self.document.selected_art == Some(art_id);
         Some(art_view(
             self.document.arts.last()?,
-            self.aptitude_tenths(),
-            true,
+            aptitude_tenths,
+            selected,
         ))
     }
 
@@ -1836,9 +1852,11 @@ impl Cultivation {
     /// Take the book a beaten opponent was swinging, or grant one of the grade
     /// its realm keeps.
     ///
-    /// The fallback is not a consolation prize: a book the cultivator already
-    /// owns cannot be given twice, and a fight that promised a 功法 has to pay
-    /// one somehow.
+    /// The opponent's own book is what is taken, and a book the cultivator is
+    /// still reading is taken again without being reset — the second copy folds
+    /// into the one in hand. The fallback is only for the 功法 that is already
+    /// learned outright, and for an opponent carrying none: a fight that
+    /// promised a 功法 has to pay one somehow.
     fn take_art(&mut self, rival: &Opponent, _realm: Realm, now_unix: i64) -> Option<String> {
         if let Some(art_id) = rival.art
             && let Some(art) = self.grant_art_book(art_id)
@@ -2050,7 +2068,12 @@ impl Cultivation {
         // The garden learns from being gardened: the crop's own points are the
         // 造化 towards its next rank, so a herb kept is also a herb counted, and
         // there is no second currency to plant for.
+        let xp_before = self.document.garden_xp;
         self.document.garden_xp = self.document.garden_xp.saturating_add(i64::from(points));
+        // What the garden banked, as the log prints it: read off the bar that
+        // moved rather than assumed equal to the points, so the line stays true
+        // if the rank rule ever prices the two apart.
+        let xp = i32::try_from(self.document.garden_xp - xp_before).unwrap_or(i32::MAX);
         let mut rng = self.rng(now_unix);
         let seed = seed_return(crop.attribute, crop.tier, &mut rng);
         // The name travels with the stack it landed in, so the notice and the
@@ -2077,6 +2100,7 @@ impl Cultivation {
                 grade: crop.grade,
                 name: crop.name.clone(),
                 points,
+                xp,
                 seed: seed_name,
             },
         );

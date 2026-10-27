@@ -908,6 +908,7 @@
       "sold": "售出 %{what}，得 %{stones} 灵石",
       "harvest": "仙草园收成了一株。",
       "harvested": "仙草园收成 %{seed}，%{attribute} +%{points}",
+      "harvested_xp": "造化 +%{xp}",
       "withered": "%{seed} 未能成活（%{percent}%）· 心得 +%{xp}",
       "rank_up": "仙草园晋至 %{rank} 阶（花 %{stones} 灵石）",
       "bought_bare": "购入 %{what}",

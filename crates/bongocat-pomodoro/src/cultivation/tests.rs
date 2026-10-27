@@ -611,6 +611,7 @@ fn a_harvest_is_logged_with_its_herb_and_its_points() {
             grade,
             name,
             points,
+            xp,
             ..
         } => {
             assert_eq!(attribute, Attribute::Mana);
@@ -618,6 +619,14 @@ fn a_harvest_is_logged_with_its_herb_and_its_points() {
             assert_eq!(grade, SeedGrade::Earth);
             assert_eq!(name, Some("青芝".to_owned()));
             assert_eq!(points, harvest_points(3, SeedGrade::Earth));
+            // The pull pays the garden the same number it pays the body, and the
+            // line has to carry it: the bar moved, so the log says why.
+            assert_eq!(xp, points, "the 造化 the pull banked");
+            assert_eq!(
+                cultivation.document().garden_xp,
+                i64::from(xp),
+                "and the bar it moved is the number on the line"
+            );
         }
         other => panic!("a harvest line, not {other:?}"),
     }
@@ -1675,6 +1684,47 @@ fn a_mastered_art_leaves_the_books_and_joins_the_learned_ones() {
     assert!(
         view.mastered_arts.iter().any(|art| art.id == granted.id),
         "and the 功法 is learned outright"
+    );
+}
+
+/// A 功法 found twice is one book, not two: the second copy folds into the one
+/// already on the shelf and the reading carries on from where it stood — the 阶,
+/// the banked pomodoros and the failures it has already cost are all still
+/// there, so a lucky duplicate never sends the user back to the first page.
+#[test]
+fn a_second_copy_of_a_book_carries_on_where_the_first_left_off() {
+    let mut cultivation = Cultivation::default();
+    cultivation.grant_art_book(1).expect("a book for art 1");
+    // A few sessions in: some land and some fail, and either way the book is no
+    // longer at its first page.
+    for offset in 0..6_i64 {
+        cultivation.on_session_completed(1_000 + offset, day(30_000 + offset), 25);
+    }
+    let before = cultivation
+        .view()
+        .arts
+        .iter()
+        .find(|art| art.id == 1)
+        .cloned()
+        .expect("the book is on the shelf");
+    assert!(
+        u32::from(before.rank) + before.progress + before.failures > 0,
+        "the reading left a mark: {before:?}"
+    );
+    let again = cultivation.grant_art_book(1).expect("the same book again");
+    assert_eq!(again.id, 1);
+    assert_eq!(again.rank, before.rank, "the 阶 is where it was");
+    assert_eq!(again.progress, before.progress, "and so is the progress");
+    assert_eq!(again.failures, before.failures, "and the failures it cost");
+    assert_eq!(
+        cultivation
+            .view()
+            .arts
+            .iter()
+            .filter(|art| art.id == 1)
+            .count(),
+        1,
+        "one book on the shelf, not two"
     );
 }
 

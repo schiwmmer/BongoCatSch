@@ -189,6 +189,16 @@ pub enum EventDetail {
         name: Option<String>,
         /// What the harvest added to that attribute, permanently.
         points: i32,
+        /// What the pull added to the garden's 造化 — the currency the next rank
+        /// is bought with.
+        ///
+        /// A harvest pays twice over: the points go into the body, and the same
+        /// number becomes the garden's own progress. The line used to print only
+        /// the first, which left a garden bar that had moved with nothing in the
+        /// log saying why. Older harvests predate the field and read as a pull
+        /// that banked nothing, which the surface says by not mentioning it.
+        #[serde(default)]
+        xp: i32,
         /// The seed the pull gave back, by name.
         ///
         /// A harvest rolls for a seed of its own, and that roll is the only

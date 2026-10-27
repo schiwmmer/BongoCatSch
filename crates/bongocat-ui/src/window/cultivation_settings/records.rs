@@ -534,6 +534,7 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             grade,
             name,
             points,
+            xp,
             seed,
         } => {
             let mut line = format_text(
@@ -548,6 +549,20 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
                     ("points", points.to_string()),
                 ],
             );
+            // The pull pays the garden as well as the body: the same harvest is
+            // what buys the next rank, and a bar that moved with nothing on the
+            // line saying why is a rank the user cannot plan for. An old save's
+            // harvests predate the field and say nothing rather than "zero".
+            if *xp > 0 {
+                line.push_str(&format!(
+                    " · {}",
+                    format_text(
+                        locale,
+                        "cultivation.event.harvested_xp",
+                        &[("xp", xp.to_string())]
+                    )
+                ));
+            }
             // The seed a pull gives back is half of what a harvest is worth,
             // and it used to live only in the notice the next quit forgot.
             if let Some(returned) = seed {
@@ -844,7 +859,9 @@ mod tests {
 
     /// A harvest names the seed it gave back, not only the points it paid: the
     /// returned herb is the half of a pull that keeps a garden going, and it
-    /// used to exist only in a notice the next quit forgot.
+    /// used to exist only in a notice the next quit forgot. What the pull banked
+    /// as 造化 rides the same line: the garden bar moved, and the log has to say
+    /// why.
     #[test]
     fn a_harvest_names_the_seed_it_gave_back() {
         let detail = EventDetail::Harvested {
@@ -853,11 +870,30 @@ mod tests {
             grade: SeedGrade::Earth,
             name: Some("青芝".to_owned()),
             points: 10,
+            xp: 10,
             seed: Some("云芝".to_owned()),
         };
         let line = event_line(&detail, "zh-CN");
         assert!(line.contains("青芝"), "the crop it pulled: {line}");
         assert!(line.contains("云芝"), "and the seed it gave back: {line}");
+        assert!(line.contains("造化 +10"), "and what it banked: {line}");
+    }
+
+    /// A harvest from a save that predates the 造化 field says nothing about it
+    /// rather than printing a zero the pull did not pay.
+    #[test]
+    fn an_old_harvest_says_nothing_about_mastery() {
+        let detail = EventDetail::Harvested {
+            attribute: Attribute::Mana,
+            tier: 3,
+            grade: SeedGrade::Earth,
+            name: Some("青芝".to_owned()),
+            points: 10,
+            xp: 0,
+            seed: None,
+        };
+        let line = event_line(&detail, "zh-CN");
+        assert!(!line.contains("造化"), "no mastery clause: {line}");
     }
 
     /// A won realm names everything it handed over — 功法, gear, herb and purse
