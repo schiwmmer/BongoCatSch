@@ -1,4 +1,4 @@
-//! The event log: the last five on the page, the full sixteen in the popup.
+//! The event log: the last five on the page, the full fifty in the popup.
 
 use super::explore::cooldown_line;
 use super::*;
@@ -480,7 +480,7 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
         // piece of news, and the gardener is entitled to know which happened.
         {
             let seed = match herb {
-                Some(herb) => herb_seed_label(locale, *herb, *tier, *grade, name.as_deref()),
+                Some(herb) => herb_seed_label(locale, *herb, *tier, *grade),
                 None => seed_label(locale, *attribute, *tier, *grade, name.as_deref()),
             };
             format_text(
@@ -601,10 +601,7 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
                 Some(herb) => format_text(
                     locale,
                     "cultivation.event.herb_harvested",
-                    &[(
-                        "seed",
-                        herb_seed_label(locale, *herb, *tier, *grade, name.as_deref()),
-                    )],
+                    &[("seed", herb_seed_label(locale, *herb, *tier, *grade))],
                 ),
                 None => format_text(
                     locale,

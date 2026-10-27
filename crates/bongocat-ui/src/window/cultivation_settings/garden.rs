@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// How many seed stacks the satchel lists before the toggle takes over.
+const VISIBLE_SEED_COUNT: usize = 5;
+
 /// What one harvest of this seed pays, in the attribute it raises.
 ///
 /// The domain owns the number; the page only spells it. Both the shelf and the
@@ -106,7 +109,7 @@ fn herb_row(
     let key = SeedKey::Herb(herb, grade);
     let label = format!(
         "{} ×{}",
-        herb_seed_label(locale, herb, seed.tier, grade, seed.name.as_deref()),
+        herb_seed_label(locale, herb, seed.tier, grade),
         seed.count
     );
     let grade_paint = seed_grade_color(grade);
@@ -245,19 +248,49 @@ fn herb_row(
 }
 
 /// The seeds waiting to be planted.
+///
+/// The title carries the whole satchel — every seed in every stack — and the
+/// list under it shows five stacks at a time, the lowest grade first. A satchel
+/// of twenty stacks is a wall on a page that is already a ladder, and the cheap
+/// stacks are the ones a garden can actually bring up; the rest are one click
+/// away.
 pub(super) fn seed_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
     open_seed: Option<SeedKey>,
+    open: bool,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
-    let mut panel = div()
+    let total: u32 = cultivation
+        .seeds
+        .iter()
+        .fold(0, |sum, seed| sum.saturating_add(seed.count));
+    let panel = div()
         .id("cultivation-seeds")
         .flex()
         .flex_col()
         .gap_1()
-        .child(section_title(locale, "cultivation.seeds.title", tokens));
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(section_title(locale, "cultivation.seeds.title", tokens))
+                .child(
+                    div()
+                        .id("cultivation-seeds-total")
+                        .text_xs()
+                        .text_color(tokens.muted)
+                        .child(format_text(
+                            locale,
+                            "cultivation.seeds.total",
+                            &[("count", total.to_string())],
+                        ))
+                        .test_support(),
+                ),
+        );
     if cultivation.seeds.is_empty() {
         return panel.child(
             div()
@@ -267,7 +300,25 @@ pub(super) fn seed_panel(
         );
     }
     let plots_full = cultivation.plots.iter().all(|plot| plot.crop.is_some());
-    let rows = cultivation.seeds.iter().take(8).map(|seed| {
+    // Lowest grade first, then the cheapest bed: the domain hands the satchel
+    // over highest-first because that is how the shelf prices it, and this panel
+    // is asking a different question — what can be planted today.
+    let mut stacks: Vec<&SeedView> = cultivation.seeds.iter().collect();
+    stacks.sort_by(|left, right| {
+        left.grade.cmp(&right.grade).then_with(|| {
+            left.tier
+                .cmp(&right.tier)
+                .then_with(|| left.herb.is_some().cmp(&right.herb.is_some()))
+                .then_with(|| left.attribute.index().cmp(&right.attribute.index()))
+        })
+    });
+    let stacks_total = stacks.len();
+    let shown = if open {
+        stacks_total
+    } else {
+        stacks_total.min(VISIBLE_SEED_COUNT)
+    };
+    let mut panel = panel.children(stacks.into_iter().take(shown).map(|seed| {
         // A 潜质 herb seed is its own row: planted and sold by herb and grade,
         // and named from the herb rather than an attribute. The attribute rows
         // below keep their own shape.
@@ -452,8 +503,36 @@ pub(super) fn seed_panel(
             ));
         }
         row.into_any_element()
-    });
-    panel = panel.children(rows);
+    }));
+    if stacks_total > VISIBLE_SEED_COUNT {
+        let key = if open {
+            "cultivation.seeds.show_less"
+        } else {
+            "cultivation.seeds.show_all"
+        };
+        let label = if open {
+            text(locale, key).to_string()
+        } else {
+            format_text(locale, key, &[("count", stacks_total.to_string())])
+        };
+        panel = panel.child(
+            div()
+                .id("cultivation-seeds-toggle")
+                .text_xs()
+                .text_color(tokens.accent)
+                .child(label)
+                .test_support()
+                .on_click({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            view.cultivation_seeds_open = !view.cultivation_seeds_open;
+                            cx.notify();
+                        });
+                    }
+                }),
+        );
+    }
     if plots_full {
         panel = panel.child(
             div()
@@ -669,13 +748,19 @@ fn plot_cell(
             .id(format!("cultivation-plot-name-{index}"))
             .text_xs()
             .truncate()
-            .child(seed_label(
-                locale,
-                crop.attribute,
-                crop.tier,
-                crop.grade,
-                crop.name.as_deref(),
-            ))
+            .child(match crop.herb {
+                // A herb crop is named by its herb: its `attribute` is the
+                // don't-care a herb seed carries, and printing it would call a
+                // bed of 悟心草 a bed of 力量.
+                Some(herb) => herb_seed_label(locale, herb, crop.tier, crop.grade),
+                None => seed_label(
+                    locale,
+                    crop.attribute,
+                    crop.tier,
+                    crop.grade,
+                    crop.name.as_deref(),
+                ),
+            })
             .text_color(seed_grade_color(crop.grade))
             .test_support()
             .on_click({
@@ -698,7 +783,13 @@ fn plot_cell(
                 .id(format!("cultivation-plot-detail-{index}"))
                 .text_xs()
                 .text_color(tokens.muted)
-                .child(harvest_line(locale, crop.attribute, crop.tier, crop.grade))
+                .child(match crop.herb {
+                    // What a herb crop pays is 潜质, not an attribute point: the
+                    // satchel's own line, so a bed cannot promise a number the
+                    // harvest will not pay.
+                    Some(herb) => super::shop::herb_effect(herb, Some(crop.grade), locale),
+                    None => harvest_line(locale, crop.attribute, crop.tier, crop.grade),
+                })
                 .test_support(),
         );
     }

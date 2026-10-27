@@ -1254,6 +1254,64 @@ fn a_seed_says_what_it_pays_at_every_stage(cx: &mut TestAppContext) {
     );
 }
 
+/// The satchel counts what it holds, lists five stacks lowest grade first, and
+/// keeps the rest one click away.
+///
+/// A satchel of twenty stacks is a wall on a page that is already a ladder, and
+/// the cheap end is the end a young garden can actually bring up — so that is
+/// the end it shows. The count beside the title is every seed in every stack,
+/// which is the number the rows cannot be counted to.
+#[gpui_kit::test]
+fn the_seed_panel_counts_its_stacks_and_unfolds(cx: &mut TestAppContext) {
+    let seed = |tier: u8, grade: SeedGrade| SeedStack {
+        attribute: Attribute::Root,
+        herb: None,
+        tier,
+        grade,
+        count: 2,
+        name: None,
+    };
+    let cultivation = Cultivation::new(CultivationDocument {
+        seeds: vec![
+            seed(1, SeedGrade::Yellow),
+            seed(2, SeedGrade::Yellow),
+            seed(3, SeedGrade::Profound),
+            seed(4, SeedGrade::Earth),
+            seed(5, SeedGrade::Heaven),
+            seed(6, SeedGrade::Divine),
+        ],
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    for id in [
+        "cultivation-seeds-total",
+        "cultivation-seed-name-0-1-0",
+        "cultivation-seed-name-0-2-0",
+        "cultivation-seed-name-0-3-1",
+        "cultivation-seed-name-0-4-2",
+        "cultivation-seed-name-0-5-3",
+        "cultivation-seeds-toggle",
+    ] {
+        assert!(painted(visual, id), "the satchel must draw {id}");
+    }
+    assert!(
+        !painted(visual, "cultivation-seed-name-0-6-4"),
+        "the dearest stack waits behind the fold"
+    );
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-seeds-toggle", cx);
+    });
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-seed-name-0-6-4"),
+        "unfolding must draw the stack it was hiding"
+    );
+}
+
 /// The history popup mounted on its own, the way the fight popup is: the
 /// settings frame would put it behind a sidebar and a scroll view, and the
 /// popup is what is under test.

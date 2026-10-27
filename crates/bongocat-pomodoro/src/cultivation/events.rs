@@ -21,10 +21,12 @@ use super::explore::ExplorationOutcome;
 
 /// How many events the log keeps, newest first.
 ///
-/// Sixteen is a screenful of lines and a few days of play: long enough that a
-/// session, a walk and a sale all stay visible together, short enough that the
-/// page reads at a glance.
-pub const EVENT_LOG_CAP: usize = 16;
+/// Fifty is the history rather than the screenful: the page itself still shows
+/// the last five, and everything older waits in the popup, which is where a
+/// record of a week of sessions, walks and trades is actually read. Sixteen was
+/// a few days; a save that plays daily outgrew it in a fortnight and lost the
+/// beginning of its own week.
+pub const EVENT_LOG_CAP: usize = 50;
 
 /// One thing that happened, as the page's event log reads it.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

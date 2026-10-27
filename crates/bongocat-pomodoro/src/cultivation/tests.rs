@@ -1022,6 +1022,51 @@ fn a_bought_herb_keeps_the_grade_the_shelf_showed() {
     }
 }
 
+/// A 潜质 herb bought from the shelf comes home as the herb it was sold as.
+///
+/// The stack was handed a rolled epithet when it was folded in, so the 悟心草
+/// the shelf had just sold sat in the satchel reading 幽菊 and nothing on the
+/// page still said what it grew into. A herb seed is named by its herb; only an
+/// attribute seed keeps a rolled name, because nothing else tells two of them
+/// apart.
+#[test]
+fn a_bought_herb_comes_home_named_by_its_herb() {
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        stones: 100_000,
+        ..CultivationDocument::default()
+    });
+    let (day, slot) = (20_000..20_500)
+        .find_map(|day| {
+            roll_offers(day, Realm::from_level(1), day as u64)
+                .into_iter()
+                .position(|offer| {
+                    matches!(
+                        offer,
+                        ShopOffer::Herb {
+                            herb: AptitudeHerb::Insight,
+                            ..
+                        }
+                    )
+                })
+                .map(|slot| (day, slot))
+        })
+        .expect("some day stocks a 悟心草");
+    cultivation
+        .buy_from_shop(slot, day, 1_000)
+        .expect("the herb is bought");
+    let seed = cultivation
+        .document()
+        .seeds
+        .iter()
+        .find(|seed| seed.herb == Some(AptitudeHerb::Insight))
+        .expect("the bought herb is held as a seed");
+    assert_eq!(
+        seed.name, None,
+        "a herb seed is named by its herb, not by a roll"
+    );
+    assert_eq!(seed.tier, herb_tier(AptitudeHerb::Insight));
+}
+
 /// Give the cultivator one 潜质 herb seed, without going through a drop. The
 /// purse is topped up so a gate the herb's harvest crosses can never block it.
 fn document_herb_seed(cultivation: &mut Cultivation, herb: AptitudeHerb, grade: SeedGrade) {

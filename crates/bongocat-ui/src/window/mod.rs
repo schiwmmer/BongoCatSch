@@ -355,6 +355,13 @@ pub struct SettingsView {
     /// A save can know a hundred 功法 and still be working on three: the panel
     /// answers "what am I training", and the full list is one click away.
     pub(crate) cultivation_mastered_open: bool,
+    /// Whether the seed panel has been unfolded past the five it shows.
+    ///
+    /// Five is what the panel shows by default, lowest grade first: a satchel of
+    /// twenty stacks is a page of its own, and the seeds worth planting first are
+    /// the cheap ones a young garden can actually bring up. Everything else is
+    /// one click away, the rule the learned 功法 panel above already follows.
+    pub(crate) cultivation_seeds_open: bool,
     /// The walk length the user has chosen, in hours: four, eight or twelve.
     ///
     /// A preference rather than a record: the domain is told the length with

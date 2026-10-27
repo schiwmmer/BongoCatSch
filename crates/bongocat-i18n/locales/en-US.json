@@ -758,7 +758,10 @@
     },
     "seeds": {
       "title": "Seeds",
-      "empty": "No seeds yet."
+      "empty": "No seeds yet.",
+      "total": "%{count} seeds",
+      "show_all": "Show all %{count}",
+      "show_less": "Show less"
     },
     "garden": {
       "title": "Herb garden",

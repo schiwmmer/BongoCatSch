@@ -130,6 +130,8 @@
 - 潜质 no longer owns a row: the three items and their feed buttons are gone (herbs are fed on arrival, pills live in the satchel), while 潜质 itself stays as one of the derived-attribute chips.
 - The satchel lists only what it holds: the 洗髓丹 row disappears entirely at zero and comes back, with its "Use · N pills" button, once one is in hand; a held herb behaves the same way.
 - A harvest in the event log now says how much 造化 it banked beside the attribute points: pulling a crop feeds the body and the garden at once, and the log used to print only the first half, so the garden bar moved with nothing saying why. A save from before the field says nothing rather than printing a "+0" the pull never paid.
+- The seed panel counts the satchel beside its title — every seed in every stack — and lists five stacks at a time, lowest grade first, with the rest behind a "Show all N" control that folds back again. The cultivation page is a long column already, and twenty stacks laid out in full is a second column; the cheap end is also the end a young garden can actually bring up.
+- The recent-events popup keeps fifty lines instead of sixteen. The page still prints the newest five; the popup is the history. Sixteen was about a week, and a save that plays daily squeezed its own beginning out within a fortnight.
 
 ### 🌍 Localization
 
@@ -146,6 +148,7 @@
 - Fixed the countdown freezing while the user typed or moved the pointer: the worker threw away every fraction of a second it could not hand over, and each keystroke or mouse move wakes it once — far more often than once a second, so every fraction was dropped and the clock stopped dead for as long as the input lasted. The fraction now carries until it completes a whole second, and the worker sleeps exactly as long as the running session has left.
 - Fixed 试炼 (proving) still being playable while a job was in hand: only one place can be stood in at a time, the tower kept that gate and the proving missed its "at work" half, so a cultivator on the job could still spend a banked chance on a fight they were not in. Both of the courtyard's fights now share one gate — still on the road or still on the clock keeps it closed, and once the hours are up the door opens straight away with not one chance lost. The proving panel prints which wall holds the door, the way the exploration panel does.
 - Fixed the market showing a 慧心草 as 已购 the moment a realm was broken through: the shelves re-roll when the realm changes, but a bought flag was remembered by slot alone and cleared only once a day, so an old slot landed on a new herb and read it as already bought. The market now records the realm its shelves were rolled for and clears the bought flags whenever the day or the realm changes.
+- Fixed a bought 悟心草 reading 幽菊 in the satchel. A herb seed rolled a xianxia name when it was folded in, while the shelf it was bought from never showed one — so the herb just paid for came home under another herb's name, and nothing on the page still said what it grew into. A herb seed is now always named by its herb (悟心草种子 · tier 8 · 黄阶); only attribute seeds keep a rolled name, because two seeds of the same attribute, tier and grade differ in nothing else. A herb crop in the ground is named by its herb too, and its expanded line says "潜质 +X" rather than "力量 +X".
 
 ## 2.3.1 - 2026-10-13
 

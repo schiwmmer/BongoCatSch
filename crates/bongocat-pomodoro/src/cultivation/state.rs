@@ -1896,7 +1896,7 @@ impl Cultivation {
             // find does. The grade is rolled where the find is, so the seed
             // carries the herb it was found at.
             let grade = roll_seed_grade(rng);
-            self.push_herb_seed(super::AptitudeHerb::Insight, grade, rng);
+            self.push_herb_seed(super::AptitudeHerb::Insight, grade);
             return Some(Drop::Herb {
                 herb: super::AptitudeHerb::Insight,
                 grade,
@@ -1905,7 +1905,7 @@ impl Cultivation {
         edge += BONUS_WISDOM_PERMILLE;
         if roll < edge {
             let grade = roll_seed_grade(rng);
-            self.push_herb_seed(super::AptitudeHerb::Wisdom, grade, rng);
+            self.push_herb_seed(super::AptitudeHerb::Wisdom, grade);
             return Some(Drop::Herb {
                 herb: super::AptitudeHerb::Wisdom,
                 grade,
@@ -2062,27 +2062,12 @@ impl Cultivation {
     /// Own one 潜质 herb seed, at its herb's fixed tier, folded into an existing
     /// stack of the same herb and grade when there is one.
     ///
-    /// A herb seed is named when the shelf names it — see
-    /// [`Self::push_herb_seed_named`] — and folded in bare here, the same split
-    /// the attribute path makes between the shelf and the satchel.
-    fn push_herb_seed(
-        &mut self,
-        herb: super::AptitudeHerb,
-        grade: SeedGrade,
-        rng: &mut Rng,
-    ) -> SeedView {
-        self.push_herb_seed_named(herb, grade, None, rng)
-    }
-
-    /// Own one named 潜质 herb seed, folded into an existing stack when there is
-    /// one.
-    fn push_herb_seed_named(
-        &mut self,
-        herb: super::AptitudeHerb,
-        grade: SeedGrade,
-        name: Option<String>,
-        rng: &mut Rng,
-    ) -> SeedView {
+    /// A herb seed carries no name of its own: the herb *is* its name. A roll
+    /// here invented one, so the 悟心草 the shelf had just sold came home as
+    /// 幽菊 and nothing on the page still said what the seed grew into. The
+    /// attribute seeds below keep their rolled names, because two seeds of the
+    /// same attribute, tier and grade are told apart by nothing else.
+    fn push_herb_seed(&mut self, herb: super::AptitudeHerb, grade: SeedGrade) -> SeedView {
         let tier = super::herb_tier(herb);
         if let Some(stack) =
             self.document.seeds.iter_mut().find(|stack| {
@@ -2092,8 +2077,7 @@ impl Cultivation {
             stack.count = stack.count.saturating_add(1);
             return seed_view(stack);
         }
-        let mut stack = SeedStack::herb_single(herb, grade);
-        stack.name = name.or_else(|| Some(seed_name(rng)));
+        let stack = SeedStack::herb_single(herb, grade);
         let view = seed_view(&stack);
         self.document.seeds.push(stack);
         view
@@ -4219,8 +4203,7 @@ impl Cultivation {
                         );
                     }
                     _ => {
-                        let mut rng = self.rng(now_unix);
-                        self.push_herb_seed(herb, grade, &mut rng);
+                        self.push_herb_seed(herb, grade);
                     }
                 }
             }

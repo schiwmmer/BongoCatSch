@@ -758,7 +758,10 @@
     },
     "seeds": {
       "title": "种子",
-      "empty": "还没有种子。"
+      "empty": "还没有种子。",
+      "total": "共 %{count} 枚",
+      "show_all": "展开全部 %{count} 种",
+      "show_less": "收起"
     },
     "garden": {
       "title": "仙草园",

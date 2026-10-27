@@ -111,6 +111,7 @@ pub(super) fn content(
     let open_seed = view.read(cx).cultivation_open_seed;
     let open_plot = view.read(cx).cultivation_open_plot;
     let mastered_open = view.read(cx).cultivation_mastered_open;
+    let seeds_open = view.read(cx).cultivation_seeds_open;
 
     div()
         .id("cultivation-settings")
@@ -152,7 +153,14 @@ pub(super) fn content(
             locale,
             tokens,
         ))
-        .child(seed_panel(&view, &cultivation, open_seed, locale, tokens))
+        .child(seed_panel(
+            &view,
+            &cultivation,
+            open_seed,
+            seeds_open,
+            locale,
+            tokens,
+        ))
         .child(garden_panel(&view, &cultivation, open_plot, locale, tokens))
         .children(breakthrough_panel(&view, &cultivation, locale, tokens))
         .child(exploration_panel(
@@ -1011,39 +1019,30 @@ pub(super) fn seed_label(
     }
 }
 
-/// A 潜质 herb seed's or crop's display line: its xianxia name when the stack
-/// carries one, else the herb's own catalog name, and in both cases its tier.
+/// A 潜质 herb seed's or crop's display line: the herb's own catalog name and its
+/// tier.
 ///
 /// Reuses the seed label keys, so a herb seed and an attribute seed of the same
 /// numbers read the same way on the shelf and in the satchel — only the name
-/// they fall back to differs (a herb's catalog name, not an attribute's).
+/// they fall back to differs (a herb's catalog name, not an attribute's). The
+/// hero name a seed can carry is deliberately not read here: a herb seed rolled
+/// one when it was folded in, and the satchel then showed 幽菊 for the 悟心草 the
+/// shelf had just sold. An old save keeps those names in its stacks; this line
+/// no longer repeats them.
 pub(super) fn herb_seed_label(
     locale: &str,
     herb: AptitudeHerb,
     tier: u8,
     grade: SeedGrade,
-    name: Option<&str>,
 ) -> String {
     let grade_name = text(locale, grade.name_key()).to_string();
-    let fallback = text(locale, herb.name_key()).to_string();
-    match name {
-        Some(name) => format_text(
-            locale,
-            "cultivation.seed.label_named",
-            &[
-                ("name", name.to_owned()),
-                ("tier", tier.to_string()),
-                ("grade", grade_name),
-            ],
-        ),
-        None => format_text(
-            locale,
-            "cultivation.seed.label",
-            &[
-                ("attribute", fallback),
-                ("tier", tier.to_string()),
-                ("grade", grade_name),
-            ],
-        ),
-    }
+    format_text(
+        locale,
+        "cultivation.seed.label",
+        &[
+            ("attribute", text(locale, herb.name_key()).to_string()),
+            ("tier", tier.to_string()),
+            ("grade", grade_name),
+        ],
+    )
 }
