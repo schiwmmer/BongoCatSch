@@ -103,7 +103,21 @@ print_stdout = "deny"
 # panic still points at the right spot, while dropping the variable/type DWARF
 # that inflates every `.o` in `target/debug/deps`.
 debug = "line-tables-only"
-incremental = true
+#
+# `incremental` is OFF deliberately.
+#
+# With it on, every `cargo build` mints a fresh session id and writes each codegen
+# unit as `crate-hash.cgu.session.rcgu.o` into `target/debug/deps`. Cargo prunes
+# its own `incremental/` directory but never those session-suffixed files, so the
+# count grows forever — measured here at 727 sessions, 154,942 files and 4.84 GiB
+# of physical space (12x more than one compile actually needs) before turning it
+# off. It also silently disabled sccache, which refuses to cache any invocation
+# carrying `-C incremental` (hit rate was 0%).
+#
+# The cost of turning it off is a slower one-crate rebuild: ~1.0s -> ~2.3s on
+# `bongocat-pomodoro`. That is traded against ~4.4 GiB of disk and a sccache that
+# now actually works across branches and checkouts.
+incremental = false
 panic = "unwind"
 
 # Third-party crates ship no debug info at all.
