@@ -30,9 +30,17 @@ pub const POMODORO_TASK_DONE_SOUND: &[u8] =
 
 /// The fanfare a level-up plays: a bright four-note arpeggio.
 ///
-/// The longest and loudest of the three, because a level crossing is the one
+/// The loudest of the celebration clips, because a level crossing is the one
 /// event the user did not directly ask for.
 pub const POMODORO_LEVEL_UP_SOUND: &[u8] = include_bytes!("../../../resources/audio/level-up.wav");
+
+/// The figure a walk or a job coming home plays: two soft knocks and a warm
+/// bell.
+///
+/// Texture rather than melody, so it cannot be mistaken for any of the tonal
+/// clips — the cultivator is back at the gate, and the door is open again.
+pub const CULTIVATION_RETURN_SOUND: &[u8] =
+    include_bytes!("../../../resources/audio/return-home.wav");
 
 /// Play the chime for a finished focus session, or do nothing.
 ///
@@ -52,6 +60,11 @@ pub fn play_task_done_sound() {
 /// Play the fanfare for a level-up, or do nothing.
 pub fn play_level_up_sound() {
     play(POMODORO_LEVEL_UP_SOUND);
+}
+
+/// Play the figure for a walk or a job coming home, or do nothing.
+pub fn play_cultivation_return_sound() {
+    play(CULTIVATION_RETURN_SOUND);
 }
 
 /// Play one clip, or do nothing.
@@ -138,5 +151,37 @@ mod tests {
             super::POMODORO_LEVEL_UP_SOUND.len() > super::POMODORO_TASK_DONE_SOUND.len(),
             "the fanfare should outlast the confirmation"
         );
+    }
+
+    #[test]
+    fn the_return_figure_is_a_wav_clip_no_other_clip_shares() {
+        // The return is the one sound that says the cultivator is home. If it
+        // ever collapsed into one of the other clips the user would read a
+        // finished session, a level or a task where a homecoming happened.
+        assert!(
+            super::CULTIVATION_RETURN_SOUND.len() > 1_000,
+            "the return figure is suspiciously small: {} bytes",
+            super::CULTIVATION_RETURN_SOUND.len()
+        );
+        assert_eq!(
+            &super::CULTIVATION_RETURN_SOUND[..4],
+            b"RIFF",
+            "the return figure must be a WAV clip"
+        );
+        assert_eq!(
+            &super::CULTIVATION_RETURN_SOUND[8..12],
+            b"WAVE",
+            "the return figure must be a WAVE file"
+        );
+        for (other, name) in [
+            (super::POMODORO_TASK_DONE_SOUND, "the confirmation"),
+            (super::POMODORO_LEVEL_UP_SOUND, "the fanfare"),
+        ] {
+            assert_ne!(
+                super::CULTIVATION_RETURN_SOUND,
+                other,
+                "the return figure must not be {name}"
+            );
+        }
     }
 }

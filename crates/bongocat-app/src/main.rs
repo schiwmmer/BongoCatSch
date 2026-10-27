@@ -74,8 +74,8 @@ use gpui_kit::{
 use gpui_kit::{AsyncApp, Context, Window};
 #[cfg(target_os = "macos")]
 use pomodoro_surfaces::{
-    command_for, cultivation_copy, play_pomodoro_complete_sound, pomodoro_menu_entries,
-    send_pomodoro_command,
+    command_for, cultivation_copy, play_cultivation_return_sound, play_pomodoro_complete_sound,
+    pomodoro_menu_entries, send_pomodoro_command,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "windows")]
@@ -1257,6 +1257,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // sequence is what asks for the performance.
                 #[cfg(target_os = "macos")]
                 let mut pomodoro_completion_to_play: Option<u64> = None;
+                // The homecoming figure reads the state line's own answer off
+                // the same snapshot, and is played after the borrow below is
+                // dropped, beside the completion chime.
+                #[cfg(target_os = "macos")]
+                let mut cultivation_home_observed: Option<bool> = None;
                 #[cfg(target_os = "macos")]
                 let (keep_running, next_retry_delay) = cx.update(|cx| {
                     if !cx.has_global::<ProductCoordinator>() {
@@ -1320,6 +1325,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                         pomodoro_completion_to_play = completion.map(|completion| completion.sequence);
+                        cultivation_home_observed = Some(pomodoro_snapshot.cultivation.at_home);
                         let result = coordinator
                             .overlay
                             .as_mut()
@@ -1422,6 +1428,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 #[cfg(target_os = "macos")]
                 if let Some(sequence) = pomodoro_completion_to_play {
                     cx.update(|cx| play_pomodoro_complete_sound(cx, sequence));
+                }
+                #[cfg(target_os = "macos")]
+                if let Some(at_home) = cultivation_home_observed {
+                    cx.update(|cx| play_cultivation_return_sound(cx, at_home));
                 }
                 #[cfg(target_os = "macos")]
                 {

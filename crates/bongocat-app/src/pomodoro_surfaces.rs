@@ -140,6 +140,38 @@ pub(crate) fn play_pomodoro_complete_sound(_cx: &mut App, sequence: u64) {
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn play_pomodoro_complete_sound(_cx: &mut App, _sequence: u64) {}
 
+/// Where the cultivator stood the last time the frame loop looked.
+///
+/// `0` is "not looked yet" — a freshly started app must not greet its user with
+/// a homecoming that happened while it was closed — and `1`/`2` are away and
+/// home. The sound plays only on the `1 → 2` edge, so the figure marks the
+/// moment the road or the job ends rather than the state of being home.
+#[cfg(target_os = "macos")]
+static CULTIVATION_HOME_STATE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Play the homecoming figure when the cultivator gets back, once per return.
+///
+/// The frame loop calls this many times a second with the state line's own
+/// answer (`CultivationView::at_home`, time-aware, so the edge lands on the
+/// wall-clock minute the walk or the job ends rather than on the tick that
+/// settles it). Only the away → home edge plays; staying home or going out is
+/// silent.
+#[cfg(target_os = "macos")]
+pub(crate) fn play_cultivation_return_sound(_cx: &mut App, at_home: bool) {
+    use std::sync::atomic::Ordering;
+
+    let state = if at_home { 2 } else { 1 };
+    let previous = CULTIVATION_HOME_STATE.swap(state, Ordering::AcqRel);
+    if previous != 1 || state != 2 {
+        return;
+    }
+    bongocat_platform::play_cultivation_return_sound();
+}
+
+/// Play the homecoming figure on a platform that has no countdown.
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn play_cultivation_return_sound(_cx: &mut App, _at_home: bool) {}
+
 /// What a right-click on the countdown offers.
 ///
 /// It is a list of descriptions rather than an enum of commands so the menu is
