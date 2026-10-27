@@ -371,6 +371,7 @@ mod tests {
                 progress: 0,
                 outcome: None,
                 failures: 0,
+                copies: 1,
             }],
             selected_art: Some(1),
             ..CultivationDocument::default()

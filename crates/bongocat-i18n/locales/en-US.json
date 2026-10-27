@@ -682,7 +682,8 @@
       "complete": "%{total}/%{total} ranks · complete",
       "success": "lands %{rate}%",
       "failures": "%{count} failed attempts",
-      "aptitude": "aptitude +%{value} a rank"
+      "aptitude": "aptitude +%{value} a rank",
+      "copies": "×%{count}"
     },
     "derived": "Shown",
     "derived_hint": "From the four attributes; no points here",
@@ -938,7 +939,7 @@
       "refuse_owned": "You do not own that",
       "refuse_equipped": "Worn gear cannot be sold",
       "refuse_training": "The art being trained cannot be sold",
-      "refuse_already": "You already have that art",
+      "refuse_already": "That art is already learned — no page left to sell",
       "sold": "Sold",
       "refuse_sold": "This tome has been sold already",
       "refuse_star_capped": "This piece already holds all ten stars",
@@ -949,7 +950,9 @@
       "herb": "Aptitude item",
       "herb_facts": "%{herb} · %{effect}",
       "herb_gain": "aptitude +%{low} ~ %{high}",
-      "herb_marrow_gain": "opens an even hundred"
+      "herb_marrow_gain": "opens an even hundred",
+      "owned": "Owned",
+      "mastered": "Learned"
     },
     "hint": {
       "derived_title": "The eight combat numbers: what the four attributes turn into, not points you can spend",

@@ -1508,6 +1508,9 @@ impl Cultivation {
         };
         let outcome = train(art, aptitude_tenths, &mut rng);
         let rank = art.rank;
+        // Read before the book leaves the shelf: the copies beyond the one just
+        // finished are unread books, and finishing one must not burn them.
+        let copies = art.copies.max(1);
         // Every attempt counts as training, a failure included: the panel's
         // question is "what have I been working on", not "what have I won".
         self.note_recent_art(art_id);
@@ -1517,10 +1520,25 @@ impl Cultivation {
             // learned 功法 is written down in its own list so that selling the
             // book cannot take what it taught with it.
             self.document.arts.retain(|art| art.art_id != art_id);
+            if copies > 1 {
+                // The spares were never opened, so they go back on the shelf as
+                // one unread book: a 功法 finished from one copy does not take
+                // the others with it, and what is left is sellable on its own.
+                self.document.arts.push(OwnedArt {
+                    art_id,
+                    rank: 0,
+                    progress: 0,
+                    outcome: None,
+                    failures: 0,
+                    copies: copies - 1,
+                });
+            }
             if !self.document.mastered_arts.contains(&art_id) {
                 self.document.mastered_arts.push(art_id);
             }
-            // Nothing is being trained any more, so the selection goes with it.
+            // Nothing is being trained any more, so the selection goes with it —
+            // including when a spare is left: a book being read again is the
+            // user's choice, not something a finished session starts.
             if self.document.selected_art == Some(art_id) {
                 self.document.selected_art = None;
             }
@@ -1589,24 +1607,22 @@ impl Cultivation {
     ///
     /// The counterpart to [`Self::grant_art`]: a walk or a fight pays a 功法
     /// nobody chose, while the market stocks a specific one and sells that one.
-    /// The shelf names a 功法, so a book already on it is folded in rather than
-    /// swapped for another ([`Self::keep_art_book`]).
-    ///
-    /// The market itself is the one place that never hands over a second copy:
-    /// buying one would charge stones for a book the buyer already holds, so
-    /// [`Self::buy_from_shop`] refuses before it charges (see
-    /// [`TradeRefusal::AlreadyOwned`]).
+    /// The shelf names a 功法, so a book already on it is a spare added to the
+    /// count rather than a different 功法 substituted for the one on show
+    /// ([`Self::keep_art_book`]).
     pub(crate) fn grant_art_book(&mut self, art_id: u64) -> Option<ArtView> {
         self.keep_art_book(art_id)
     }
 
-    /// Put one 功法 book on the shelf, or keep the copy already sitting there.
+    /// Put one 功法 book on the shelf, or one more copy beside the book already
+    /// sitting there.
     ///
     /// A book the cultivator is still reading is not started over: a second copy
-    /// of a 功法 already in hand is the *same* book, so the 阶 it stands at, the
+    /// of a 功法 already in hand is a spare, so the 阶 it stands at, the
     /// pomodoros banked toward the next one and the failures it has already cost
-    /// stay exactly where they were and the reading carries on. Nothing is
-    /// reset — a duplicate is a book already held, not a fresh first page.
+    /// stay exactly where they were and the reading carries on. What a duplicate
+    /// adds is the count — one more physical book, worth the stones a sale
+    /// brings and worth nothing else.
     ///
     /// A 功法 learned outright has no book left in it, so nothing about a second
     /// copy would be new and nothing is handed over.
@@ -1621,6 +1637,8 @@ impl Cultivation {
             .iter()
             .position(|art| art.art_id == art_id)
         {
+            let art = &mut self.document.arts[index];
+            art.copies = art.copies.max(1).saturating_add(1);
             let selected = self.document.selected_art == Some(art_id);
             return Some(art_view(
                 &self.document.arts[index],
@@ -1639,6 +1657,7 @@ impl Cultivation {
             progress: 0,
             outcome: None,
             failures: 0,
+            copies: 1,
         });
         if self.document.selected_art.is_none() {
             self.document.selected_art = Some(art_id);
@@ -3699,6 +3718,19 @@ impl Cultivation {
                     sell_price: offer.sell_price(),
                     bought: bought.contains(&(slot as u8)),
                     slot,
+                    art_ownership: match &offer {
+                        ShopOffer::Art { art_id }
+                            if self.document.mastered_arts.contains(art_id) =>
+                        {
+                            Some(shop::ArtOwnership::Mastered)
+                        }
+                        ShopOffer::Art { art_id }
+                            if self.document.arts.iter().any(|art| art.art_id == *art_id) =>
+                        {
+                            Some(shop::ArtOwnership::Shelved)
+                        }
+                        _ => None,
+                    },
                 }
             })
             .collect()
@@ -3736,12 +3768,13 @@ impl Cultivation {
         if self.document.stones < price {
             return Err(TradeRefusal::NotEnoughStones);
         }
-        // A 功法 the cultivator already has cannot be bought: it is either a
-        // book they are still reading or a 功法 they have learned, and a second
-        // copy of either is not a thing the page could say anything true about.
+        // A 功法 learned outright is the one book the shelf will not sell: there
+        // is no page left in it, so a copy would teach nothing and could not even
+        // be read. A 功法 still on the shelf is a different matter — the buyer is
+        // buying a *spare*, the row says 已有 so the stones are spent knowingly,
+        // and the copy lands beside the one being read.
         if let ShopOffer::Art { art_id } = &offer
-            && (self.document.arts.iter().any(|art| art.art_id == *art_id)
-                || self.document.mastered_arts.contains(art_id))
+            && self.document.mastered_arts.contains(art_id)
         {
             return Err(TradeRefusal::AlreadyOwned);
         }
@@ -3865,8 +3898,11 @@ impl Cultivation {
 
     /// Sell one 功法 for 灵石 — a book, or the tome of a learned one.
     ///
-    /// The one being trained is refused: 修炼 reads it every session, and the
-    /// record of a session that trained a 功法 no longer owned would be a lie.
+    /// A **copy** is what goes first: a spare sitting beside the book being read
+    /// is sold on its own, and the reading — 阶、进度、失败 — never moves with it.
+    /// The last copy of a book being trained is refused: 修炼 reads it every
+    /// session, and the record of a session that trained a 功法 no longer owned
+    /// would be a lie.
     ///
     /// A **已习得** 功法 is sellable too, and selling one sells the tome, not
     /// the knowledge: the 功法 stays in [`CultivationDocument::mastered_arts`],
@@ -3877,12 +3913,29 @@ impl Cultivation {
     /// [`CultivationDocument::sold_mastered_arts`] and a second attempt is
     /// refused.
     pub fn sell_art(&mut self, art_id: u64, now_unix: i64) -> Result<u32, TradeRefusal> {
-        if self.document.selected_art == Some(art_id) {
-            return Err(TradeRefusal::Training);
-        }
-        let name = blueprint(art_id).name;
-        let learned = self.document.arts.iter().all(|art| art.art_id != art_id);
-        if learned {
+        let copies = self
+            .document
+            .arts
+            .iter()
+            .find(|art| art.art_id == art_id)
+            .map_or(0, |art| art.copies.max(1));
+        if copies > 1 {
+            // A spare goes, the book being read stays: the two are the same
+            // 功法 and the same ladder, and the sale is priced as one book.
+            if let Some(art) = self
+                .document
+                .arts
+                .iter_mut()
+                .find(|art| art.art_id == art_id)
+            {
+                art.copies = copies - 1;
+            }
+        } else if copies == 1 {
+            if self.document.selected_art == Some(art_id) {
+                return Err(TradeRefusal::Training);
+            }
+            self.document.arts.retain(|art| art.art_id != art_id);
+        } else {
             // A learned 功法 is not in the books; if it is not learned either,
             // there is nothing here to sell.
             if !self.document.mastered_arts.contains(&art_id) {
@@ -3892,8 +3945,6 @@ impl Cultivation {
                 return Err(TradeRefusal::AlreadySold);
             }
             self.document.sold_mastered_arts.push(art_id);
-        } else {
-            self.document.arts.retain(|art| art.art_id != art_id);
         }
         let stones = shop::ShopOffer::Art { art_id }.sell_price();
         self.document.stones = self.document.stones.saturating_add(stones);
@@ -3901,7 +3952,7 @@ impl Cultivation {
             now_unix,
             EventDetail::Sold {
                 what: SaleKind::Art {
-                    name: Some(name),
+                    name: Some(blueprint(art_id).name),
                     art_id: Some(art_id),
                 },
                 stones,
@@ -4169,6 +4220,7 @@ mod tests {
                 progress: 0,
                 outcome: None,
                 failures: 0,
+                copies: 1,
             }],
             ..CultivationDocument::default()
         });
@@ -4421,6 +4473,7 @@ mod tests {
                     progress: 0,
                     outcome: None,
                     failures: 0,
+                    copies: 1,
                 }],
                 ..CultivationDocument::default()
             });
@@ -4439,6 +4492,7 @@ mod tests {
                 progress: 0,
                 outcome: None,
                 failures: 0,
+                copies: 1,
             }],
             ..CultivationDocument::default()
         });
@@ -4683,6 +4737,7 @@ mod tests {
             rank: 6,
             progress: 0,
             failures: 0,
+            copies: 1,
             outcome: None,
         });
         cultivation.document.selected_art = Some(404);
@@ -4980,6 +5035,7 @@ mod tests {
                 progress: 0,
                 outcome: None,
                 failures: 0,
+                copies: 1,
             },
             OwnedArt {
                 art_id: 7,
@@ -4987,6 +5043,7 @@ mod tests {
                 progress: 0,
                 outcome: None,
                 failures: 0,
+                copies: 1,
             },
         ];
         cultivation.select_art(Some(3));
@@ -5275,6 +5332,43 @@ mod tests {
                 .map(Refusal::key),
             None,
             "nothing was refused"
+        );
+    }
+
+    /// Finishing a book does not burn the spares: they were never opened, so
+    /// they go back on the shelf as one unread book of the same 功法.
+    #[test]
+    fn finishing_a_book_leaves_its_spare_unread() {
+        let mut cultivation = a_bare_save_at(20);
+        let max_rank = blueprint(1).grade.ranks();
+        cultivation.document.arts = vec![OwnedArt {
+            art_id: 1,
+            rank: max_rank,
+            progress: 0,
+            outcome: None,
+            failures: 0,
+            copies: 2,
+        }];
+        cultivation.document.selected_art = Some(1);
+        cultivation.train_selected(1_000);
+        let view = cultivation.view();
+        assert!(
+            view.mastered_arts.iter().any(|art| art.id == 1),
+            "the 功法 is learned"
+        );
+        let left = view
+            .arts
+            .iter()
+            .find(|art| art.id == 1)
+            .cloned()
+            .expect("the spare is still a book on the shelf");
+        assert_eq!(left.copies, 1, "one unread copy left");
+        assert_eq!(left.rank, 0, "an unopened book starts at the first page");
+        assert_eq!(left.progress, 0, "with nothing banked");
+        assert_eq!(left.failures, 0, "and nothing spent");
+        assert!(
+            !left.selected,
+            "a finished session does not restart the reading"
         );
     }
 }

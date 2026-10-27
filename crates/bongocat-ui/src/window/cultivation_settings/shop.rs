@@ -117,6 +117,19 @@ fn shop_row(
             .child(text(locale, grade.name_key()))
             .test_support()
     });
+    // A 功法 the cultivator already has is a spare, not a mistake: the row says
+    // 已有 and keeps its price, because what the stones buy is a second copy —
+    // worth its own sale price and nothing else. A 功法 learned outright is the
+    // other case and is answered below, where the price would be.
+    let owned_tag = (entry.art_ownership == Some(ArtOwnership::Shelved)).then(|| {
+        div()
+            .id(format!("cultivation-shop-owned-{}", slot))
+            .flex_none()
+            .text_xs()
+            .text_color(tokens.accent)
+            .child(text(locale, "cultivation.shop.owned"))
+            .test_support()
+    });
     let mut name = div()
         .id(format!("cultivation-shop-name-{}", slot))
         .flex_1()
@@ -159,20 +172,33 @@ fn shop_row(
         .gap_2()
         .child(name)
         .children(grade_tag)
+        // The 功法 already on the cultivator's shelf, said before the price: the
+        // purchase is a spare, and a row that hid that would be charging for a
+        // book that looks new.
+        .children(owned_tag)
         // The cut, said beside the price it is a cut of: a row that only showed
         // the cheaper number would be a row whose discount is invisible, and one
         // that only showed the old price would be a row that has not moved.
         .children(special_badge(entry, locale, tokens))
-        .child(if entry.bought {
-            div()
+        .child(match (entry.bought, entry.art_ownership) {
+            (true, _) => div()
                 .id(format!("cultivation-shop-bought-{}", slot))
                 .text_xs()
                 .text_color(tokens.accent)
                 .child(text(locale, "cultivation.shop.bought"))
                 .test_support()
-                .into_any_element()
-        } else {
-            Button::new(format!("cultivation-shop-buy-{}", slot))
+                .into_any_element(),
+            // A 功法 learned outright has no page left: there is nothing to read
+            // and nothing to sell on, so the price gives way to the reason
+            // instead of a button that would only answer with a refusal.
+            (false, Some(ArtOwnership::Mastered)) => div()
+                .id(format!("cultivation-shop-mastered-{}", slot))
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(text(locale, "cultivation.shop.mastered"))
+                .test_support()
+                .into_any_element(),
+            (false, _) => Button::new(format!("cultivation-shop-buy-{}", slot))
                 .ghost()
                 .small()
                 .label(price)
@@ -187,7 +213,7 @@ fn shop_row(
                         });
                     }
                 })
-                .into_any_element()
+                .into_any_element(),
         });
     let mut row = div()
         .id(format!("cultivation-shop-row-{}", slot))

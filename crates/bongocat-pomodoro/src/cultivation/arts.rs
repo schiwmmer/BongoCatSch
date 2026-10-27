@@ -494,8 +494,22 @@ pub struct OwnedArt {
     /// 功法 being read badly twenty times does not make the next one easier.
     #[serde(default)]
     pub failures: u32,
+    /// How many copies of this book are on the shelf.
+    ///
+    /// 修炼 is the reader's, not the paper's: the 阶, the pomodoros banked toward
+    /// the next one and the failures already spent belong to the one book being
+    /// read, so a second copy does not open a second ladder. It is a spare —
+    /// worth the stones a sale brings, and nothing else. Saves written before
+    /// books could be found twice carry no count and hold one.
+    #[serde(default = "one_copy")]
+    pub copies: u32,
     /// What an attempt just came to.
     pub outcome: Option<ArtOutcome>,
+}
+
+/// The count an [`OwnedArt`] written before duplicates existed is read as.
+const fn one_copy() -> u32 {
+    1
 }
 
 /// How many 功法 the recent ring remembers, newest first.
@@ -875,6 +889,9 @@ pub struct ArtView {
     pub mastery_permille: u32,
     /// Whether this is the art the next finished pomodoro trains.
     pub selected: bool,
+    /// How many copies of the book are on the shelf. One means the row is the
+    /// book itself; two means a spare, sellable and readable for nothing new.
+    pub copies: u32,
 }
 
 /// One **已习得** 功法 as a surface reads it.
@@ -950,6 +967,10 @@ pub fn art_view(owned: &OwnedArt, aptitude_tenths: i32, selected: bool) -> ArtVi
             0
         },
         selected,
+        // A zero would be a book nobody can hold; an old save that somehow
+        // carried one is read as a single copy rather than as a row that sells
+        // into the negative.
+        copies: owned.copies.max(1),
     }
 }
 
@@ -1154,6 +1175,7 @@ mod tests {
                     progress: 2,
                     outcome: None,
                     failures: 0,
+                    copies: 1,
                 };
                 match train(&mut probe, 0, &mut Rng::seeded(seed)) {
                     ArtOutcome::Failed => Some(probe),
@@ -1179,6 +1201,7 @@ mod tests {
             rank: 1,
             progress: 0,
             failures: 0,
+            copies: 1,
             outcome: None,
         };
         let base = art_view(&owned, 0, false).success_permille;
@@ -1226,6 +1249,7 @@ mod tests {
             progress: 0,
             outcome: None,
             failures: 0,
+            copies: 1,
         };
         // 潜质 100 leaves a 黄阶 art at the success cap; a body that good is a
         // body whose training keeps landing.
@@ -1250,6 +1274,7 @@ mod tests {
             progress: 0,
             outcome: None,
             failures: 0,
+            copies: 1,
         }];
         let art = blueprint(1);
         if art.kind == ArtKind::Internal {
@@ -1292,6 +1317,7 @@ mod tests {
             progress: 0,
             outcome: None,
             failures: 0,
+            copies: 1,
         }];
         let finished = vec![OwnedArt {
             art_id: art.id,
@@ -1299,6 +1325,7 @@ mod tests {
             progress: 0,
             outcome: None,
             failures: 0,
+            copies: 1,
         }];
         let before = art_attributes(&unfinished).total();
         let after = art_attributes(&finished).total();

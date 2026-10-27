@@ -15,8 +15,8 @@
 use super::*;
 use bongocat_i18n::{compact_number, format_text, text};
 use bongocat_pomodoro::{
-    AptitudeHerb, ArtGrade, ArtKind, ArtOutcome, ArtView, Attribute, Attributes, BonusFind,
-    CultivationView, DailyKind, Derived, DropView, EquipSlot, EventDetail, EventRecord,
+    AptitudeHerb, ArtGrade, ArtKind, ArtOutcome, ArtOwnership, ArtView, Attribute, Attributes,
+    BonusFind, CultivationView, DailyKind, Derived, DropView, EquipSlot, EventDetail, EventRecord,
     ExplorationHours, ExplorationOutcome, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR,
     MarrowSource, MasteredArtView, PlotView, PomodoroCommand, ProvingBlocked, Rarity, Realm,
     SaleKind, SeedGrade, ShopOffer, ShopOfferView, TRIAL_ATTEMPTS_PER_DAY, TrialBlocked,

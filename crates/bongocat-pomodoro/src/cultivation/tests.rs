@@ -1717,6 +1717,10 @@ fn a_second_copy_of_a_book_carries_on_where_the_first_left_off() {
     assert_eq!(again.progress, before.progress, "and so is the progress");
     assert_eq!(again.failures, before.failures, "and the failures it cost");
     assert_eq!(
+        again.copies, 2,
+        "and the spare is a second book, not a reset"
+    );
+    assert_eq!(
         cultivation
             .view()
             .arts
@@ -1724,7 +1728,17 @@ fn a_second_copy_of_a_book_carries_on_where_the_first_left_off() {
             .filter(|art| art.id == 1)
             .count(),
         1,
-        "one book on the shelf, not two"
+        "one row on the shelf, not two: the copies are counted, not stacked"
+    );
+    assert_eq!(
+        cultivation
+            .view()
+            .arts
+            .iter()
+            .find(|art| art.id == 1)
+            .map(|art| art.progress),
+        Some(before.progress),
+        "the row still reads the one book being read"
     );
 }
 
@@ -1928,11 +1942,11 @@ fn the_market_sells_the_art_its_shelf_names() {
     );
 }
 
-/// A 功法 the cultivator already has is not sold again: a second copy of
-/// something they already hold is not a thing the page could say anything true
-/// about.
+/// A 功法 the cultivator already has is buyable, and what it buys is a spare:
+/// the shelf says 已有 first so the stones are spent knowingly, and the copy
+/// lands beside the book being read without touching a page of it.
 #[test]
-fn an_art_the_cultivator_already_has_is_not_sold_again() {
+fn buying_a_book_already_on_the_shelf_buys_a_spare() {
     let mut cultivation = Cultivation::new(CultivationDocument {
         stones: 100_000,
         ..CultivationDocument::default()
@@ -1950,16 +1964,112 @@ fn an_art_the_cultivator_already_has_is_not_sold_again() {
         })
         .expect("some day stocks a 功法");
     // The cultivator already has that one: a walk or a fight gave it to them.
-    assert!(
-        cultivation.grant_art_book(art_id).is_some(),
-        "the book is in hand"
+    let held = cultivation
+        .grant_art_book(art_id)
+        .expect("the book is in hand");
+    assert_eq!(
+        held.copies, 1,
+        "a first copy is the book itself, not a spare"
     );
+    let before = cultivation.stones();
+    let bought = cultivation
+        .buy_from_shop(slot, day, 1_000)
+        .expect("a spare is for sale");
+    assert!(
+        matches!(bought, ShopOffer::Art { art_id: bought } if bought == art_id),
+        "the shelf sold the 功法 it showed: {bought:?}"
+    );
+    assert_eq!(
+        cultivation.stones(),
+        before - ShopOffer::Art { art_id }.price(),
+        "and charged the shelf's own price"
+    );
+    let after = cultivation
+        .view()
+        .arts
+        .iter()
+        .find(|art| art.id == art_id)
+        .cloned()
+        .expect("the book is still on the shelf");
+    assert_eq!(after.copies, 2, "two books now, one of them a spare");
+    assert_eq!(after.rank, held.rank, "and the reading has not moved");
+    assert_eq!(after.progress, held.progress, "neither the progress");
+    assert_eq!(after.failures, held.failures, "nor the failures");
+}
+
+/// A 功法 learned outright has no page left in it: the shelf will not take
+/// stones for a copy that could neither be read nor be anything but paper.
+#[test]
+fn a_learned_art_is_not_sold_again() {
+    let (day, slot, art_id) = (20_000..20_500)
+        .find_map(|day| {
+            crate::cultivation::roll_offers(day, Realm::from_level(1), day as u64)
+                .into_iter()
+                .enumerate()
+                .find_map(|(slot, offer)| match offer {
+                    ShopOffer::Art { art_id } => Some((day, slot, art_id)),
+                    _ => None,
+                })
+        })
+        .expect("some day stocks a 功法");
+    // Every 阶 is in: no book on the shelf, the knowledge written down instead.
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        stones: 100_000,
+        mastered_arts: vec![art_id],
+        ..CultivationDocument::default()
+    });
     let before = cultivation.stones();
     let refusal = cultivation
         .buy_from_shop(slot, day, 1_000)
-        .expect_err("the same 功法 is not sold twice");
+        .expect_err("a learned 功法 is not sold twice");
     assert_eq!(refusal, TradeRefusal::AlreadyOwned, "the refusal says why");
     assert_eq!(cultivation.stones(), before, "and nothing was charged");
+}
+
+/// A spare goes to the market on its own: the book being read stays on the
+/// shelf, page for page, and only the count moves.
+#[test]
+fn a_spare_is_sold_before_the_book_being_read() {
+    let mut cultivation = Cultivation::default();
+    cultivation.grant_art_book(1).expect("a book for art 1");
+    for offset in 0..6_i64 {
+        cultivation.on_session_completed(1_000 + offset, day(30_000 + offset), 25);
+    }
+    cultivation.grant_art_book(1).expect("a spare");
+    let before = cultivation
+        .view()
+        .arts
+        .iter()
+        .find(|art| art.id == 1)
+        .cloned()
+        .expect("the book is on the shelf");
+    assert_eq!(before.copies, 2, "a spare beside the book being read");
+    assert!(before.selected, "and that book is the one being trained");
+    let purse = cultivation.stones();
+    let stones = cultivation
+        .sell_art(1, 9_000)
+        .expect("a spare sells even while the other copy is read");
+    assert_eq!(
+        cultivation.stones(),
+        purse + stones,
+        "the stones land in the purse"
+    );
+    let after = cultivation
+        .view()
+        .arts
+        .iter()
+        .find(|art| art.id == 1)
+        .cloned()
+        .expect("the book itself is still there");
+    assert_eq!(after.copies, 1, "one copy left");
+    assert_eq!(after.rank, before.rank, "the reading did not move");
+    assert_eq!(after.progress, before.progress, "nor the progress");
+    assert_eq!(after.failures, before.failures, "nor the failures");
+    assert_eq!(
+        cultivation.sell_art(1, 9_100),
+        Err(TradeRefusal::Training),
+        "the last copy of the book being read is not for sale"
+    );
 }
 
 /// The garden sells its fifth plot for stones, charges double for each one
@@ -2063,6 +2173,7 @@ fn the_fight_picks_among_the_strongest_external_arts() {
             progress: 0,
             outcome: None,
             failures: 0,
+            copies: 1,
         });
     }
     // A fourth deep book, never trained: owning it is not swinging it.
@@ -2072,6 +2183,7 @@ fn the_fight_picks_among_the_strongest_external_arts() {
         progress: 0,
         outcome: None,
         failures: 0,
+        copies: 1,
     });
     let cultivation = Cultivation::new(document);
     let mut rng = super::Rng::seeded(0x5EED_5EED);

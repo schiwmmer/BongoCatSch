@@ -384,6 +384,21 @@ fn art_row(
                         .text_xs()
                         .child(div().min_w_0().truncate().child(art_name))
                         .child(div().text_color(grade_paint).child(grade_text))
+                        // How many copies of this book are on the shelf. A
+                        // spare is invisible until one is held, and a count on
+                        // every row would read as a stack of everything.
+                        .children((art.copies > 1).then(|| {
+                            div()
+                                .id(format!("cultivation-art-copies-{}", art.id))
+                                .flex_none()
+                                .text_color(tokens.muted)
+                                .child(format_text(
+                                    locale,
+                                    "cultivation.art.copies",
+                                    &[("count", art.copies.to_string())],
+                                ))
+                                .test_support()
+                        }))
                         .test_support(),
                 )
                 .child(
@@ -420,14 +435,16 @@ fn art_row(
                         }),
                 )
                 .child(
-                    // The trained 功法 is not for sale: 修炼 reads it every session,
-                    // and the button is disabled rather than hidden so that the
-                    // reason it cannot be sold is a thing the user can see.
+                    // The last copy of the trained 功法 is not for sale: 修炼 reads
+                    // it every session, and the button is disabled rather than
+                    // hidden so that the reason it cannot be sold is a thing the
+                    // user can see. A spare is a different book on the same
+                    // shelf, so it sells even while the other copy is read.
                     Button::new(format!("cultivation-sell-art-{}", art.id))
                         .ghost()
                         .small()
                         .label(sell_label(locale, art_sell_price(art.id)))
-                        .disabled(art.selected)
+                        .disabled(art.selected && art.copies <= 1)
                         .on_click({
                             let view = view.clone();
                             move |_, _, cx| {

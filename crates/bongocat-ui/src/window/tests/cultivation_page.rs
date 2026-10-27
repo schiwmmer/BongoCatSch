@@ -14,12 +14,12 @@ use super::*;
 use crate::window::cultivation_duel;
 use crate::window::cultivation_settings;
 use bongocat_pomodoro::{
-    ArtGrade, ArtOutcome, Attribute, Attributes, CropRecord, Cultivation, CultivationDocument,
-    DailyKind, DailyOutcome, Derived, DuelReport, DuelRound, EventDetail, EventRecord,
-    ExplorationFindView, ExplorationOutcome, Fighter, ItemView, LAYERS_PER_STAGE, OwnedArt,
-    PLAYER_NAME, PlotRecord, PomodoroCommand, PomodoroSnapshot, PomodoroState, ProvingBlocked,
-    Rarity, SeedGrade, SeedStack, TrainingView, TrialBlocked, TrialOutcome, WANDERER_NAME,
-    threshold_for,
+    ArtGrade, ArtOutcome, ArtOwnership, Attribute, Attributes, CropRecord, Cultivation,
+    CultivationDocument, DailyKind, DailyOutcome, Derived, DuelReport, DuelRound, EventDetail,
+    EventRecord, ExplorationFindView, ExplorationOutcome, Fighter, ItemView, LAYERS_PER_STAGE,
+    OwnedArt, PLAYER_NAME, PlotRecord, PomodoroCommand, PomodoroSnapshot, PomodoroState,
+    ProvingBlocked, Rarity, SeedGrade, SeedStack, ShopOffer, TrainingView, TrialBlocked,
+    TrialOutcome, WANDERER_NAME, threshold_for,
 };
 use gpui_kit::{ScrollDelta, point};
 
@@ -1116,6 +1116,7 @@ fn the_learned_panel_lists_a_part_trained_art(cx: &mut TestAppContext) {
             progress: 0,
             outcome: None,
             failures: 0,
+            copies: 1,
         }],
         ..CultivationDocument::default()
     })
@@ -1250,6 +1251,7 @@ fn the_art_row_shows_the_rank_ladder_and_its_progress(cx: &mut TestAppContext) {
             progress: 1,
             outcome: None,
             failures: 0,
+            copies: 1,
         }],
         ..CultivationDocument::default()
     })
@@ -1587,5 +1589,70 @@ fn picking_a_walk_length_is_what_the_click_asks_for(cx: &mut TestAppContext) {
             }]
         ),
         "the click carries the length that was picked: {commands:?}"
+    );
+}
+
+/// A 功法 already on the shelf is marked 已有, and the price stays: what the
+/// stones buy is a spare, so the row is a sale rather than a refusal.
+#[gpui_kit::test]
+fn the_shelf_marks_a_book_the_cultivator_already_has(cx: &mut TestAppContext) {
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        stones: 5_000,
+        ..CultivationDocument::default()
+    })
+    .view();
+    let slot = cultivation
+        .shop_offers
+        .first()
+        .map(|entry| entry.slot)
+        .expect("a fresh save still gets a shelf");
+    // Dress the first row as a 功法 the cultivator is already reading: the
+    // shelf itself rolls its own stock, and what this test is about is what the
+    // row says once a book is in hand.
+    cultivation.shop_offers[0].offer = ShopOffer::Art { art_id: 1 };
+    cultivation.shop_offers[0].art_ownership = Some(ArtOwnership::Shelved);
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, format!("cultivation-shop-owned-{slot}")),
+        "the row says the book is already held"
+    );
+    assert!(
+        painted(visual, format!("cultivation-shop-buy-{slot}")),
+        "and keeps its price: the purchase is a spare"
+    );
+}
+
+/// A 功法 learned outright has no page left: the shelf says so in place of the
+/// price, rather than offering a click that could only be refused.
+#[gpui_kit::test]
+fn a_learned_art_has_no_price_on_the_shelf(cx: &mut TestAppContext) {
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        stones: 5_000,
+        ..CultivationDocument::default()
+    })
+    .view();
+    let slot = cultivation
+        .shop_offers
+        .first()
+        .map(|entry| entry.slot)
+        .expect("a fresh save still gets a shelf");
+    cultivation.shop_offers[0].offer = ShopOffer::Art { art_id: 1 };
+    cultivation.shop_offers[0].art_ownership = Some(ArtOwnership::Mastered);
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, format!("cultivation-shop-mastered-{slot}")),
+        "the row says the 功法 is learned"
+    );
+    assert!(
+        !painted(visual, format!("cultivation-shop-buy-{slot}")),
+        "and offers no price for a book with nothing left in it"
+    );
+    assert!(
+        !painted(visual, format!("cultivation-shop-owned-{slot}")),
+        "the 已有 mark belongs to a book still on the shelf"
     );
 }

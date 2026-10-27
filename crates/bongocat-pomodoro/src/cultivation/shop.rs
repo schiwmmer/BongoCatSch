@@ -467,6 +467,24 @@ pub struct ShopOfferView {
     pub bought: bool,
     /// The slot this offer sits in, which is what a buy command names.
     pub slot: usize,
+    /// How this row's 功法 stands against the cultivator's own copies, for the
+    /// rows that are 功法 at all. `None` for everything else — a seed the buyer
+    /// already has a stack of is not a duplicate, it is a stack.
+    pub art_ownership: Option<ArtOwnership>,
+}
+
+/// What the shelf says about a 功法 the cultivator already knows.
+///
+/// The two cases sell differently and the row has to say which one it is: a
+/// book still on the shelf is a spare — buyable, and worth the stones a sale
+/// brings — while a 功法 learned outright has no page left, so the shelf will
+/// not take stones for it at all.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ArtOwnership {
+    /// A book already on the shelf, still being read.
+    Shelved,
+    /// A 功法 learned outright: every 阶 is in.
+    Mastered,
 }
 
 #[cfg(test)]

@@ -682,7 +682,8 @@
       "complete": "%{total}/%{total} 阶 · 圆满",
       "success": "成功率 %{rate}%",
       "failures": "已失败 %{count} 次",
-      "aptitude": "潜质 +%{value}/阶"
+      "aptitude": "潜质 +%{value}/阶",
+      "copies": "×%{count}"
     },
     "derived": "外显属性",
     "derived_hint": "由四项属性算出，不可加点",
@@ -938,7 +939,7 @@
       "refuse_owned": "没有这件东西",
       "refuse_equipped": "身上的装备不能卖",
       "refuse_training": "正在修炼的功法不能卖",
-      "refuse_already": "已有此功法，无需再买",
+      "refuse_already": "此功法已圆满，书中无页可读",
       "sold": "已售",
       "refuse_sold": "这本功法之书已售过，不可再卖",
       "refuse_star_capped": "这件装备已满 10 星，无法再升",
@@ -949,7 +950,9 @@
       "herb": "潜质之物",
       "herb_facts": "%{herb} · %{effect}",
       "herb_gain": "潜质 +%{low} ~ %{high}",
-      "herb_marrow_gain": "突破整百所需"
+      "herb_marrow_gain": "突破整百所需",
+      "owned": "已有",
+      "mastered": "已习得"
     },
     "hint": {
       "derived_title": "八项战斗数值：四项属性换算出来的结果，不能直接加点",
