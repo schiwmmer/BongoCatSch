@@ -661,6 +661,12 @@ fn tick(shared: &Arc<SharedState>, path: &Path, elapsed: Duration) -> bool {
         inner.publish();
         inner.write_document(path);
     }
+    // A bed says how it is doing at its halfway mark rather than under the
+    // seed: the same tick finds it late or finds it on time, and pays once.
+    if inner.domain.apply_garden_reveal(now) {
+        inner.publish();
+        inner.write_document(path);
+    }
     // The day opens once, whichever tick is the first of it: the morning event
     // is the ladder's one unprompted move, so it hangs off the same tick rather
     // than off a click the user might never make.

@@ -527,9 +527,10 @@ fn growth_beyond_the_cap_is_kept_but_buys_no_layers() {
 fn a_planted_seed_ripens_on_the_clock_and_pays_an_attribute() {
     let mut cultivation = tended(Cultivation::default());
     document_seeds(&mut cultivation, Attribute::Root, 1, 1);
-    assert_eq!(
-        cultivation.plant(Attribute::Root, 1, SeedGrade::Earth, 1_000),
-        Some(PlantOutcome::Planted),
+    assert!(
+        cultivation
+            .plant(Attribute::Root, 1, SeedGrade::Earth, 1_000)
+            .is_some(),
         "a first-tier seed comes up in a top-rank garden"
     );
     let planted = cultivation.view().plots[0]
@@ -580,9 +581,10 @@ fn a_harvest_is_logged_with_its_herb_and_its_points() {
         name: Some("青芝".to_owned()),
     });
     let mut cultivation = Cultivation::new(document);
-    assert_eq!(
-        cultivation.plant(Attribute::Mana, 3, SeedGrade::Earth, 0),
-        Some(PlantOutcome::Planted)
+    assert!(
+        cultivation
+            .plant(Attribute::Mana, 3, SeedGrade::Earth, 0)
+            .is_some()
     );
     assert_eq!(
         cultivation.view().plots[0]
@@ -640,9 +642,10 @@ fn a_seed_stack_is_spent_one_planting_at_a_time() {
     // Twice over, because what is being counted is the stack going down: one
     // seed out of two at a time, until there is nothing left to give.
     for _ in 0..2 {
-        assert_eq!(
-            cultivation.plant(Attribute::Mana, 1, SeedGrade::Earth, 0),
-            Some(PlantOutcome::Planted)
+        assert!(
+            cultivation
+                .plant(Attribute::Mana, 1, SeedGrade::Earth, 0)
+                .is_some()
         );
     }
     assert_eq!(
@@ -655,21 +658,22 @@ fn a_seed_stack_is_spent_one_planting_at_a_time() {
 
 /// Planting above your station. A tenth-tier 神阶 seed in a first-rank garden
 /// comes up one time in eight, and the other seven are what this test is about:
-/// what a failure takes, and when it takes it.
+/// what a failure takes, when it takes it, and when it says so.
 #[test]
-fn a_planting_that_does_not_take_costs_the_seed_and_not_the_plot() {
+fn a_planting_that_does_not_take_keeps_the_bed_until_the_halfway_mark() {
     let mut cultivation = Cultivation::default();
     assert_eq!(
         plant_permille(1, MAX_SEED_TIER, SeedGrade::Divine),
         127,
         "asking a first-rank bed for the rarest herb in the game"
     );
+    let grown = grow_seconds(MAX_SEED_TIER);
     let mut found = None;
     // The failures are found rather than staged: the roll is seeded by the clock
-    // the test hands in, so share the Diamonds among sixty-four plantings and one
+    // the test hands in, so share the Divine among sixty-four plantings and one
     // of them will not come up.
     for step in 0..64i64 {
-        let at = step * (grow_seconds(MAX_SEED_TIER) + 1) + 1;
+        let at = step * (grown + 1) + 1;
         document_seed(
             &mut cultivation,
             Attribute::Root,
@@ -677,28 +681,47 @@ fn a_planting_that_does_not_take_costs_the_seed_and_not_the_plot() {
             SeedGrade::Divine,
         );
         let before = cultivation.view().garden_xp;
-        match cultivation.plant(Attribute::Root, MAX_SEED_TIER, SeedGrade::Divine, at) {
-            // Put the bed back: only the failures are being counted.
-            Some(PlantOutcome::Planted) => {
-                cultivation.harvest(0, at + grow_seconds(MAX_SEED_TIER));
-            }
-            Some(PlantOutcome::Withered { permille, xp }) => {
-                found = Some((permille, xp, before));
-                break;
-            }
-            None => panic!("the seed was there and every plot was free"),
+        assert!(
+            cultivation
+                .plant(Attribute::Root, MAX_SEED_TIER, SeedGrade::Divine, at)
+                .is_some(),
+            "the seed was there and every plot was free"
+        );
+        // Halfway is the first instant the bed may say how it is doing, and not
+        // one second before it: the verdict is the bed's own, and the surface
+        // cannot even ask for it earlier.
+        let half = at + grown / 2;
+        assert!(
+            cultivation.view_on(half - 1, 0).plots[0]
+                .crop
+                .as_ref()
+                .is_some_and(|crop| !crop.withered),
+            "a bed under its halfway mark is still growing, whatever it knows"
+        );
+        let settled = cultivation.settle_garden(half);
+        let dead = cultivation.view_on(half, 0).plots[0]
+            .crop
+            .as_ref()
+            .is_some_and(|crop| crop.withered);
+        if dead {
+            found = Some((at, half, before, settled));
+            break;
         }
+        cultivation.harvest(0, at + grown).expect("a ripe crop");
     }
-    let (permille, xp, before) = found.expect("sixty-four tries find one failure");
-    assert_eq!(permille, 127);
-    assert_eq!(xp, wither_points(MAX_SEED_TIER, SeedGrade::Divine));
-    let view = cultivation.view();
-    // The bed frees itself at once, which is the whole reason the roll happens
-    // now rather than on the day ten days later the crop would have been ripe:
-    // a failure that cost ten days and a plot is a mechanic nobody uses twice.
+    let (at, half, before, settled) = found.expect("sixty-four tries find one failure");
     assert!(
-        view.plots.iter().all(|plot| plot.crop.is_none()),
-        "the plot is free again before the line is written"
+        settled,
+        "the tick that reaches the halfway mark does the work"
+    );
+    let xp = wither_points(MAX_SEED_TIER, SeedGrade::Divine);
+    let view = cultivation.view_on(half, 0);
+    // The bed still holds the dead crop: the failure costs the bed for the first
+    // half of the growing time, and the gardener is told at the halfway mark so
+    // the second half is theirs to spend on something else.
+    assert!(
+        view.plots[0].is_crop_dead(),
+        "a dead crop is the bed's answer, and the bed still holds it"
     );
     assert_eq!(
         view.garden_xp,
@@ -714,10 +737,98 @@ fn a_planting_that_does_not_take_costs_the_seed_and_not_the_plot() {
     assert!(
         matches!(
             view.events.first().map(|event| &event.detail),
-            Some(EventDetail::Withered { .. })
+            Some(EventDetail::Withered { permille: 127, .. })
         ),
         "and the log says where the seed went"
     );
+    // Once, not once per tick: the same belated machine that slept through the
+    // halfway mark must not be paid again on every wake.
+    assert!(
+        !cultivation.settle_garden(half + 1),
+        "a settled bed has nothing left to say"
+    );
+    assert_eq!(
+        cultivation.view_on(half + 1, 0).garden_xp,
+        before + i64::from(xp),
+        "and nothing left to pay"
+    );
+    // 铲除 gives the rest of the bed's day back, and pays nothing on top: the
+    // 造化 was the failure's, and it has already been paid.
+    assert!(
+        cultivation.dig_plot(0, half).is_some(),
+        "a dead crop can be dug out"
+    );
+    assert!(
+        cultivation.view_on(half, 0).plots[0].crop.is_none(),
+        "and the bed is free for the next seed"
+    );
+    // A live crop cannot be dug: the odds already spared it, and throwing it away
+    // would be a way to burn a seed for nothing.
+    document_seed(&mut cultivation, Attribute::Root, 1, SeedGrade::Earth);
+    cultivation.plant(Attribute::Root, 1, SeedGrade::Earth, half);
+    assert!(
+        cultivation.dig_plot(0, half + 1).is_none(),
+        "只有枯死的作物可以铲除"
+    );
+    assert!(
+        cultivation.view_on(at + grown, 0).plots[0]
+            .crop
+            .as_ref()
+            .is_some(),
+        "a live crop keeps its bed"
+    );
+}
+
+/// The learned panel ranks by how far a book has come, then by its grade.
+///
+/// 阶 do not compare across grades — a 神阶 art has twenty-seven of them and a
+/// 黄阶 three — so the panel reads the ratio. A book read to the end ranks above
+/// everything half-read, and two books at the same ratio rank the better grade,
+/// because a 神阶 half-read is worth more than a 黄阶 half-read.
+#[test]
+fn the_learned_panel_ranks_by_progress_then_grade() {
+    let art_of = |grade: ArtGrade| {
+        (1..=super::ART_COUNT)
+            .find(|id| {
+                let art = blueprint(*id);
+                art.grade == grade && art.kind == ArtKind::Internal
+            })
+            .expect("every grade has an 内功")
+    };
+    let (yellow, heaven, divine) = (
+        art_of(ArtGrade::Yellow),
+        art_of(ArtGrade::Heaven),
+        art_of(ArtGrade::Divine),
+    );
+    let mut document = CultivationDocument::default();
+    // One 阶 of three is a third of the way; one 阶 of twenty-seven is not.
+    for (art_id, rank) in [(divine, 1), (heaven, 1), (yellow, 2)] {
+        document.arts.push(OwnedArt {
+            art_id,
+            rank,
+            progress: 0,
+            outcome: None,
+            failures: 0,
+            copies: 1,
+        });
+    }
+    let view = Cultivation::new(document.clone()).view();
+    let order: Vec<u64> = view.mastered_arts.iter().map(|art| art.id).collect();
+    assert_eq!(
+        order,
+        vec![yellow, heaven, divine],
+        "the furthest-read book leads, and 天 outranks 神 at one 阶 each"
+    );
+    // A finished book is further along than any book still being read, whatever
+    // its grade: completion is the one ratio that cannot be beaten.
+    document.mastered_arts.push(divine);
+    let view = Cultivation::new(document).view();
+    let first = view
+        .mastered_arts
+        .first()
+        .map(|art| art.id)
+        .expect("the panel lists something");
+    assert_eq!(first, divine, "a 神阶 book read to the end leads the panel");
 }
 
 /// The safety net, and the price of gambling below it.
@@ -732,9 +843,10 @@ fn bad_luck_above_even_money_stops_at_two() {
     document_seed(&mut cultivation, Attribute::Root, 5, SeedGrade::Earth);
     assert!(plant_permille(5, 5, SeedGrade::Earth) >= PITY_MIN_PERMILLE);
     assert!(cultivation.planting_is_certain(5, SeedGrade::Earth));
-    assert_eq!(
-        cultivation.plant(Attribute::Root, 5, SeedGrade::Earth, 1_000),
-        Some(PlantOutcome::Planted),
+    assert!(
+        cultivation
+            .plant(Attribute::Root, 5, SeedGrade::Earth, 1_000)
+            .is_some(),
         "two counted failures buy the third however the odds read"
     );
     assert!(
@@ -1097,9 +1209,10 @@ fn a_herb_seed_planted_and_picked_feeds_the_body() {
         .find(|seed| seed.herb == Some(AptitudeHerb::Wisdom))
         .expect("the seed is held");
     assert_eq!(seed.tier, 6, "慧心草 grows at tier six");
-    assert_eq!(
-        cultivation.plant_herb_seed(AptitudeHerb::Wisdom, SeedGrade::Earth, 0),
-        Some(PlantOutcome::Planted)
+    assert!(
+        cultivation
+            .plant_herb_seed(AptitudeHerb::Wisdom, SeedGrade::Earth, 0)
+            .is_some()
     );
     assert!(cultivation.document().seeds.is_empty(), "the seed is spent");
     let view = cultivation.view();
@@ -1386,9 +1499,10 @@ fn a_harvest_that_gives_a_seed_back_puts_it_in_the_satchel() {
     for step in 0..200i64 {
         let planted_at = step * 10_000;
         document_seeds(&mut cultivation, Attribute::Mana, 2, 1);
-        assert_eq!(
-            cultivation.plant(Attribute::Mana, 2, SeedGrade::Earth, planted_at),
-            Some(PlantOutcome::Planted)
+        assert!(
+            cultivation
+                .plant(Attribute::Mana, 2, SeedGrade::Earth, planted_at)
+                .is_some()
         );
         let outcome = cultivation
             .harvest(0, planted_at + grow_seconds(2))

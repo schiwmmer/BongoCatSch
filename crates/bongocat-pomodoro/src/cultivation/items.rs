@@ -578,6 +578,16 @@ fn scale_derived(bonus: Derived, permille: u32) -> Derived {
     }
 }
 
+/// The top of the 成色 band a rolled piece can land in, in parts per thousand.
+///
+/// Every piece carries a little of its own character: the budget it is built
+/// from is nudged up or down by a few percent, so two blades of one tier are two
+/// blades rather than one printed twice. The ceiling is published because the
+/// guardian's wardrobe has to read its own allowance against the same band — a
+/// piece that rolled rich still has to fit inside the share of the body it is
+/// allowed to add.
+pub(crate) const MASTERWORK_CEILING_PERMILLE: u32 = 1_060;
+
 /// The points a tier's drop is built from before the quality multiplies them.
 ///
 /// Linear in the tier so a later realm's gear is worth more than an earlier
@@ -585,6 +595,21 @@ fn scale_derived(bonus: Derived, permille: u32) -> Derived {
 pub(crate) fn base_points(tier: u8) -> u32 {
     let tier = u32::from(tier.clamp(1, 10));
     45 + 25 * (tier - 1)
+}
+
+/// What one point of an attribute is worth in the power table, in tenths.
+fn attribute_weight(attribute: Attribute) -> i64 {
+    match attribute {
+        Attribute::Root => super::ROOT_WEIGHT,
+        Attribute::Strength => super::STRENGTH_WEIGHT,
+        Attribute::Mana => super::MANA_WEIGHT,
+        Attribute::Agility => super::AGILITY_WEIGHT,
+    }
+}
+
+/// How many points of one attribute a slice of the power budget buys.
+fn points_for(budget: i64, weight: i64) -> i32 {
+    i32::try_from((budget + weight / 2) / weight).unwrap_or(i32::MAX)
 }
 
 /// How many attribute lines a quality's piece carries.
@@ -618,23 +643,44 @@ const fn combat_lines(rarity: Rarity) -> usize {
 /// caller only decides how deep and how good the find is.
 pub fn roll_equipment(id: u64, tier: u8, rarity: Rarity, rng: &mut Rng) -> EquipmentRecord {
     let slot = EquipSlot::from_index(rng.below(SLOT_COUNT as u64) as usize);
+    // 成色: the slot and the quality decide what a piece is worth, not what it
+    // reads. Six percent either way on the budget means two blades of one tier
+    // are two blades — the shelf used to print the same numbers for every piece
+    // of a slot, which made a page of finds read as one find repeated.
     let points = base_points(tier) * rarity.multiplier() / 10;
+    let points = (points * (940 + rng.below(121) as u32) / 1_000).max(1);
     let (primary, primary_percent, secondary, secondary_percent) = slot.split();
+    // The budget is the slot's nominal split *as power*, not as points: moving a
+    // point from 力量 to 身法 keeps the piece worth the same even though it reads
+    // a bigger number, so a red 身法 boot is not a quieter red 力量 boot.
+    let budget = i64::from(points)
+        * (i64::from(primary_percent) * attribute_weight(primary)
+            + i64::from(secondary_percent) * attribute_weight(secondary))
+        / 100;
     let mut attributes = Attributes::default();
     if attribute_lines(rarity) >= 2 {
-        let primary_points = points * primary_percent / 100;
-        let secondary_points = points.saturating_sub(primary_points);
+        // The split itself sways a little per piece, inside a band that keeps the
+        // slot's character: a weapon is still mostly 力量, it just is not always
+        // seventy percent of it.
+        let sway = 920 + rng.below(161) as i64;
+        let primary_share = (i64::from(primary_percent) * sway / 1_000).clamp(300, 900);
         primary.add_to(
             &mut attributes,
-            i32::try_from(primary_points).unwrap_or(i32::MAX),
+            points_for(budget * primary_share / 1_000, attribute_weight(primary)),
         );
         secondary.add_to(
             &mut attributes,
-            i32::try_from(secondary_points).unwrap_or(i32::MAX),
+            points_for(
+                budget * (1_000 - primary_share) / 1_000,
+                attribute_weight(secondary),
+            ),
         );
     } else {
         // One line, the whole budget: the piece is what it is, said once.
-        primary.add_to(&mut attributes, i32::try_from(points).unwrap_or(i32::MAX));
+        primary.add_to(
+            &mut attributes,
+            points_for(budget, attribute_weight(primary)),
+        );
     }
     debug_assert!(secondary_percent + primary_percent == 100);
     // The outright combat lines: a third of the points, split the same way the
@@ -686,6 +732,52 @@ fn mix(mut value: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two pieces of one slot, one tier and one quality are two pieces.
+    ///
+    /// The budget is spent as power rather than as points, so a piece that leans
+    /// on 身法 reads a bigger number than one that leans on 力量 for the same
+    /// worth — and the split itself sways, so no two blades print the same pair.
+    #[test]
+    fn two_pieces_of_one_tier_are_two_pieces() {
+        let mut blades = std::collections::BTreeSet::new();
+        for id in 1..=400u64 {
+            let mut rng = Rng::seeded(id);
+            let item = roll_equipment(id, 5, Rarity::Rare, &mut rng);
+            if item.slot == EquipSlot::Weapon {
+                blades.insert((item.attributes.strength, item.attributes.mana));
+            }
+        }
+        assert!(
+            blades.len() > 3,
+            "every 精良 blade of one tier reads the same pair: {blades:?}"
+        );
+    }
+
+    /// The piece's worth stays on its tier whatever it leans on: the budget is
+    /// read in power, so a heavier number and a lighter one are the same piece.
+    #[test]
+    fn a_pieces_worth_is_its_tier_not_its_numbers() {
+        let nominal = i64::from(base_points(5) * Rarity::Rare.multiplier() / 10);
+        let expected = nominal * (70 * 26 + 30 * 26) / 100;
+        for id in 1..=200u64 {
+            let mut rng = Rng::seeded(id);
+            let item = roll_equipment(id, 5, Rarity::Rare, &mut rng);
+            if item.slot != EquipSlot::Weapon {
+                continue;
+            }
+            let weight =
+                i64::from(item.attributes.strength) * 26 + i64::from(item.attributes.mana) * 26;
+            // The band, plus the rounding each of the two attribute lines costs
+            // on its way from power back to whole points.
+            let low = expected * 940 / 1_000 - 40;
+            let high = expected * 1_060 / 1_000 + 40;
+            assert!(
+                (low..=high).contains(&weight),
+                "a 精良 blade of tier five is worth {weight}, outside {low}..={high}"
+            );
+        }
+    }
 
     #[test]
     fn a_drop_lands_in_a_slot_and_carries_the_quality_it_was_handed() {

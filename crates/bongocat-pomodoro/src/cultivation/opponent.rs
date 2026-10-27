@@ -324,7 +324,7 @@ fn wear(stance: Stance, body: &Attributes, tier: u8, rng: &mut Rng) -> Vec<Equip
     // Measured in power rather than in raw points: the fight is decided on the
     // weighted sum, and two pieces worth the same points are not worth the same
     // fight when one of them lands on 身法.
-    let allowance = body.power().saturating_mul(GEAR_SHARE_PERMILLE) / 1_000;
+    let allowance = gear_allowance(body);
     // The wardrobe is rolled at the *realm's* strength rather than at the body's
     // own: two floors of one realm have to dress out of one pool, or a slightly
     // stronger body would roll a slightly different threshold and the deeper
@@ -373,6 +373,18 @@ fn marginal_power(body: &Attributes, gear: &[EquipmentRecord]) -> u32 {
         .saturating_sub(body.power())
 }
 
+/// The power an opponent's gear may add, read at the top of the 成色 band.
+///
+/// A piece carries a few percent of its own character, so two pieces of one tier
+/// are worth slightly different amounts; an allowance read at the nominal figure
+/// would drop the second slot of a guardian whose wardrobe rolled rich. The share
+/// of the body a guardian may add is unchanged — this is the band's own width,
+/// plus the point that whole-number rounding costs.
+fn gear_allowance(body: &Attributes) -> u32 {
+    let share = GEAR_SHARE_PERMILLE * super::items::MASTERWORK_CEILING_PERMILLE / 1_000 + 1;
+    body.power().saturating_mul(share) / 1_000
+}
+
 /// Whether the gear as a whole has pushed one attribute too far past the body's
 /// own value of it.
 fn drifted(body: &Attributes, gear: &[EquipmentRecord]) -> bool {
@@ -413,7 +425,7 @@ fn added_bonus(gear: &[EquipmentRecord]) -> Derived {
 /// the last piece rather than the first, so what an opponent keeps is the best
 /// of what it rolled.
 fn trim(stance: Stance, body: &Attributes, mut gear: Vec<EquipmentRecord>) -> Vec<EquipmentRecord> {
-    let allowance = body.power().saturating_mul(GEAR_SHARE_PERMILLE) / 1_000;
+    let allowance = gear_allowance(body);
     while !gear.is_empty() {
         // The flat combat lines count toward the share the attributes earned:
         // the allowance is a power allowance, and a 神装's outright 攻击力 is

@@ -1254,6 +1254,42 @@ fn a_seed_says_what_it_pays_at_every_stage(cx: &mut TestAppContext) {
     );
 }
 
+/// A bed past its halfway mark may be holding a dead crop, and says so: the cell
+/// names the failure, drops the payoff line it will never pay, and offers the one
+/// action a dead bed has left.
+#[gpui_kit::test]
+fn a_withered_plot_says_so_and_offers_the_dig(cx: &mut TestAppContext) {
+    let dead = CropRecord {
+        withered: true,
+        ..CropRecord::planted(Attribute::Mana, 2, SeedGrade::Heaven, None, 0)
+    };
+    // Read well past the halfway mark: `view()` asks the domain at instant zero,
+    // where no bed has been allowed to speak yet.
+    let cultivation = Cultivation::new(CultivationDocument {
+        plots: vec![PlotRecord { crop: Some(dead) }],
+        ..CultivationDocument::default()
+    })
+    .view_on(1_000_000, 0);
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    for id in ["cultivation-plot-withered-0", "cultivation-dig-0"] {
+        assert!(painted(visual, id), "a dead bed must draw {id}");
+    }
+    assert!(
+        !painted(visual, "cultivation-harvest-0"),
+        "a dead crop is never a harvest button"
+    );
+    // The name is still there — the gardener needs to know which seed died — but
+    // the row it opens would promise a payoff the harvest will not make.
+    visual.update(|window, cx| window.click("cultivation-plot-name-0", cx));
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        !painted(visual, "cultivation-plot-detail-0"),
+        "a dead bed has no harvest facts to show"
+    );
+}
+
 /// The satchel counts what it holds, lists five stacks lowest grade first, and
 /// keeps the rest one click away.
 ///

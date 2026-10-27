@@ -438,12 +438,26 @@ pub struct CropView {
     /// The instant it can be picked. A surface subtracts its own clock, so the
     /// countdown keeps moving without the domain being polled for it.
     pub ready_at_unix: i64,
+    /// Whether this bed has been told — and is telling — that the seed did not
+    /// take. False for every bed before its halfway mark, which is the whole
+    /// point of the reveal: a surface cannot leak a verdict the domain has not
+    /// given it.
+    pub withered: bool,
 }
 
 /// One plot, as a surface reads it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PlotView {
     pub crop: Option<CropView>,
+}
+
+impl PlotView {
+    /// Whether this bed is showing a crop that did not take. A surface reads
+    /// this rather than the crop's fields so the rule for "dead" lives in one
+    /// place, and the button it draws and the command it sends agree.
+    pub fn is_crop_dead(&self) -> bool {
+        self.crop.as_ref().is_some_and(|crop| crop.withered)
+    }
 }
 
 /// The guardian a surface offers to fight.
@@ -2085,20 +2099,17 @@ impl Cultivation {
 }
 
 /// What came of planting one seed.
+///
+/// There is one answer and it is not the fruitful one: the roll has already
+/// happened — it has to happen while the seed is in hand, because the odds are
+/// the reason planting is a decision — but the bed keeps the answer to itself
+/// until half the growing time is up. So planting always succeeds at the only
+/// thing a click can be told about: a crop is in the ground.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PlantOutcome {
-    /// The seed took, and the crop is in the ground: from here it can only be
-    /// picked, never lost.
-    Planted,
-    /// It did not take. The seed is spent, the plot frees itself at once, and
-    /// the gardener keeps what killed it — see [`wither_points`].
-    Withered {
-        /// The odds it went in at, so the line can say how close it was: losing
-        /// at ninety-five percent is not the same news as losing at thirty.
-        permille: u32,
-        /// The 造化 the failure still paid.
-        xp: i32,
-    },
+pub struct PlantOutcome {
+    /// The odds it went in at. Worth printing because a plant at ninety-five
+    /// percent and a plant at thirty are two different wagers.
+    pub permille: u32,
 }
 
 impl Cultivation {
@@ -2144,8 +2155,9 @@ impl Cultivation {
         )
     }
 
-    /// The planting both paths share: find the stack, spend one seed, and either
-    /// bed the crop or pay the wither — decided by one roll taken up front.
+    /// The planting both paths share: find the stack, spend one seed, and bed
+    /// the crop — with the answer to the roll kept in the bed rather than told
+    /// on the spot.
     ///
     /// `herb` is `None` for an attribute seed and `Some` for a 潜质 herb seed;
     /// every match on the stack and every event the planting writes carries it,
@@ -2190,36 +2202,104 @@ impl Cultivation {
         if stack.count > 0 {
             self.document.seeds.push(stack);
         }
+        // The bed takes the crop either way. A seed that was never going to come
+        // up still occupies the bed until the halfway mark, because telling the
+        // gardener at once made planting a slot machine with the answer printed
+        // on the lever: you knew before you had walked away. The 造化, the pity
+        // count and the log line are all written by [`Self::settle_garden`] the
+        // moment the bed is allowed to speak.
         let plot = &mut self.document.plots[plot_index];
+        plot.crop = Some(match herb {
+            Some(herb) => {
+                let mut crop = CropRecord::herb_planted(herb, grade, name, now_unix);
+                crop.withered = !took;
+                crop
+            }
+            None => {
+                let mut crop = CropRecord::planted(attribute, tier, grade, name, now_unix);
+                crop.withered = !took;
+                crop
+            }
+        });
         if took {
             self.document.plant_fail_streak = 0;
-            plot.crop = Some(match herb {
-                Some(herb) => CropRecord::herb_planted(herb, grade, name, now_unix),
-                None => CropRecord::planted(attribute, tier, grade, name, now_unix),
-            });
-            return Some(PlantOutcome::Planted);
         }
-        // Gone, but not grown: the seed is spent, which is what makes the odds
-        // worth printing, and the bed it wanted is free again before the line is
-        // written. Nothing waits and nothing is owed.
-        let xp = wither_points(tier, grade);
-        self.document.garden_xp = self.document.garden_xp.saturating_add(i64::from(xp));
-        if permille >= PITY_MIN_PERMILLE {
-            self.document.plant_fail_streak = self.document.plant_fail_streak.saturating_add(1);
+        Some(PlantOutcome { permille })
+    }
+
+    /// Let every bed past its halfway mark say how it is doing, and clear the
+    /// dead ones that have run their course. Returns whether anything moved.
+    ///
+    /// Called by the worker's tick beside the walk and the job: a bed is on the
+    /// clock, not on a click, so a machine that slept through the halfway mark
+    /// still pays what the failure pays — 造化, the pity count and the log line —
+    /// the first time it looks.
+    pub fn settle_garden(&mut self, now_unix: i64) -> bool {
+        let mut moved = false;
+        for index in 0..self.document.plots.len() {
+            // Copied out rather than borrowed: paying a failure writes an event,
+            // which borrows the whole document again.
+            let Some(crop) = self.document.plots[index].crop.clone() else {
+                continue;
+            };
+            if !crop.withered {
+                continue;
+            }
+            if crop.is_revealed(now_unix) && !crop.settled {
+                let permille = plant_permille(self.document.garden_rank, crop.tier, crop.grade);
+                let xp = wither_points(crop.tier, crop.grade);
+                self.document.garden_xp = self.document.garden_xp.saturating_add(i64::from(xp));
+                if permille >= PITY_MIN_PERMILLE {
+                    self.document.plant_fail_streak =
+                        self.document.plant_fail_streak.saturating_add(1);
+                }
+                self.push_event(
+                    now_unix,
+                    EventDetail::Withered {
+                        attribute: crop.attribute,
+                        herb: crop.herb,
+                        tier: crop.tier,
+                        grade: crop.grade,
+                        name: crop.name,
+                        permille,
+                        xp,
+                    },
+                );
+                if let Some(held) = self.document.plots[index].crop.as_mut() {
+                    held.settled = true;
+                }
+                moved = true;
+            }
+            // A dead crop is cleared once its own day is up: the harvest it will
+            // never give is the moment its claim on the bed dies too, so a plot
+            // cannot be lost by a gardener who never clicked 铲除.
+            if self.document.plots[index]
+                .crop
+                .as_ref()
+                .is_some_and(|held| held.is_ready(now_unix))
+            {
+                self.document.plots[index].crop = None;
+                moved = true;
+            }
         }
-        self.push_event(
-            now_unix,
-            EventDetail::Withered {
-                attribute,
-                herb,
-                tier,
-                grade,
-                name,
-                permille,
-                xp,
-            },
-        );
-        Some(PlantOutcome::Withered { permille, xp })
+        moved
+    }
+
+    /// Dig a dead crop out of its bed, freeing the plot for the next seed.
+    ///
+    /// Only a dead crop can be dug: a live one is a harvest in progress, and
+    /// clearing it would be a way to throw away a seed the odds already spared.
+    pub fn dig_plot(&mut self, plot: usize, now_unix: i64) -> Option<()> {
+        let held = self
+            .document
+            .plots
+            .get(plot)
+            .and_then(|plot| plot.crop.as_ref())?;
+        if !held.stands_dead(now_unix) {
+            return None;
+        }
+        self.document.plots.get_mut(plot)?.crop = None;
+        Some(())
     }
 
     /// Whether the safety net has run out of patience: two counted failures in a
@@ -2279,7 +2359,14 @@ impl Cultivation {
             if !ready {
                 return None;
             }
-            plot.crop.take()?
+            let crop = plot.crop.take()?;
+            // A dead crop is not a harvest. The bed keeps it only until its day
+            // is up, and a click that lands in that window must not pay what the
+            // seed failed to earn.
+            if crop.withered {
+                return None;
+            }
+            crop
         };
         let points = harvest_points(crop.tier, crop.grade);
         // A 潜质 herb crop feeds the body on the spot — that is the whole point
@@ -3755,16 +3842,29 @@ impl Cultivation {
                 ..mastered_art_view(owned.art_id)
             });
         }
-        // Most recently trained first, the rest in the order the save met them:
-        // the three on the page are the three the cultivator is working on, and
-        // a stable sort leaves the older ones readable in the order they were
-        // learned rather than in whatever order the two lists were merged.
+        // Furthest along first: the three on the page are the books nearest to
+        // paying, and a 神阶 art at its ninth 阶 of twenty-seven is not nearer
+        // done than a 黄阶 art at its second of three — so the ratio is what
+        // ranks them, not the 阶. Equal ratios rank the better grade, because a
+        // 神阶 half-read is worth more than a 黄阶 half-read; a tie there falls
+        // back to the recent ring, which keeps the rest in the order they were
+        // last worked on.
         let recent = &self.document.recent_arts;
-        mastered_arts.sort_by_key(|art| {
+        let rank_of = |id: u64| {
             recent
                 .iter()
-                .position(|id| *id == art.id)
+                .position(|held| *held == id)
                 .unwrap_or(usize::MAX)
+        };
+        mastered_arts.sort_by(|left, right| {
+            // rank/max_rank compared by cross-multiplication, so the ratio stays
+            // exact in integers and no float ever decides the order.
+            let left_share = u32::from(left.rank) * u32::from(right.max_rank);
+            let right_share = u32::from(right.rank) * u32::from(left.max_rank);
+            right_share
+                .cmp(&left_share)
+                .then_with(|| right.grade.cmp(&left.grade))
+                .then_with(|| rank_of(left.id).cmp(&rank_of(right.id)))
         });
         let mut equipped: [Option<ItemView>; SLOT_COUNT] = array::from_fn(|_| None);
         let mut inventory = Vec::new();
@@ -3818,6 +3918,7 @@ impl Cultivation {
                         grade: crop.grade,
                         name: crop.name.clone(),
                         ready_at_unix: crop.ready_at_unix,
+                        withered: crop.stands_dead(now_unix),
                     }),
                 })
                 .collect(),

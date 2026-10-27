@@ -741,6 +741,11 @@ fn plot_cell(
             )
             .into_any_element();
     };
+    // A bed past its halfway mark may be holding a dead crop. That is the whole
+    // point of the reveal — the gardener learns at the midpoint, not under the
+    // seed — so the cell says so and offers the one thing a dead bed is good
+    // for: getting out of the way.
+    let dead = plot.is_crop_dead();
     // The name is the click: what is in the ground can be asked what it will
     // pay without giving up the harvest to find out.
     cell = cell.child(
@@ -761,7 +766,11 @@ fn plot_cell(
                     crop.name.as_deref(),
                 ),
             })
-            .text_color(seed_grade_color(crop.grade))
+            .text_color(if dead {
+                tokens.muted
+            } else {
+                seed_grade_color(crop.grade)
+            })
             .test_support()
             .on_click({
                 let view = view.clone();
@@ -777,6 +786,35 @@ fn plot_cell(
                 }
             }),
     );
+    if dead {
+        return cell
+            .child(
+                div()
+                    .id(format!("cultivation-plot-withered-{index}"))
+                    .text_xs()
+                    .text_color(tokens.muted)
+                    .child(text(locale, "cultivation.garden.withered"))
+                    .test_support(),
+            )
+            .child(
+                Button::new(format!("cultivation-dig-{index}"))
+                    .ghost()
+                    .small()
+                    .label(text(locale, "cultivation.garden.dig"))
+                    .on_click({
+                        let view = view.clone();
+                        move |_, _, cx| {
+                            view.update(cx, |view, cx| {
+                                let _ = view
+                                    .pomodoro
+                                    .try_publish(PomodoroCommand::DigPlot { plot: index });
+                                view.poll_pomodoro(cx);
+                            });
+                        }
+                    }),
+            )
+            .into_any_element();
+    }
     if open {
         cell = cell.child(
             div()

@@ -215,8 +215,6 @@ const EXTERNAL_NOUNS: [&str; 12] = [
     "掌法", "拳法", "剑法", "刀法", "指法", "腿法", "鞭法", "枪法", "棍法", "爪法", "戟法", "袖功",
 ];
 
-const ART_SUFFIXES: [&str; 8] = ["", "诀", "经", "录", "谱", "篇", "总纲", "残卷"];
-
 /// Rebuild the 功法 an id names.
 ///
 /// The name, the grade, the kind and the numbers all come from the same seeded
@@ -237,19 +235,25 @@ pub fn blueprint(id: u64) -> ArtBlueprint {
         },
         index / 2,
     );
-    let suffix = ART_SUFFIXES[rest % ART_SUFFIXES.len()];
-    let noun_index = (rest / ART_SUFFIXES.len()) % INTERNAL_NOUNS.len();
+    // Forty prefixes across five hundred arts: the prefix *is* the 流派 (see
+    // [`PREFIX_ARCHETYPE`]), so it has to be the fastest-moving part of the name
+    // or the shelf shows one family over and over. It used to be the slowest —
+    // the radix only ever reached the first three prefixes, and every 功法 in the
+    // game was a 太乙, a 九霄 or an 玄天. The noun carries the rest of the
+    // uniqueness: forty prefixes against twelve nouns is four hundred and eighty
+    // names for two hundred and fifty slots a kind, so no two arts share one.
+    let prefix_index = rest % ART_PREFIXES.len();
+    let noun_index = (rest / ART_PREFIXES.len()) % INTERNAL_NOUNS.len();
     let noun = match kind {
         ArtKind::Internal => INTERNAL_NOUNS[noun_index],
         ArtKind::External => EXTERNAL_NOUNS[noun_index],
     };
-    let prefix =
-        ART_PREFIXES[(rest / (ART_SUFFIXES.len() * INTERNAL_NOUNS.len())) % ART_PREFIXES.len()];
-    let name = format!("{prefix}{noun}{suffix}");
+    let prefix = ART_PREFIXES[prefix_index];
+    let name = format!("{prefix}{noun}");
     let mut rng = Rng::seeded(id.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x0005_DEEC_E66D);
     let (gain, bonus, cost, multiplier_permille) = match kind {
         ArtKind::Internal => {
-            let (gain, bonus) = internal_gain(grade, &mut rng);
+            let (gain, bonus) = internal_gain(prefix_index, grade, &mut rng);
             (gain, bonus, 0, 0)
         }
         ArtKind::External => (
@@ -294,35 +298,227 @@ pub fn blueprint(id: u64) -> ArtBlueprint {
 /// longer climb.
 const INTERNAL_MAGNITUDES: [i32; 5] = [3, 8, 12, 18, 27];
 
-fn internal_gain(grade: ArtGrade, rng: &mut Rng) -> (Attributes, Derived) {
-    let magnitude = INTERNAL_MAGNITUDES[grade.index()];
+fn internal_gain(prefix_index: usize, grade: ArtGrade, rng: &mut Rng) -> (Attributes, Derived) {
+    // One budget per grade, whatever the art: the average attribute weight is
+    // what the old "magnitude points of one attribute" was worth on average, so
+    // the ladder's mean power does not move while every single art does. A 力量
+    // technique and a 身法 technique now pay different point totals for the same
+    // power — 22 against 39 at 神阶 — which is the difference the shelf needed:
+    // five hundred names over one number was five hundred copies of one art.
+    let budget = internal_budget(grade);
+    // 成色: two books of one 流派 are still two books. Six percent either way is
+    // enough that no two rows print the same number, and small enough that a
+    // 流派 is a family rather than a lie about being identical.
+    let budget = budget * (940 + rng.below(121) as i64) / 1_000;
+    // The shape decides how much of the budget is spent on attributes and how
+    // much on outright combat numbers. The split is a split of one budget — a
+    // hybrid used to pay a full attribute line *and* a full combat line, which
+    // made one art in four worth twice its neighbours.
     let shape = rng.below(100);
+    let attribute_share = if shape < 40 {
+        1_000
+    } else if shape < 75 {
+        0
+    } else {
+        500
+    };
+    let attribute_budget = budget * attribute_share / 1_000;
+    let combat_budget = budget - attribute_budget;
+    let archetype = archetype_of(prefix_index);
+    // The 流派's own split carries a fifth of jitter, so two 刚柔 arts are not
+    // the same split to the point.
+    let primary_share = archetype.sway(rng);
     let mut gain = Attributes::default();
     let mut bonus = Derived::default();
-    let pays_attributes = !(40..75).contains(&shape);
-    let pays_combat = shape >= 40;
-    if pays_attributes {
-        let primary = Attribute::from_index(rng.below(4) as usize);
-        primary.add_to(&mut gain, magnitude);
-        // Every third grade splits the payout, so the deep arts are the
-        // versatile ones rather than more of the same.
-        if grade.index() >= 2 {
-            let secondary = Attribute::from_index(rng.below(4) as usize);
-            secondary.add_to(&mut gain, magnitude / 2);
+    for (index, (attribute, nominal)) in archetype.attributes.iter().enumerate() {
+        let share = if index == 0 {
+            nominal * primary_share / 1_000
+        } else {
+            nominal * (2_000 - primary_share) / 1_000
+        };
+        let part = attribute_budget * i64::from(share) / 1_000;
+        // A family always pays its own attributes. At 黄阶 one point of 身法 is
+        // already the rounding of a whole share, so a book that swayed hard would
+        // otherwise read as a 养 book with no footwork at all.
+        let points = if *nominal > 0 && attribute_budget > 0 {
+            points_for(part, weight_of(*attribute)).max(1)
+        } else {
+            points_for(part, weight_of(*attribute))
+        };
+        if points > 0 {
+            attribute.add_to(&mut gain, points);
         }
     }
-    if pays_combat {
-        let line = CombatLine::from_index(rng.below(CombatLine::ALL.len() as u64) as usize);
-        line.add_to(&mut bonus, magnitude);
-        // The deep grades split the combat payout the same way the attribute
-        // one is split, so a 神阶 hybrid is the versatile one.
-        if grade.index() >= 2 {
-            let secondary =
-                CombatLine::from_index(rng.below(CombatLine::ALL.len() as u64) as usize);
-            secondary.add_to(&mut bonus, magnitude / 2);
+    for (line, share) in archetype.lines {
+        let part = combat_budget * i64::from(share) / 1_000;
+        if part > 0 {
+            line.add_to(&mut bonus, points_for(part, weight_of(line.attribute())));
         }
     }
     (gain, bonus)
+}
+
+/// The power one 阶 of an 内功 may spend, in weighted tenths.
+///
+/// [`INTERNAL_MAGNITUDES`] is what the art pays in points when it spends them on
+/// the average attribute — the old flat payout — so the budget is that number
+/// times the mean of the four weights. Every shape and every 流派 spends exactly
+/// this, which is what makes the choice between them flavour rather than a trap.
+fn internal_budget(grade: ArtGrade) -> i64 {
+    // (19 + 26 + 26 + 15) / 4 = 21.5, kept as tenths so the arithmetic stays
+    // whole.
+    i64::from(INTERNAL_MAGNITUDES[grade.index()]) * 215 / 10
+}
+
+/// How many points of one attribute a slice of the budget buys.
+fn points_for(budget: i64, weight: i64) -> i32 {
+    i32::try_from((budget + weight / 2) / weight).unwrap_or(i32::MAX)
+}
+
+/// What one point of an attribute is worth in the power table, in tenths.
+fn weight_of(attribute: Attribute) -> i64 {
+    match attribute {
+        Attribute::Root => super::ROOT_WEIGHT,
+        Attribute::Strength => super::STRENGTH_WEIGHT,
+        Attribute::Mana => super::MANA_WEIGHT,
+        Attribute::Agility => super::AGILITY_WEIGHT,
+    }
+}
+
+/// One 流派: which attributes a family of 功法 pays, and which combat numbers it
+/// pays when it pays those instead.
+///
+/// The prefix on the name *is* the 流派 — see [`PREFIX_ARCHETYPE`] — so two 九霄
+/// arts share a profile by construction and a player can read the family off the
+/// name. That is the only kinship the naming promises: a set bonus is a separate
+/// feature and the names must not imply one that does not exist.
+struct Archetype {
+    /// Two attribute shares, out of a thousand. The second may be zero.
+    attributes: [(Attribute, u32); 2],
+    /// Combat-line shares, out of a thousand. A zero share is a line this
+    /// family does not pay.
+    lines: [(CombatLine, u32); 3],
+    /// How far the split may sway from its nominal figure, out of a thousand:
+    /// 1_000 means it does not sway at all.
+    sway_permille: u32,
+}
+
+impl Archetype {
+    /// The primary share this one book uses, out of two thousand (so a
+    /// thousand is the nominal split and the second attribute takes the rest).
+    fn sway(&self, rng: &mut Rng) -> u32 {
+        let slack = 1_000 - self.sway_permille.min(1_000);
+        if slack == 0 {
+            return 1_000;
+        }
+        // The double is the arithmetic of "share and its remainder": the second
+        // attribute is given 2000 minus this, so a thousand is an even split of
+        // the sway budget rather than of the pair.
+        1_000 + rng.below(u64::from(slack) + 1) as u32
+    }
+}
+
+/// The eight families, and the five prefixes that name each one.
+///
+/// Aligned with [`ART_PREFIXES`]: an art's family is looked up by the position
+/// of its prefix, so the name and the numbers can never disagree.
+const ARCHETYPES: [Archetype; 8] = [
+    // 刚: force, and the wounds force leaves.
+    Archetype {
+        attributes: [(Attribute::Strength, 1_000), (Attribute::Strength, 0)],
+        lines: [
+            (CombatLine::Attack, 700),
+            (CombatLine::Health, 300),
+            (CombatLine::Attack, 0),
+        ],
+        sway_permille: 0,
+    },
+    // 术: spellwork and the resistance to it.
+    Archetype {
+        attributes: [(Attribute::Mana, 1_000), (Attribute::Mana, 0)],
+        lines: [
+            (CombatLine::Spell, 700),
+            (CombatLine::Resist, 300),
+            (CombatLine::Spell, 0),
+        ],
+        sway_permille: 0,
+    },
+    // 养: the root, and the breath it stores.
+    Archetype {
+        attributes: [(Attribute::Root, 1_000), (Attribute::Root, 0)],
+        lines: [
+            (CombatLine::Inner, 700),
+            (CombatLine::Health, 300),
+            (CombatLine::Inner, 0),
+        ],
+        sway_permille: 0,
+    },
+    // 轻: footwork.
+    Archetype {
+        attributes: [(Attribute::Agility, 1_000), (Attribute::Agility, 0)],
+        lines: [
+            (CombatLine::Speed, 500),
+            (CombatLine::Hit, 250),
+            (CombatLine::Evade, 250),
+        ],
+        sway_permille: 0,
+    },
+    // 刚柔: force with footwork behind it.
+    Archetype {
+        attributes: [(Attribute::Strength, 650), (Attribute::Agility, 350)],
+        lines: [
+            (CombatLine::Attack, 600),
+            (CombatLine::Speed, 400),
+            (CombatLine::Attack, 0),
+        ],
+        sway_permille: 200,
+    },
+    // 玄门: spellwork carried by the root.
+    Archetype {
+        attributes: [(Attribute::Mana, 600), (Attribute::Root, 400)],
+        lines: [
+            (CombatLine::Spell, 700),
+            (CombatLine::Inner, 300),
+            (CombatLine::Spell, 0),
+        ],
+        sway_permille: 200,
+    },
+    // 守拙: poise, and the footwork that keeps it standing.
+    Archetype {
+        attributes: [(Attribute::Root, 600), (Attribute::Agility, 400)],
+        lines: [
+            (CombatLine::Health, 500),
+            (CombatLine::Evade, 500),
+            (CombatLine::Health, 0),
+        ],
+        sway_permille: 200,
+    },
+    // 双修: a sword in one hand and a spell in the other.
+    Archetype {
+        attributes: [(Attribute::Strength, 500), (Attribute::Mana, 500)],
+        lines: [
+            (CombatLine::Attack, 500),
+            (CombatLine::Spell, 500),
+            (CombatLine::Attack, 0),
+        ],
+        sway_permille: 200,
+    },
+];
+
+/// Which family each of [`ART_PREFIXES`] names, in the same order.
+///
+/// 金刚 龙象 虎啸 断岳 镇海 are 刚; 烈焰 焚天 雷霆 紫霞 九霄 are 术; 太乙 混元
+/// 太极 龟息 般若 are 养; 逍遥 凌波 踏雪 御风 蛇行 are 轻; 天罡 地煞 四象 六合
+/// 鹤鸣 are 刚柔; 玄天 无相 流云 幽兰 揽月 are 玄门; 两仪 五行 八卦 九宫 七星
+/// are 守拙; 青云 寒冰 摘星 磐石 赤霄 are 双修.
+const PREFIX_ARCHETYPE: [usize; 40] = [
+    2, 1, 5, 2, 2, 6, 4, 6, 4, 6, 6, 6, 4, 4, 1, 7, 7, 1, 1, 0, 2, 5, 3, 3, 3, 0, 0, 4, 2, 3, 7, 5,
+    1, 0, 3, 0, 5, 7, 5, 7,
+];
+
+/// The family one prefix names.
+fn archetype_of(prefix_index: usize) -> &'static Archetype {
+    &ARCHETYPES[PREFIX_ARCHETYPE[prefix_index.min(PREFIX_ARCHETYPE.len() - 1)]]
 }
 
 /// Which of the eight combat numbers one 阶 of an 内功 can pay outright.
@@ -343,19 +539,15 @@ enum CombatLine {
 }
 
 impl CombatLine {
-    const ALL: [Self; 8] = [
-        Self::Attack,
-        Self::Health,
-        Self::Inner,
-        Self::Spell,
-        Self::Resist,
-        Self::Speed,
-        Self::Hit,
-        Self::Evade,
-    ];
-
-    fn from_index(index: usize) -> Self {
-        Self::ALL[index.min(Self::ALL.len() - 1)]
+    /// The attribute this line stands in for, so its share of the budget can be
+    /// turned into points at the right rate.
+    const fn attribute(self) -> Attribute {
+        match self {
+            Self::Attack | Self::Health => Attribute::Strength,
+            Self::Spell | Self::Resist => Attribute::Mana,
+            Self::Inner => Attribute::Root,
+            Self::Speed | Self::Hit | Self::Evade => Attribute::Agility,
+        }
     }
 
     /// Add this line's worth to a set of combat numbers.
@@ -1004,6 +1196,75 @@ pub fn mastered_art_view(art_id: u64) -> MasteredArtView {
 mod tests {
     use super::*;
 
+    /// A prefix is a 流派: every 功法 sharing one pays the same attributes, and
+    /// the eight families are all different.
+    ///
+    /// This is what the name promises and nothing more. Two 九霄 arts are of one
+    /// family and pay one profile, so the prefix is a real kinship a player can
+    /// read off the shelf — but it is not a set bonus, and the naming does not
+    /// pretend to one.
+    #[test]
+    fn a_prefix_is_a_family_and_the_families_differ() {
+        let mut profiles: std::collections::BTreeMap<
+            String,
+            std::collections::BTreeSet<[bool; 4]>,
+        > = std::collections::BTreeMap::new();
+        let mut named: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for id in 1..=ART_COUNT {
+            let art = blueprint(id);
+            let prefix: String = art.name.chars().take(2).collect();
+            named.insert(prefix.clone());
+            // 外功 pays no attributes and combat-only 内功 pays none either: the
+            // family's attribute profile is what is being read here.
+            if art.kind != ArtKind::Internal || art.gain.total() == 0 {
+                continue;
+            }
+            let profile = [
+                art.gain.root > 0,
+                art.gain.strength > 0,
+                art.gain.mana > 0,
+                art.gain.agility > 0,
+            ];
+            profiles.entry(prefix).or_default().insert(profile);
+        }
+        for (prefix, found) in &profiles {
+            assert_eq!(found.len(), 1, "{prefix} 一门的功法加成两种属性: {found:?}");
+        }
+        // Every prefix in the table is on some name: the shelf used to reach only
+        // the first three of the forty, which is why every 功法 was a 九霄.
+        let missing: Vec<&str> = ART_PREFIXES
+            .into_iter()
+            .filter(|prefix| !named.contains(*prefix))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "these families have no 功法: {missing:?}"
+        );
+        let families: std::collections::BTreeSet<[bool; 4]> =
+            profiles.values().flatten().copied().collect();
+        assert_eq!(families.len(), ARCHETYPES.len(), "流派不重样: {families:?}");
+    }
+
+    /// Two books of one family and one grade are still two books: the 成色 band
+    /// is what keeps a shelf of five hundred names from being one art.
+    #[test]
+    fn no_two_arts_of_a_grade_print_the_same_number() {
+        let mut totals = std::collections::BTreeSet::new();
+        for id in 1..=ART_COUNT {
+            let art = blueprint(id);
+            if art.kind == ArtKind::Internal
+                && art.grade == ArtGrade::Divine
+                && art.gain.total() > 0
+            {
+                totals.insert(art.gain.total());
+            }
+        }
+        assert!(
+            totals.len() > 1,
+            "every 神阶 内功 pays the same total: {totals:?}"
+        );
+    }
+
     #[test]
     fn an_id_is_the_same_art_every_time() {
         let first = blueprint(137);
@@ -1098,28 +1359,39 @@ mod tests {
                 "adjacent grades must be half again apart: {magnitudes:?}"
             );
         }
-        // Each grade's arts actually carry that magnitude: the 内功 of a grade
-        // pays one attribute by it, so the blueprint says the table ran.
+        // Each grade's arts actually carry that budget, and no two of them print
+        // the same numbers: the payout is spent at the art's own rates, so a 力量
+        // technique and a 身法 technique pay different point totals for the same
+        // power — which is the whole point of a shelf of five hundred names.
         for (index, grade) in ArtGrade::ALL.into_iter().enumerate() {
-            let art = (1..=ART_COUNT)
+            let arts: Vec<ArtBlueprint> = (1..=ART_COUNT)
                 .map(blueprint)
-                .find(|art| {
-                    art.grade == grade && art.kind == ArtKind::Internal && art.gain.total() > 0
-                })
-                .expect("every grade has an attribute-paying 内功");
-            let primary = [
-                art.gain.root,
-                art.gain.strength,
-                art.gain.mana,
-                art.gain.agility,
-            ]
-            .into_iter()
-            .max()
-            .unwrap_or(0);
+                .filter(|art| art.grade == grade && art.kind == ArtKind::Internal)
+                .collect();
+            assert!(!arts.is_empty(), "{grade:?} has no 内功");
+            let best = arts
+                .iter()
+                .map(|art| art.gain.power() + art.bonus.power())
+                .max()
+                .unwrap_or(0);
             assert!(
-                primary >= magnitudes[index],
-                "{:?} pays at least its magnitude: {primary}",
-                grade
+                i32::try_from(best).unwrap_or(i32::MAX) >= INTERNAL_MAGNITUDES[index] * 2,
+                "{grade:?} pays its magnitude in power: {best}"
+            );
+            let printed: std::collections::BTreeSet<(i32, i32, i32, i32)> = arts
+                .iter()
+                .map(|art| {
+                    (
+                        art.gain.root,
+                        art.gain.strength,
+                        art.gain.mana,
+                        art.gain.agility,
+                    )
+                })
+                .collect();
+            assert!(
+                printed.len() > 1,
+                "every 内功 of {grade:?} pays the same four numbers: {printed:?}"
             );
         }
         // An 外功's multiplier rises with the grade just as steeply.

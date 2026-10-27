@@ -220,6 +220,9 @@ pub enum PomodoroCommand {
     },
     /// Pick a ripe crop out of a plot.
     HarvestPlot { plot: usize },
+    /// Dig a dead crop out of its plot before its day is up, freeing the bed for
+    /// the next seed. Refused on a live or an empty plot.
+    DigPlot { plot: usize },
     /// Buy one more garden plot with 灵石, past the four the garden starts
     /// with. Refused once the garden holds its ninth.
     BuyPlot,
@@ -343,6 +346,7 @@ impl PomodoroCommand {
             Self::PlantSeed { .. }
             | Self::PlantHerbSeed { .. }
             | Self::HarvestPlot { .. }
+            | Self::DigPlot { .. }
             | Self::BuyPlot
             | Self::UpgradeGarden
             | Self::EquipItem { .. }
@@ -519,6 +523,9 @@ impl PomodoroState {
             PomodoroCommand::HarvestPlot { plot } => {
                 self.cultivation.harvest(plot, now_unix);
             }
+            PomodoroCommand::DigPlot { plot } => {
+                self.cultivation.dig_plot(plot, now_unix);
+            }
             PomodoroCommand::BuyPlot => {
                 if let Err(refusal) = self.cultivation.buy_plot(now_unix) {
                     self.cultivation.note_refusal(Refusal::Trade(refusal));
@@ -692,6 +699,20 @@ impl PomodoroState {
     /// to be paid on the next launch rather than lost.
     pub fn apply_work_return(&mut self, now_unix: i64) -> bool {
         if self.cultivation.settle_work(now_unix).is_none() {
+            return false;
+        }
+        self.sync_cultivation();
+        true
+    }
+
+    /// Let every bed past its halfway mark say how it is doing. Returns whether
+    /// anything moved.
+    ///
+    /// Called by the worker's tick beside the walk and the job: a bed is on the
+    /// clock, not on a click, and a machine that slept through the halfway mark
+    /// still pays the failure the first time it looks.
+    pub fn apply_garden_reveal(&mut self, now_unix: i64) -> bool {
+        if !self.cultivation.settle_garden(now_unix) {
             return false;
         }
         self.sync_cultivation();

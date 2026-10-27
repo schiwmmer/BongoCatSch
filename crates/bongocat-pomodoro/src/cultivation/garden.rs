@@ -389,6 +389,25 @@ pub struct CropRecord {
     /// read as the bare attribute label they always showed.
     #[serde(default)]
     pub name: Option<String>,
+    /// Whether the seed failed to take.
+    ///
+    /// The roll is still made when the seed goes in — that is what makes the
+    /// odds worth printing — but the gardener is not told until the crop is half
+    /// grown, and the bed stays occupied until it is: a planting that was going
+    /// to fail says so at the halfway mark, not the instant the seed is covered.
+    /// A save written before the reveal existed never stored a dead crop (the
+    /// bed was freed on the spot), so the field reads as false — which is what
+    /// those beds always held.
+    #[serde(default)]
+    pub withered: bool,
+    /// The instant the outcome becomes visible: half the growing time.
+    #[serde(default)]
+    pub revealed_at_unix: i64,
+    /// Whether the failure has already been paid and logged. The 造化 and the
+    /// line are written once, on the tick that first sees the crop past
+    /// [`Self::revealed_at_unix`], and never again.
+    #[serde(default)]
+    pub settled: bool,
     pub planted_at_unix: i64,
     pub ready_at_unix: i64,
 }
@@ -409,6 +428,9 @@ impl CropRecord {
             tier,
             grade,
             name,
+            withered: false,
+            revealed_at_unix: reveal_at_unix(now_unix, tier),
+            settled: false,
             planted_at_unix: now_unix,
             ready_at_unix: now_unix.saturating_add(grow_seconds(tier)),
         }
@@ -428,6 +450,9 @@ impl CropRecord {
             tier,
             grade,
             name,
+            withered: false,
+            revealed_at_unix: reveal_at_unix(now_unix, tier),
+            settled: false,
             planted_at_unix: now_unix,
             ready_at_unix: now_unix.saturating_add(grow_seconds(tier)),
         }
@@ -442,6 +467,27 @@ impl CropRecord {
     pub fn remaining_seconds(&self, now_unix: i64) -> u32 {
         u32::try_from(self.ready_at_unix.saturating_sub(now_unix).max(0)).unwrap_or(u32::MAX)
     }
+
+    /// Whether the gardener has been told how this crop is doing: half the
+    /// growing time is the halfway mark a bed can be judged at.
+    pub fn is_revealed(&self, now_unix: i64) -> bool {
+        now_unix >= self.revealed_at_unix
+    }
+
+    /// Whether the plot is holding a dead crop the gardener can see.
+    pub fn stands_dead(&self, now_unix: i64) -> bool {
+        self.withered && self.is_revealed(now_unix)
+    }
+}
+
+/// When a bed says how it is doing: half the crop's growing time.
+///
+/// The seed's roll happens at planting and the result is hidden until here, so
+/// the halfway mark is the first moment the gardener may know. Half rather than
+/// the end because the second half of a failed crop is time the bed could be
+/// spending on the next seed.
+pub fn reveal_at_unix(planted_at_unix: i64, tier: u8) -> i64 {
+    planted_at_unix.saturating_add(grow_seconds(tier) / 2)
 }
 
 /// One plot: empty, growing, or ready.

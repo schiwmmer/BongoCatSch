@@ -780,7 +780,9 @@
       "refuse_capped": "the garden is tended as well as it can be",
       "refuse_xp": "too little mastery banked for the next rank",
       "plant_odds": "%{percent}% to take",
-      "odds_certain": "certain to take"
+      "odds_certain": "certain to take",
+      "withered": "Did not take",
+      "dig": "Dig out"
     },
     "breakthrough": {
       "title": "Breakthrough",
@@ -922,7 +924,7 @@
       "harvested": "Harvested %{seed} — %{attribute} +%{points}",
       "herb_harvested": "Harvested %{seed} (an aptitude herb)",
       "harvested_xp": "mastery +%{xp}",
-      "withered": "%{seed} did not take (%{percent}%) — learned +%{xp}",
+      "withered": "%{seed} did not take (%{percent}%) — mastery +%{xp}",
       "rank_up": "The garden rose to rank %{rank} (%{stones} stones)",
       "bought_bare": "Bought %{what}",
       "star_success": "%{name} rose a star — %{stars} (%{stones} stones)",

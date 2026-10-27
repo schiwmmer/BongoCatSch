@@ -780,7 +780,9 @@
       "refuse_capped": "仙草园已臻圆满",
       "refuse_xp": "造化不足，还需多加采撷",
       "plant_odds": "成活率 %{percent}%",
-      "odds_certain": "此番必成"
+      "odds_certain": "此番必成",
+      "withered": "未能成活",
+      "dig": "铲除"
     },
     "breakthrough": {
       "title": "破境",
@@ -922,7 +924,7 @@
       "harvested": "仙草园收成 %{seed}，%{attribute} +%{points}",
       "herb_harvested": "仙草园收成 %{seed}（潜质灵草）",
       "harvested_xp": "造化 +%{xp}",
-      "withered": "%{seed} 未能成活（%{percent}%）· 心得 +%{xp}",
+      "withered": "%{seed} 未能成活（%{percent}%）· 造化 +%{xp}",
       "rank_up": "仙草园晋至 %{rank} 阶（花 %{stones} 灵石）",
       "bought_bare": "购入 %{what}",
       "star_success": "%{name} 升星成功，%{stars}（花 %{stones} 灵石）",

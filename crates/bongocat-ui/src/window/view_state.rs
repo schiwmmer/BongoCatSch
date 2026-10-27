@@ -821,6 +821,7 @@ mod tests {
                 name: None,
                 ready_at_unix,
                 herb: None,
+                withered: false,
             }),
         }
     }
