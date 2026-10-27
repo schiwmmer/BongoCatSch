@@ -90,6 +90,81 @@ prune:
     /bin/rm -rf target/aarch64-apple-darwin
     @du -sh target 2>/dev/null || true
 
+# Report whether `target/` has drifted away from the steady state that
+# `incremental = false` produces (~8 GiB), and which of the two slow growth
+# sources is responsible. Read-only: nothing is deleted, so it is safe at any
+# time — unlike `prune`, which costs a full rebuild of the cross-target tree.
+#
+# The thresholds come from measurement, not guesswork: after the incremental
+# cache was removed, 528 dependency crates held 1500 variants (mean 2.84, none
+# above 8), and `permission-flow` — the Swift FFI bridge, the one build script
+# that writes a large per-configuration output — settled at 4 copies. Variants
+# above 8 mean artifacts for a dependency version or feature set that no longer
+# exists, which cargo keeps until something removes it. `bongocat_*` are exempt
+# from that check because their multiplicity is legitimate: the check recipes
+# compile them under several `--features` combinations.
+[doc('Report `target/` drift and whether `just prune` is needed')]
+target-health:
+    #!/bin/sh
+    set -u
+
+    if [ ! -d target ]; then
+        echo "target/ 尚未生成，无需维护。"
+        exit 0
+    fi
+
+    total_mb=$(du -sm target 2>/dev/null | cut -f1)
+    printf 'target 总计: %s MiB（稳态约 8192）\n\n' "${total_mb:-0}"
+
+    echo '主要子目录:'
+    for p in target/debug/deps target/debug/build target/debug/incremental target/release target/aarch64-apple-darwin; do
+        if [ -d "$p" ]; then
+            printf '  %-36s %6s MiB\n' "$p" "$(du -sm "$p" 2>/dev/null | cut -f1)"
+        fi
+    done
+
+    variants() {
+        ls target/debug/deps 2>/dev/null \
+            | sed -nE 's/^lib(.+)-[0-9a-f]+\.rlib$/\1/p' \
+            | sort | uniq -c | sort -rn
+    }
+
+    echo ''
+    echo '依赖 crate 变体数 top5（稳态 1~5；>8 说明有孤儿产物）:'
+    variants | head -5 | awk '{printf "  %-34s %s 个\n", $2, $1}'
+
+    pf_count=$(ls -d target/debug/build/permission-flow-* 2>/dev/null | wc -l | tr -d ' ')
+    echo ''
+    printf 'Swift 桥产物份数（permission-flow-*）: %s（稳态 4~6）\n' "$pf_count"
+
+    stale=0
+    flag() {
+        if [ "$stale" -eq 0 ]; then
+            echo ''
+            echo '诊断:'
+        fi
+        echo "  ⚠ $1"
+        stale=1
+    }
+
+    if [ "${total_mb:-0}" -gt 10240 ]; then
+        flag "target 超过 10 GiB（${total_mb} MiB）"
+    fi
+    if [ "$pf_count" -gt 6 ]; then
+        flag "permission-flow 产物堆积（$pf_count 份）"
+    fi
+    orphan=$(variants | awk '$2 !~ /^bongocat_/ && $1 > 8 {print $2 " " $1 " 份"; exit}')
+    if [ -n "$orphan" ]; then
+        flag "依赖孤儿变体: $orphan"
+    fi
+
+    echo ''
+    if [ "$stale" -eq 1 ]; then
+        echo '建议: just prune'
+    else
+        echo '✓ 健康，无需清理。'
+    fi
+
 # Generate the Minisign key pair that signs update payloads (one-time, offline).
 keygen file:
     cargo run --locked -p bongocat-packaging -- --generate-signing-key {{file}}
