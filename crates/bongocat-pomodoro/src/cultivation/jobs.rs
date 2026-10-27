@@ -73,11 +73,14 @@ const JOB_TRIPLE_PERMILLE_PER_TEN_POINTS: u64 = 1;
 /// realm, in 灵石.
 ///
 /// A free re-roll would make the board a slot machine: three draws at a
-/// ten-thousandth, refreshed until a 神阶 job turns up. The price is small beside
-/// what a job pays and steep beside what it pays to stand still, so refreshing is
-/// a decision about money rather than about patience.
+/// ten-thousandth, refreshed until a 神阶 job turns up. The toll is half of the
+/// board's cheapest honest work — a four-hour 黄阶 job at the cultivator's own
+/// tier — so re-rolling is a decision about money rather than about patience:
+/// cheap enough to try, dear enough that trying has a cost.
 pub fn refresh_cost(tier: u8) -> u32 {
-    u32::from(tier.clamp(1, 10)).saturating_mul(50)
+    job_stones(tier, 4, ArtGrade::Yellow)
+        .saturating_div(2)
+        .max(1)
 }
 
 /// One job on the board.
@@ -236,6 +239,20 @@ mod tests {
             u64::from(job).abs_diff(expected) <= 2,
             "{job} against a walk at {walk:?}"
         );
+    }
+
+    #[test]
+    fn the_refresh_toll_is_half_a_four_hour_yellow_job_at_the_tier() {
+        // The board's cheapest honest work — a four-hour 黄阶 job — prices the
+        // toll at half, so a re-roll is a decision about money, not a free draw.
+        for tier in 1..=10 {
+            let toll = refresh_cost(tier);
+            let job = job_stones(tier, 4, ArtGrade::Yellow);
+            assert_eq!(toll, (job / 2).max(1), "tier {tier}");
+        }
+        assert!(refresh_cost(1) >= 1, "a re-roll is never free");
+        // A better realm pays more to re-roll, the way it pays more for work.
+        assert!(refresh_cost(10) > refresh_cost(1));
     }
 
     #[test]

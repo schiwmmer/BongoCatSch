@@ -376,19 +376,17 @@ fn shop_offer_detail(
 /// What one 潜质 item does, as the shelf says it.
 ///
 /// `grade` is the row's grade — the body pays at that grade — and `None` is a
-/// line with no grade to name, which reads at the 地阶 anchor.
+/// line with no grade to name, which reads at the 地阶 anchor. One grade pays
+/// one fixed number, so the row says what the body gets.
 pub(super) fn herb_effect(herb: AptitudeHerb, grade: Option<SeedGrade>, locale: &str) -> String {
-    let band = grade
+    let pay = grade
         .and_then(|grade| herb.gain_tenths_for(grade))
         .or_else(|| herb.gain_tenths());
-    match band {
-        Some((low, high)) => format_text(
+    match pay {
+        Some(value) => format_text(
             locale,
             "cultivation.shop.herb_gain",
-            &[
-                ("low", super::tenths_text(low)),
-                ("high", super::tenths_text(high)),
-            ],
+            &[("value", super::tenths_text(value))],
         ),
         None => text(locale, "cultivation.shop.herb_marrow_gain").to_string(),
     }

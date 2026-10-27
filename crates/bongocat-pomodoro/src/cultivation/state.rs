@@ -173,6 +173,25 @@ pub struct TrialOutcome {
     pub found: ExplorationFindView,
 }
 
+/// What one swept run of the tower turned up.
+///
+/// A sweep clears several floors in one action and settles them all at once:
+/// the fights are skipped because the cultivator is overwhelmingly stronger, so
+/// the outcome is the haul rather than a blow-by-blow. The counts are the haul,
+/// because ten floors can turn up several of a kind and a single named find
+/// would have to drop the others on the floor.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TrialSweepOutcome {
+    /// The first floor the sweep covered, one-based.
+    pub from_floor: u16,
+    /// How many floors were swept in one go.
+    pub floors: u16,
+    pub seeds: u32,
+    pub gear: u32,
+    pub arts: u32,
+    pub stones: u32,
+}
+
 /// Why a 试炼 floor cannot be climbed right now.
 ///
 /// The page needs a reason to print beside a dead button, and it is the same
@@ -688,6 +707,12 @@ pub struct CultivationView {
     pub trial_blocked: Option<TrialBlocked>,
     /// The fight the last floor settled, for the popup that replays it.
     pub last_trial: Option<TrialOutcome>,
+    /// Whether the next floor is a sweep rather than a fight: the cultivator is
+    /// more than half again as strong as the warden, so the tower offers the
+    /// skip instead of the climb.
+    pub trial_sweepable: bool,
+    /// The haul the last sweep brought home, for the line that names it.
+    pub last_trial_sweep: Option<TrialSweepOutcome>,
     /// How many 试炼 chances are banked, and the most that can be.
     pub proving_tokens: u32,
     /// The ceiling the count above is printed against.
@@ -858,6 +883,8 @@ pub struct Cultivation {
     last_work: Option<WorkPaid>,
     /// The floor the last trial settled, if one was climbed this session.
     last_trial: Option<TrialOutcome>,
+    /// The haul the last sweep brought home, if one was swept this session.
+    last_trial_sweep: Option<TrialSweepOutcome>,
     /// The 试炼 the last spent chance settled, if one was fought this session.
     last_proving: Option<ProvingOutcome>,
     /// How many 试炼 chances have been spent this session. A surface watches
@@ -948,6 +975,7 @@ impl Cultivation {
             last_exploration_found: None,
             last_work: None,
             last_trial: None,
+            last_trial_sweep: None,
             last_proving: None,
             provings: 0,
             trial_attempts: 0,
@@ -1164,9 +1192,10 @@ impl Cultivation {
 
     /// Feed one 潜质 herb to the body.
     ///
-    /// The herb pays a roll inside its own band, the gate it crosses is paid in
-    /// 洗髓丹, and nothing is spent unless both halves can be paid: a herb that
-    /// purchased half a move would be a consumable the user cannot account for.
+    /// The herb pays its grade's one fixed number — the row the satchel shows
+    /// is what the body gets — the gate it crosses is paid in 洗髓丹, and
+    /// nothing is spent unless both halves can be paid: a herb that purchased
+    /// half a move would be a consumable the user cannot account for.
     ///
     /// The gain is measured against the total 潜质 the page shows — born band
     /// plus the whole points gear and 内功 pay — so "stuck at 100" means the
@@ -1187,15 +1216,12 @@ impl Cultivation {
         let Some(grade) = self.lowest_held_grade(herb) else {
             return Err(TradeRefusal::HerbNotHeld);
         };
-        let (low, high) = herb.gain_tenths_for(grade).unwrap_or((1, 1));
+        let gained = herb.gain_tenths_for(grade).unwrap_or(1);
         let total = self.aptitude_tenths();
         if total >= super::APTITUDE_MAX_TENTHS {
             return Err(TradeRefusal::AptitudeCapped);
         }
         let outright = total.saturating_sub(self.document.aptitude_tenths.unwrap_or(0));
-        let mut rng = self.rng(now_unix);
-        let span = u64::try_from(high - low + 1).unwrap_or(1);
-        let gained = low.saturating_add(i32::try_from(rng.below(span)).unwrap_or(0));
         let target = total.saturating_add(gained).min(super::APTITUDE_MAX_TENTHS);
         let marble = super::aptitude::marrow_needed(total, target);
         if self.document.marrow_pills < marble {
@@ -3385,6 +3411,102 @@ impl Cultivation {
         Some(outcome)
     }
 
+    /// Whether the next floor would be a sweep rather than a fight: the
+    /// cultivator is overwhelmingly stronger than the warden — more than half
+    /// again — so the floor is no contest and the tower offers the skip.
+    pub fn trial_sweepable(&self) -> bool {
+        let floor = self.trial_next_floor();
+        if floor > TRIAL_MAX_FLOOR {
+            return false;
+        }
+        let warden = warden_power(floor);
+        self.power() > warden.saturating_mul(3) / 2
+    }
+
+    /// Sweep the next stretch of the tower: one overwhelmingly strong
+    /// cultivator clears up to ten floors in one action, the fights skipped
+    /// because none of them was a contest, and every swept floor's reward paid
+    /// at once.
+    ///
+    /// The same walls the single climb answers to close the sweep too, and one
+    /// sweep spends one of the day's attempts — the floors are the reward for
+    /// being the stronger body, not a second ration of the day.
+    pub fn trial_sweep(&mut self, now_unix: i64, day: i64) -> Option<TrialSweepOutcome> {
+        self.settle_walk(now_unix);
+        self.settle_work(now_unix);
+        if let Some(blocked) = self.trial_blocked(now_unix, day) {
+            self.note_refusal(blocked.refusal());
+            return None;
+        }
+        let from_floor = self.trial_next_floor();
+        if !self.trial_sweepable() {
+            self.note_refusal(Refusal::TrialNotSweepable);
+            return None;
+        }
+        if self.document.trial_day != Some(day) {
+            self.document.trial_day = Some(day);
+            self.document.trial_attempts_today = 0;
+        }
+        let floors = 10u16.min(TRIAL_MAX_FLOOR.saturating_sub(from_floor).saturating_add(1));
+        self.document.trial_attempts_today = self.document.trial_attempts_today.saturating_add(1);
+        self.document.trials = self.document.trials.saturating_add(1);
+        self.trial_attempts = self.trial_attempts.saturating_add(1);
+        let mut rng = self.rng(now_unix);
+        let mut found = TrialSweepOutcome {
+            from_floor,
+            floors,
+            ..TrialSweepOutcome::default()
+        };
+        for step in 0..floors {
+            let floor = from_floor + step;
+            let rival = opponent::warden(floor);
+            let strength = Strength::of(rival.attributes.power());
+            match roll_reward(&mut rng) {
+                TrialReward::Seed => {
+                    let attribute =
+                        Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
+                    let grade = roll_seed_grade(&mut rng);
+                    self.push_seed(attribute, strength.tier(), grade, &mut rng);
+                    found.seeds = found.seeds.saturating_add(1);
+                }
+                TrialReward::Gear => {
+                    if self.take_gear(&rival, strength, &mut rng).is_some() {
+                        found.gear = found.gear.saturating_add(1);
+                    }
+                }
+                TrialReward::Art => {
+                    if self
+                        .take_art(&rival, floor_realm(floor), now_unix)
+                        .is_some()
+                    {
+                        found.arts = found.arts.saturating_add(1);
+                    }
+                }
+                TrialReward::Nothing => {}
+            }
+            // The floor's purse, drawn beside the finding: a cleared floor
+            // always pays a little, so a swept stretch always buys something.
+            let amount = roll_stones(&mut rng, TRIAL_STONES, floor_realm(floor).index() as u8 + 1);
+            self.document.stones = self.document.stones.saturating_add(amount);
+            found.stones = found.stones.saturating_add(amount);
+        }
+        self.document.trial_floor = (from_floor + floors - 1).min(TRIAL_MAX_FLOOR);
+        self.push_event(
+            now_unix,
+            EventDetail::TrialSweep {
+                from_floor,
+                floors,
+                seeds: found.seeds,
+                gear: found.gear,
+                arts: found.arts,
+                stones: found.stones,
+            },
+        );
+        let outcome = found.clone();
+        self.last_trial_sweep = Some(outcome.clone());
+        Some(outcome)
+    }
+
     /// Spend one 试炼 chance on a fight at the cultivator's own level.
     ///
     /// The courtyard is fought at home, so the same two walls the tower has
@@ -3802,7 +3924,11 @@ impl Cultivation {
             last_exploration: self.last_exploration,
             last_exploration_found: self.last_exploration_found.clone(),
             exploration_ready: self.exploration_ready(now_unix),
-            at_home: self.exploration_ready(now_unix) && self.document.work.is_none(),
+            // The door the log reads through is the same door the tower and the
+            // 试炼 ask: a walk whose time is up or a job whose hours have passed
+            // is home whether or not the tick has settled it yet, so the status
+            // line agrees with what the page actually lets the cultivator do.
+            at_home: self.exploration_ready(now_unix) && !self.working(now_unix),
             breakthrough_ready: breakthrough_ready(
                 self.document.breakthrough_blocked_until,
                 now_unix,
@@ -3824,6 +3950,8 @@ impl Cultivation {
             trial_attempts_left: self.trial_attempts_left(day),
             trial_blocked: self.trial_blocked(now_unix, day),
             last_trial: self.last_trial.clone(),
+            trial_sweepable: self.trial_sweepable(),
+            last_trial_sweep: self.last_trial_sweep.clone(),
             trial_attempts: self.trial_attempts,
             proving_tokens: self.document.proving_tokens,
             proving_token_cap: TRIAL_CHANCES_CAP,
@@ -4420,6 +4548,35 @@ mod tests {
         assert_eq!(used.gained_tenths, used.aptitude_tenths - 1_999);
         assert_eq!(rich.aptitude_herbs()[0], 0);
         assert_eq!(rich.aptitude_herbs()[2], 0, "the pills were spent");
+    }
+
+    /// One herb of one grade pays one fixed number, not a roll: the same 慧心草
+    /// fed twice at the same grade pays the same 潜质 both times, and that
+    /// number is the row the satchel shows.
+    #[test]
+    fn the_same_herb_at_the_same_grade_always_pays_the_same() {
+        let feed = |herb: AptitudeHerb| {
+            let mut c = Cultivation::new(CultivationDocument {
+                aptitude_tenths: Some(0),
+                insight_herbs: u32::from(herb == AptitudeHerb::Insight),
+                wisdom_herbs: u32::from(herb == AptitudeHerb::Wisdom),
+                ..CultivationDocument::default()
+            });
+            c.use_aptitude_herb(herb, 10).expect("held at 地阶")
+        };
+        for herb in [AptitudeHerb::Insight, AptitudeHerb::Wisdom] {
+            let first = feed(herb);
+            let second = feed(herb);
+            assert_eq!(
+                first.gained_tenths, second.gained_tenths,
+                "{herb:?} must not roll"
+            );
+            assert_eq!(
+                first.gained_tenths,
+                herb.gain_tenths_for(super::SeedGrade::Earth).unwrap(),
+                "the gain is the row's one number"
+            );
+        }
     }
 
     /// A body with no herb in the bag is refused, and the refusal costs nothing.
@@ -5211,6 +5368,23 @@ mod tests {
         );
     }
 
+    /// The door the log reads through is the same door the tower and the 试炼
+    /// ask: a job whose hours have passed is home whether or not the tick has
+    /// settled the wage yet, so the status line never reads "away" about a
+    /// cultivator the page already lets fight.
+    #[test]
+    fn the_door_is_home_the_moment_the_job_in_hand_comes_due() {
+        let mut cultivation = a_bare_save_at(20);
+        let offer = cultivation.jobs(9)[0];
+        let now = 1_000;
+        cultivation.document.work = Some(super::super::JobRun::started(offer, now));
+        // While the job runs the cultivator is out.
+        assert!(!cultivation.view_on(now, 9).at_home);
+        assert!(!cultivation.view_on(now + offer.seconds() - 1, 9).at_home);
+        // The instant the hours pass the door opens, before the tick pays.
+        assert!(cultivation.view_on(now + offer.seconds(), 9).at_home);
+    }
+
     /// A win moves the frontier up one floor; a loss costs the attempt and
     /// leaves the frontier where it stood, so the tower is a wall rather than a
     /// ladder that drops.
@@ -5245,6 +5419,66 @@ mod tests {
             walled.view_on(20_000, 9).last_refusal,
             None,
             "reading the view is not a refusal"
+        );
+    }
+
+    /// An overwhelmingly strong body sweeps the tower: ten floors clear in one
+    /// action, each paying its own reward, one attempt spent, and the log names
+    /// the stretch rather than one find.
+    #[test]
+    fn a_sweep_clears_ten_floors_and_pays_each() {
+        let mut strong = a_bare_save_at(500);
+        assert!(
+            strong.trial_sweepable(),
+            "a level five hundred save is no contest for the first floor"
+        );
+        let before = strong.document.trial_attempts_today;
+        let sweep = strong
+            .trial_sweep(1_000, 9)
+            .expect("an overwhelmingly strong save may sweep");
+        assert_eq!(sweep.from_floor, 1, "the sweep starts at the frontier");
+        assert_eq!(sweep.floors, 10, "a sweep clears a full stretch");
+        assert_eq!(
+            strong.document.trial_floor, 10,
+            "the frontier is ten floors on"
+        );
+        assert_eq!(
+            strong.document.trial_attempts_today,
+            before + 1,
+            "the sweep spends one of the day's attempts"
+        );
+        assert_eq!(
+            strong.last_trial_sweep.as_ref(),
+            Some(&sweep),
+            "the panel reads the same haul"
+        );
+        assert!(
+            matches!(
+                strong.document.events.first(),
+                Some(EventRecord {
+                    detail: EventDetail::TrialSweep { floors: 10, .. },
+                    ..
+                })
+            ),
+            "the log names the sweep, not one find"
+        );
+
+        // The other half: a body the warden is no contest *for* has nothing to
+        // sweep, and is refused rather than silently doing nothing.
+        let mut weak = a_bare_save_at(1);
+        assert!(
+            !weak.trial_sweepable(),
+            "a level one save is not above the warden"
+        );
+        assert_eq!(
+            weak.trial_sweep(1_000, 9),
+            None,
+            "a body that is no contest is refused"
+        );
+        assert_eq!(
+            weak.view_on(1_000, 9).last_refusal,
+            Some(Refusal::TrialNotSweepable),
+            "the refusal names the real reason"
         );
     }
 

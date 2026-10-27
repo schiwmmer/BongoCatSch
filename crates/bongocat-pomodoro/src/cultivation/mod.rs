@@ -118,7 +118,7 @@ pub use state::{
     AbsenceCharge, AptitudeUse, BreakthroughOutcome, CropView, Cultivation, CultivationView,
     DailyOutcome, Drop, DropView, ExplorationFindView, GuardianView, HarvestOutcome, ItemView,
     JobView, PlantOutcome, PlotView, PowerBreakdown, ProvingBlocked, SeedView, SessionReward,
-    StarOutcome, TrainingView, TrialBlocked, TrialOutcome, WorkPaid,
+    StarOutcome, TrainingView, TrialBlocked, TrialOutcome, TrialSweepOutcome, WorkPaid,
 };
 pub use trade::{TradeRefusal, session_earnings};
 pub use trial::{
@@ -157,6 +157,10 @@ pub enum Refusal {
     TrialDrained,
     /// A trial was asked for on a save that has already cleared the top floor.
     TrialTop,
+    /// A sweep was asked for while the cultivator is not overwhelmingly stronger
+    /// than the warden: the tower offers the skip only to a body the warden
+    /// cannot threaten.
+    TrialNotSweepable,
     /// A 试炼 was asked for with no chance banked: a finished pomodoro pays one.
     ProvingSpent,
     /// A 试炼 was asked for while the cultivator is still out on a walk: the
@@ -173,6 +177,7 @@ impl Refusal {
             Self::TrialOut => "cultivation.trial.refuse_out",
             Self::TrialDrained => "cultivation.trial.refuse_drained",
             Self::TrialTop => "cultivation.trial.refuse_top",
+            Self::TrialNotSweepable => "cultivation.trial.refuse_not_sweepable",
             Self::ProvingSpent => "cultivation.proving.refuse_empty",
             Self::ProvingOut => "cultivation.proving.refuse_out",
             Self::Working => "cultivation.jobs.refuse_working",

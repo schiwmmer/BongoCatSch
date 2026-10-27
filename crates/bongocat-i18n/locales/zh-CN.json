@@ -822,7 +822,7 @@
       "hint": "工钱固定，潜质每点 0.11% 暴击×2、0.01%×3",
       "row": "%{tier} 阶 · %{hours} 小时 · %{stones} 灵石",
       "accept": "接取",
-    "taken": "接取中",
+      "taken": "接取中",
       "refresh": "刷新",
       "refresh_cost": "刷新 %{stones} 灵石",
       "working": "正在做 %{grade} 的活，%{hours} 小时，工钱 %{stones} 灵石",
@@ -862,8 +862,12 @@
       "won": "第 %{floor} 层通关。",
       "lost": "第 %{floor} 层未过。",
       "refuse_out": "尚在外游历，归来后方可闯塔。",
+      "away": "%{hours} 时 %{minutes} 分后归来，方可闯塔",
       "refuse_drained": "今日闯塔次数已尽，明日再来。",
-      "refuse_top": "锁妖塔已通关，再无可攀之层。"
+      "refuse_top": "锁妖塔已通关，再无可攀之层。",
+      "sweep": "横扫",
+      "sweep_result": "横扫 %{floors} 层 · 仙草 ×%{seeds} · 装备 ×%{gear} · 功法 ×%{arts} · 灵石「%{stones}」",
+      "refuse_not_sweepable": "战力未远胜守关人，不可横扫。"
     },
     "notice": {
       "absence": "%{days} 天未修炼，成长值 -%{charged}",
@@ -878,8 +882,10 @@
     },
     "record": {
       "title": "最近事件",
-      "status_home": "在家 · 可战斗、可外出、可务工",
-      "status_out": "外出 · 战斗与外出任务需待归来",
+      "status_home": "在家",
+      "status_out": "外出",
+      "status_out_walk": "外出：正在探索，剩余 %{hours} 小时 %{minutes} 分返回",
+      "status_out_work": "外出：在打工（%{grade}·%{hours} 小时），剩余 %{remain_hours} 小时 %{remain_minutes} 分返回",
       "empty": "还没有动静。完成番茄钟、外出探索，都记在这里。",
       "guardian": "守卫",
       "wanderer": "游荡者",
@@ -924,7 +930,11 @@
       "marrow_found": "得洗髓丹 ×1（%{source}）",
       "bonus": "意外之财：%{find}",
       "bonus_stones": "%{stones} 灵石",
-      "with_effect": "%{what}（%{effect}）"
+      "with_effect": "%{what}（%{effect}）",
+      "trial_sweep": "横扫第 %{from}~%{to} 层",
+      "sweep_seed": "仙草 ×%{count}",
+      "sweep_gear": "装备 ×%{count}",
+      "sweep_art": "功法 ×%{count}"
     },
     "shop": {
       "title": "集市",
@@ -953,7 +963,7 @@
       "plot": "一块灵田",
       "herb": "潜质之物",
       "herb_facts": "%{herb} · %{effect}",
-      "herb_gain": "潜质 +%{low} ~ %{high}",
+      "herb_gain": "潜质 +%{value}",
       "herb_marrow_gain": "突破整百所需",
       "owned": "已有",
       "mastered": "已习得"

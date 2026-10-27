@@ -822,7 +822,7 @@
       "hint": "Fixed wage; 潜质: 0.11% per point ×2, 0.01% ×3.",
       "row": "tier %{tier} · %{hours}h · %{stones} stones",
       "accept": "Take it",
-    "taken": "In progress",
+      "taken": "In progress",
       "refresh": "Reroll",
       "refresh_cost": "Reroll for %{stones} stones",
       "working": "Working a %{grade} job, %{hours}h, for %{stones} stones",
@@ -862,8 +862,12 @@
       "won": "Floor %{floor} cleared.",
       "lost": "Floor %{floor} was too much.",
       "refuse_out": "Still out on a walk — the tower opens once you are home.",
+      "away": "back in %{hours}h %{minutes}m — then the tower",
       "refuse_drained": "No climbs left today. Come back tomorrow.",
-      "refuse_top": "The tower is cleared; no floor is left to climb."
+      "refuse_top": "The tower is cleared; no floor is left to climb.",
+      "sweep": "Sweep",
+      "sweep_result": "Swept %{floors} floors · herbs ×%{seeds} · gear ×%{gear} · arts ×%{arts} · stones %{stones}",
+      "refuse_not_sweepable": "Only a body far stronger than the warden may sweep."
     },
     "notice": {
       "absence": "%{days} days without practice — growth -%{charged}",
@@ -878,8 +882,10 @@
     },
     "record": {
       "title": "Recent events",
-      "status_home": "Home — fights, walks and jobs are open",
-      "status_out": "Away — fights and outings wait for the road home",
+      "status_home": "At home",
+      "status_out": "Away",
+      "status_out_walk": "Away: exploring, back in %{hours} h %{minutes} m",
+      "status_out_work": "Away: on a %{grade} job (%{hours} h), back in %{remain_hours} h %{remain_minutes} m",
       "empty": "Nothing yet. Finished sessions and walks both land here.",
       "guardian": "Guardian",
       "wanderer": "Wanderer",
@@ -924,7 +930,11 @@
       "marrow_found": "Found a Marrow Pill (%{source})",
       "bonus": "Unexpected gain: %{find}",
       "bonus_stones": "%{stones} stones",
-      "with_effect": "%{what} (%{effect})"
+      "with_effect": "%{what} (%{effect})",
+      "trial_sweep": "Swept floors %{from}–%{to}",
+      "sweep_seed": "herbs ×%{count}",
+      "sweep_gear": "gear ×%{count}",
+      "sweep_art": "arts ×%{count}"
     },
     "shop": {
       "title": "Market",
@@ -953,7 +963,7 @@
       "plot": "a garden plot",
       "herb": "Aptitude item",
       "herb_facts": "%{herb} · %{effect}",
-      "herb_gain": "aptitude +%{low} ~ %{high}",
+      "herb_gain": "aptitude +%{value}",
       "herb_marrow_gain": "opens an even hundred",
       "owned": "Owned",
       "mastered": "Learned"

@@ -263,6 +263,11 @@ pub enum PomodoroCommand {
     /// Climb one floor of the 锁妖塔: gated by the day's attempts and by being
     /// home rather than out on a walk.
     Tower,
+    /// Sweep the next stretch of the 锁妖塔: one overwhelmingly strong
+    /// cultivator clears up to ten floors in one action, the fights skipped
+    /// because none of them was a contest. Gated the same way a climb is, and
+    /// offered only while the warden is more than half again weaker.
+    TowerSweep,
     /// Spend one banked 试炼 chance on a fight at the cultivator's own level.
     ///
     /// A finished pomodoro pays a chance and ten can be banked, so the gate is
@@ -350,6 +355,7 @@ impl PomodoroCommand {
             | Self::AcceptJob { .. }
             | Self::RefreshJobs
             | Self::Tower
+            | Self::TowerSweep
             | Self::Prove
             | Self::RecordInput { .. } => true,
             // A trade is the one command that can be refused, and the state knows
@@ -565,6 +571,10 @@ impl PomodoroState {
             PomodoroCommand::Tower => {
                 let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
                 self.cultivation.trial(now_unix, today.day_number());
+            }
+            PomodoroCommand::TowerSweep => {
+                let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
+                self.cultivation.trial_sweep(now_unix, today.day_number());
             }
             PomodoroCommand::Prove => {
                 self.cultivation.proving(now_unix);

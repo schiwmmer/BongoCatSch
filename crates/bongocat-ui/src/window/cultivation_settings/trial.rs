@@ -6,6 +6,7 @@
 //! deliberately apart: this one is a frontier climbed on the day's attempts,
 //! that one is a fight bought with banked training.
 
+use super::explore::cooldown_line;
 use super::*;
 
 /// The 锁妖塔, under the walk out of the door.
@@ -28,18 +29,45 @@ pub(super) fn trial_panel(
     tokens: Tokens,
 ) -> impl IntoElement {
     let next = cultivation.trial_next_floor;
-    let mut button = Button::new("cultivation-trial-attempt")
-        .small()
-        .label(text(locale, "cultivation.trial.attempt"));
+    // One overwhelmingly strong cultivator is offered the sweep instead of the
+    // climb: the next stretch of the tower is no contest, so the button skips
+    // the fights and settles the floors all at once.
+    let sweepable = cultivation.trial_sweepable && cultivation.trial_blocked.is_none();
+    let mut button = Button::new("cultivation-trial-attempt").small().label(text(
+        locale,
+        if sweepable {
+            "cultivation.trial.sweep"
+        } else {
+            "cultivation.trial.attempt"
+        },
+    ));
     if cultivation.trial_blocked.is_none() {
-        button = button.on_click({
-            let view = view.clone();
-            move |_, _, cx| {
-                view.update(cx, |view, cx| {
-                    view.ask_cultivation(CultivationDuelSource::Trial, PomodoroCommand::Tower, cx);
-                });
-            }
-        });
+        if sweepable {
+            button = button.on_click({
+                let view = view.clone();
+                move |_, _, cx| {
+                    view.update(cx, |view, cx| {
+                        // A sweep has no fight to replay, so it settles on the
+                        // page rather than behind the duel screen.
+                        let _ = view.pomodoro.try_publish(PomodoroCommand::TowerSweep);
+                        cx.notify();
+                    });
+                }
+            });
+        } else {
+            button = button.on_click({
+                let view = view.clone();
+                move |_, _, cx| {
+                    view.update(cx, |view, cx| {
+                        view.ask_cultivation(
+                            CultivationDuelSource::Trial,
+                            PomodoroCommand::Tower,
+                            cx,
+                        );
+                    });
+                }
+            });
+        }
     }
     // At the top of the tower the floor line already says so, and a second copy
     // of the sentence beside the button would be the page repeating itself.
@@ -53,6 +81,14 @@ pub(super) fn trial_panel(
             ],
         ),
         Some(TrialBlocked::Top) => String::new(),
+        // At a job the wait is the countdown, the same sentence the road prints:
+        // the door says when the cultivator can climb again, not that the hands
+        // are busy — the status line above already says where they are.
+        Some(TrialBlocked::Working) => cooldown_line(
+            cultivation.work.map(|run| run.ends_unix),
+            "cultivation.trial.away",
+            locale,
+        ),
         Some(blocked) => text(locale, blocked.key()).to_string(),
     };
     let color = if cultivation.trial_blocked.is_none() {
@@ -130,6 +166,29 @@ pub(super) fn trial_panel(
                     locale,
                     "cultivation.trial.cleared",
                     &[("floor", cultivation.trial_floor.to_string())],
+                ))
+                .test_support(),
+        );
+    }
+    // The haul the last sweep brought home, beside the floor it left the tower
+    // at: a sweep pays ten floors at once, so the line names the lot rather than
+    // leaving it to the log.
+    if let Some(sweep) = &cultivation.last_trial_sweep {
+        panel = panel.child(
+            div()
+                .id("cultivation-trial-sweep-result")
+                .text_xs()
+                .text_color(tokens.accent)
+                .child(format_text(
+                    locale,
+                    "cultivation.trial.sweep_result",
+                    &[
+                        ("floors", sweep.floors.to_string()),
+                        ("seeds", sweep.seeds.to_string()),
+                        ("gear", sweep.gear.to_string()),
+                        ("arts", sweep.arts.to_string()),
+                        ("stones", sweep.stones.to_string()),
+                    ],
                 ))
                 .test_support(),
         );

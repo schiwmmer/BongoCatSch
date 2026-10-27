@@ -299,33 +299,36 @@ impl AptitudeHerb {
         }
     }
 
-    /// The 潜质 the herb pays, in tenths, as an inclusive range; `None` for the
+    /// The 潜质 the herb pays at the 地阶 anchor, in tenths; `None` for the
     /// pill, which pays none.
-    pub const fn gain_tenths(self) -> Option<(i32, i32)> {
+    ///
+    /// The old band paid at random inside its range — 慧心草 0.1 ..= 1.2, 悟心草
+    /// 0.5 ..= 2.0 — so the same herb drew a different number every time. The
+    /// band has collapsed onto its midpoint, keeping the expected reward: one
+    /// herb of one grade always pays the same, and what the row says is what
+    /// the body gets.
+    pub const fn gain_tenths(self) -> Option<i32> {
         match self {
-            Self::Insight => Some((1, 12)),
-            Self::Wisdom => Some((5, 20)),
+            Self::Insight => Some(7),
+            Self::Wisdom => Some(13),
             Self::Marrow => None,
         }
     }
 
-    /// The 潜质 the herb pays at one grade, in tenths, as an inclusive range.
+    /// The 潜质 the herb pays at one grade, in tenths: one fixed number.
     ///
-    /// The base band scaled by the grade's own multiplier, so a herb is a seed
-    /// in everything but the plot: 地阶 — the anchor — pays exactly the base,
-    /// 黄阶 pays a quarter of it, and 神阶 two and a half times. The low end is
-    /// rounded up, so no grade ever pays nothing: a 黄阶 悟心草 is still worth
-    /// a tenth of a point.
-    pub const fn gain_tenths_for(self, grade: SeedGrade) -> Option<(i32, i32)> {
-        let (low, high) = match self.gain_tenths() {
-            Some(band) => band,
+    /// The anchor scaled by the grade's own multiplier, so a herb is a seed in
+    /// everything but the plot: 地阶 — the anchor — pays exactly the base, 黄阶
+    /// a quarter of it, and 神阶 two and a half times. Rounded to the nearest
+    /// tenth, so no grade ever pays nothing and no grade pays a fraction it
+    /// cannot spend.
+    pub const fn gain_tenths_for(self, grade: SeedGrade) -> Option<i32> {
+        let base = match self.gain_tenths() {
+            Some(base) => base,
             None => return None,
         };
         let mult = grade.multiplier_permille() as i32;
-        Some((
-            (low.saturating_mul(mult) + 999) / 1_000,
-            (high.saturating_mul(mult) + 500) / 1_000,
-        ))
+        Some((base.saturating_mul(mult) + 500) / 1_000)
     }
 
     /// What the shelf asks for one herb of this grade, in 灵石.
@@ -522,10 +525,10 @@ mod tests {
         // times the rarer herb again, so it is the dearest row on the shelf.
         assert!(AptitudeHerb::Marrow.price() > AptitudeHerb::Wisdom.price());
         assert!(AptitudeHerb::Wisdom.price() > AptitudeHerb::Insight.price());
-        let (insight_low, insight_high) = AptitudeHerb::Insight.gain_tenths().unwrap();
-        let (wisdom_low, wisdom_high) = AptitudeHerb::Wisdom.gain_tenths().unwrap();
-        assert_eq!((insight_low, insight_high), (1, 12), "0.1 ..= 1.2");
-        assert_eq!((wisdom_low, wisdom_high), (5, 20), "0.5 ..= 2.0");
+        // One herb of one grade pays one fixed number — the old band's midpoint,
+        // so the expected reward is unchanged.
+        assert_eq!(AptitudeHerb::Insight.gain_tenths(), Some(7), "0.7 at 地");
+        assert_eq!(AptitudeHerb::Wisdom.gain_tenths(), Some(13), "1.3 at 地");
         assert!(AptitudeHerb::Marrow.gain_tenths().is_none());
         assert_eq!(AptitudeHerb::Marrow.price(), 10_000, "一万灵石");
         assert_eq!(AptitudeHerb::Insight.price(), 1_200, "一千二百灵石");
@@ -534,44 +537,51 @@ mod tests {
 
     /// A 潜质 herb carries a grade like any seed: 地阶 is the anchor the old
     /// numbers were, 黄阶 pays a quarter of it, 神阶 two and a half times. No
-    /// grade pays nothing.
+    /// grade pays nothing, and each grade pays one fixed number.
     #[test]
-    fn a_herb_pays_its_grade_and_never_pays_nothing() {
-        // The anchor reproduces the old band exactly.
+    fn a_herb_pays_its_grade_in_one_fixed_number() {
+        // The anchor is the base: 0.7 for a 慧心草, 1.3 for a 悟心草.
         assert_eq!(
             AptitudeHerb::Insight.gain_tenths_for(SeedGrade::Earth),
-            Some((1, 12))
+            Some(7)
         );
         assert_eq!(
             AptitudeHerb::Wisdom.gain_tenths_for(SeedGrade::Earth),
-            Some((5, 20))
+            Some(13)
         );
+        // Every grade pays one fixed number, and a better grade pays more.
         for herb in [AptitudeHerb::Insight, AptitudeHerb::Wisdom] {
-            let mut low = 0i32;
+            let mut last = 0i32;
             for grade in SeedGrade::ALL {
-                let (band_low, band_high) = herb.gain_tenths_for(grade).unwrap();
-                assert!(band_low >= 1, "a {herb:?} at {grade:?} pays nothing");
-                assert!(band_low <= band_high, "the band must not invert");
+                let pay = herb.gain_tenths_for(grade).unwrap();
+                assert!(pay >= 1, "a {herb:?} at {grade:?} pays nothing");
                 assert!(
-                    band_low >= low,
+                    pay >= last,
                     "a better grade pays at least as much at {herb:?}"
                 );
-                low = band_low;
+                last = pay;
             }
         }
         assert_eq!(
             AptitudeHerb::Marrow.gain_tenths_for(SeedGrade::Divine),
             None
         );
-        // A quarter of the base at 黄, two and a half at 神, rounded up at the
-        // low end so a 黄阶 悟心草 is still a tenth of a point.
+        // A quarter of the base at 黄, two and a half at 神, to the nearest tenth.
         assert_eq!(
             AptitudeHerb::Insight.gain_tenths_for(SeedGrade::Yellow),
-            Some((1, 3))
+            Some(2)
         );
         assert_eq!(
             AptitudeHerb::Insight.gain_tenths_for(SeedGrade::Divine),
-            Some((3, 30))
+            Some(18)
+        );
+        assert_eq!(
+            AptitudeHerb::Wisdom.gain_tenths_for(SeedGrade::Yellow),
+            Some(3)
+        );
+        assert_eq!(
+            AptitudeHerb::Wisdom.gain_tenths_for(SeedGrade::Divine),
+            Some(33)
         );
     }
 

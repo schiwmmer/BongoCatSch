@@ -30,50 +30,51 @@ pub(super) fn jobs_panel(
     // the page adds is the re-roll button, and it is priced by the domain rather
     // than by the page — a free re-roll would make a ten-thousandth something a
     // user could simply wait out.
+    // The title row carries the re-roll: the toll sits beside the button, both
+    // at the row's right edge, so the board's refresh is the first thing a user
+    // reads after the title rather than a footnote under the last job.
+    let header = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(div().flex_1().min_w_0().child(section_header(
+            locale,
+            "cultivation.jobs.title",
+            "cultivation.jobs.hint",
+            tokens,
+        )))
+        .child(div().text_xs().text_color(tokens.muted).child(format_text(
+            locale,
+            "cultivation.jobs.refresh_cost",
+            &[("stones", cultivation.job_refresh_cost.to_string())],
+        )))
+        .child(
+            Button::new("cultivation-jobs-refresh")
+                .small()
+                .label(text(locale, "cultivation.jobs.refresh"))
+                .on_click({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            let _ = view.pomodoro.try_publish(PomodoroCommand::RefreshJobs);
+                            cx.notify();
+                        });
+                    }
+                }),
+        );
     let mut panel = div()
         .id("cultivation-jobs")
         .flex()
         .flex_col()
         .gap_1()
-        .child(section_header(
-            locale,
-            "cultivation.jobs.title",
-            "cultivation.jobs.hint",
-            tokens,
-        ))
+        .child(header)
         .children(work_lines(cultivation, locale, tokens));
     let rows = view.clone();
     for job in &cultivation.jobs {
         panel = panel.child(job_row(&rows, job, locale, tokens));
     }
-    panel
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .justify_between()
-                .child(div().text_xs().text_color(tokens.muted).child(format_text(
-                    locale,
-                    "cultivation.jobs.refresh_cost",
-                    &[("stones", cultivation.job_refresh_cost.to_string())],
-                )))
-                .child(
-                    Button::new("cultivation-jobs-refresh")
-                        .small()
-                        .label(text(locale, "cultivation.jobs.refresh"))
-                        .on_click({
-                            let view = view.clone();
-                            move |_, _, cx| {
-                                view.update(cx, |view, cx| {
-                                    let _ = view.pomodoro.try_publish(PomodoroCommand::RefreshJobs);
-                                    cx.notify();
-                                });
-                            }
-                        }),
-                ),
-        )
-        .test_support()
+    panel.test_support()
 }
 
 /// The job in hand, or what the last one came home with.

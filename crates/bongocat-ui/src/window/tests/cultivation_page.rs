@@ -18,7 +18,7 @@ use bongocat_pomodoro::{
     CultivationDocument, DailyKind, DailyOutcome, Derived, DuelReport, DuelRound, EventDetail,
     EventRecord, ExplorationFindView, ExplorationOutcome, Fighter, ItemView, JobRun,
     LAYERS_PER_STAGE, OwnedArt, PLAYER_NAME, PlotRecord, PomodoroCommand, PomodoroSnapshot,
-    PomodoroState, ProvingBlocked, Rarity, SeedGrade, SeedStack, ShopOffer, TrainingView,
+    PomodoroState, ProvingBlocked, Rarity, Realm, SeedGrade, SeedStack, ShopOffer, TrainingView,
     TrialBlocked, TrialOutcome, WANDERER_NAME, threshold_for,
 };
 use gpui_kit::{ScrollDelta, point};
@@ -1330,11 +1330,13 @@ fn the_art_row_shows_the_rank_ladder_and_its_progress(cx: &mut TestAppContext) {
 /// The tower is a button like the walk: a click has to reach the worker.
 #[gpui_kit::test]
 fn clicking_the_tower_asks_the_worker_for_a_floor(cx: &mut TestAppContext) {
-    let cultivation = Cultivation::new(CultivationDocument {
-        growth: threshold_for(20),
-        ..CultivationDocument::default()
-    })
-    .view();
+    // A fresh save is no stronger than the first warden, so the climb is the
+    // ordinary fight rather than a sweep — the sweep gets a frame of its own.
+    let cultivation = Cultivation::default().view();
+    assert!(
+        !cultivation.trial_sweepable,
+        "a fresh save must not be offered the sweep"
+    );
     let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
     let (_view, visual) = cultivation_page_with(cx, pomodoro);
     visual.update(|window, cx| window.render_frame(cx));
@@ -1614,6 +1616,40 @@ fn the_trial_panel_waits_for_the_job_in_hand_to_come_home(cx: &mut TestAppContex
     assert!(
         published(&sink).is_empty(),
         "a job in hand keeps the chance banked"
+    );
+}
+
+/// One overwhelmingly strong cultivator is offered the sweep: the button says
+/// 横扫, and its click asks the worker for the whole stretch rather than one
+/// fight — the climb the tower would otherwise have dragged ten fights out of.
+#[gpui_kit::test]
+fn the_trial_panel_offers_the_sweep_when_the_warden_is_no_contest(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        growth: threshold_for(500),
+        realm: Realm::from_level(500).index() as u8,
+        ..CultivationDocument::default()
+    })
+    .view();
+    assert!(
+        cultivation.trial_sweepable,
+        "the fixture has to be a body the warden is no contest for"
+    );
+    assert!(
+        cultivation.trial_blocked.is_none(),
+        "and the tower has to be open to offer the sweep"
+    );
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    scroll_until_visible(visual, "cultivation-trial-attempt");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-trial-attempt", cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(commands.as_slice(), [PomodoroCommand::TowerSweep]),
+        "a no-contest stretch is swept, not climbed: {commands:?}"
     );
 }
 

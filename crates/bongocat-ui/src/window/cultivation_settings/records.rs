@@ -1,5 +1,6 @@
 //! The event log: the last five on the page, the full sixteen in the popup.
 
+use super::explore::cooldown_line;
 use super::*;
 use std::rc::Rc;
 
@@ -46,21 +47,38 @@ pub(super) fn record_section(
     // can act — fight a 破境, a 守卫 or a 试炼, take a walk or a job — and
     // 外出 every one of those waits for the road home. It sits above the events
     // so the page's first answer to "what is going on" is where the cultivator
-    // is, and it is printed even when nothing has happened yet.
+    // is, and it is printed even when nothing has happened yet. One line in the
+    // primary ink, and when they are out it names the road and the wait.
+    let status = if cultivation.at_home {
+        text(locale, "cultivation.record.status_home").to_string()
+    } else if let Some(run) = cultivation.work {
+        // At a job: the board names the work, this names the wait. The job is
+        // still in hand whenever the door is shut — the door falls open the
+        // instant its hours pass, whatever the tick has settled.
+        let left = run.ends_unix.saturating_sub(now_unix()).max(0);
+        format_text(
+            locale,
+            "cultivation.record.status_out_work",
+            &[
+                ("grade", text(locale, run.grade.name_key()).to_string()),
+                ("hours", run.hours.to_string()),
+                ("remain_hours", (left / 3_600).to_string()),
+                ("remain_minutes", ((left % 3_600) / 60).to_string()),
+            ],
+        )
+    } else if let Some(owed_at) = cultivation.exploration_ready_at {
+        cooldown_line(Some(owed_at), "cultivation.record.status_out_walk", locale)
+    } else {
+        // A page built without either outing, which no live save produces: the
+        // bare word rather than an empty line.
+        text(locale, "cultivation.record.status_out").to_string()
+    };
     column = column.child(
         div()
             .id("cultivation-at-home")
             .text_xs()
-            .text_color(if cultivation.at_home {
-                tokens.accent
-            } else {
-                tokens.muted
-            })
-            .child(if cultivation.at_home {
-                text(locale, "cultivation.record.status_home")
-            } else {
-                text(locale, "cultivation.record.status_out")
-            })
+            .text_color(tokens.text)
+            .child(status)
             .test_support(),
     );
     // The offset is read once per render rather than once per line: every line
@@ -402,6 +420,18 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             *stones,
             locale,
         ),
+        // A sweep is ten floors at once, so the line names the stretch it
+        // cleared and the counts it paid rather than one named find: several of
+        // a kind can come home from a dozen fights, and a single name would
+        // have to drop the rest on the floor.
+        EventDetail::TrialSweep {
+            from_floor,
+            floors,
+            seeds,
+            gear,
+            arts,
+            stones,
+        } => trial_sweep_line(*from_floor, *floors, *seeds, *gear, *arts, *stones, locale),
         EventDetail::Proving {
             won,
             art,
@@ -820,6 +850,54 @@ fn trial_line(
     line
 }
 
+/// One 锁妖塔 sweep, as a single line: the stretch it cleared and the counts
+/// it paid.
+///
+/// A sweep skips a dozen fights at once, so the line names the lot in counts
+/// rather than one named find: ten floors can turn up several of a kind, and a
+/// single name would have to drop the rest on the floor.
+fn trial_sweep_line(
+    from_floor: u16,
+    floors: u16,
+    seeds: u32,
+    gear: u32,
+    arts: u32,
+    stones: u32,
+    locale: &str,
+) -> String {
+    let mut line = format_text(
+        locale,
+        "cultivation.event.trial_sweep",
+        &[
+            ("from", from_floor.to_string()),
+            ("to", (from_floor + floors.saturating_sub(1)).to_string()),
+        ],
+    );
+    for (key, count) in [
+        ("cultivation.event.sweep_seed", seeds),
+        ("cultivation.event.sweep_gear", gear),
+        ("cultivation.event.sweep_art", arts),
+    ] {
+        if count > 0 {
+            line.push_str(&format!(
+                " · {}",
+                format_text(locale, key, &[("count", count.to_string())])
+            ));
+        }
+    }
+    if stones > 0 {
+        line.push_str(&format!(
+            " · {}",
+            format_text(
+                locale,
+                "cultivation.record.found_stones",
+                &[("value", stones.to_string())]
+            )
+        ));
+    }
+    line
+}
+
 /// Name the purse a win turned up, when it turned one up.
 ///
 /// Money is not a find — it rides beside one — so it is a segment of its own on
@@ -1007,5 +1085,29 @@ mod tests {
             attributes: None,
         };
         assert_eq!(sale_line_label(&old, "zh-CN"), "玄铁剑");
+    }
+
+    /// A sweep names the stretch it cleared and the counts it paid: ten floors
+    /// at once can turn up several of a kind, so the line counts rather than
+    /// naming one find and dropping the rest on the floor.
+    #[test]
+    fn a_sweep_line_names_the_stretch_and_the_counts() {
+        let line = trial_sweep_line(12, 10, 2, 1, 1, 37, "zh-CN");
+        assert!(
+            line.contains("第 12~21 层"),
+            "the stretch it cleared: {line}"
+        );
+        assert!(line.contains("仙草 ×2"), "the seeds it found: {line}");
+        assert!(line.contains("装备 ×1"), "and the gear: {line}");
+        assert!(line.contains("功法 ×1"), "and the arts: {line}");
+        assert!(line.contains("灵石「37」"), "and the purse: {line}");
+    }
+
+    /// A sweep that turned up nothing but its floors reads as the stretch alone
+    /// — a line that said "×0" of everything would be the log complaining.
+    #[test]
+    fn a_barren_sweep_line_keeps_the_stretch_and_drops_the_zeros() {
+        let line = trial_sweep_line(1, 10, 0, 0, 0, 0, "zh-CN");
+        assert_eq!(line, "横扫第 1~10 层");
     }
 }

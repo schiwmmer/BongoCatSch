@@ -66,10 +66,13 @@ pub(super) fn proving_panel(
             "cultivation.proving.away",
             locale,
         ),
-        // At a job: the same refusal the board prints, since it is the same job.
-        Some(ProvingBlocked::Working) => {
-            text(locale, "cultivation.jobs.refuse_working").to_string()
-        }
+        // At a job: the wait is the countdown, the same sentence the road
+        // prints — the status line above already says where the cultivator is.
+        Some(ProvingBlocked::Working) => cooldown_line(
+            cultivation.work.map(|run| run.ends_unix),
+            "cultivation.proving.away",
+            locale,
+        ),
     };
     let color = if ready { tokens.text } else { tokens.muted };
     // The rules read beside the title rather than behind it.

@@ -141,6 +141,23 @@ pub enum EventDetail {
         #[serde(default)]
         stones: Option<u32>,
     },
+    /// The tower was swept: one overwhelmingly strong cultivator cleared
+    /// several floors in one action, every fight skipped because none of them
+    /// was a contest. What the swept floors turned up is the counts — ten floors
+    /// can turn up several of a kind, and a single named find would have to drop
+    /// the others on the floor.
+    TrialSweep {
+        from_floor: u16,
+        floors: u16,
+        #[serde(default)]
+        seeds: u32,
+        #[serde(default)]
+        gear: u32,
+        #[serde(default)]
+        arts: u32,
+        #[serde(default)]
+        stones: u32,
+    },
     /// A 试炼 was fought with a banked chance. A loss finds nothing but the
     /// lesson, so the three names are only ever filled by a win.
     Proving {
