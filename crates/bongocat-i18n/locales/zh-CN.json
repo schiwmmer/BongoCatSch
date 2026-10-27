@@ -683,7 +683,12 @@
       "success": "成功率 %{rate}%",
       "failures": "已失败 %{count} 次",
       "aptitude": "潜质 +%{value}/阶",
-      "copies": "×%{count}"
+      "copies": "×%{count}",
+      "blows": "×%{count} 段",
+      "band": "每段 %{min}%~%{max}%",
+      "effect_slow": "寒劲 减速 %{value}%",
+      "effect_haste": "轻身 加速 %{value}%",
+      "effect_focus": "凝神 命中 +%{value}"
     },
     "derived": "外显属性",
     "derived_hint": "由四项属性算出，不可加点",

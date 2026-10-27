@@ -246,6 +246,16 @@ pub(crate) fn opponent(stance: Stance, level: u16, tier: u8, name: String, seed:
             // raised the reward. Pinned to its own row, the wall stays put.
             multiplier_permille: OPPONENT_ART_MULTIPLIERS[art.grade.index()],
             cost: art.cost,
+            // The same move, otherwise: how many blows it throws, the band each
+            // is drawn from and the effect a landing one lays on are the book's
+            // own, so a 连击 guardian throws a flurry exactly as the shelf's does.
+            // Only the *worth* is pinned, which is what keeps the wall where it
+            // was — the band is centred on the row either way, so what the
+            // guardian is worth on average has not moved either.
+            hits: art.hits,
+            band_permille: art.band_permille,
+            effect: art.effect,
+            marked: false,
             // The opponent is not the one who trained it: a 功法 in a fighter's
             // hands is the multiplier it was printed with, and the mastery share
             // belongs to whoever put the pomodoros in.

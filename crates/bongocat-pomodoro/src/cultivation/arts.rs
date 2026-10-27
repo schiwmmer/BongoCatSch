@@ -169,7 +169,16 @@ pub struct ArtBlueprint {
     /// What one 外功 costs in 内力. Zero for an 内功.
     pub cost: u32,
     /// What one 外功 is worth, in parts per thousand of the wielder's 攻击力.
+    ///
+    /// The printed figure, and the centre of the band the blow is drawn from.
     pub multiplier_permille: u32,
+    /// How many blows one use throws, for an 外功.
+    pub hits: u8,
+    /// The band one blow is drawn from, in parts per thousand of the printed
+    /// worth: `lo` and `hi` both.
+    pub band_permille: (u32, u32),
+    /// What a landing blow does besides the hurt, for an 外功.
+    pub effect: Option<StrikeEffect>,
     /// What one 阶 pays in 潜质, in tenths. Zero for every book but the ten
     /// written for it — see [`APTITUDE_ART_IDS`].
     pub aptitude_tenths: i32,
@@ -251,17 +260,23 @@ pub fn blueprint(id: u64) -> ArtBlueprint {
     let prefix = ART_PREFIXES[prefix_index];
     let name = format!("{prefix}{noun}");
     let mut rng = Rng::seeded(id.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x0005_DEEC_E66D);
-    let (gain, bonus, cost, multiplier_permille) = match kind {
+    let (gain, bonus, cost, multiplier_permille, hits, band_permille, effect) = match kind {
         ArtKind::Internal => {
             let (gain, bonus) = internal_gain(prefix_index, grade, &mut rng);
-            (gain, bonus, 0, 0)
+            (gain, bonus, 0, 0, 1, (0, 0), None)
         }
-        ArtKind::External => (
-            Attributes::default(),
-            Derived::default(),
-            external_cost(grade),
-            external_multiplier(grade),
-        ),
+        ArtKind::External => {
+            let strike = external_strike(grade, &mut rng);
+            (
+                Attributes::default(),
+                Derived::default(),
+                strike.cost,
+                strike.multiplier_permille,
+                strike.hits,
+                strike.band_permille,
+                strike.effect,
+            )
+        }
     };
     ArtBlueprint {
         id,
@@ -272,6 +287,9 @@ pub fn blueprint(id: u64) -> ArtBlueprint {
         bonus,
         cost,
         multiplier_permille,
+        hits,
+        band_permille,
+        effect,
         aptitude_tenths: aptitude_tenths_per_rank(id),
     }
 }
@@ -521,6 +539,69 @@ fn archetype_of(prefix_index: usize) -> &'static Archetype {
     &ARCHETYPES[PREFIX_ARCHETYPE[prefix_index.min(PREFIX_ARCHETYPE.len() - 1)]]
 }
 
+/// What one use of an 外功 is worth, and how it hands the worth over.
+///
+/// A move used to be one number — the multiplier — so every 玄阶 外功 was the same
+/// swing under another name. Two other axes give the five hundred something to
+/// differ on: the shape (how many blows one use is thrown in) and the effect (what
+/// a blow that lands does to the rest of the fight.
+pub(crate) struct ExternalStrike {
+    /// What one use costs in 内力.
+    pub cost: u32,
+    /// The printed worth, in parts per thousand of the wielder's 攻击力.
+    pub multiplier_permille: u32,
+    /// How many blows one use throws.
+    pub hits: u8,
+    /// The band each blow is drawn from, in parts per thousand of the worth.
+    pub band_permille: (u32, u32),
+    /// What a landing blow does besides the hurt, for an 外功.
+    pub effect: Option<StrikeEffect>,
+}
+
+/// Roll the move one 外功 carries, from its id.
+///
+/// The shape and the effect come off the same seeded stream that prices the art,
+/// so one id stays one 外功 forever — and the shelf holds real variety: two 神阶
+/// 外功 differ in how many blows they throw, in the band each is drawn from,
+/// and in what a landing blow lays on.
+fn external_strike(grade: ArtGrade, rng: &mut Rng) -> ExternalStrike {
+    let shape = StrikeShape::from_index(rng.below(StrikeShape::ALL.len() as u64) as usize);
+    // The 成色 of this copy of the book: a few percent either side of what the
+    // grade is worth on average, so two books of one grade are not one number
+    // printed twice.
+    let worth = external_multiplier(grade) * (940 + rng.below(121) as u32) / 1_000;
+    ExternalStrike {
+        cost: external_cost(grade),
+        multiplier_permille: worth.max(1),
+        hits: shape.hits(),
+        band_permille: shape.band(),
+        effect: strike_effect(grade, rng),
+    }
+}
+
+/// The effect one 外功 carries, or none at all.
+///
+/// One in four carries nothing extra and pays for it in raw worth. The other
+/// three lay something on the fight that the blows alone would not: chill the
+/// target's footwork, quicken your own, or steady the aim. The strength grows
+/// with the grade, so a 神阶 外功 bites even where its name does not show it.
+fn strike_effect(grade: ArtGrade, rng: &mut Rng) -> Option<StrikeEffect> {
+    let depth = 120 + u32::try_from(grade.index()).unwrap_or(0) * 20;
+    let roll = |rng: &mut Rng, span: u32| rng.below(u64::from(span) + 1) as u32;
+    match rng.below(4) {
+        0 => None,
+        1 => Some(StrikeEffect::Slow {
+            permille: depth + roll(rng, 40),
+        }),
+        2 => Some(StrikeEffect::Haste {
+            permille: depth + roll(rng, 20),
+        }),
+        _ => Some(StrikeEffect::Focus {
+            hit: 40 + u32::try_from(grade.index()).unwrap_or(0) * 20 + roll(rng, 40),
+        }),
+    }
+}
+
 /// Which of the eight combat numbers one 阶 of an 内功 can pay outright.
 ///
 /// 潜质 is deliberately not among them: it is the number a whole build turns on,
@@ -588,10 +669,96 @@ fn external_cost(grade: ArtGrade) -> u32 {
 /// third more per grade after that. A 神阶 strike at 4.8× is a different act
 /// from a 黄阶 one at 1.2×, which is what makes finding one worth the ten-
 /// thousandth chance it takes.
+///
+/// This is the figure a row prints, and the *centre* of the band a blow rolls
+/// in — see [`StrikeShape::band`]. A 神阶 外功 is not worth a fixed number of blows
+/// per use; it is worth a draw from a band, which is what makes two of them
+/// different objects rather than two copies of one number.
 fn external_multiplier(grade: ArtGrade) -> u32 {
     const MULTIPLIERS: [u32; 5] = [1_200, 2_025, 2_700, 3_600, 4_800];
     MULTIPLIERS[grade.index()]
 }
+
+/// How a use of an 外功 throws its damage: one blow, or a flurry of them.
+///
+/// A move is not only a number — two 玄阶 外功 that both land for two and a half
+/// blows are the same fight twice, and the shelf would read as five hundred
+/// copies of one technique. The shape is the second axis: how many blows a use
+/// spends its worth across, and how wide the band around each one is.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum StrikeShape {
+    /// One clean blow, at its printed worth.
+    Single,
+    /// Three quick blows, each about a third — the same worth spread thin,
+    /// and the band around each one is narrower than the whole's.
+    Flurry,
+    /// One blow drawn from a band twice as wide as a single's: the thrower
+    /// is gambling the throw rather than the swing.
+    Charge,
+}
+
+impl StrikeShape {
+    /// Every shape.
+    pub const ALL: [Self; 3] = [Self::Single, Self::Flurry, Self::Charge];
+
+    /// The shape at a position in [`Self::ALL`].
+    pub fn from_index(index: usize) -> Self {
+        Self::ALL[index.min(Self::ALL.len() - 1)]
+    }
+
+    /// How many blows one use throws.
+    pub const fn hits(self) -> u8 {
+        match self {
+            Self::Single | Self::Charge => 1,
+            Self::Flurry => 3,
+        }
+    }
+
+    /// The band one blow is drawn from, in parts per thousand of the printed
+    /// worth: `lo` and `hi` both, and `hi >= lo`.
+    ///
+    /// The band is what makes the same 外功 worth a different number each time
+    /// it is thrown. A 连击 spreads its worth over three draws at a third
+    /// apiece — three narrow draws add up closer to their mean than one wide
+    /// one does, so a flurry pays *steadier* damage for a slightly smaller
+    /// expected blow. A 蓄力 does the opposite: one draw from a band twice as
+    /// wide, the same expectation and twice the gamble.
+    const fn band(self) -> (u32, u32) {
+        match self {
+            Self::Single => (940, 1_060),
+            Self::Flurry => (280, 340),
+            Self::Charge => (550, 1_700),
+        }
+    }
+}
+
+/// What one landing blow does besides the hurt.
+///
+/// A 外功 that only multiplies is a number with a name; these are the names
+/// that change how the rest of the fight reads. Each is written in the log the
+/// first time it lands and holds from then on, so a fight against a 寒劲 art is a
+/// fight against a slow hand rather than against a second, identical swing.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum StrikeEffect {
+    /// 寒劲: the target's 速度 falls.
+    Slow {
+        /// The share of its 速度 it loses, in parts per thousand.
+        permille: u32,
+    },
+    /// 轻身: the thrower's 速度 rises.
+    Haste {
+        /// The share of its 速度 it gains, in parts per thousand.
+        permille: u32,
+    },
+    /// 凝神: the thrower's 命中 rises — a plain number, read against the
+    /// other side's 闪避.
+    Focus {
+        /// The 命中 it adds.
+        hit: u32,
+    },
+}
+
+impl StrikeEffect {}
 
 /// How many pomodoros the given 阶 prints: 1, 2, 3, 4, 5, 7, 10, 14, 20, 29.
 ///
@@ -1072,6 +1239,13 @@ pub struct ArtView {
     pub cost: u32,
     /// What one use is worth, for an 外功.
     pub multiplier_permille: u32,
+    /// How many blows one use throws, for an 外功.
+    pub hits: u8,
+    /// The band each blow is drawn from, for an 外功: `(0, 0)` is a move that
+    /// pays exactly what its row says.
+    pub band_permille: (u32, u32),
+    /// What a landing blow does besides the hurt, for an 外功.
+    pub effect: Option<StrikeEffect>,
     /// What one 阶 pays in 潜质, in tenths: zero for every book but the ten
     /// written for it.
     pub aptitude_tenths: i32,
@@ -1120,6 +1294,13 @@ pub struct MasteredArtView {
     pub cost: u32,
     /// What one use is worth, for an 外功.
     pub multiplier_permille: u32,
+    /// How many blows one use throws, for an 外功.
+    pub hits: u8,
+    /// The band each blow is drawn from, for an 外功: `(0, 0)` is a move that
+    /// pays exactly what its row says.
+    pub band_permille: (u32, u32),
+    /// What a landing blow does besides the hurt, for an 外功.
+    pub effect: Option<StrikeEffect>,
     /// What one 阶 pays in 潜质, in tenths: zero for every book but the ten
     /// written for it.
     pub aptitude_tenths: i32,
@@ -1152,6 +1333,9 @@ pub fn art_view(owned: &OwnedArt, aptitude_tenths: i32, selected: bool) -> ArtVi
         bonus: art.bonus,
         cost: art.cost,
         multiplier_permille: art.multiplier_permille,
+        hits: art.hits,
+        band_permille: art.band_permille,
+        effect: art.effect,
         aptitude_tenths: art.aptitude_tenths,
         mastery_permille: if owned.rank >= art.grade.ranks() {
             mastery_permille(art.grade)
@@ -1185,6 +1369,9 @@ pub fn mastered_art_view(art_id: u64) -> MasteredArtView {
         bonus: art.bonus,
         cost: art.cost,
         multiplier_permille: art.multiplier_permille,
+        hits: art.hits,
+        band_permille: art.band_permille,
+        effect: art.effect,
         aptitude_tenths: art.aptitude_tenths,
         // The caller that knows the save marks the collected sales; a view
         // built from the id alone has nothing sold to speak of.
@@ -1195,6 +1382,50 @@ pub fn mastered_art_view(art_id: u64) -> MasteredArtView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two 外功 of one grade are two moves: they differ in how many blows they
+    /// throw, in the band each is drawn from, and in what a landing one lays on.
+    /// A grade used to print one number for every book that carried it.
+    #[test]
+    fn no_two_外功_of_a_grade_are_the_same_move() {
+        let mut moves = std::collections::BTreeSet::new();
+        let mut worths = std::collections::BTreeSet::new();
+        for id in 1..=ART_COUNT {
+            let art = blueprint(id);
+            if art.kind != ArtKind::External || art.grade != ArtGrade::Divine {
+                continue;
+            }
+            moves.insert((art.hits, art.band_permille, art.effect));
+            worths.insert(art.multiplier_permille);
+        }
+        assert!(
+            moves.len() > 3,
+            "every 神阶 外功 is the same move: {moves:?}"
+        );
+        assert!(
+            worths.len() > 3,
+            "every 神阶 外功 is worth the same: {worths:?}"
+        );
+        // A 连击 throws three and a 单 one: the shape is the axis the count
+        // differs on, and both are on the shelf.
+        let hits: std::collections::BTreeSet<u8> = (1..=ART_COUNT)
+            .map(blueprint)
+            .filter(|art| art.kind == ArtKind::External)
+            .map(|art| art.hits)
+            .collect();
+        assert!(hits.contains(&1) && hits.contains(&3), "shelf: {hits:?}");
+        // And the effects are all three of them, nowhere near one shelf of none.
+        let effects: std::collections::BTreeSet<u32> = (1..=ART_COUNT)
+            .map(blueprint)
+            .filter_map(|art| art.effect)
+            .map(|effect| match effect {
+                StrikeEffect::Slow { .. } => 0,
+                StrikeEffect::Haste { .. } => 1,
+                StrikeEffect::Focus { .. } => 2,
+            })
+            .collect();
+        assert_eq!(effects.len(), 3, "every effect is somewhere: {effects:?}");
+    }
 
     /// A prefix is a 流派: every 功法 sharing one pays the same attributes, and
     /// the eight families are all different.
@@ -1405,9 +1636,22 @@ mod tests {
             })
             .collect();
         assert_eq!(multipliers.len(), 5);
-        assert_eq!(multipliers[1], 2_025, "玄阶 外功 is 1350 × 1.5");
-        for pair in multipliers.windows(2) {
-            assert!(pair[1] * 10 >= pair[0] * 13, "显著差异: {multipliers:?}");
+        // The anchor is a *centre* now, not the number: a copy carries a few
+        // percent of its own, so the row sits either side of the grade's figure
+        // and two 玄阶 外功 are worth two things.
+        let centres = [1_200_u32, 2_025, 2_700, 3_600, 4_800];
+        for (index, value) in multipliers.iter().enumerate() {
+            let centre = centres[index];
+            assert!(
+                *value * 1_000 >= centre * 940 && *value * 1_000 <= centre * 1_060,
+                "{index} 外功 is worth {value}, outside the 成色 band around {centre}"
+            );
+        }
+        // Read on the centres rather than on one sample apiece: the ladder is
+        // what is 1.3 apart, and a copy's 成色 is a few percent either side of
+        // its own rung.
+        for pair in centres.windows(2) {
+            assert!(pair[1] * 10 >= pair[0] * 13, "显著差异: {centres:?}");
         }
     }
 

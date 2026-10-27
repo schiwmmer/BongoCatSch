@@ -3,7 +3,18 @@
 use super::*;
 
 /// How many seed stacks the satchel lists before the toggle takes over.
-const VISIBLE_SEED_COUNT: usize = 5;
+///
+/// Four, in two rows of two: a seed row is a name, an odds line and two
+/// buttons, and a page that is already a column of panels cannot spend eight
+/// rows on the satchel. A gardener who holds more than four kinds is a click
+/// away from all of them.
+const VISIBLE_SEED_COUNT: usize = 4;
+
+/// How many seed stacks one row of the satchel draws.
+///
+/// Two to a row: a seed needs its name, its odds and its two buttons, and one
+/// to a row spends twice the height on the same four facts.
+const SEEDS_PER_ROW: usize = 2;
 
 /// What one harvest of this seed pays, in the attribute it raises.
 ///
@@ -318,191 +329,218 @@ pub(super) fn seed_panel(
     } else {
         stacks_total.min(VISIBLE_SEED_COUNT)
     };
-    let mut panel = panel.children(stacks.into_iter().take(shown).map(|seed| {
-        // A 潜质 herb seed is its own row: planted and sold by herb and grade,
-        // and named from the herb rather than an attribute. The attribute rows
-        // below keep their own shape.
-        if seed.herb.is_some() {
-            return herb_row(
-                view,
-                cultivation,
-                seed,
-                plots_full,
-                open_seed,
-                locale,
-                tokens,
-            );
-        }
-        let key = SeedKey::Attr(seed.attribute, seed.tier, seed.grade);
-        let label = format!(
-            "{} ×{}",
-            seed_label(
-                locale,
-                seed.attribute,
-                seed.tier,
-                seed.grade,
-                seed.name.as_deref()
-            ),
-            seed.count
-        );
-        let grade_paint = seed_grade_color(seed.grade);
-        let mut button = Button::new(format!(
-            "cultivation-plant-{}-{}-{}",
-            seed.attribute.index(),
-            seed.tier,
-            seed.grade.index()
-        ))
-        .ghost()
-        .small()
-        .label(text(locale, "cultivation.seed.plant"));
-        if !plots_full {
-            button = button.on_click({
-                let view = view.clone();
-                let attribute = seed.attribute;
-                let tier = seed.tier;
-                let grade = seed.grade;
-                move |_, _, cx| {
-                    view.update(cx, |view, cx| {
-                        let _ = view.pomodoro.try_publish(PomodoroCommand::PlantSeed {
-                            attribute,
-                            tier,
-                            grade,
-                        });
-                        view.poll_pomodoro(cx);
-                    });
-                }
-            });
-        }
-        // The name is the click: it says what this herb is worth before money
-        // is spent on it or a plot is given up for it. The buttons beside it
-        // stay one-click, so asking a question never costs an action.
-        let name = div()
-            .id(format!(
-                "cultivation-seed-name-{}-{}-{}",
-                seed.attribute.index(),
-                seed.tier,
-                seed.grade.index()
-            ))
-            .w_full()
-            .min_w_0()
-            .truncate()
-            .text_xs()
-            .text_color(grade_paint)
-            .child(label)
-            .test_support()
-            .on_click({
-                let view = view.clone();
-                move |_, _, cx| {
-                    view.update(cx, |view, cx| {
-                        view.cultivation_open_seed = if view.cultivation_open_seed == Some(key) {
-                            None
-                        } else {
-                            Some(key)
-                        };
-                        cx.notify();
-                    });
-                }
-            });
-        // The odds, under every seed's name and before anything is planted: this
-        // garden, this herb, right now. A success rate the user can read makes
-        // planting a decision rather than a purchase; the number is the domain's
-        // own, so the page cannot promise odds the planting will not get.
-        let odds_line = if cultivation.garden_pity_ready {
-            text(locale, "cultivation.garden.odds_certain").to_string()
-        } else {
-            let percent = (plant_permille(cultivation.garden_rank, seed.tier, seed.grade) + 5) / 10;
-            format_text(
-                locale,
-                "cultivation.garden.plant_odds",
-                &[("percent", percent.to_string())],
-            )
-        };
-        let named = div()
-            .flex_1()
-            .min_w_0()
+    // Two to a row, and a row of two is the unit the fold counts in: the last
+    // row is whole whether four or five are showing, so nothing here has to
+    // decide what a half-empty row looks like.
+    let rows: Vec<Vec<&SeedView>> = stacks
+        .into_iter()
+        .take(shown)
+        .collect::<Vec<_>>()
+        .chunks(SEEDS_PER_ROW)
+        .map(|chunk| chunk.to_vec())
+        .collect();
+    let mut panel = panel.children(rows.into_iter().enumerate().map(|(row_index, row)| {
+        div()
+            .id(format!("cultivation-seed-row-{row_index}"))
             .flex()
-            .flex_col()
-            .child(name)
-            .child(
-                div()
+            .flex_row()
+            .items_start()
+            .gap_2()
+            .test_support()
+            .children(row.into_iter().map(|seed| {
+                // A 潜质 herb seed is its own row: planted and sold by herb and grade,
+                // and named from the herb rather than an attribute. The attribute rows
+                // below keep their own shape.
+                if seed.herb.is_some() {
+                    return herb_row(
+                        view,
+                        cultivation,
+                        seed,
+                        plots_full,
+                        open_seed,
+                        locale,
+                        tokens,
+                    );
+                }
+                let key = SeedKey::Attr(seed.attribute, seed.tier, seed.grade);
+                let label = format!(
+                    "{} ×{}",
+                    seed_label(
+                        locale,
+                        seed.attribute,
+                        seed.tier,
+                        seed.grade,
+                        seed.name.as_deref()
+                    ),
+                    seed.count
+                );
+                let grade_paint = seed_grade_color(seed.grade);
+                let mut button = Button::new(format!(
+                    "cultivation-plant-{}-{}-{}",
+                    seed.attribute.index(),
+                    seed.tier,
+                    seed.grade.index()
+                ))
+                .ghost()
+                .small()
+                .label(text(locale, "cultivation.seed.plant"));
+                if !plots_full {
+                    button = button.on_click({
+                        let view = view.clone();
+                        let attribute = seed.attribute;
+                        let tier = seed.tier;
+                        let grade = seed.grade;
+                        move |_, _, cx| {
+                            view.update(cx, |view, cx| {
+                                let _ = view.pomodoro.try_publish(PomodoroCommand::PlantSeed {
+                                    attribute,
+                                    tier,
+                                    grade,
+                                });
+                                view.poll_pomodoro(cx);
+                            });
+                        }
+                    });
+                }
+                // The name is the click: it says what this herb is worth before money
+                // is spent on it or a plot is given up for it. The buttons beside it
+                // stay one-click, so asking a question never costs an action.
+                let name = div()
                     .id(format!(
-                        "cultivation-seed-odds-{}-{}-{}",
+                        "cultivation-seed-name-{}-{}-{}",
                         seed.attribute.index(),
                         seed.tier,
                         seed.grade.index()
                     ))
+                    .w_full()
+                    .min_w_0()
+                    .truncate()
                     .text_xs()
-                    .text_color(tokens.muted)
-                    .child(odds_line)
-                    .test_support(),
-            );
-        let mut row = div()
-            .id(format!(
-                "cultivation-seed-{}-{}-{}",
-                seed.attribute.index(),
-                seed.tier,
-                seed.grade.index()
-            ))
-            .flex()
-            .flex_col()
-            .gap_1()
-            .py_1()
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(named)
-                    .child(button)
-                    // One seed at a time: a stack of ten is nine seeds and one of
-                    // them, and which one the user wants to keep is not a question
-                    // a single "sell all" can ask.
-                    .child(
-                        Button::new(format!(
-                            "cultivation-sell-seed-{}-{}-{}",
-                            seed.attribute.index(),
-                            seed.tier,
-                            seed.grade.index()
-                        ))
-                        .ghost()
-                        .small()
-                        .label(sell_label(locale, seed.sell_price))
-                        .on_click({
-                            let view = view.clone();
-                            let attribute = seed.attribute;
-                            let tier = seed.tier;
-                            let grade = seed.grade;
-                            move |_, _, cx| {
-                                view.update(cx, |view, cx| {
-                                    let _ = view.pomodoro.try_publish(PomodoroCommand::SellSeed {
-                                        attribute,
-                                        tier,
-                                        grade,
-                                    });
-                                    view.poll_pomodoro(cx);
-                                });
-                            }
-                        }),
-                    ),
-            );
-        if open_seed == Some(key) {
-            row = row.child(seed_detail(
-                view,
-                key,
-                format!(
-                    "{} · {}",
-                    seed_facts(locale, seed.attribute, seed.tier, seed.grade),
+                    .text_color(grade_paint)
+                    .child(label)
+                    .test_support()
+                    .on_click({
+                        let view = view.clone();
+                        move |_, _, cx| {
+                            view.update(cx, |view, cx| {
+                                view.cultivation_open_seed =
+                                    if view.cultivation_open_seed == Some(key) {
+                                        None
+                                    } else {
+                                        Some(key)
+                                    };
+                                cx.notify();
+                            });
+                        }
+                    });
+                // The odds, under every seed's name and before anything is planted: this
+                // garden, this herb, right now. A success rate the user can read makes
+                // planting a decision rather than a purchase; the number is the domain's
+                // own, so the page cannot promise odds the planting will not get.
+                let odds_line = if cultivation.garden_pity_ready {
+                    text(locale, "cultivation.garden.odds_certain").to_string()
+                } else {
+                    let percent =
+                        (plant_permille(cultivation.garden_rank, seed.tier, seed.grade) + 5) / 10;
                     format_text(
                         locale,
-                        "cultivation.shop.detail_sell",
-                        &[("stones", seed.sell_price.to_string())],
-                    ),
-                ),
-                tokens,
-            ));
-        }
-        row.into_any_element()
+                        "cultivation.garden.plant_odds",
+                        &[("percent", percent.to_string())],
+                    )
+                };
+                let named = div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(name)
+                    .child(
+                        div()
+                            .id(format!(
+                                "cultivation-seed-odds-{}-{}-{}",
+                                seed.attribute.index(),
+                                seed.tier,
+                                seed.grade.index()
+                            ))
+                            .text_xs()
+                            .text_color(tokens.muted)
+                            .child(odds_line)
+                            .test_support(),
+                    );
+                let mut row = div()
+                    .id(format!(
+                        "cultivation-seed-{}-{}-{}",
+                        seed.attribute.index(),
+                        seed.tier,
+                        seed.grade.index()
+                    ))
+                    // Half the row: a seed is a name, an odds line and two buttons, and
+                    // two to a row is what the satchel spends its height on.
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .py_1()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .child(named)
+                            .child(button)
+                            // One seed at a time: a stack of ten is nine seeds and one of
+                            // them, and which one the user wants to keep is not a question
+                            // a single "sell all" can ask.
+                            .child(
+                                Button::new(format!(
+                                    "cultivation-sell-seed-{}-{}-{}",
+                                    seed.attribute.index(),
+                                    seed.tier,
+                                    seed.grade.index()
+                                ))
+                                .ghost()
+                                .small()
+                                .label(sell_label(locale, seed.sell_price))
+                                .on_click({
+                                    let view = view.clone();
+                                    let attribute = seed.attribute;
+                                    let tier = seed.tier;
+                                    let grade = seed.grade;
+                                    move |_, _, cx| {
+                                        view.update(cx, |view, cx| {
+                                            let _ = view.pomodoro.try_publish(
+                                                PomodoroCommand::SellSeed {
+                                                    attribute,
+                                                    tier,
+                                                    grade,
+                                                },
+                                            );
+                                            view.poll_pomodoro(cx);
+                                        });
+                                    }
+                                }),
+                            ),
+                    );
+                if open_seed == Some(key) {
+                    row = row.child(seed_detail(
+                        view,
+                        key,
+                        format!(
+                            "{} · {}",
+                            seed_facts(locale, seed.attribute, seed.tier, seed.grade),
+                            format_text(
+                                locale,
+                                "cultivation.shop.detail_sell",
+                                &[("stones", seed.sell_price.to_string())],
+                            ),
+                        ),
+                        tokens,
+                    ));
+                }
+                row.into_any_element()
+            }))
     }));
     if stacks_total > VISIBLE_SEED_COUNT {
         let key = if open {

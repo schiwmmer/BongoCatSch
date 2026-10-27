@@ -268,6 +268,18 @@ fn mastered_art_payoff(art: &MasteredArtView, locale: &str) -> String {
                     &[("value", art.cost.to_string())],
                 ),
             ];
+            // The move itself: how many blows, the band each is drawn from, and
+            // what a landing one lays on. Two 玄阶 外功 of one worth are not the
+            // same swing twice, and the row is where that has to be readable.
+            if let Some(line) = strike_line(
+                locale,
+                art.hits,
+                art.multiplier_permille,
+                art.band_permille,
+                art.effect,
+            ) {
+                parts.push(line);
+            }
             // The mastery share belongs to a complete 功法 alone: an unfinished
             // one quoting a bonus of zero would be quoting a number that
             // decides nothing.
@@ -282,6 +294,68 @@ fn mastered_art_payoff(art: &MasteredArtView, locale: &str) -> String {
         }
     };
     format!("{kind} · {}", parts.join(" · "))
+}
+
+/// What an 外功's move is, as one line: how many blows a use throws, the band
+/// each is drawn from, and what a landing one lays on.
+///
+/// The printed worth is the *centre* of the band, so the two numbers the row
+/// quotes are the two ends of what the swing can be — the same 外功 is a
+/// different number every time it is thrown, and a row that quoted only the
+/// centre would be quoting a swing that never happens.
+fn strike_line(
+    locale: &str,
+    hits: u8,
+    multiplier_permille: u32,
+    band: (u32, u32),
+    effect: Option<StrikeEffect>,
+) -> Option<String> {
+    let percent = |permille: u32| ((permille + 5) / 10).to_string();
+    let (lo, hi) = band;
+    let mut parts: Vec<String> = Vec::new();
+    if hits > 1 {
+        parts.push(format_text(
+            locale,
+            "cultivation.art.blows",
+            &[("count", hits.to_string())],
+        ));
+    }
+    if hi > lo {
+        parts.push(format_text(
+            locale,
+            "cultivation.art.band",
+            &[
+                (
+                    "min",
+                    percent(multiplier_permille.saturating_mul(lo) / 1_000),
+                ),
+                (
+                    "max",
+                    percent(multiplier_permille.saturating_mul(hi) / 1_000),
+                ),
+            ],
+        ));
+    }
+    if let Some(effect) = effect {
+        parts.push(match effect {
+            StrikeEffect::Slow { permille } => format_text(
+                locale,
+                "cultivation.art.effect_slow",
+                &[("value", percent(permille))],
+            ),
+            StrikeEffect::Haste { permille } => format_text(
+                locale,
+                "cultivation.art.effect_haste",
+                &[("value", percent(permille))],
+            ),
+            StrikeEffect::Focus { hit } => format_text(
+                locale,
+                "cultivation.art.effect_focus",
+                &[("value", hit.to_string())],
+            ),
+        });
+    }
+    (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
 /// One 功法, as two lines: the name, grade and payoff with the two buttons a
@@ -514,6 +588,17 @@ fn art_payoff(art: &ArtView, locale: &str) -> String {
             ),
         ],
     };
+    // The move itself, on the shelf and on the row alike: a 外功 is not only a
+    // worth, it is a number of blows and a band to draw them from.
+    if let Some(line) = strike_line(
+        locale,
+        art.hits,
+        art.multiplier_permille,
+        art.band_permille,
+        art.effect,
+    ) {
+        parts.push(line);
+    }
     // The ten 潜质 books say so on their own row: it is the one number a build
     // is built around, and a reader who had to divine it from the fact that the
     // book is one of ten would never find it.

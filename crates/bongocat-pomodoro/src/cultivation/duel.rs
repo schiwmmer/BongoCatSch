@@ -13,7 +13,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{Attributes, Derived, Rng, arts::external_damage};
+use super::{Attributes, Derived, Rng, arts::StrikeEffect, arts::external_damage};
 
 /// How many blows the longest fight runs to before it is called.
 ///
@@ -54,10 +54,30 @@ pub struct ArtStrike {
     pub name: String,
     pub multiplier_permille: u32,
     pub cost: u32,
+    /// How many blows one use throws. One for a 外功 that lands a single blow,
+    /// three for one that throws a flurry of them.
+    #[serde(default = "one_blow")]
+    pub hits: u8,
+    /// The band each blow is drawn from, in parts per thousand of the printed
+    /// worth. `(0, 0)` is a move that pays exactly what it says.
+    #[serde(default)]
+    pub band_permille: (u32, u32),
+    /// What the first blow that lands does to the rest of the fight.
+    #[serde(default)]
+    pub effect: Option<StrikeEffect>,
+    /// Whether the move has already laid its effect on the fight: it rides on
+    /// the first blow that gets through and nowhere else.
+    #[serde(default)]
+    pub marked: bool,
     /// What a completed 功法 adds to every blow, in parts per thousand of the
     /// wielder's 攻击力. Zero for an 外功 whose last 阶 is still owed.
     #[serde(default)]
     pub mastery_permille: u32,
+}
+
+/// The number of blows an 外功 written before shapes existed throws.
+const fn one_blow() -> u8 {
+    1
 }
 
 /// One side of a fight.
@@ -331,8 +351,57 @@ pub fn hit_chance_permille(attacker_hit: u32, defender_evade: u32) -> i64 {
     (chance.round() as i64).clamp(HIT_CHANCE_FLOOR_PERMILLE, HIT_CHANCE_CEILING_PERMILLE)
 }
 
+/// Draw one blow's worth out of a 外功's band, in parts per thousand of the
+/// wielder's 攻击力.
+///
+/// The band is what makes the same 外功 worth a different number each time it is
+/// thrown: a 单 hits for about its printed worth, a 连击 throws three draws at a
+/// third apiece, and a 蓄力 draws once from a band twice as wide. A band of
+/// `(0, 0)` is a move that pays exactly what its row says — the shape every
+/// 外功 had before shapes existed.
+fn strike_multiplier(strike: &ArtStrike, rng: &mut Rng) -> u32 {
+    let (lo, hi) = strike.band_permille;
+    if hi <= lo {
+        return strike.multiplier_permille;
+    }
+    let span = hi - lo;
+    let drawn = lo + (rng.below(u64::from(span) + 1) as u32);
+    u64::from(strike.multiplier_permille)
+        .saturating_mul(u64::from(drawn))
+        .saturating_div(1_000) as u32
+}
+
+/// Lay a 外功's effect on the fight: the side it names keeps it from here.
+///
+/// An effect is *not* a second swing — it is a change to what the rest of the
+/// fight reads, so a fight against a 寒劲 art is a fight against a slow hand
+/// rather than against the same swing twice. Each move lays its own once, on
+/// the first blow that gets through.
+fn lay_effect(attacker: &mut Fighter, defender: &mut Fighter, effect: Option<StrikeEffect>) {
+    let Some(effect) = effect else {
+        return;
+    };
+    match effect {
+        StrikeEffect::Slow { permille } => {
+            let lost = defender.speed.saturating_mul(permille) / 1_000;
+            defender.speed = defender.speed.saturating_sub(lost.max(1));
+        }
+        StrikeEffect::Haste { permille } => {
+            let gained = attacker.speed.saturating_mul(permille) / 1_000;
+            attacker.speed = attacker.speed.saturating_add(gained.max(1));
+        }
+        StrikeEffect::Focus { hit } => {
+            attacker.hit = attacker.hit.saturating_add(hit);
+        }
+    }
+}
+
 /// Throw one blow.
 fn strike(attacker: &mut Fighter, defender: &mut Fighter, rng: &mut Rng) -> DuelRound {
+    // 命中 against 闪避, never a certainty and never hopeless — asked before
+    // the blow is thrown, because a move that misses carries nothing with it.
+    let chance = hit_chance_permille(attacker.hit, defender.evade);
+    let dodged = rng.below(1_000) >= chance as u64;
     let mut damage = blow(attacker, defender);
     let mut art = None;
     // An 外功 is spent whenever it can be paid for: the choice to save 内力 for
@@ -342,17 +411,31 @@ fn strike(attacker: &mut Fighter, defender: &mut Fighter, rng: &mut Rng) -> Duel
         && attacker.inner >= strike.cost
     {
         attacker.inner -= strike.cost;
-        damage = external_damage(damage, strike.multiplier_permille);
+        let mut total = 0_u32;
+        for _ in 0..strike.hits.max(1) {
+            // The worth is drawn per blow rather than read off the row: two 玄阶
+            // 外功 of the same worth are two different swings, and a 蓄力 is the
+            // same 外功 being a different swing every time it is thrown.
+            let rolled = strike_multiplier(&strike, rng);
+            total = total.saturating_add(external_damage(damage, rolled));
+        }
+        damage = total;
         // A completed 外功 adds its mastery share of 攻击力 to every blow it
         // lands: the multiplier is what the 阶 bought, this is what finishing
         // the last one bought.
         let mastered = attacker.attack.saturating_mul(strike.mastery_permille) / 1_000;
         damage = damage.saturating_add(mastered);
+        // The effect rides on the first blow that gets through, and stays. A
+        // blow that slipped carries nothing: an art that laid its mark on a
+        // miss would be an art that could not be dodged out of.
+        if !dodged && !strike.marked {
+            if let Some(held) = attacker.art.as_mut() {
+                held.marked = true;
+            }
+            lay_effect(attacker, defender, strike.effect);
+        }
         art = Some(strike.name);
     }
-    // 命中 against 闪避, never a certainty and never hopeless.
-    let chance = hit_chance_permille(attacker.hit, defender.evade);
-    let dodged = rng.below(1_000) >= chance as u64;
     if dodged {
         damage = 0;
     }
@@ -455,6 +538,141 @@ mod tests {
         );
     }
 
+    /// One 外功 is not one number: the same swing is drawn from a band, so two
+    /// throws of it are worth two different amounts.
+    #[test]
+    fn a_move_is_drawn_from_its_band_and_not_read_off_the_row() {
+        let striker = || Fighter {
+            inner: 1_000,
+            art: Some(ArtStrike {
+                name: "蓄力".to_owned(),
+                multiplier_permille: 1_000,
+                cost: 10,
+                hits: 1,
+                // The widest band there is: a sixth of a swing to nearly two.
+                band_permille: (550, 1_700),
+                effect: None,
+                marked: false,
+                mastery_permille: 0,
+            }),
+            ..brute("fighter", 10_000, 100, 10)
+        };
+        let mut seen: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        for seed in 0..80u64 {
+            let mut attacker = striker();
+            let mut target = brute("target", 1_000_000, 0, 10);
+            let round = strike(&mut attacker, &mut target, &mut Rng::seeded(seed));
+            // A slipped blow is no blow at all: it says nothing about the band.
+            if !round.dodged {
+                seen.insert(round.damage);
+            }
+        }
+        assert!(
+            seen.len() > 5,
+            "the same 外功 is the same number every time: {seen:?}"
+        );
+        // And the band is a *band*: nothing outside it, however many times it
+        // is thrown.
+        let low = 100 * 550 / 1_000;
+        let high = 100 * 1_700 / 1_000;
+        assert!(
+            seen.iter().all(|damage| (low..=high).contains(damage)),
+            "a blow landed outside its band: {seen:?} against {low}..={high}"
+        );
+    }
+
+    /// A 连击 throws its worth as three blows rather than one: the same damage
+    /// altogether, counted out in three.
+    #[test]
+    fn a_flurry_throws_three_blows() {
+        let mut attacker = Fighter {
+            inner: 1_000,
+            art: Some(ArtStrike {
+                name: "连击".to_owned(),
+                multiplier_permille: 1_500,
+                cost: 10,
+                hits: 3,
+                band_permille: (280, 340),
+                effect: None,
+                marked: false,
+                mastery_permille: 0,
+            }),
+            ..brute("fighter", 10_000, 100, 10)
+        };
+        let mut target = brute("target", 1_000_000, 0, 10);
+        let round = strike(&mut attacker, &mut target, &mut Rng::seeded(1));
+        // Three draws at a third apiece over 150% of a hundred: somewhere near
+        // a hundred and fifty, and never less than the three together can pay.
+        assert!(
+            round.damage >= 100 * 3 * 280 * 15 / 10_000,
+            "a flurry pays its three: {}",
+            round.damage
+        );
+    }
+
+    /// An effect rides on the first blow that gets through, and only on that
+    /// one: a move that laid its mark on every hit would be a move that could
+    /// not be dodged out of.
+    #[test]
+    fn an_effect_lands_once_and_stays() {
+        let mut attacker = Fighter {
+            inner: 1_000,
+            art: Some(ArtStrike {
+                name: "寒劲".to_owned(),
+                multiplier_permille: 1_000,
+                cost: 10,
+                hits: 1,
+                band_permille: (0, 0),
+                effect: Some(StrikeEffect::Slow { permille: 200 }),
+                marked: false,
+                mastery_permille: 0,
+            }),
+            ..brute("fighter", 10_000, 100, 10)
+        };
+        let mut target = brute("target", 1_000_000, 0, 100);
+        let before = target.speed;
+        strike(&mut attacker, &mut target, &mut Rng::seeded(5));
+        let chilled = target.speed;
+        assert!(
+            chilled < before,
+            "the chill bit: {chilled} against {before}"
+        );
+        strike(&mut attacker, &mut target, &mut Rng::seeded(6));
+        assert_eq!(
+            target.speed, chilled,
+            "the chill does not stack: a second blow adds nothing"
+        );
+        assert!(
+            attacker.art.as_ref().is_some_and(|held| held.marked),
+            "the move remembers it has laid its mark"
+        );
+        // 凝神 and 轻身 are the other side of the same coin: they ride on the
+        // thrower, not on the target.
+        let mut attacker = Fighter {
+            inner: 1_000,
+            art: Some(ArtStrike {
+                name: "凝神".to_owned(),
+                multiplier_permille: 1_000,
+                cost: 10,
+                hits: 1,
+                band_permille: (0, 0),
+                effect: Some(StrikeEffect::Focus { hit: 80 }),
+                marked: false,
+                mastery_permille: 0,
+            }),
+            ..brute("fighter", 10_000, 100, 10)
+        };
+        let focus_before = attacker.hit;
+        let mut target = brute("target", 1_000_000, 0, 10);
+        strike(&mut attacker, &mut target, &mut Rng::seeded(7));
+        assert!(
+            attacker.hit > focus_before,
+            "the aim steadied: {} against {}",
+            attacker.hit,
+            focus_before
+        );
+    }
+
     #[test]
     fn spell_resist_blunts_a_blow_but_never_empties_it() {
         let caster = Fighter {
@@ -486,6 +704,10 @@ mod tests {
                 name: "降龙十八掌".to_owned(),
                 multiplier_permille: 2_000,
                 cost: 10,
+                hits: 1,
+                band_permille: (0, 0),
+                effect: None,
+                marked: false,
                 mastery_permille: 0,
             }),
             ..brute("fighter", 1_000, 100, 10)
@@ -514,6 +736,10 @@ mod tests {
                     name: "掌法".to_owned(),
                     multiplier_permille: 1_200,
                     cost: 10,
+                    hits: 1,
+                    band_permille: (0, 0),
+                    effect: None,
+                    marked: false,
                     mastery_permille,
                 }),
                 ..brute("fighter", 10_000, 1_000, 10)

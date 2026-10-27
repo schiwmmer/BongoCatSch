@@ -64,12 +64,12 @@ pub use aptitude::{
 };
 pub use arts::{
     APTITUDE_ART_IDS, APTITUDE_ART_TENTHS_PER_RANK, ART_COUNT, ArtBlueprint, ArtGrade, ArtKind,
-    ArtOutcome, ArtView, MasteredArtView, OwnedArt, RECENT_ARTS_CAP, art_aptitude_tenths,
-    art_aptitude_tenths_at, art_attributes, art_bonus, art_bonus_at, art_payout_at, art_view,
-    blueprint, external_damage, external_power_gain, mastered_art_aptitude_payout,
-    mastered_art_aptitude_tenths, mastered_art_attributes, mastered_art_bonus,
-    mastered_art_bonus_payout, mastered_art_payout, mastered_art_view, mastery_permille,
-    printed_pomodoros, required_pomodoros,
+    ArtOutcome, ArtView, MasteredArtView, OwnedArt, RECENT_ARTS_CAP, StrikeEffect, StrikeShape,
+    art_aptitude_tenths, art_aptitude_tenths_at, art_attributes, art_bonus, art_bonus_at,
+    art_payout_at, art_view, blueprint, external_damage, external_power_gain,
+    mastered_art_aptitude_payout, mastered_art_aptitude_tenths, mastered_art_attributes,
+    mastered_art_bonus, mastered_art_bonus_payout, mastered_art_payout, mastered_art_view,
+    mastery_permille, printed_pomodoros, required_pomodoros,
 };
 pub use battle::{BattleReport, Guardian};
 // `duel` itself stays crate-private: it takes the seeded `Rng`, which is nobody

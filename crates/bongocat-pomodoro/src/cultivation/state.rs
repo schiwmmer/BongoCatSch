@@ -2826,6 +2826,14 @@ impl Cultivation {
             name: art.name,
             multiplier_permille: art.multiplier_permille,
             cost: art.cost,
+            // The move as the book prints it: how many blows a use throws, the
+            // band each is drawn from, and what a landing one lays on. The mark
+            // is the fight's, not the book's — it is spent in the fight the 外功
+            // is carried into, and a fresh fight starts unmarked.
+            hits: art.hits,
+            band_permille: art.band_permille,
+            effect: art.effect,
+            marked: false,
             // A completed 外功 spends its mastery share on every blow it lands;
             // an art one 阶 short of its last pays only its multiplier.
             mastery_permille: if rank >= art.grade.ranks() {

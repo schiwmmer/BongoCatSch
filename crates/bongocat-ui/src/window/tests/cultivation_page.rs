@@ -1290,8 +1290,8 @@ fn a_withered_plot_says_so_and_offers_the_dig(cx: &mut TestAppContext) {
     );
 }
 
-/// The satchel counts what it holds, lists five stacks lowest grade first, and
-/// keeps the rest one click away.
+/// The satchel counts what it holds, lists four stacks lowest grade first two to
+/// a row, and keeps the rest one click away.
 ///
 /// A satchel of twenty stacks is a wall on a page that is already a ladder, and
 /// the cheap end is the end a young garden can actually bring up — so that is
@@ -1324,15 +1324,21 @@ fn the_seed_panel_counts_its_stacks_and_unfolds(cx: &mut TestAppContext) {
     visual.update(|window, cx| window.render_frame(cx));
     for id in [
         "cultivation-seeds-total",
+        "cultivation-seed-row-0",
+        "cultivation-seed-row-1",
         "cultivation-seed-name-0-1-0",
         "cultivation-seed-name-0-2-0",
         "cultivation-seed-name-0-3-1",
         "cultivation-seed-name-0-4-2",
-        "cultivation-seed-name-0-5-3",
         "cultivation-seeds-toggle",
     ] {
         assert!(painted(visual, id), "the satchel must draw {id}");
     }
+    // Four, in two rows of two: the fifth and sixth kinds wait behind the fold.
+    assert!(
+        !painted(visual, "cultivation-seed-name-0-5-3"),
+        "the fifth stack waits behind the fold"
+    );
     assert!(
         !painted(visual, "cultivation-seed-name-0-6-4"),
         "the dearest stack waits behind the fold"

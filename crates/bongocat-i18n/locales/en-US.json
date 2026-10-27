@@ -683,7 +683,12 @@
       "success": "lands %{rate}%",
       "failures": "%{count} failed attempts",
       "aptitude": "aptitude +%{value} a rank",
-      "copies": "×%{count}"
+      "copies": "×%{count}",
+      "blows": "×%{count} blows",
+      "band": "%{min}%~%{max}% a blow",
+      "effect_slow": "chill: 速度 −%{value}%",
+      "effect_haste": "footwork: 速度 +%{value}%",
+      "effect_focus": "focus: 命中 +%{value}"
     },
     "derived": "Shown",
     "derived_hint": "From the four attributes; no points here",
