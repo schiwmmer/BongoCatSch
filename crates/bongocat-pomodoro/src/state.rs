@@ -847,7 +847,14 @@ impl PomodoroState {
         if let Some(live) = self.document.live.as_mut() {
             live.running_since_unix = Some(now_unix);
         }
-        self.advance(Duration::from_secs(u64::from(closed)), now_unix)
+        let completion = self.advance(Duration::from_secs(u64::from(closed)), now_unix);
+        // The re-anchor moved the instant the record counts from, so the
+        // remainder in it has to be the one the countdown holds now. A record
+        // left claiming a whole session from the new instant is a lie the next
+        // launch believes: it comes back with the twenty-one minutes before
+        // this launch already spent, and spends them again.
+        self.mirror_live_session(Some(now_unix));
+        completion
     }
 
     fn set_task_done(&mut self, task_id: u64, done: bool, now_unix: i64) {

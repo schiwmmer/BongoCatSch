@@ -224,6 +224,40 @@ fn a_restart_keeps_the_history_and_the_session_in_flight() {
     assert_eq!(reloaded.timer().remaining_seconds(), 400);
 }
 
+/// The record one launch writes is the record the next launch reads.
+///
+/// Resuming moved the instant the record counts from without moving the
+/// remainder beside it, so the document claimed a whole session from the
+/// moment the app opened — and the next launch believed it, handing back
+/// every minute the previous launch had already charged.
+#[test]
+fn a_second_restart_does_not_hand_back_the_time_the_first_one_charged() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let path = directory.path().join("pomodoro-tasks.json");
+
+    let mut state = PomodoroState::load(&path);
+    let task_id = create(&mut state, "restarted twice", 1);
+    state.apply(PomodoroCommand::StartTask { task_id }, 1_000);
+    crate::document::write_document(&path, state.document()).expect("write the document");
+
+    // Twenty-one minutes pass with the application closed, and it opens again:
+    // four minutes is what is left of the session.
+    let mut first = PomodoroState::load(&path);
+    assert!(first.resume_live_session(1_000 + 1_260).is_none());
+    assert_eq!(first.timer().remaining_seconds(), 240);
+    crate::document::write_document(&path, first.document()).expect("write the document");
+
+    // It closes again half a minute later. What comes back is four minutes
+    // less that half minute, not a session that has barely begun.
+    let mut second = PomodoroState::load(&path);
+    assert!(second.resume_live_session(1_000 + 1_260 + 30).is_none());
+    assert_eq!(
+        second.timer().remaining_seconds(),
+        210,
+        "the twenty-one minutes the first launch charged have to stay charged"
+    );
+}
+
 /// A session whose time ran out while the app was closed settles on the next
 /// launch: the growth and the count are paid, not quietly dropped.
 #[test]
