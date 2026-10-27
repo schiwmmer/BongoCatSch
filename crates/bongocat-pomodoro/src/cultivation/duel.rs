@@ -22,6 +22,15 @@ use super::{Attributes, Derived, Rng, arts::external_damage};
 pub const DUEL_ROUND_CAP: u32 = 30;
 
 /// How full a meter has to be before its owner acts.
+///
+/// The floor is the pace a fight of slow fighters shares. A fight is also
+/// capped at one action per tick per side, so a bar every speed on the field
+/// clears every tick would hand the turn to whoever's bank is ahead — and the
+/// banks then read the fight, not the speeds: a 1.6-to-1 edge in 速度
+/// compounded into a fourteen-to-one edge in turns, the slower side's bank
+/// wiped by every action it finally won. The bar is therefore raised to the
+/// faster side's speed (see `duel`), which puts the slower side back on the
+/// clock at the ratio of the speeds themselves.
 const METER_FULL: i64 = 1_000;
 
 /// A guard against a fight that cannot progress: no speed on either side means
@@ -217,6 +226,14 @@ pub fn duel(player: Fighter, guardian: Fighter, rng: &mut Rng) -> DuelReport {
         ((player.clone(), guardian.clone()), player, guardian);
     let player_name = player.name.clone();
     let guardian_name = guardian.name.clone();
+    // The bar this fight fills to: the shared floor, or the faster side's
+    // speed, whichever asks for more. A tick pays at most one action a side,
+    // so a bar both speeds clear every tick would make the banks — not the
+    // speeds — hand out the turns, and a modest edge in 速度 would shut the
+    // slower fighter out of the fight almost entirely.
+    let meter_full = METER_FULL
+        .max(i64::from(player.speed))
+        .max(i64::from(guardian.speed));
     let mut rounds = Vec::new();
     let mut player_meter = 0_i64;
     let mut guardian_meter = 0_i64;
@@ -228,19 +245,19 @@ pub fn duel(player: Fighter, guardian: Fighter, rng: &mut Rng) -> DuelReport {
         }
         player_meter += i64::from(player.speed);
         guardian_meter += i64::from(guardian.speed);
-        let player_acts = player_meter >= METER_FULL
-            && (player_meter >= guardian_meter || guardian_meter < METER_FULL);
-        let guardian_acts = !player_acts && guardian_meter >= METER_FULL;
+        let player_acts = player_meter >= meter_full
+            && (player_meter >= guardian_meter || guardian_meter < meter_full);
+        let guardian_acts = !player_acts && guardian_meter >= meter_full;
         if !player_acts && !guardian_acts {
             continue;
         }
         let round = if player_acts {
-            player_meter -= METER_FULL;
+            player_meter -= meter_full;
             let mut round = strike(&mut player, &mut guardian, rng);
             round.attacker = player_name.clone();
             round
         } else {
-            guardian_meter -= METER_FULL;
+            guardian_meter -= meter_full;
             let mut round = strike(&mut guardian, &mut player, rng);
             round.attacker = guardian_name.clone();
             round
@@ -404,6 +421,37 @@ mod tests {
         assert!(
             swift_blows > slow_blows,
             "a hundred to one in speed must mean more turns: {swift_blows} vs {slow_blows}"
+        );
+    }
+
+    /// Two deep fighters whose speeds both clear the shared pace: the slower
+    /// one still has to be on the clock. A bar the banks alone decided once
+    /// compounded a 1.6-to-1 edge in 速度 into a fourteen-to-one edge in turns
+    /// — the slower side swung twice in thirty rounds, and a burst that deep
+    /// ends most fights before its first turn ever comes.
+    #[test]
+    fn a_much_faster_fighter_still_shares_the_fight() {
+        let swift = brute("swift", 1_000_000, 1, 2_336);
+        let slow = brute("slow", 1_000_000, 1, 1_460);
+        let report = duel(swift.clone(), slow.clone(), &mut Rng::seeded(3));
+        assert_eq!(
+            report.rounds.len(),
+            DUEL_ROUND_CAP as usize,
+            "two near-unhurtable bodies run the fight to its cap"
+        );
+        let swift_blows = report
+            .rounds
+            .iter()
+            .filter(|round| round.attacker == "swift")
+            .count();
+        let slow_blows = report.rounds.len() - swift_blows;
+        assert!(
+            swift_blows > slow_blows,
+            "the faster side still earns more turns: {swift_blows} vs {slow_blows}"
+        );
+        assert!(
+            slow_blows * 4 >= report.rounds.len(),
+            "1.6 to 1 in speed is not a landslide in turns: {swift_blows} vs {slow_blows}"
         );
     }
 
