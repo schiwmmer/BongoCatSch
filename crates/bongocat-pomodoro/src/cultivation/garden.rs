@@ -281,6 +281,17 @@ pub fn seed_return(
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SeedStack {
     pub attribute: Attribute,
+    /// The 潜质 herb this stack grows, when it is one of the two plantable herbs
+    /// rather than an attribute herb.
+    ///
+    /// A herb stack carries a fixed tier — see [`herb_tier`] — and its
+    /// `attribute` is a don't-care the surface never reads; every domain rule
+    /// that matches on a stack matches on this field first, so a 悟心草 seed
+    /// and an attribute seed of the same tier and grade are two different
+    /// stacks. An old save's stacks predate the field and read as `None`, which
+    /// is exactly what they always were.
+    #[serde(default)]
+    pub herb: Option<super::AptitudeHerb>,
     pub tier: u8,
     /// The herb's grade. A seed from before grades existed reads as 地阶 — the
     /// numbers it already paid — so an upgraded save's garden is worth exactly
@@ -298,11 +309,38 @@ impl SeedStack {
     pub const fn single(attribute: Attribute, tier: u8, grade: SeedGrade) -> Self {
         Self {
             attribute,
+            herb: None,
             tier,
             grade,
             count: 1,
             name: None,
         }
+    }
+
+    /// A stack of one 潜质 herb seed, at the tier its herb is fixed at.
+    pub const fn herb_single(herb: super::AptitudeHerb, grade: SeedGrade) -> Self {
+        Self {
+            attribute: Attribute::Strength,
+            herb: Some(herb),
+            tier: herb_tier(herb),
+            grade,
+            count: 1,
+            name: None,
+        }
+    }
+}
+
+/// The garden tier a 潜质 herb grows at, when it is one of the two plantable
+/// herbs; `None` for the pill, which is never planted.
+///
+/// 慧心草 sits at tier six and 悟心草 at tier eight, so the rarer herb is the
+/// slower one: a herb is priced by what its 潜质 band is worth, and the band
+/// that is worth more asks for the longer bed.
+pub const fn herb_tier(herb: super::AptitudeHerb) -> u8 {
+    match herb {
+        super::AptitudeHerb::Wisdom => 6,
+        super::AptitudeHerb::Insight => 8,
+        super::AptitudeHerb::Marrow => 0,
     }
 }
 
@@ -334,6 +372,13 @@ pub(crate) fn seed_name(rng: &mut Rng) -> String {
 pub struct CropRecord {
     /// The attribute the harvest will raise.
     pub attribute: Attribute,
+    /// The 潜质 herb this crop grows, when it is one of the two plantable herbs.
+    ///
+    /// A herb crop's harvest feeds the body rather than an attribute, so its
+    /// `attribute` is a don't-care read exactly nowhere; see [`SeedStack::herb`]
+    /// for why the field has to be matched first.
+    #[serde(default)]
+    pub herb: Option<super::AptitudeHerb>,
     pub tier: u8,
     /// The grade the seed carried, which is what the harvest will pay at.
     #[serde(default)]
@@ -360,6 +405,26 @@ impl CropRecord {
         let tier = tier.clamp(1, MAX_SEED_TIER);
         Self {
             attribute,
+            herb: None,
+            tier,
+            grade,
+            name,
+            planted_at_unix: now_unix,
+            ready_at_unix: now_unix.saturating_add(grow_seconds(tier)),
+        }
+    }
+
+    /// A 潜质 herb crop planted now, at its herb's fixed tier.
+    pub fn herb_planted(
+        herb: super::AptitudeHerb,
+        grade: SeedGrade,
+        name: Option<String>,
+        now_unix: i64,
+    ) -> Self {
+        let tier = herb_tier(herb).clamp(1, MAX_SEED_TIER);
+        Self {
+            attribute: Attribute::Strength,
+            herb: Some(herb),
             tier,
             grade,
             name,

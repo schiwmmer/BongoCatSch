@@ -23,7 +23,7 @@ use bongocat_platform::{
     ModelSourcePickerError, ModelSourcePickerOutcome, pick_model_cover, pick_model_folder,
     validate_model_folder,
 };
-use bongocat_pomodoro::{Attribute, PomodoroClient, PomodoroCommand, SeedGrade};
+use bongocat_pomodoro::{PomodoroClient, PomodoroCommand};
 use gpui_kit::component::{
     ActiveTheme, Disableable, Icon, IndexPath, Root, Theme, ThemeMode, ThemeStyled, WindowExt,
     button::{Button, ButtonVariant, ButtonVariants},
@@ -332,7 +332,7 @@ pub struct SettingsView {
     /// so one click anywhere says what it will pay: the attribute, the points
     /// and how long it takes. One open at a time, the rule every other
     /// expandable row on this page follows.
-    pub(crate) cultivation_open_seed: Option<(Attribute, u8, SeedGrade)>,
+    pub(crate) cultivation_open_seed: Option<cultivation_settings::SeedKey>,
     /// Which plot's crop facts the cultivation page has open, if any. Kept
     /// apart from the seed above because a plot is addressed by its index, not
     /// by what is growing in it: two plots can hold the same herb.

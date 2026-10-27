@@ -573,6 +573,7 @@ fn a_harvest_is_logged_with_its_herb_and_its_points() {
     };
     document.seeds.push(SeedStack {
         attribute: Attribute::Mana,
+        herb: None,
         tier: 3,
         grade: SeedGrade::Earth,
         count: 1,
@@ -915,6 +916,7 @@ fn document_seeds(cultivation: &mut Cultivation, attribute: Attribute, tier: u8,
     let mut document = cultivation.document().clone();
     document.seeds.push(SeedStack {
         attribute,
+        herb: None,
         tier,
         grade: SeedGrade::Earth,
         count,
@@ -929,6 +931,7 @@ fn document_seed(cultivation: &mut Cultivation, attribute: Attribute, tier: u8, 
     let mut document = cultivation.document().clone();
     document.seeds.push(SeedStack {
         attribute,
+        herb: None,
         tier,
         grade,
         count: 1,
@@ -1017,6 +1020,170 @@ fn a_bought_herb_keeps_the_grade_the_shelf_showed() {
         } => assert_eq!(got, grade, "the row's grade is the one bought"),
         other => panic!("bought {other:?}, not a 慧心草"),
     }
+}
+
+/// Give the cultivator one 潜质 herb seed, without going through a drop. The
+/// purse is topped up so a gate the herb's harvest crosses can never block it.
+fn document_herb_seed(cultivation: &mut Cultivation, herb: AptitudeHerb, grade: SeedGrade) {
+    let mut document = cultivation.document().clone();
+    document.marrow_pills = document.marrow_pills.max(100);
+    document.seeds.push(SeedStack::herb_single(herb, grade));
+    *cultivation = Cultivation::new(document);
+}
+
+#[test]
+fn the_herb_tiers_are_fixed_by_the_herb() {
+    // 慧心草 is the rarer, faster herb at tier six; 悟心草 the slower, common
+    // one at tier eight.
+    assert_eq!(herb_tier(AptitudeHerb::Wisdom), 6);
+    assert_eq!(herb_tier(AptitudeHerb::Insight), 8);
+}
+
+#[test]
+fn a_herb_seed_planted_and_picked_feeds_the_body() {
+    let mut cultivation = tended(Cultivation::default());
+    document_herb_seed(&mut cultivation, AptitudeHerb::Wisdom, SeedGrade::Earth);
+    // The seed sits in the satchel at its herb's fixed tier, and planting it
+    // spends the seed and beds a herb crop.
+    let seed = cultivation
+        .document()
+        .seeds
+        .iter()
+        .find(|seed| seed.herb == Some(AptitudeHerb::Wisdom))
+        .expect("the seed is held");
+    assert_eq!(seed.tier, 6, "慧心草 grows at tier six");
+    assert_eq!(
+        cultivation.plant_herb_seed(AptitudeHerb::Wisdom, SeedGrade::Earth, 0),
+        Some(PlantOutcome::Planted)
+    );
+    assert!(cultivation.document().seeds.is_empty(), "the seed is spent");
+    let view = cultivation.view();
+    let crop = view.plots[0].crop.as_ref().expect("the crop is in the bed");
+    assert_eq!(crop.herb, Some(AptitudeHerb::Wisdom));
+    // Once it is ripe it is picked, and the body is fed on the spot.
+    let before = cultivation.aptitude_tenths();
+    cultivation
+        .harvest(0, grow_seconds(6))
+        .expect("a ripe herb crop");
+    assert!(
+        cultivation.aptitude_tenths() > before,
+        "the harvest fed the body"
+    );
+    assert!(
+        cultivation.document().herb_stacks.is_empty(),
+        "nothing was held over: the herb was taken, not hoarded"
+    );
+    // The log carries both halves: the herb came up, and the body was fed.
+    let events = &cultivation.view().events;
+    assert!(
+        events.iter().any(|event| matches!(
+            event.detail,
+            EventDetail::Harvested {
+                herb: Some(AptitudeHerb::Wisdom),
+                ..
+            }
+        )),
+        "the harvest line names the herb"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event.detail, EventDetail::Aptitude { .. })),
+        "the feed line records the 潜质 move"
+    );
+}
+
+#[test]
+fn a_herb_seed_that_cannot_be_fed_is_kept_for_the_satchel() {
+    // A body already at the top of the band cannot take the herb; the harvest
+    // keeps it in the bag rather than burning a herb the body would refuse.
+    let mut cultivation = tended(Cultivation::default());
+    document_herb_seed(&mut cultivation, AptitudeHerb::Insight, SeedGrade::Earth);
+    // Cap 潜质 at its ceiling so the feed is refused.
+    let mut document = cultivation.document().clone();
+    document.aptitude_tenths = Some(APTITUDE_MAX_TENTHS);
+    cultivation = Cultivation::new(document);
+    cultivation
+        .plant_herb_seed(AptitudeHerb::Insight, SeedGrade::Earth, 0)
+        .expect("the seed is planted");
+    cultivation
+        .harvest(0, grow_seconds(8))
+        .expect("a ripe herb crop");
+    assert_eq!(
+        cultivation.aptitude_herbs()[0],
+        1,
+        "the 悟心草 is held for the satchel"
+    );
+    assert!(
+        cultivation
+            .document()
+            .herb_stacks
+            .iter()
+            .any(|stack| stack.herb == AptitudeHerb::Insight),
+        "the herb landed in the bag"
+    );
+}
+
+#[test]
+fn an_attribute_seed_and_a_herb_seed_of_the_same_tier_and_grade_are_distinct() {
+    // The two share a tier and a grade only by coincidence, but they are two
+    // different things to plant: a herb stack must never be read as an
+    // attribute seed of the same numbers.
+    let mut cultivation = tended(Cultivation::default());
+    document_herb_seed(&mut cultivation, AptitudeHerb::Wisdom, SeedGrade::Earth);
+    document_seed(&mut cultivation, Attribute::Strength, 6, SeedGrade::Earth);
+    // Planting the attribute seed finds the attribute stack, not the herb one.
+    cultivation
+        .plant(Attribute::Strength, 6, SeedGrade::Earth, 0)
+        .expect("the attribute seed is planted");
+    assert_eq!(
+        cultivation.view().plots[0]
+            .crop
+            .as_ref()
+            .and_then(|crop| crop.herb),
+        None,
+        "the bed grew the attribute crop"
+    );
+    assert!(
+        cultivation
+            .document()
+            .seeds
+            .iter()
+            .any(|seed| seed.herb == Some(AptitudeHerb::Wisdom)),
+        "the herb seed still waits in the satchel"
+    );
+}
+
+#[test]
+fn exploration_rewards_climb_with_the_realm() {
+    // 境界越高, 奖励越多: the two levers a walk reads — the 阶级 its goods
+    // stand at and the multiplier its quality roll is read through — both rise
+    // monotonically with the realm a walk is taken in, so a save that climbs
+    // the ladder finds deeper goods on the same road and never poorer ones.
+    let mut tiers = Vec::new();
+    let mut factors = Vec::new();
+    for realm in Realm::ALL {
+        let power = super::drop::realm_power(realm);
+        tiers.push(super::drop::tier_for_power(power));
+        factors.push(super::drop::power_factor_permille(power));
+    }
+    for pair in tiers.windows(2) {
+        assert!(pair[1] >= pair[0], "the goods tier never falls: {tiers:?}");
+    }
+    for pair in factors.windows(2) {
+        assert!(
+            pair[1] >= pair[0],
+            "the quality factor never falls: {factors:?}"
+        );
+    }
+    assert!(
+        tiers.last() > tiers.first(),
+        "a deeper 境界 pays a higher tier: {tiers:?}"
+    );
+    assert!(
+        factors.last() > factors.first(),
+        "a deeper 境界 pays a better quality: {factors:?}"
+    );
 }
 
 #[test]
@@ -1459,6 +1626,38 @@ fn a_job_is_taken_and_paid_when_it_comes_due() {
         )
     });
     assert!(logged, "the purse has to be readable after the quit");
+}
+
+/// The job in hand keeps its row on the board, but the board reads it as taken
+/// rather than open: the row is the same job the working line names, so it is
+/// marked and a second take would be refused.
+#[test]
+fn the_taken_job_is_marked_on_the_board() {
+    let mut cultivation = Cultivation::default();
+    let day = 20_000;
+    let board = cultivation.jobs(day);
+    let offer = board[1];
+    cultivation
+        .accept_job(1, 1_000, day)
+        .expect("the job is taken");
+    let view = cultivation.view_on(1_100, day);
+    let taken = view
+        .jobs
+        .iter()
+        .filter(|job| job.working)
+        .map(|job| job.slot)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        taken,
+        vec![1],
+        "only the job in hand reads as taken: {taken:?}"
+    );
+    assert!(
+        view.jobs[1].tier == offer.tier
+            && view.jobs[1].hours == offer.hours
+            && view.jobs[1].grade == offer.grade,
+        "the taken row is the accepted job"
+    );
 }
 
 /// A job and a walk are the same hours, so neither can be taken while the other

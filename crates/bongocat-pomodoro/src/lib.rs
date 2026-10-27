@@ -87,7 +87,7 @@ pub use cultivation::{
     art_bonus, art_bonus_at, art_payout_at, art_price, art_view, base_attributes,
     base_success_permille, blueprint, discipline_bonus, discipline_cap, equipment_price,
     external_damage, external_power_gain, floor_level, grow_seconds, growth_permille,
-    harvest_points, job_stones, layer_growth, layer_rank, level_for_growth,
+    harvest_points, herb_tier, job_stones, layer_growth, layer_rank, level_for_growth,
     mastered_art_aptitude_payout, mastered_art_aptitude_tenths, mastered_art_attributes,
     mastered_art_bonus, mastered_art_bonus_payout, mastered_art_payout, mastered_art_view,
     offers_for_day, plant_permille, power_factor_permille, printed_pomodoros,

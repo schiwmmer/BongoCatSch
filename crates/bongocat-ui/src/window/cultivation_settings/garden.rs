@@ -30,21 +30,42 @@ pub(super) fn seed_facts(locale: &str, attribute: Attribute, tier: u8, grade: Se
     )
 }
 
+/// Which seed a row names — and which open-detail slot it owns.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum SeedKey {
+    /// A crop seed: one attribute, one tier, one grade.
+    Attr(Attribute, u8, SeedGrade),
+    /// A 潜质 herb seed: which herb, at which grade.
+    Herb(AptitudeHerb, SeedGrade),
+}
+
 /// The line under a seed's row: what it pays, what a sale would bring, and —
 /// on the shelf and in the satchel — how long it would take to grow.
 fn seed_detail(
     view: &Entity<SettingsView>,
-    key: (Attribute, u8, SeedGrade),
+    key: SeedKey,
     line: String,
     tokens: Tokens,
 ) -> gpui_kit::AnyElement {
+    let detail_id = match &key {
+        SeedKey::Attr(attribute, tier, grade) => {
+            format!(
+                "cultivation-seed-detail-{}-{}-{}",
+                attribute.index(),
+                tier,
+                grade.index()
+            )
+        }
+        SeedKey::Herb(herb, grade) => {
+            format!(
+                "cultivation-seed-detail-herb-{}-{}",
+                herb.name_key(),
+                grade.index()
+            )
+        }
+    };
     div()
-        .id(format!(
-            "cultivation-seed-detail-{}-{}-{}",
-            key.0.index(),
-            key.1,
-            key.2.index()
-        ))
+        .id(detail_id)
         .w_full()
         .text_xs()
         .text_color(tokens.muted)
@@ -62,11 +83,172 @@ fn seed_detail(
         .into_any_element()
 }
 
+/// One 潜质 herb seed waiting to be planted.
+///
+/// A herb seed is a seed in the ways that matter — it occupies a plot, grows
+/// at the herb's own tier, and comes home as a harvest — but it is planted by
+/// herb and grade rather than attribute and tier, sells the same way, and
+/// names itself from the herb's catalog rather than an attribute's. So it is
+/// its own row, a sibling of the attribute-seed rows below.
+fn herb_row(
+    view: &Entity<SettingsView>,
+    cultivation: &CultivationView,
+    seed: &SeedView,
+    plots_full: bool,
+    open_seed: Option<SeedKey>,
+    locale: &str,
+    tokens: Tokens,
+) -> gpui_kit::AnyElement {
+    let herb = seed
+        .herb
+        .expect("herb_row is only ever called on a 潜质 herb seed");
+    let grade = seed.grade;
+    let key = SeedKey::Herb(herb, grade);
+    let label = format!(
+        "{} ×{}",
+        herb_seed_label(locale, herb, seed.tier, grade, seed.name.as_deref()),
+        seed.count
+    );
+    let grade_paint = seed_grade_color(grade);
+    let mut button = Button::new(format!(
+        "cultivation-plant-herb-{}-{}",
+        herb.name_key(),
+        grade.index()
+    ))
+    .ghost()
+    .small()
+    .label(text(locale, "cultivation.seed.plant"));
+    if !plots_full {
+        button = button.on_click({
+            let view = view.clone();
+            move |_, _, cx| {
+                view.update(cx, |view, cx| {
+                    let _ = view
+                        .pomodoro
+                        .try_publish(PomodoroCommand::PlantHerbSeed { herb, grade });
+                    view.poll_pomodoro(cx);
+                });
+            }
+        });
+    }
+    let name = div()
+        .id(format!(
+            "cultivation-seed-name-herb-{}-{}",
+            herb.name_key(),
+            grade.index()
+        ))
+        .w_full()
+        .min_w_0()
+        .truncate()
+        .text_xs()
+        .text_color(grade_paint)
+        .child(label)
+        .test_support()
+        .on_click({
+            let view = view.clone();
+            move |_, _, cx| {
+                view.update(cx, |view, cx| {
+                    view.cultivation_open_seed = if view.cultivation_open_seed == Some(key) {
+                        None
+                    } else {
+                        Some(key)
+                    };
+                    cx.notify();
+                });
+            }
+        });
+    let odds_line = if cultivation.garden_pity_ready {
+        text(locale, "cultivation.garden.odds_certain").to_string()
+    } else {
+        let percent = (plant_permille(cultivation.garden_rank, seed.tier, seed.grade) + 5) / 10;
+        format_text(
+            locale,
+            "cultivation.garden.plant_odds",
+            &[("percent", percent.to_string())],
+        )
+    };
+    let named = div()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .child(name)
+        .child(
+            div()
+                .id(format!(
+                    "cultivation-seed-odds-herb-{}-{}",
+                    herb.name_key(),
+                    grade.index()
+                ))
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(odds_line)
+                .test_support(),
+        );
+    let mut row = div()
+        .id(format!(
+            "cultivation-seed-herb-{}-{}",
+            herb.name_key(),
+            grade.index()
+        ))
+        .flex()
+        .flex_col()
+        .gap_1()
+        .py_1()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(named)
+                .child(button)
+                .child(
+                    Button::new(format!(
+                        "cultivation-sell-seed-herb-{}-{}",
+                        herb.name_key(),
+                        grade.index()
+                    ))
+                    .ghost()
+                    .small()
+                    .label(sell_label(locale, seed.sell_price))
+                    .on_click({
+                        let view = view.clone();
+                        move |_, _, cx| {
+                            view.update(cx, |view, cx| {
+                                let _ = view
+                                    .pomodoro
+                                    .try_publish(PomodoroCommand::SellHerbSeed { herb, grade });
+                                view.poll_pomodoro(cx);
+                            });
+                        }
+                    }),
+                ),
+        );
+    if open_seed == Some(key) {
+        row = row.child(seed_detail(
+            view,
+            key,
+            format!(
+                "{} · {}",
+                super::shop::herb_effect(herb, Some(grade), locale),
+                format_text(
+                    locale,
+                    "cultivation.shop.detail_sell",
+                    &[("stones", seed.sell_price.to_string())],
+                ),
+            ),
+            tokens,
+        ));
+    }
+    row.into_any_element()
+}
+
 /// The seeds waiting to be planted.
 pub(super) fn seed_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
-    open_seed: Option<(Attribute, u8, SeedGrade)>,
+    open_seed: Option<SeedKey>,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
@@ -86,7 +268,21 @@ pub(super) fn seed_panel(
     }
     let plots_full = cultivation.plots.iter().all(|plot| plot.crop.is_some());
     let rows = cultivation.seeds.iter().take(8).map(|seed| {
-        let key = (seed.attribute, seed.tier, seed.grade);
+        // A 潜质 herb seed is its own row: planted and sold by herb and grade,
+        // and named from the herb rather than an attribute. The attribute rows
+        // below keep their own shape.
+        if seed.herb.is_some() {
+            return herb_row(
+                view,
+                cultivation,
+                seed,
+                plots_full,
+                open_seed,
+                locale,
+                tokens,
+            );
+        }
+        let key = SeedKey::Attr(seed.attribute, seed.tier, seed.grade);
         let label = format!(
             "{} ×{}",
             seed_label(
@@ -255,7 +451,7 @@ pub(super) fn seed_panel(
                 tokens,
             ));
         }
-        row
+        row.into_any_element()
     });
     panel = panel.children(rows);
     if plots_full {

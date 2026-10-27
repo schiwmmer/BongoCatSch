@@ -19,7 +19,7 @@ use bongocat_pomodoro::{
     BonusFind, CultivationView, DailyKind, Derived, DropView, EquipSlot, EventDetail, EventRecord,
     ExplorationHours, ExplorationOutcome, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR,
     MarrowSource, MasteredArtView, PlotView, PomodoroCommand, ProvingBlocked, Rarity, Realm,
-    SaleKind, SeedGrade, ShopOffer, ShopOfferView, TRIAL_ATTEMPTS_PER_DAY, TrialBlocked,
+    SaleKind, SeedGrade, SeedView, ShopOffer, ShopOfferView, TRIAL_ATTEMPTS_PER_DAY, TrialBlocked,
     art_bonus_at, art_payout_at, blueprint, grow_seconds, harvest_points,
     mastered_art_bonus_payout, mastered_art_payout, plant_permille, star_multiplier_permille,
 };
@@ -43,6 +43,10 @@ mod shop;
 mod trial;
 
 pub(super) use attributes::{CombatStats, derived_rows};
+// The seed rows name which of the two kinds of seed they are — an attribute
+// seed or a 潜质 herb seed — so the page's one open-detail slot can tell them
+// apart. Only the window's own state field needs the type, so it stays here.
+pub(super) use garden::SeedKey;
 // Only the headless page tests read the formula directly; the lib itself
 // reaches it through the page render.
 use arts::{arts_panel, mastered_panel};
@@ -1000,6 +1004,43 @@ pub(super) fn seed_label(
             "cultivation.seed.label",
             &[
                 ("attribute", text(locale, attribute.name_key()).to_string()),
+                ("tier", tier.to_string()),
+                ("grade", grade_name),
+            ],
+        ),
+    }
+}
+
+/// A 潜质 herb seed's or crop's display line: its xianxia name when the stack
+/// carries one, else the herb's own catalog name, and in both cases its tier.
+///
+/// Reuses the seed label keys, so a herb seed and an attribute seed of the same
+/// numbers read the same way on the shelf and in the satchel — only the name
+/// they fall back to differs (a herb's catalog name, not an attribute's).
+pub(super) fn herb_seed_label(
+    locale: &str,
+    herb: AptitudeHerb,
+    tier: u8,
+    grade: SeedGrade,
+    name: Option<&str>,
+) -> String {
+    let grade_name = text(locale, grade.name_key()).to_string();
+    let fallback = text(locale, herb.name_key()).to_string();
+    match name {
+        Some(name) => format_text(
+            locale,
+            "cultivation.seed.label_named",
+            &[
+                ("name", name.to_owned()),
+                ("tier", tier.to_string()),
+                ("grade", grade_name),
+            ],
+        ),
+        None => format_text(
+            locale,
+            "cultivation.seed.label",
+            &[
+                ("attribute", fallback),
                 ("tier", tier.to_string()),
                 ("grade", grade_name),
             ],

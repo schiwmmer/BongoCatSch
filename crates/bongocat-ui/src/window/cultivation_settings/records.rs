@@ -42,6 +42,27 @@ pub(super) fn record_section(
         .child(section_title(locale, "cultivation.record.title", tokens))
         // Marked so a frame can be asked whether the record is on screen.
         .test_support();
+    // The door is the state the whole log is read through: 在家 the cultivator
+    // can act — fight a 破境, a 守卫 or a 试炼, take a walk or a job — and
+    // 外出 every one of those waits for the road home. It sits above the events
+    // so the page's first answer to "what is going on" is where the cultivator
+    // is, and it is printed even when nothing has happened yet.
+    column = column.child(
+        div()
+            .id("cultivation-at-home")
+            .text_xs()
+            .text_color(if cultivation.at_home {
+                tokens.accent
+            } else {
+                tokens.muted
+            })
+            .child(if cultivation.at_home {
+                text(locale, "cultivation.record.status_home")
+            } else {
+                text(locale, "cultivation.record.status_out")
+            })
+            .test_support(),
+    );
     // The offset is read once per render rather than once per line: every line
     // on the page belongs to the same local clock.
     let offset = bongocat_platform::local_utc_offset_seconds();
@@ -413,6 +434,7 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
         }
         EventDetail::Withered {
             attribute,
+            herb,
             tier,
             grade,
             name,
@@ -425,14 +447,15 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
         // because failing at ninety-five and failing at thirty are not the same
         // piece of news, and the gardener is entitled to know which happened.
         {
+            let seed = match herb {
+                Some(herb) => herb_seed_label(locale, *herb, *tier, *grade, name.as_deref()),
+                None => seed_label(locale, *attribute, *tier, *grade, name.as_deref()),
+            };
             format_text(
                 locale,
                 "cultivation.event.withered",
                 &[
-                    (
-                        "seed",
-                        seed_label(locale, *attribute, *tier, *grade, name.as_deref()),
-                    ),
+                    ("seed", seed),
                     ("percent", (permille / 10).to_string()),
                     ("xp", compact_number(u64::try_from(*xp).unwrap_or(0))),
                 ],
@@ -530,6 +553,7 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
         EventDetail::HarvestBare => text(locale, "cultivation.event.harvest").to_string(),
         EventDetail::Harvested {
             attribute,
+            herb,
             tier,
             grade,
             name,
@@ -537,18 +561,32 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             xp,
             seed,
         } => {
-            let mut line = format_text(
-                locale,
-                "cultivation.event.harvested",
-                &[
-                    (
+            // A 潜质 herb crop is grown to be taken, not to raise an attribute:
+            // its line names the herb and what the garden banked, and the feed
+            // it paid the body is the 潜质 line beside it (or the satchel, if
+            // the body was already at the top of the band).
+            let mut line = match herb {
+                Some(herb) => format_text(
+                    locale,
+                    "cultivation.event.herb_harvested",
+                    &[(
                         "seed",
-                        seed_label(locale, *attribute, *tier, *grade, name.as_deref()),
-                    ),
-                    ("attribute", text(locale, attribute.name_key()).to_string()),
-                    ("points", points.to_string()),
-                ],
-            );
+                        herb_seed_label(locale, *herb, *tier, *grade, name.as_deref()),
+                    )],
+                ),
+                None => format_text(
+                    locale,
+                    "cultivation.event.harvested",
+                    &[
+                        (
+                            "seed",
+                            seed_label(locale, *attribute, *tier, *grade, name.as_deref()),
+                        ),
+                        ("attribute", text(locale, attribute.name_key()).to_string()),
+                        ("points", points.to_string()),
+                    ],
+                ),
+            };
             // The pull pays the garden as well as the body: the same harvest is
             // what buys the next rank, and a bar that moved with nothing on the
             // line saying why is a rank the user cannot plan for. An old save's
@@ -564,7 +602,8 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
                 ));
             }
             // The seed a pull gives back is half of what a harvest is worth,
-            // and it used to live only in the notice the next quit forgot.
+            // and it used to live only in the notice the next quit forgot. A
+            // herb crop gives none back — it was grown to be taken.
             if let Some(returned) = seed {
                 line.push_str(&format!(
                     " · {}",
@@ -872,6 +911,7 @@ mod tests {
             points: 10,
             xp: 10,
             seed: Some("云芝".to_owned()),
+            herb: None,
         };
         let line = event_line(&detail, "zh-CN");
         assert!(line.contains("青芝"), "the crop it pulled: {line}");
@@ -891,6 +931,7 @@ mod tests {
             points: 10,
             xp: 0,
             seed: None,
+            herb: None,
         };
         let line = event_line(&detail, "zh-CN");
         assert!(!line.contains("造化"), "no mastery clause: {line}");

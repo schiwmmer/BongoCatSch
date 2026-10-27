@@ -96,8 +96,9 @@ pub use explore::{
 };
 pub use garden::{
     CropRecord, FREE_PLOT_COUNT, MAX_GARDEN_RANK, MAX_PLOT_COUNT, MAX_SEED_TIER, PITY_MIN_PERMILLE,
-    PITY_STREAK, PlotRecord, SeedGrade, SeedStack, grow_seconds, harvest_points, plant_permille,
-    rank_cost, rank_for_xp, rank_xp, rank_xp_total, seed_return_permille, wither_points,
+    PITY_STREAK, PlotRecord, SeedGrade, SeedStack, grow_seconds, harvest_points, herb_tier,
+    plant_permille, rank_cost, rank_for_xp, rank_xp, rank_xp_total, seed_return_permille,
+    wither_points,
 };
 pub use items::{
     EquipSlot, EquipmentRecord, GearEffect, MAX_STAR, Rarity, SLOT_COUNT, STAR_SUCCESS_PERMILLE,

@@ -818,6 +818,7 @@ mod tests {
                 grade: bongocat_pomodoro::SeedGrade::Earth,
                 name: None,
                 ready_at_unix,
+                herb: None,
             }),
         }
     }

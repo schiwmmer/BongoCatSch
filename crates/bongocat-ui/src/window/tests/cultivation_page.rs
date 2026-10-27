@@ -16,10 +16,10 @@ use crate::window::cultivation_settings;
 use bongocat_pomodoro::{
     ArtGrade, ArtOutcome, ArtOwnership, Attribute, Attributes, CropRecord, Cultivation,
     CultivationDocument, DailyKind, DailyOutcome, Derived, DuelReport, DuelRound, EventDetail,
-    EventRecord, ExplorationFindView, ExplorationOutcome, Fighter, ItemView, LAYERS_PER_STAGE,
-    OwnedArt, PLAYER_NAME, PlotRecord, PomodoroCommand, PomodoroSnapshot, PomodoroState,
-    ProvingBlocked, Rarity, SeedGrade, SeedStack, ShopOffer, TrainingView, TrialBlocked,
-    TrialOutcome, WANDERER_NAME, threshold_for,
+    EventRecord, ExplorationFindView, ExplorationOutcome, Fighter, ItemView, JobRun,
+    LAYERS_PER_STAGE, OwnedArt, PLAYER_NAME, PlotRecord, PomodoroCommand, PomodoroSnapshot,
+    PomodoroState, ProvingBlocked, Rarity, SeedGrade, SeedStack, ShopOffer, TrainingView,
+    TrialBlocked, TrialOutcome, WANDERER_NAME, threshold_for,
 };
 use gpui_kit::{ScrollDelta, point};
 
@@ -356,6 +356,64 @@ fn the_board_of_jobs_is_on_the_page(cx: &mut TestAppContext) {
         window.render_frame(cx);
         window.click("cultivation-job-take-0", cx);
     });
+}
+
+/// The job in hand keeps its place on the board but reads as taken: the take
+/// button is gone, a 接取中 tag is in its place, and the working line above the
+/// board still says what the work will pay. The board cannot be read as
+/// offering a second copy of work already under way.
+#[gpui_kit::test]
+fn a_taken_job_reads_as_taken_not_open(cx: &mut TestAppContext) {
+    let mut cultivation = Cultivation::default().view();
+    if let Some(job) = cultivation.jobs.first_mut() {
+        job.working = true;
+    }
+    cultivation.work = Some(JobRun {
+        started_unix: 0,
+        ends_unix: 3_600,
+        tier: 1,
+        hours: 1,
+        grade: ArtGrade::Yellow,
+    });
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    scroll_until_visible(visual, "cultivation-jobs");
+    assert!(
+        painted(visual, "cultivation-job-taken-0"),
+        "the job in hand reads as taken on the board"
+    );
+    assert!(
+        !painted(visual, "cultivation-job-take-0"),
+        "a taken job has no take button"
+    );
+}
+
+/// The door is the page's first answer to what is going on: 在家 the cultivator
+/// can act — a fight, a walk, a job — and 外出 everything but the road home
+/// waits. Both states draw the same row, so it is read twice: once at home,
+/// once out on a walk.
+#[gpui_kit::test]
+fn the_door_reads_where_the_cultivator_is(cx: &mut TestAppContext) {
+    let home = Cultivation::default().view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(home));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    scroll_until_visible(visual, "cultivation-at-home");
+    assert!(
+        painted(visual, "cultivation-at-home"),
+        "the door is drawn while the cultivator is at home"
+    );
+    let mut away = Cultivation::default().view();
+    away.at_home = false;
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(away));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    scroll_until_visible(visual, "cultivation-at-home");
+    assert!(
+        painted(visual, "cultivation-at-home"),
+        "the door is drawn while the cultivator is out"
+    );
 }
 
 /// Every rule on the page is read beside its title, not filed behind a hover.
@@ -1165,6 +1223,7 @@ fn a_seed_says_what_it_pays_at_every_stage(cx: &mut TestAppContext) {
             grade: SeedGrade::Earth,
             count: 1,
             name: Some("青芝".to_owned()),
+            herb: None,
         }],
         plots: vec![PlotRecord {
             crop: Some(CropRecord::planted(

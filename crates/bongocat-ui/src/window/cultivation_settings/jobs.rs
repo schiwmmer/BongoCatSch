@@ -44,7 +44,7 @@ pub(super) fn jobs_panel(
         .children(work_lines(cultivation, locale, tokens));
     let rows = view.clone();
     for job in &cultivation.jobs {
-        panel = panel.child(job_row(&rows, job, locale));
+        panel = panel.child(job_row(&rows, job, locale, tokens));
     }
     panel
         .child(
@@ -146,6 +146,7 @@ fn job_row(
     view: &Entity<SettingsView>,
     job: &bongocat_pomodoro::JobView,
     locale: &str,
+    tokens: Tokens,
 ) -> impl IntoElement {
     // The grade is the coloured word at the head of the row, so the line beside
     // it says the three numbers that are not the grade.
@@ -159,6 +160,34 @@ fn job_row(
         ],
     );
     let slot = job.slot;
+    // A job the cultivator is already on is not open: the board keeps the row
+    // so the page can say 接取中 where the take button would be, and a second
+    // click would only be refused.
+    let action = if job.working {
+        div()
+            .id(format!("cultivation-job-taken-{}", job.slot))
+            .text_xs()
+            .text_color(tokens.muted)
+            .child(text(locale, "cultivation.jobs.taken"))
+            .test_support()
+            .into_any_element()
+    } else {
+        Button::new(format!("cultivation-job-take-{}", job.slot))
+            .small()
+            .label(text(locale, "cultivation.jobs.accept"))
+            .on_click({
+                let view = view.clone();
+                move |_, _, cx| {
+                    view.update(cx, |view, cx| {
+                        let _ = view
+                            .pomodoro
+                            .try_publish(PomodoroCommand::AcceptJob { slot });
+                        cx.notify();
+                    });
+                }
+            })
+            .into_any_element()
+    };
     div()
         .id(format!("cultivation-job-{}", job.slot))
         .flex()
@@ -181,21 +210,6 @@ fn job_row(
                 )
                 .child(div().text_xs().child(label)),
         )
-        .child(
-            Button::new(format!("cultivation-job-take-{}", job.slot))
-                .small()
-                .label(text(locale, "cultivation.jobs.accept"))
-                .on_click({
-                    let view = view.clone();
-                    move |_, _, cx| {
-                        view.update(cx, |view, cx| {
-                            let _ = view
-                                .pomodoro
-                                .try_publish(PomodoroCommand::AcceptJob { slot });
-                            cx.notify();
-                        });
-                    }
-                }),
-        )
+        .child(action)
         .test_support()
 }

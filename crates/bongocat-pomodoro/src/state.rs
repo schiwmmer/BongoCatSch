@@ -211,6 +211,13 @@ pub enum PomodoroCommand {
         /// The herb's grade: a stack is one attribute, one tier and one grade.
         grade: crate::SeedGrade,
     },
+    /// Plant one owned 潜质 herb seed — 悟心草 or 慧心草 — in the first empty
+    /// plot, at the tier its herb grows at.
+    PlantHerbSeed {
+        herb: crate::AptitudeHerb,
+        /// The seed's grade, which is what the harvest's feed pays at.
+        grade: crate::SeedGrade,
+    },
     /// Pick a ripe crop out of a plot.
     HarvestPlot { plot: usize },
     /// Buy one more garden plot with 灵石, past the four the garden starts
@@ -282,6 +289,11 @@ pub enum PomodoroCommand {
         tier: u8,
         grade: crate::SeedGrade,
     },
+    /// Sell one 潜质 herb seed out of a stack — 悟心草 or 慧心草.
+    SellHerbSeed {
+        herb: crate::AptitudeHerb,
+        grade: crate::SeedGrade,
+    },
     /// Spend 灵石 on one attempt at a piece of gear's next star.
     ///
     /// The wager is the piece's own: half of what it sells for, a success rate
@@ -324,6 +336,7 @@ impl PomodoroCommand {
             // Every cultivation command is a durable move: a planted seed, a
             // harvest, a worn item and a breakthrough all outlive the session.
             Self::PlantSeed { .. }
+            | Self::PlantHerbSeed { .. }
             | Self::HarvestPlot { .. }
             | Self::BuyPlot
             | Self::UpgradeGarden
@@ -347,6 +360,7 @@ impl PomodoroCommand {
             | Self::SellEquipment { .. }
             | Self::SellArt { .. }
             | Self::SellSeed { .. }
+            | Self::SellHerbSeed { .. }
             | Self::StarEquipment { .. }
             | Self::UseAptitudeHerb { .. }
             | Self::UseMarrowPill
@@ -493,6 +507,9 @@ impl PomodoroState {
             } => {
                 self.cultivation.plant(attribute, tier, grade, now_unix);
             }
+            PomodoroCommand::PlantHerbSeed { herb, grade } => {
+                self.cultivation.plant_herb_seed(herb, grade, now_unix);
+            }
             PomodoroCommand::HarvestPlot { plot } => {
                 self.cultivation.harvest(plot, now_unix);
             }
@@ -582,6 +599,11 @@ impl PomodoroState {
                 grade,
             } => {
                 if let Err(refusal) = self.cultivation.sell_seed(attribute, tier, grade, now_unix) {
+                    self.cultivation.note_refusal(Refusal::Trade(refusal));
+                }
+            }
+            PomodoroCommand::SellHerbSeed { herb, grade } => {
+                if let Err(refusal) = self.cultivation.sell_herb_seed(herb, grade, now_unix) {
                     self.cultivation.note_refusal(Refusal::Trade(refusal));
                 }
             }

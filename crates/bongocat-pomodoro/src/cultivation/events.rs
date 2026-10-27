@@ -178,6 +178,11 @@ pub enum EventDetail {
     /// nothing to check against a garden that is now bare.
     Harvested {
         attribute: Attribute,
+        /// The 潜质 herb this crop grew, when it was a herb seed rather than an
+        /// attribute seed. The line reads the herb, never the `attribute`,
+        /// which is a don't-care carried only to keep the shape of the record.
+        #[serde(default)]
+        herb: Option<super::AptitudeHerb>,
         #[serde(default)]
         tier: u8,
         /// The grade the crop was planted at, which is what its points were
@@ -187,7 +192,8 @@ pub enum EventDetail {
         grade: super::SeedGrade,
         #[serde(default)]
         name: Option<String>,
-        /// What the harvest added to that attribute, permanently.
+        /// What the harvest added to that attribute, permanently. Zero for a
+        /// herb crop, which feeds the body instead.
         points: i32,
         /// What the pull added to the garden's 造化 — the currency the next rank
         /// is bought with.
@@ -217,6 +223,10 @@ pub enum EventDetail {
     /// something, so its 造化 does too.
     Withered {
         attribute: Attribute,
+        /// The 潜质 herb the seed would have grown, when it was a herb seed; a
+        /// herb seed that dies reads as the herb, never as its `attribute`.
+        #[serde(default)]
+        herb: Option<super::AptitudeHerb>,
         #[serde(default)]
         tier: u8,
         #[serde(default)]

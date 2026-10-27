@@ -335,6 +335,10 @@ pub struct JobView {
     pub grade: ArtGrade,
     /// What it pays, as the one figure the board is read against.
     pub stones: u32,
+    /// Whether this is the job the cultivator is already working: the board
+    /// keeps the row so the page can say 接取中, but taking it again would be
+    /// refused, so the row is shown as taken rather than as open.
+    pub working: bool,
 }
 
 /// One owned item, as a surface reads it.
@@ -370,6 +374,10 @@ pub struct ItemView {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SeedView {
     pub attribute: Attribute,
+    /// The 潜质 herb this stack grows, when it is a herb seed rather than an
+    /// attribute seed. A surface shows a herb seed by its herb, never by its
+    /// `attribute`, which is a don't-care it is not allowed to read.
+    pub herb: Option<super::AptitudeHerb>,
     pub tier: u8,
     /// The herb's grade: what the harvest will be multiplied by, and the colour
     /// the row is painted.
@@ -399,6 +407,9 @@ pub struct TrainingView {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CropView {
     pub attribute: Attribute,
+    /// The 潜质 herb this crop grows, when it was a herb seed; a surface shows a
+    /// herb crop by its herb, never by its `attribute`, which is a don't-care.
+    pub herb: Option<super::AptitudeHerb>,
     pub tier: u8,
     /// The grade it was planted at, which is what the harvest will pay at.
     pub grade: SeedGrade,
@@ -640,6 +651,13 @@ pub struct CultivationView {
     pub last_exploration_found: Option<ExplorationFindView>,
     /// Whether a walk is owed right now.
     pub exploration_ready: bool,
+    /// Whether the cultivator is home: no walk on the road and no shift at work.
+    ///
+    /// The one state the page prints above the log, and the one that gates every
+    /// 外出 and 战斗 action — a cultivator away from the door cannot start a
+    /// second walk, take a job, or fight a 破境, a 守卫 or a 试炼 until the road
+    /// has brought them back.
+    pub at_home: bool,
     /// Whether the guardian can be fought right now.
     pub breakthrough_ready: bool,
     /// The instant a walk is owed again, while one is not.
@@ -761,16 +779,30 @@ fn seed_sell_price(attribute: Attribute, tier: u8, grade: SeedGrade) -> u32 {
     .sell_price()
 }
 
+/// What the 集市 pays for one 潜质 herb seed of that herb and grade.
+///
+/// Priced off the herb offer rather than the seed offer, because a herb seed is
+/// not a tier of attribute points — it is a herb, priced the way the shelf
+/// prices the herb it used to hand over ready-grown.
+fn herb_seed_sell_price(herb: super::AptitudeHerb, grade: SeedGrade) -> u32 {
+    shop::ShopOffer::Herb { herb, grade }.sell_price()
+}
+
 /// One seed stack as a surface reads it. The price is read off the stack rather
 /// than passed in, so a row cannot quote a figure the sale would not pay.
 fn seed_view(stack: &SeedStack) -> SeedView {
+    let sell_price = match stack.herb {
+        Some(herb) => herb_seed_sell_price(herb, stack.grade),
+        None => seed_sell_price(stack.attribute, stack.tier, stack.grade),
+    };
     SeedView {
         attribute: stack.attribute,
+        herb: stack.herb,
         tier: stack.tier,
         grade: stack.grade,
         count: stack.count,
         name: stack.name.clone(),
-        sell_price: seed_sell_price(stack.attribute, stack.tier, stack.grade),
+        sell_price,
     }
 }
 
@@ -1241,13 +1273,15 @@ impl Cultivation {
             self.document.marrow_pills = self.document.marrow_pills.saturating_add(1);
             return;
         }
-        // A refusal is not a failure to report: the herb is in the bag and the
-        // satchel offers it, which is what a hoarded herb always was. Storing it
-        // at the grade it arrived at keeps the satchel honest about what the
-        // body will pay for it.
-        if self.use_aptitude_herb(herb, now_unix).is_err() {
-            self.store_herb(herb, grade);
-        }
+        // The herb is put into the bag first, because the feed is a move *out*
+        // of the bag: [`Self::use_aptitude_herb`] spends what the satchel
+        // holds, so a herb that has not been stored yet has nothing to spend.
+        // A refusal is not a failure to report — the herb stays in the bag,
+        // where the satchel offers the button the page no longer carries — and
+        // keeping it at the grade it arrived at keeps the satchel honest about
+        // what the body will pay for it.
+        self.store_herb(herb, grade);
+        let _ = self.use_aptitude_herb(herb, now_unix);
     }
 
     /// Put one herb of a grade into the satchel, onto the stack that already
@@ -1831,12 +1865,12 @@ impl Cultivation {
         }
         edge += BONUS_INSIGHT_PERMILLE;
         if roll < edge {
-            // Straight into the body: a herb found is a herb taken, and the
-            // page no longer keeps a shelf of them waiting for a button. The
-            // grade is rolled where the find is, so the body pays the herb it
-            // was found at.
+            // A herb is found as a seed: it has to be grown before it can be
+            // taken, so the jackpot lands a seed in the satchel the way a walk's
+            // find does. The grade is rolled where the find is, so the seed
+            // carries the herb it was found at.
             let grade = roll_seed_grade(rng);
-            self.feed_found_herb(super::AptitudeHerb::Insight, grade, now_unix);
+            self.push_herb_seed(super::AptitudeHerb::Insight, grade, rng);
             return Some(Drop::Herb {
                 herb: super::AptitudeHerb::Insight,
                 grade,
@@ -1845,7 +1879,7 @@ impl Cultivation {
         edge += BONUS_WISDOM_PERMILLE;
         if roll < edge {
             let grade = roll_seed_grade(rng);
-            self.feed_found_herb(super::AptitudeHerb::Wisdom, grade, now_unix);
+            self.push_herb_seed(super::AptitudeHerb::Wisdom, grade, rng);
             return Some(Drop::Herb {
                 herb: super::AptitudeHerb::Wisdom,
                 grade,
@@ -1967,8 +2001,13 @@ impl Cultivation {
         name: Option<String>,
         rng: &mut Rng,
     ) -> SeedView {
+        // Only an attribute stack: a herb stack of the same tier and grade is a
+        // different thing, matched on its own field in [`Self::push_herb_seed`].
         if let Some(stack) = self.document.seeds.iter_mut().find(|stack| {
-            stack.attribute == attribute && stack.tier == tier && stack.grade == grade
+            stack.herb.is_none()
+                && stack.attribute == attribute
+                && stack.tier == tier
+                && stack.grade == grade
         }) {
             stack.count = stack.count.saturating_add(1);
             return seed_view(stack);
@@ -1993,6 +2032,46 @@ impl Cultivation {
     ) -> SeedView {
         self.push_seed_named(attribute, tier, grade, None, rng)
     }
+
+    /// Own one 潜质 herb seed, at its herb's fixed tier, folded into an existing
+    /// stack of the same herb and grade when there is one.
+    ///
+    /// A herb seed is named when the shelf names it — see
+    /// [`Self::push_herb_seed_named`] — and folded in bare here, the same split
+    /// the attribute path makes between the shelf and the satchel.
+    fn push_herb_seed(
+        &mut self,
+        herb: super::AptitudeHerb,
+        grade: SeedGrade,
+        rng: &mut Rng,
+    ) -> SeedView {
+        self.push_herb_seed_named(herb, grade, None, rng)
+    }
+
+    /// Own one named 潜质 herb seed, folded into an existing stack when there is
+    /// one.
+    fn push_herb_seed_named(
+        &mut self,
+        herb: super::AptitudeHerb,
+        grade: SeedGrade,
+        name: Option<String>,
+        rng: &mut Rng,
+    ) -> SeedView {
+        let tier = super::herb_tier(herb);
+        if let Some(stack) =
+            self.document.seeds.iter_mut().find(|stack| {
+                stack.herb == Some(herb) && stack.grade == grade && stack.tier == tier
+            })
+        {
+            stack.count = stack.count.saturating_add(1);
+            return seed_view(stack);
+        }
+        let mut stack = SeedStack::herb_single(herb, grade);
+        stack.name = name.or_else(|| Some(seed_name(rng)));
+        let view = seed_view(&stack);
+        self.document.seeds.push(stack);
+        view
+    }
 }
 
 /// What came of planting one seed.
@@ -2013,7 +2092,7 @@ pub enum PlantOutcome {
 }
 
 impl Cultivation {
-    /// Plant one seed in the first empty plot.
+    /// Plant one owned seed in the first empty plot.
     ///
     /// The roll happens **now**, while the seed is still in hand, and never at
     /// harvest: a tenth-rank seed asks for ten days of the user's bed, and an
@@ -2030,6 +2109,45 @@ impl Cultivation {
         grade: SeedGrade,
         now_unix: i64,
     ) -> Option<PlantOutcome> {
+        self.plant_one(attribute, None, tier, grade, now_unix)
+    }
+
+    /// Plant one 潜质 herb seed, at its herb's fixed tier, in the first empty
+    /// plot. The same rules as [`Self::plant`] apply — the roll happens now, and
+    /// nothing is spent when there was no such seed or no bed to put it in. The
+    /// pill is never planted: it opens a gate from the satchel, not from a bed.
+    pub fn plant_herb_seed(
+        &mut self,
+        herb: super::AptitudeHerb,
+        grade: SeedGrade,
+        now_unix: i64,
+    ) -> Option<PlantOutcome> {
+        if herb == super::AptitudeHerb::Marrow {
+            return None;
+        }
+        self.plant_one(
+            Attribute::Strength,
+            Some(herb),
+            super::herb_tier(herb),
+            grade,
+            now_unix,
+        )
+    }
+
+    /// The planting both paths share: find the stack, spend one seed, and either
+    /// bed the crop or pay the wither — decided by one roll taken up front.
+    ///
+    /// `herb` is `None` for an attribute seed and `Some` for a 潜质 herb seed;
+    /// every match on the stack and every event the planting writes carries it,
+    /// so a herb seed is never read as an attribute and vice versa.
+    fn plant_one(
+        &mut self,
+        attribute: Attribute,
+        herb: Option<super::AptitudeHerb>,
+        tier: u8,
+        grade: SeedGrade,
+        now_unix: i64,
+    ) -> Option<PlantOutcome> {
         // Decided before anything is taken, because the two reads below borrow
         // the document's own fields and cannot see past themselves.
         let permille = plant_permille(self.document.garden_rank, tier, grade);
@@ -2038,22 +2156,37 @@ impl Cultivation {
             let mut rng = self.rng(now_unix);
             certain || rng.below(1_000) < u64::from(permille)
         };
-        let stack = self.document.seeds.iter_mut().find(|stack| {
-            stack.attribute == attribute && stack.tier == tier && stack.grade == grade
+        let index = self.document.seeds.iter().position(|stack| match herb {
+            Some(herb) => stack.herb == Some(herb) && stack.tier == tier && stack.grade == grade,
+            None => {
+                stack.herb.is_none()
+                    && stack.attribute == attribute
+                    && stack.tier == tier
+                    && stack.grade == grade
+            }
         })?;
-        // The plot inherits the herb's name: the seed stack is spent one
-        // planting at a time and the name is the only thing that survives it.
-        let name = stack.name.clone();
-        let plot = self
+        // The bed is found before the seed is spent: a full garden must not
+        // take the seed for a planting there is nowhere to put.
+        let plot_index = self
             .document
             .plots
-            .iter_mut()
-            .find(|plot| plot.is_empty())?;
+            .iter()
+            .position(|plot| plot.is_empty())?;
+        // The plot inherits the herb's name: the seed stack is spent one
+        // planting at a time and the name is the only thing that survives it.
+        let mut stack = self.document.seeds.remove(index);
         stack.count = stack.count.saturating_sub(1);
-        self.document.seeds.retain(|stack| stack.count > 0);
+        let name = stack.name.clone();
+        if stack.count > 0 {
+            self.document.seeds.push(stack);
+        }
+        let plot = &mut self.document.plots[plot_index];
         if took {
             self.document.plant_fail_streak = 0;
-            plot.crop = Some(CropRecord::planted(attribute, tier, grade, name, now_unix));
+            plot.crop = Some(match herb {
+                Some(herb) => CropRecord::herb_planted(herb, grade, name, now_unix),
+                None => CropRecord::planted(attribute, tier, grade, name, now_unix),
+            });
             return Some(PlantOutcome::Planted);
         }
         // Gone, but not grown: the seed is spent, which is what makes the odds
@@ -2068,6 +2201,7 @@ impl Cultivation {
             now_unix,
             EventDetail::Withered {
                 attribute,
+                herb,
                 tier,
                 grade,
                 name,
@@ -2138,7 +2272,16 @@ impl Cultivation {
             plot.crop.take()?
         };
         let points = harvest_points(crop.tier, crop.grade);
-        crop.attribute.add_to(&mut self.document.crop_bonus, points);
+        // A 潜质 herb crop feeds the body on the spot — that is the whole point
+        // of growing it — rather than raising an attribute. The feed itself is
+        // what moves 潜质; the harvest line only reports that the herb came up
+        // and what the garden banked for growing it.
+        let herb = crop.herb;
+        if let Some(herb) = herb {
+            self.feed_found_herb(herb, crop.grade, now_unix);
+        } else {
+            crop.attribute.add_to(&mut self.document.crop_bonus, points);
+        }
         // Counted here rather than on the seed roll: a crop that returned nothing
         // was still pulled, and the 造化 dimension is fed by pulling.
         self.document.harvests = self.document.harvests.saturating_add(1);
@@ -2151,44 +2294,62 @@ impl Cultivation {
         // moved rather than assumed equal to the points, so the line stays true
         // if the rank rule ever prices the two apart.
         let xp = i32::try_from(self.document.garden_xp - xp_before).unwrap_or(i32::MAX);
-        let mut rng = self.rng(now_unix);
-        // The return odds are the garden's own rank: one percent per 阶, so the
-        // garden pays for its second seed the more it has been tended.
-        let seed = seed_return(
-            crop.attribute,
-            crop.tier,
-            self.document.garden_rank,
-            &mut rng,
-        );
-        // The name travels with the stack it landed in, so the notice and the
-        // log can both say which herb came back rather than "a seed".
+        // A herb crop gives no seed back — it was grown to be taken, not to seed
+        // the next bed — so only an attribute crop rolls the return.
         let mut seed_name = None;
-        if let Some((attribute, tier, grade)) = seed {
-            seed_name = self.push_seed(attribute, tier, grade, &mut rng).name;
-        }
-        self.last_seed_return = seed.map(|(attribute, tier, grade)| SeedView {
-            attribute,
-            tier,
-            grade,
-            count: 1,
-            name: seed_name.clone(),
-            sell_price: seed_sell_price(attribute, tier, grade),
-        });
+        let returned_seed = if herb.is_none() {
+            let mut rng = self.rng(now_unix);
+            // The return odds are the garden's own rank: one percent per 阶, so
+            // the garden pays for its second seed the more it has been tended.
+            let seed = seed_return(
+                crop.attribute,
+                crop.tier,
+                self.document.garden_rank,
+                &mut rng,
+            );
+            // The name travels with the stack it landed in, so the notice and the
+            // log can both say which herb came back rather than "a seed".
+            if let Some((attribute, tier, grade)) = seed {
+                seed_name = self.push_seed(attribute, tier, grade, &mut rng).name;
+            }
+            seed.map(|(attribute, tier, grade)| SeedView {
+                attribute,
+                herb: None,
+                tier,
+                grade,
+                count: 1,
+                name: seed_name.clone(),
+                sell_price: seed_sell_price(attribute, tier, grade),
+            })
+        } else {
+            None
+        };
+        self.last_seed_return = returned_seed;
         // The line names the herb and what it paid, because "a crop came up" is
         // a fact the user cannot check against the garden that is now empty.
         self.push_event(
             now_unix,
             EventDetail::Harvested {
                 attribute: crop.attribute,
+                herb,
                 tier: crop.tier,
                 grade: crop.grade,
                 name: crop.name.clone(),
-                points,
+                points: if herb.is_some() { 0 } else { points },
                 xp,
                 seed: seed_name,
             },
         );
-        Some(HarvestOutcome { crop, seed })
+        // The returned seed travels on the outcome the way it always did: the
+        // same attribute, the same tier or one higher, at the grade rolled.
+        let outcome_seed = self
+            .last_seed_return
+            .as_ref()
+            .map(|view| (view.attribute, view.tier, view.grade));
+        Some(HarvestOutcome {
+            crop,
+            seed: outcome_seed,
+        })
     }
 
     /// Wear one owned item in its slot, replacing what was there.
@@ -2802,9 +2963,13 @@ impl Cultivation {
         // read through — the one lever the user pulled.
         let mut outcome = roll_walk(&mut rng, hours);
         // A walk is the quiet half of the ladder, so its source is the walker:
-        // what the road turns up is what the cultivator is worth, and a save that
-        // has climbed finds deeper goods on the same road.
-        let strength = Strength::of(self.power());
+        // what the road turns up is what the cultivator is worth, and a save
+        // that has climbed finds deeper goods on the same road. The strength is
+        // read at the realm itself — a naked body at that realm's last layer —
+        // rather than at the save's full power, so the find follows the 境界 the
+        // user has reached and not the gear they happen to be wearing: 境界越高,
+        // 奖励越多, and two saves at the same 境界 find the same goods.
+        let strength = Strength::of(super::drop::realm_power(self.realm()));
         let mut found = ExplorationFindView::default();
         match outcome {
             ExplorationOutcome::Seed => {
@@ -3542,6 +3707,7 @@ impl Cultivation {
                 .map(|plot| PlotView {
                     crop: plot.crop.as_ref().map(|crop| CropView {
                         attribute: crop.attribute,
+                        herb: crop.herb,
                         tier: crop.tier,
                         grade: crop.grade,
                         name: crop.name.clone(),
@@ -3576,12 +3742,20 @@ impl Cultivation {
                 .jobs(day)
                 .into_iter()
                 .enumerate()
-                .map(|(slot, offer)| JobView {
-                    slot,
-                    tier: offer.tier,
-                    hours: offer.hours,
-                    grade: offer.grade,
-                    stones: offer.stones(),
+                .map(|(slot, offer)| {
+                    let working = self.document.work.is_some_and(|run| {
+                        run.tier == offer.tier
+                            && run.hours == offer.hours
+                            && run.grade == offer.grade
+                    });
+                    JobView {
+                        slot,
+                        tier: offer.tier,
+                        hours: offer.hours,
+                        grade: offer.grade,
+                        stones: offer.stones(),
+                        working,
+                    }
                 })
                 .collect(),
             last_drop: self.last_drop.clone().map(|drop| match drop {
@@ -3628,6 +3802,7 @@ impl Cultivation {
             last_exploration: self.last_exploration,
             last_exploration_found: self.last_exploration_found.clone(),
             exploration_ready: self.exploration_ready(now_unix),
+            at_home: self.exploration_ready(now_unix) && self.document.work.is_none(),
             breakthrough_ready: breakthrough_ready(
                 self.document.breakthrough_blocked_until,
                 now_unix,
@@ -3900,10 +4075,11 @@ impl Cultivation {
                 self.grant_art_book(art_id);
             }
             ShopOffer::Herb { herb, grade } => {
-                // The two 潜质 herbs are fed on arrival — the row that used to
-                // hold them on the page is gone — while a 洗髓丹 lands in the bag,
-                // because a pill is spent by opening a gate from the satchel.
-                // The grade the row showed is the grade the body pays.
+                // A 潜质 herb is bought as a seed: it has to be grown before it
+                // can be taken, so the row hands over the seed the way it hands
+                // over any other seed. A 洗髓丹 lands in the bag, because a pill
+                // is spent by opening a gate from the satchel. The grade the row
+                // showed is the grade the seed carries and the body pays.
                 match herb {
                     super::AptitudeHerb::Marrow => {
                         self.document.marrow_pills = self.document.marrow_pills.saturating_add(1);
@@ -3914,7 +4090,10 @@ impl Cultivation {
                             },
                         );
                     }
-                    _ => self.feed_found_herb(herb, grade, now_unix),
+                    _ => {
+                        let mut rng = self.rng(now_unix);
+                        self.push_herb_seed(herb, grade, &mut rng);
+                    }
                 }
             }
         }
@@ -4077,8 +4256,42 @@ impl Cultivation {
         Ok(stones)
     }
 
-    /// Buy one more garden plot with 灵石, past the four the garden starts
-    /// with.
+    /// Sell one 潜质 herb seed from a stack for 灵石.
+    ///
+    /// One at a time, the way [`Self::sell_seed`] sells one attribute seed: the
+    /// herb seed is priced as the herb it grows into, not as a tier of
+    /// attribute points.
+    pub fn sell_herb_seed(
+        &mut self,
+        herb: super::AptitudeHerb,
+        grade: SeedGrade,
+        now_unix: i64,
+    ) -> Result<u32, TradeRefusal> {
+        let tier = super::herb_tier(herb);
+        let Some(index) = self.document.seeds.iter().position(|stack| {
+            stack.herb == Some(herb) && stack.tier == tier && stack.grade == grade
+        }) else {
+            return Err(TradeRefusal::NotOwned);
+        };
+        if self.document.seeds[index].count == 0 {
+            return Err(TradeRefusal::NotOwned);
+        }
+        let stack: &mut SeedStack = &mut self.document.seeds[index];
+        stack.count -= 1;
+        let stones = shop::ShopOffer::Herb { herb, grade }.sell_price();
+        if stack.count == 0 {
+            self.document.seeds.remove(index);
+        }
+        self.document.stones = self.document.stones.saturating_add(stones);
+        self.push_event(
+            now_unix,
+            EventDetail::Sold {
+                what: SaleKind::Herb { herb },
+                stones,
+            },
+        );
+        Ok(stones)
+    }
     ///
     /// The price doubles with every plot bought, and the garden holds nine at
     /// most: a plot is a permanent capacity, so the last one costs what a
