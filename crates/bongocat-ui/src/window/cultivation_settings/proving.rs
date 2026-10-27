@@ -5,11 +5,12 @@
 //! pays for the trip: a walk is rationed by time, a 试炼 by the training that
 //! banked the chance.
 //!
-//! The button answers to the bank rather than to a clock. A click with nothing
-//! banked is not offered: the count beside it says zero, and a button that
-//! silently did nothing would read as broken rather than as empty.
+//! The button answers to the bank rather than to a clock. The click is always
+//! offered: a 试炼 with nothing banked, or the cultivator still out on the
+//! road or at a job, is refused by the domain and answered with a toast — the
+//! panel does not keep its own copy of the reason, so the click that is
+//! offered and the one that is refused can never disagree.
 
-use super::explore::cooldown_line;
 use super::*;
 
 /// The 试炼 panel, under the walk.
@@ -24,57 +25,31 @@ pub(super) fn proving_panel(
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
-    // Three walls, and the domain answers which one: still on the road, still at
-    // a job, or no chance banked. The page reads the answer rather than keeping
-    // its own copy of the rule, so the click that is offered and the one that is
-    // refused can never disagree.
-    let blocked = cultivation.proving_blocked;
-    let ready = blocked.is_none();
+    // The click is always wired: whether the road is still out, the job still
+    // in hand, or the bank empty, the domain answers with the refusal and the
+    // page shows it as a toast. A 试炼 is one door with three reasons, and the
+    // panel does not guess which one the click will meet.
     let mut button = Button::new("cultivation-proving-attempt")
         .small()
         .label(text(locale, "cultivation.proving.attempt"));
-    if ready {
-        button = button.on_click({
-            let view = view.clone();
-            move |_, _, cx| {
-                view.update(cx, |view, cx| {
-                    view.ask_cultivation(
-                        CultivationDuelSource::Proving,
-                        PomodoroCommand::Prove,
-                        cx,
-                    );
-                });
-            }
-        });
-    }
-    let status = match blocked {
-        None => format_text(
-            locale,
-            "cultivation.proving.chances",
-            &[
-                ("left", cultivation.proving_tokens.to_string()),
-                ("total", cultivation.proving_token_cap.to_string()),
-            ],
-        ),
-        // Out of chances: the count beside it already says zero, so the line
-        // says what one buys rather than repeating the number.
-        Some(ProvingBlocked::Spent) => text(locale, "cultivation.proving.refuse_empty").to_string(),
-        // On the road: the countdown is the sentence here, the way the walk
-        // panel shows it, so the two panels read the same clock.
-        Some(ProvingBlocked::Out) => cooldown_line(
-            cultivation.exploration_ready_at,
-            "cultivation.proving.away",
-            locale,
-        ),
-        // At a job: the wait is the countdown, the same sentence the road
-        // prints — the status line above already says where the cultivator is.
-        Some(ProvingBlocked::Working) => cooldown_line(
-            cultivation.work.map(|run| run.ends_unix),
-            "cultivation.proving.away",
-            locale,
-        ),
-    };
-    let color = if ready { tokens.text } else { tokens.muted };
+    button = button.on_click({
+        let view = view.clone();
+        move |_, _, cx| {
+            view.update(cx, |view, cx| {
+                view.ask_cultivation(CultivationDuelSource::Proving, PomodoroCommand::Prove, cx);
+            });
+        }
+    });
+    // The count is always read against the cap, whether the bank is full, part
+    // spent, or empty: "0 / 10" is the honest answer to "can I go?".
+    let status = format_text(
+        locale,
+        "cultivation.proving.chances",
+        &[
+            ("left", cultivation.proving_tokens.to_string()),
+            ("total", cultivation.proving_token_cap.to_string()),
+        ],
+    );
     // The rules read beside the title rather than behind it.
     div()
         .id("cultivation-proving")
@@ -97,7 +72,7 @@ pub(super) fn proving_panel(
                     div()
                         .id("cultivation-proving-status")
                         .text_xs()
-                        .text_color(color)
+                        .text_color(tokens.muted)
                         .child(status)
                         .test_support(),
                 )

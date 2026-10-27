@@ -1399,10 +1399,11 @@ fn the_satchel_shows_a_held_pill_and_its_gate_price(cx: &mut TestAppContext) {
     );
 }
 
-/// A closed tower says which wall was hit and cannot be clicked through: the
-/// day's floors and the walk are rules, not suggestions.
+/// A closed tower still answers the click: the climb is asked for, the domain
+/// refuses, and the page shows the refusal as a toast — a spent day or an
+/// unfinished road are rules the click finds out about, not lines that guess.
 #[gpui_kit::test]
-fn a_closed_tower_says_why_and_publishes_nothing(cx: &mut TestAppContext) {
+fn a_closed_tower_asks_and_the_domain_refuses(cx: &mut TestAppContext) {
     let mut cultivation = Cultivation::default().view();
     cultivation.trial_attempts_left = 0;
     cultivation.trial_blocked = Some(TrialBlocked::Drained);
@@ -1411,7 +1412,7 @@ fn a_closed_tower_says_why_and_publishes_nothing(cx: &mut TestAppContext) {
     visual.update(|window, cx| window.render_frame(cx));
     assert!(
         painted(visual, "cultivation-trial-status"),
-        "the reason has to be on the page"
+        "the allowance has to be on the page"
     );
     scroll_until_visible(visual, "cultivation-trial-attempt");
     visual.update(|window, cx| {
@@ -1419,8 +1420,8 @@ fn a_closed_tower_says_why_and_publishes_nothing(cx: &mut TestAppContext) {
         window.click("cultivation-trial-attempt", cx);
     });
     assert!(
-        published(&sink).is_empty(),
-        "a spent day cannot be clicked past"
+        matches!(published(&sink).as_slice(), [PomodoroCommand::Tower]),
+        "the click still asks the worker, and the domain refuses with a toast"
     );
 }
 
@@ -1556,10 +1557,11 @@ fn the_breakthrough_prompt_appears_only_at_a_full_realm(cx: &mut TestAppContext)
     );
 }
 
-/// The 试炼 sits under the walk, and its button answers to the banked chances
-/// rather than to a clock.
+/// The 试炼 sits under the walk, and its button always asks the worker: a banked
+/// chance buys the fight, an empty bank is refused by the domain and answered
+/// with a toast.
 #[gpui_kit::test]
-fn the_trial_panel_spends_a_banked_chance_and_nothing_without_one(cx: &mut TestAppContext) {
+fn the_trial_panel_asks_for_the_fight_or_a_refusal(cx: &mut TestAppContext) {
     let mut cultivation = Cultivation::default().view();
     cultivation.proving_tokens = 0;
     cultivation.proving_blocked = Some(ProvingBlocked::Spent);
@@ -1576,8 +1578,8 @@ fn the_trial_panel_spends_a_banked_chance_and_nothing_without_one(cx: &mut TestA
         window.click("cultivation-proving-attempt", cx);
     });
     assert!(
-        published(&sink).is_empty(),
-        "an empty bank cannot be clicked past"
+        matches!(published(&sink).as_slice(), [PomodoroCommand::Prove]),
+        "the click still asks the worker, and the domain refuses with a toast"
     );
 
     let mut cultivation = Cultivation::default().view();
@@ -1598,10 +1600,11 @@ fn the_trial_panel_spends_a_banked_chance_and_nothing_without_one(cx: &mut TestA
     );
 }
 
-/// A job in hand closes the courtyard the way a walk does: the button goes
-/// quiet rather than spending a chance on a fight the cultivator cannot be in.
+/// A job in hand closes the courtyard the way a walk does: the click is still
+/// asked, the domain refuses, and the page answers with a toast rather than
+/// spending a chance on a fight the cultivator cannot be in.
 #[gpui_kit::test]
-fn the_trial_panel_waits_for_the_job_in_hand_to_come_home(cx: &mut TestAppContext) {
+fn the_trial_panel_asks_and_the_domain_refuses_at_a_job(cx: &mut TestAppContext) {
     let mut cultivation = Cultivation::default().view();
     cultivation.proving_tokens = 3;
     cultivation.proving_blocked = Some(ProvingBlocked::Working);
@@ -1614,8 +1617,8 @@ fn the_trial_panel_waits_for_the_job_in_hand_to_come_home(cx: &mut TestAppContex
         window.click("cultivation-proving-attempt", cx);
     });
     assert!(
-        published(&sink).is_empty(),
-        "a job in hand keeps the chance banked"
+        matches!(published(&sink).as_slice(), [PomodoroCommand::Prove]),
+        "the click still asks the worker, and the domain refuses with a toast"
     );
 }
 

@@ -40,15 +40,15 @@ pub(super) fn record_section(
         .flex()
         .flex_col()
         .gap_1()
-        .child(section_title(locale, "cultivation.record.title", tokens))
         // Marked so a frame can be asked whether the record is on screen.
         .test_support();
     // The door is the state the whole log is read through: 在家 the cultivator
     // can act — fight a 破境, a 守卫 or a 试炼, take a walk or a job — and
-    // 外出 every one of those waits for the road home. It sits above the events
-    // so the page's first answer to "what is going on" is where the cultivator
-    // is, and it is printed even when nothing has happened yet. One line in the
-    // primary ink, and when they are out it names the road and the wait.
+    // 外出 every one of those waits for the road home. It is the first line of
+    // the record, above the 最近事件 heading, so the page's first answer to
+    // "what is going on" is where the cultivator is, and it is printed even
+    // when nothing has happened yet. One line in the primary ink, and when they
+    // are out it names the road and the wait.
     let status = if cultivation.at_home {
         text(locale, "cultivation.record.status_home").to_string()
     } else if let Some(run) = cultivation.work {
@@ -73,14 +73,16 @@ pub(super) fn record_section(
         // bare word rather than an empty line.
         text(locale, "cultivation.record.status_out").to_string()
     };
-    column = column.child(
-        div()
-            .id("cultivation-at-home")
-            .text_xs()
-            .text_color(tokens.text)
-            .child(status)
-            .test_support(),
-    );
+    column = column
+        .child(
+            div()
+                .id("cultivation-at-home")
+                .text_xs()
+                .text_color(tokens.text)
+                .child(status)
+                .test_support(),
+        )
+        .child(section_title(locale, "cultivation.record.title", tokens));
     // The offset is read once per render rather than once per line: every line
     // on the page belongs to the same local clock.
     let offset = bongocat_platform::local_utc_offset_seconds();

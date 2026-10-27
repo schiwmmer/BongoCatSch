@@ -862,7 +862,6 @@
       "won": "Floor %{floor} cleared.",
       "lost": "Floor %{floor} was too much.",
       "refuse_out": "Still out on a walk — the tower opens once you are home.",
-      "away": "back in %{hours}h %{minutes}m — then the tower",
       "refuse_drained": "No climbs left today. Come back tomorrow.",
       "refuse_top": "The tower is cleared; no floor is left to climb.",
       "sweep": "Sweep",
@@ -1013,8 +1012,7 @@
       "won": "The trial was passed.",
       "lost": "The trial was too much; nothing came of it.",
       "refuse_empty": "No trial chance banked: finish a pomodoro to earn one",
-      "refuse_out": "Still out on a walk — a trial waits until you are home",
-      "away": "home in %{hours}h %{minutes}m — trials wait"
+      "refuse_out": "Still out on a walk — a trial waits until you are home"
     }
   }
 }

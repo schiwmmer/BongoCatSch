@@ -6,7 +6,6 @@
 //! deliberately apart: this one is a frontier climbed on the day's attempts,
 //! that one is a fight bought with banked training.
 
-use super::explore::cooldown_line;
 use super::*;
 
 /// The 锁妖塔, under the walk out of the door.
@@ -16,12 +15,11 @@ use super::*;
 /// open. What it adds is the frontier — the floor the save is standing on — so
 /// the button is never a number the user has to remember from yesterday.
 ///
-/// The button is always drawn, and goes quiet with the reason printed beside it
-/// rather than disappearing: a tower that closed itself without a word would
-/// leave the user wondering whether the page was broken or the day was spent.
-/// The click is only wired while a floor is owed, the way the breakthrough
-/// button answers to its cooldown — the gate is the domain's, and the page does
-/// not offer what it already knows will be refused.
+/// The button is always drawn and always wired: a tower closed by the road, a
+/// job, or a spent day is refused by the domain and answered with a toast, the
+/// way the 试炼 answers its bank. The gate is the domain's, and the panel does
+/// not keep its own copy of the reason, so the click that is offered and the
+/// one that is refused can never disagree.
 pub(super) fn trial_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
@@ -41,38 +39,41 @@ pub(super) fn trial_panel(
             "cultivation.trial.attempt"
         },
     ));
-    if cultivation.trial_blocked.is_none() {
-        if sweepable {
-            button = button.on_click({
-                let view = view.clone();
-                move |_, _, cx| {
-                    view.update(cx, |view, cx| {
-                        // A sweep has no fight to replay, so it settles on the
-                        // page rather than behind the duel screen.
-                        let _ = view.pomodoro.try_publish(PomodoroCommand::TowerSweep);
-                        cx.notify();
-                    });
-                }
-            });
-        } else {
-            button = button.on_click({
-                let view = view.clone();
-                move |_, _, cx| {
-                    view.update(cx, |view, cx| {
-                        view.ask_cultivation(
-                            CultivationDuelSource::Trial,
-                            PomodoroCommand::Tower,
-                            cx,
-                        );
-                    });
-                }
-            });
-        }
+    // The climb is always wired: a tower closed by the road, a job, or a spent
+    // day is refused by the domain and answered with a toast — the panel does
+    // not keep its own copy of the reason, so the click that is offered and the
+    // one that is refused can never disagree. Only the sweep skips the worker's
+    // refusal, because a sweep is only offered while the tower is open.
+    if sweepable {
+        button = button.on_click({
+            let view = view.clone();
+            move |_, _, cx| {
+                view.update(cx, |view, cx| {
+                    // A sweep has no fight to replay, so it settles on the
+                    // page rather than behind the duel screen.
+                    let _ = view.pomodoro.try_publish(PomodoroCommand::TowerSweep);
+                    cx.notify();
+                });
+            }
+        });
+    } else {
+        button = button.on_click({
+            let view = view.clone();
+            move |_, _, cx| {
+                view.update(cx, |view, cx| {
+                    view.ask_cultivation(CultivationDuelSource::Trial, PomodoroCommand::Tower, cx);
+                });
+            }
+        });
     }
-    // At the top of the tower the floor line already says so, and a second copy
-    // of the sentence beside the button would be the page repeating itself.
+    // The day's allowance is the one sentence beside the button. The countdown
+    // is gone: a door closed by the road, a job, or a spent day answers the
+    // click with a toast rather than a line counting down to the next climb.
+    // Only the top of the tower is silent — the floor line already says so, and
+    // a second copy of the sentence beside the button would repeat the page.
     let status = match cultivation.trial_blocked {
-        None => format_text(
+        Some(TrialBlocked::Top) => String::new(),
+        _ => format_text(
             locale,
             "cultivation.trial.attempts_left",
             &[
@@ -80,22 +81,8 @@ pub(super) fn trial_panel(
                 ("total", TRIAL_ATTEMPTS_PER_DAY.to_string()),
             ],
         ),
-        Some(TrialBlocked::Top) => String::new(),
-        // At a job the wait is the countdown, the same sentence the road prints:
-        // the door says when the cultivator can climb again, not that the hands
-        // are busy — the status line above already says where they are.
-        Some(TrialBlocked::Working) => cooldown_line(
-            cultivation.work.map(|run| run.ends_unix),
-            "cultivation.trial.away",
-            locale,
-        ),
-        Some(blocked) => text(locale, blocked.key()).to_string(),
     };
-    let color = if cultivation.trial_blocked.is_none() {
-        tokens.muted
-    } else {
-        tokens.danger
-    };
+    let color = tokens.muted;
     // The rules of the tower read beside the title rather than behind it.
     let mut panel = div()
         .id("cultivation-trial")

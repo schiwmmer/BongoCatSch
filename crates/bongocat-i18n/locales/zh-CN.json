@@ -862,7 +862,6 @@
       "won": "第 %{floor} 层通关。",
       "lost": "第 %{floor} 层未过。",
       "refuse_out": "尚在外游历，归来后方可闯塔。",
-      "away": "%{hours} 时 %{minutes} 分后归来，方可闯塔",
       "refuse_drained": "今日闯塔次数已尽，明日再来。",
       "refuse_top": "锁妖塔已通关，再无可攀之层。",
       "sweep": "横扫",
@@ -1013,8 +1012,7 @@
       "won": "试炼获胜。",
       "lost": "试炼落败，未有所获。",
       "refuse_empty": "暂无试炼机会：完成一个番茄钟可得一次",
-      "refuse_out": "尚在外游历，回山门后方可试炼",
-      "away": "%{hours} 时 %{minutes} 分后归来，方可试炼"
+      "refuse_out": "尚在外游历，回山门后方可试炼"
     }
   }
 }

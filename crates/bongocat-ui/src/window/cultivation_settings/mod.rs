@@ -18,10 +18,10 @@ use bongocat_pomodoro::{
     AptitudeHerb, ArtGrade, ArtKind, ArtOutcome, ArtOwnership, ArtView, Attribute, Attributes,
     BonusFind, CultivationView, DailyKind, Derived, DropView, EquipSlot, EventDetail, EventRecord,
     ExplorationHours, ExplorationOutcome, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR,
-    MarrowSource, MasteredArtView, PlotView, PomodoroCommand, ProvingBlocked, Rarity, Realm,
-    SaleKind, SeedGrade, SeedView, ShopOffer, ShopOfferView, TRIAL_ATTEMPTS_PER_DAY, TrialBlocked,
-    art_bonus_at, art_payout_at, blueprint, grow_seconds, harvest_points,
-    mastered_art_bonus_payout, mastered_art_payout, plant_permille, star_multiplier_permille,
+    MarrowSource, MasteredArtView, PlotView, PomodoroCommand, Rarity, Realm, SaleKind, SeedGrade,
+    SeedView, ShopOffer, ShopOfferView, TRIAL_ATTEMPTS_PER_DAY, TrialBlocked, art_bonus_at,
+    art_payout_at, blueprint, grow_seconds, harvest_points, mastered_art_bonus_payout,
+    mastered_art_payout, plant_permille, star_multiplier_permille,
 };
 
 use gpui_kit::component::Sizable as _;
