@@ -24,11 +24,12 @@ pub(super) fn proving_panel(
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
-    // Two gates: a banked chance, and being home. A cultivator still out on a
-    // walk has the chance but not the courtyard, and the status line says which
-    // of the two is missing rather than leaving the button quietly dead.
-    let home = cultivation.exploration_ready;
-    let ready = home && cultivation.proving_tokens > 0;
+    // Three walls, and the domain answers which one: still on the road, still at
+    // a job, or no chance banked. The page reads the answer rather than keeping
+    // its own copy of the rule, so the click that is offered and the one that is
+    // refused can never disagree.
+    let blocked = cultivation.proving_blocked;
+    let ready = blocked.is_none();
     let mut button = Button::new("cultivation-proving-attempt")
         .small()
         .label(text(locale, "cultivation.proving.attempt"));
@@ -46,21 +47,29 @@ pub(super) fn proving_panel(
             }
         });
     }
-    let status = if home {
-        format_text(
+    let status = match blocked {
+        None => format_text(
             locale,
             "cultivation.proving.chances",
             &[
                 ("left", cultivation.proving_tokens.to_string()),
                 ("total", cultivation.proving_token_cap.to_string()),
             ],
-        )
-    } else {
-        cooldown_line(
+        ),
+        // Out of chances: the count beside it already says zero, so the line
+        // says what one buys rather than repeating the number.
+        Some(ProvingBlocked::Spent) => text(locale, "cultivation.proving.refuse_empty").to_string(),
+        // On the road: the countdown is the sentence here, the way the walk
+        // panel shows it, so the two panels read the same clock.
+        Some(ProvingBlocked::Out) => cooldown_line(
             cultivation.exploration_ready_at,
             "cultivation.proving.away",
             locale,
-        )
+        ),
+        // At a job: the same refusal the board prints, since it is the same job.
+        Some(ProvingBlocked::Working) => {
+            text(locale, "cultivation.jobs.refuse_working").to_string()
+        }
     };
     let color = if ready { tokens.text } else { tokens.muted };
     // The rules read beside the title rather than behind it.

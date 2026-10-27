@@ -17,8 +17,9 @@ use bongocat_pomodoro::{
     ArtGrade, ArtOutcome, Attribute, Attributes, CropRecord, Cultivation, CultivationDocument,
     DailyKind, DailyOutcome, Derived, DuelReport, DuelRound, EventDetail, EventRecord,
     ExplorationFindView, ExplorationOutcome, Fighter, ItemView, LAYERS_PER_STAGE, OwnedArt,
-    PLAYER_NAME, PlotRecord, PomodoroCommand, PomodoroSnapshot, PomodoroState, Rarity, SeedGrade,
-    SeedStack, TrainingView, TrialBlocked, TrialOutcome, WANDERER_NAME, threshold_for,
+    PLAYER_NAME, PlotRecord, PomodoroCommand, PomodoroSnapshot, PomodoroState, ProvingBlocked,
+    Rarity, SeedGrade, SeedStack, TrainingView, TrialBlocked, TrialOutcome, WANDERER_NAME,
+    threshold_for,
 };
 use gpui_kit::{ScrollDelta, point};
 
@@ -1498,6 +1499,7 @@ fn the_breakthrough_prompt_appears_only_at_a_full_realm(cx: &mut TestAppContext)
 fn the_trial_panel_spends_a_banked_chance_and_nothing_without_one(cx: &mut TestAppContext) {
     let mut cultivation = Cultivation::default().view();
     cultivation.proving_tokens = 0;
+    cultivation.proving_blocked = Some(ProvingBlocked::Spent);
     let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
     let (_view, visual) = cultivation_page_with(cx, pomodoro);
     visual.update(|window, cx| window.render_frame(cx));
@@ -1517,6 +1519,7 @@ fn the_trial_panel_spends_a_banked_chance_and_nothing_without_one(cx: &mut TestA
 
     let mut cultivation = Cultivation::default().view();
     cultivation.proving_tokens = 3;
+    cultivation.proving_blocked = None;
     let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
     let (_view, visual) = cultivation_page_with(cx, pomodoro);
     visual.update(|window, cx| window.render_frame(cx));
@@ -1529,6 +1532,27 @@ fn the_trial_panel_spends_a_banked_chance_and_nothing_without_one(cx: &mut TestA
     assert!(
         matches!(commands.as_slice(), [PomodoroCommand::Prove]),
         "a banked chance asks the worker for the fight: {commands:?}"
+    );
+}
+
+/// A job in hand closes the courtyard the way a walk does: the button goes
+/// quiet rather than spending a chance on a fight the cultivator cannot be in.
+#[gpui_kit::test]
+fn the_trial_panel_waits_for_the_job_in_hand_to_come_home(cx: &mut TestAppContext) {
+    let mut cultivation = Cultivation::default().view();
+    cultivation.proving_tokens = 3;
+    cultivation.proving_blocked = Some(ProvingBlocked::Working);
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    scroll_until_visible(visual, "cultivation-proving-attempt");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-proving-attempt", cx);
+    });
+    assert!(
+        published(&sink).is_empty(),
+        "a job in hand keeps the chance banked"
     );
 }
 

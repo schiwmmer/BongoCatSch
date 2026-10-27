@@ -128,6 +128,7 @@
 ### 🐛 Bug Fixes
 
 - Fixed the countdown freezing while the user typed or moved the pointer: the worker threw away every fraction of a second it could not hand over, and each keystroke or mouse move wakes it once — far more often than once a second, so every fraction was dropped and the clock stopped dead for as long as the input lasted. The fraction now carries until it completes a whole second, and the worker sleeps exactly as long as the running session has left.
+- Fixed 试炼 (proving) still being playable while a job was in hand: only one place can be stood in at a time, the tower kept that gate and the proving missed its "at work" half, so a cultivator on the job could still spend a banked chance on a fight they were not in. Both of the courtyard's fights now share one gate — still on the road or still on the clock keeps it closed, and once the hours are up the door opens straight away with not one chance lost. The proving panel prints which wall holds the door, the way the exploration panel does.
 
 ## 2.3.1 - 2026-10-13
 

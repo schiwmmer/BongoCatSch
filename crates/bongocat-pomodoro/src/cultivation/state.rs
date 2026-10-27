@@ -204,6 +204,40 @@ impl TrialBlocked {
     }
 }
 
+/// Why the 试炼 cannot be fought right now, or the three reasons it can.
+///
+/// The two fights fought at home — the tower and the 试炼 — share the first two
+/// walls: a walk on the road and a job in hand are both out of the courtyard.
+/// What each adds is its own ration, the day's floors here and a banked chance
+/// there, which is why the two keep separate enums and one shared pair of
+/// refusals.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProvingBlocked {
+    /// The cultivator is still out on a walk: the courtyard is fought in.
+    Out,
+    /// The cultivator is at a job: the courtyard is fought at home, and a job
+    /// is hours of the same day a walk would have been.
+    Working,
+    /// No chance is banked: a finished pomodoro pays one.
+    Spent,
+}
+
+impl ProvingBlocked {
+    /// The domain refusal this state would produce.
+    pub const fn refusal(self) -> Refusal {
+        match self {
+            Self::Out => Refusal::ProvingOut,
+            Self::Working => Refusal::Working,
+            Self::Spent => Refusal::ProvingSpent,
+        }
+    }
+
+    /// The catalog key saying why the courtyard is closed.
+    pub const fn key(self) -> &'static str {
+        self.refusal().key()
+    }
+}
+
 /// What the day opened with, as a surface reads it.
 ///
 /// The three kinds travel as one value because they are one event: whether it
@@ -636,6 +670,8 @@ pub struct CultivationView {
     pub proving_tokens: u32,
     /// The ceiling the count above is printed against.
     pub proving_token_cap: u32,
+    /// Why the courtyard cannot be fought right now, or `None` when it can.
+    pub proving_blocked: Option<ProvingBlocked>,
     /// How many 试炼 have been fought, so a surface can tell a new report from
     /// the one it has already shown.
     pub provings: u32,
@@ -2933,11 +2969,24 @@ impl Cultivation {
         TRIAL_ATTEMPTS_PER_DAY.saturating_sub(self.document.trial_attempts_today)
     }
 
+    /// Whether a job in hand is still holding the cultivator.
+    ///
+    /// The same reading the road applies to a walk: an outing whose hours have
+    /// passed is over whether or not the tick has come round to settle it, so a
+    /// fight refused because of a job that is already done would be reading the
+    /// clock wrong. The tick pays the wage; this only says where the
+    /// cultivator is, and the tower and the 试炼 ask it the same question.
+    fn working(&self, now_unix: i64) -> bool {
+        self.document
+            .work
+            .is_some_and(|work| !work.is_done(now_unix))
+    }
+
     /// Why the tower is closed right now, or `None` when a floor can be climbed.
     ///
-    /// Three different walls, and the page prints which one it hit: out on a
-    /// walk, out of attempts, or past the last floor. A button that went quiet
-    /// without saying which would read as broken.
+    /// Four different walls, and the page prints which one it hit: out on a
+    /// walk, at a job, out of the day's attempts, or past the last floor. A
+    /// button that went quiet without saying which would read as broken.
     pub fn trial_blocked(&self, now_unix: i64, day: i64) -> Option<TrialBlocked> {
         if self.trial_next_floor() > TRIAL_MAX_FLOOR {
             return Some(TrialBlocked::Top);
@@ -2945,11 +2994,29 @@ impl Cultivation {
         if !self.exploration_ready(now_unix) {
             return Some(TrialBlocked::Out);
         }
-        if self.document.work.is_some() {
+        if self.working(now_unix) {
             return Some(TrialBlocked::Working);
         }
         if self.trial_attempts_left(day) == 0 {
             return Some(TrialBlocked::Drained);
+        }
+        None
+    }
+
+    /// Why the 试炼 cannot be fought right now, or `None` when it can.
+    ///
+    /// The two home fights ask the same question in the same order, so the page
+    /// and the domain cannot disagree about the reason: still on the road, then
+    /// still at work, then out of chances.
+    pub fn proving_blocked(&self, now_unix: i64) -> Option<ProvingBlocked> {
+        if !self.exploration_ready(now_unix) {
+            return Some(ProvingBlocked::Out);
+        }
+        if self.working(now_unix) {
+            return Some(ProvingBlocked::Working);
+        }
+        if self.document.proving_tokens == 0 {
+            return Some(ProvingBlocked::Spent);
         }
         None
     }
@@ -2964,8 +3031,11 @@ impl Cultivation {
     /// tower is a wall to be worn down rather than a ladder that drops.
     pub fn trial(&mut self, now_unix: i64, day: i64) -> Option<TrialOutcome> {
         // A walk that is home is settled first: the courtyard is closed to a
-        // walk that is *out*, not to one whose find has not been read yet.
+        // walk that is *out*, not to one whose find has not been read yet. The
+        // same for the job in hand — the fight waits for the road, not for the
+        // tick that pays the wage.
         self.settle_walk(now_unix);
+        self.settle_work(now_unix);
         if let Some(blocked) = self.trial_blocked(now_unix, day) {
             self.note_refusal(blocked.refusal());
             return None;
@@ -3044,21 +3114,22 @@ impl Cultivation {
 
     /// Spend one 试炼 chance on a fight at the cultivator's own level.
     ///
-    /// Two gates, and neither is a price: a banked chance — a finished pomodoro
-    /// pays one, ten can be held — and being *home*. The courtyard is fought in,
-    /// so a cultivator still out on a walk has no 试炼 to spend a chance on; the
-    /// walk has to be over first. The opponent is rolled per meeting at the
-    /// cultivator's own level — a 试炼 is a fight, not a wall — and a win pays
-    /// the 锁妖塔's base table: a seed most often, gear sometimes, a 功法 almost
-    /// never. What the two dungeons differ in is when they pay, not what.
+    /// The courtyard is fought at home, so the same two walls the tower has
+    /// close it too: a walk still on the road and a job still in hand are hours
+    /// of the same day, and the cultivator is only in one place at a time. What
+    /// this fight adds is its own ration — a banked chance, one per finished
+    /// pomodoro, ten at most — and the opponent is rolled per meeting at the
+    /// cultivator's own level: a 试炼 is a fight, not a wall. A win pays the
+    /// 锁妖塔's base table, so the two dungeons differ in when they pay, not
+    /// what.
     pub fn proving(&mut self, now_unix: i64) -> Option<ProvingOutcome> {
+        // The walk that is home is settled before the courtyard is asked, the
+        // way the tower does it: the gate is where the cultivator is, not
+        // whether the tick has come round.
         self.settle_walk(now_unix);
-        if !self.exploration_ready(now_unix) {
-            self.note_refusal(Refusal::ProvingOut);
-            return None;
-        }
-        if self.document.proving_tokens == 0 {
-            self.note_refusal(Refusal::ProvingSpent);
+        self.settle_work(now_unix);
+        if let Some(blocked) = self.proving_blocked(now_unix) {
+            self.note_refusal(blocked.refusal());
             return None;
         }
         self.document.proving_tokens = self.document.proving_tokens.saturating_sub(1);
@@ -3473,6 +3544,7 @@ impl Cultivation {
             trial_attempts: self.trial_attempts,
             proving_tokens: self.document.proving_tokens,
             proving_token_cap: TRIAL_CHANCES_CAP,
+            proving_blocked: self.proving_blocked(now_unix),
             provings: self.provings,
             last_proving: self.last_proving.clone(),
             last_daily_event: self.last_daily_event.clone(),
@@ -4194,6 +4266,56 @@ mod tests {
         assert!(
             cultivation.proving(home).is_some(),
             "back home, the chance buys its fight"
+        );
+    }
+
+    /// 试炼 closes with a job in hand, the way the tower does: both are fights
+    /// fought at home, and a job is hours of the same day as a walk. The wall
+    /// falls when the hours are up — before the tick has come round to pay the
+    /// wage — so a fight refused on a job that is already done would be reading
+    /// the clock wrong.
+    #[test]
+    fn a_proving_waits_for_the_job_to_come_home() {
+        let mut cultivation = Cultivation::new(CultivationDocument {
+            proving_tokens: 3,
+            ..CultivationDocument::default()
+        });
+        let hours = ExplorationHours::from_hours(4);
+        let out = 2_000 + hours.seconds();
+        cultivation.explore(2_000, hours);
+        cultivation.settle_walk(out);
+        let run = cultivation
+            .accept_job(0, out + 1, 1)
+            .expect("the job is taken once the walk is home");
+        assert_eq!(
+            cultivation.proving_blocked(out + 60),
+            Some(ProvingBlocked::Working),
+            "the job in hand is the wall the page should print"
+        );
+        assert!(
+            cultivation.proving(out + 60).is_none(),
+            "an unreturned job closes the courtyard too"
+        );
+        assert_eq!(cultivation.last_refusal, Some(Refusal::Working));
+        assert_eq!(
+            cultivation.view().proving_tokens,
+            3,
+            "a refused 试炼 spends no chance"
+        );
+        // The hours are up: no wall left, even before the wage has been paid.
+        assert_eq!(
+            cultivation.proving_blocked(run.ends_unix),
+            None,
+            "the clock is home"
+        );
+        assert!(
+            cultivation.proving(run.ends_unix).is_some(),
+            "back home, the chance buys its fight"
+        );
+        assert_eq!(
+            cultivation.view().proving_tokens,
+            2,
+            "and this one spent its chance"
         );
     }
 
