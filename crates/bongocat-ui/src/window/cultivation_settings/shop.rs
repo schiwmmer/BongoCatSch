@@ -352,7 +352,7 @@ fn shop_offer_detail(
                 ))
                 .into_any_element()
         }
-        ShopOffer::Herb { herb } => div()
+        ShopOffer::Herb { herb, grade } => div()
             .flex()
             .flex_col()
             .gap_1()
@@ -365,7 +365,7 @@ fn shop_offer_detail(
                 "cultivation.shop.herb_facts",
                 &[
                     ("herb", text(locale, herb.name_key()).to_string()),
-                    ("effect", herb_effect(*herb, locale)),
+                    ("effect", herb_effect(*herb, Some(*grade), locale)),
                 ],
             ))
             .child(resale)
@@ -374,8 +374,14 @@ fn shop_offer_detail(
 }
 
 /// What one 潜质 item does, as the shelf says it.
-pub(super) fn herb_effect(herb: AptitudeHerb, locale: &str) -> String {
-    match herb.gain_tenths() {
+///
+/// `grade` is the row's grade — the body pays at that grade — and `None` is a
+/// line with no grade to name, which reads at the 地阶 anchor.
+pub(super) fn herb_effect(herb: AptitudeHerb, grade: Option<SeedGrade>, locale: &str) -> String {
+    let band = grade
+        .and_then(|grade| herb.gain_tenths_for(grade))
+        .or_else(|| herb.gain_tenths());
+    match band {
         Some((low, high)) => format_text(
             locale,
             "cultivation.shop.herb_gain",
@@ -466,18 +472,24 @@ fn shop_offer_label(offer: &ShopOffer, locale: &str) -> String {
             name,
         } => seed_label(locale, *attribute, *tier, *grade, name.as_deref()),
         ShopOffer::Art { art_id } => blueprint(*art_id).name.clone(),
-        ShopOffer::Herb { herb } => text(locale, herb.name_key()).to_string(),
+        ShopOffer::Herb { herb, .. } => text(locale, herb.name_key()).to_string(),
     }
 }
 
 /// The grade a shelf row tags, when it carries one.
 ///
-/// Seeds only: gear is tagged by its quality and a 功法 or a herb has no grade a
-/// row could print. A bought row tags nothing — it is struck through and priced
-/// "已购", and a grade on it would read as a grade still on sale.
+/// Seeds and the two 潜质 herbs: gear is tagged by its quality and a 功法 has no
+/// grade a row could print. A bought row tags nothing — it is struck through and
+/// priced "已购", and a grade on it would read as a grade still on sale. The pill
+/// carries no grade, so it tags nothing either.
 pub(super) fn seed_tag_grade(offer: &ShopOffer, bought: bool) -> Option<SeedGrade> {
     match offer {
         ShopOffer::Seed { grade, .. } if !bought => Some(*grade),
+        ShopOffer::Herb {
+            herb: AptitudeHerb::Marrow,
+            ..
+        } => None,
+        ShopOffer::Herb { grade, .. } if !bought => Some(*grade),
         _ => None,
     }
 }
@@ -486,11 +498,12 @@ pub(super) fn seed_tag_grade(offer: &ShopOffer, bought: bool) -> Option<SeedGrad
 mod tests {
     use super::*;
 
-    /// Every shelf row that is a seed still for sale carries its grade tag, and
-    /// nothing else does. The tag is what makes the five grades tell apart on a
-    /// row whose name is too narrow to print them.
+    /// Every shelf row that is a seed or a 潜质 herb still for sale carries its
+    /// grade tag, and nothing else does. The tag is what makes the five grades
+    /// tell apart on a row whose name is too narrow to print them. The 洗髓丹 has
+    /// no grade, so it tags nothing, and neither does a bought row.
     #[test]
-    fn only_a_seed_still_on_the_shelf_is_tagged_with_its_grade() {
+    fn only_a_seed_or_a_herb_still_on_the_shelf_is_tagged_with_its_grade() {
         for (index, grade) in SeedGrade::ALL.iter().enumerate() {
             let seed = ShopOffer::Seed {
                 attribute: Attribute::Mana,
@@ -504,16 +517,32 @@ mod tests {
                 None,
                 "a bought row tags nothing"
             );
+            let herb = ShopOffer::Herb {
+                herb: AptitudeHerb::Insight,
+                grade: *grade,
+            };
+            assert_eq!(
+                seed_tag_grade(&herb, false),
+                Some(*grade),
+                "a herb at grade {index} tags"
+            );
+            assert_eq!(
+                seed_tag_grade(&herb, true),
+                None,
+                "a bought herb tags nothing"
+            );
         }
         assert_eq!(seed_tag_grade(&ShopOffer::Art { art_id: 1 }, false), None);
         assert_eq!(
             seed_tag_grade(
                 &ShopOffer::Herb {
-                    herb: AptitudeHerb::Insight
+                    herb: AptitudeHerb::Marrow,
+                    grade: SeedGrade::Divine,
                 },
                 false
             ),
-            None
+            None,
+            "the 洗髓丹 has no grade, so it tags nothing"
         );
     }
 }

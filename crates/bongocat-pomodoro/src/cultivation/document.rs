@@ -217,6 +217,15 @@ pub struct CultivationDocument {
     /// written down.
     #[serde(default)]
     pub shop_day: Option<i64>,
+    /// The realm the bought slots were recorded under, as a realm index.
+    ///
+    /// The shelf is a pure function of the day *and* the realm, so a 破境 that
+    /// lifts the realm re-rolls the same day's shelf: a slot index bought under
+    /// the old realm would then land on a different good than the one that was
+    /// paid for. Recording the realm beside the day is what tells the two shelves
+    /// apart — see [`Self::shop_bought`].
+    #[serde(default)]
+    pub shop_realm: Option<u8>,
     /// Which slots of that day's shelf have been bought, as slot indexes.
     #[serde(default)]
     pub shop_bought: Vec<u8>,
@@ -291,15 +300,27 @@ pub struct CultivationDocument {
     /// and written down from then on, so a relaunch cannot reroll a body.
     #[serde(default)]
     pub aptitude_tenths: Option<i32>,
-    /// 悟心草 held, the common 潜质 herb.
+    /// 悟心草 held, the common 潜质 herb — the total of the stacks before
+    /// grades existed.
+    ///
+    /// Kept only so an old save can be folded into [`Self::herb_stacks`] on
+    /// load: [`Self::normalized`] reads these, writes the herbs into stacks at
+    /// 地阶, and zeroes them. A new save never fills them.
     #[serde(default)]
     pub insight_herbs: u32,
-    /// 慧心草 held, the rarer 潜质 herb.
+    /// 慧心草 held, the rarer 潜质 herb — the same legacy total as above.
     #[serde(default)]
     pub wisdom_herbs: u32,
     /// 洗髓丹 held: the only thing that opens an even-hundred gate.
     #[serde(default)]
     pub marrow_pills: u32,
+    /// The 悟心草 and 慧心草 held, each at the grade it was found or bought at.
+    ///
+    /// A herb is a seed without a plot: the grade is what the body pays, so the
+    /// satchel cannot hold a bare count of herbs that differ in grade. The 洗髓丹
+    /// stays a count — it pays no 潜质, so it has nothing to grade.
+    #[serde(default)]
+    pub herb_stacks: Vec<super::HerbStack>,
 }
 
 impl CultivationDocument {
@@ -369,6 +390,22 @@ impl CultivationDocument {
         self.trial_floor = self.trial_floor.min(super::TRIAL_MAX_FLOOR);
         self.trial_attempts_today = self.trial_attempts_today.min(super::TRIAL_ATTEMPTS_PER_DAY);
         self.proving_tokens = self.proving_tokens.min(super::TRIAL_CHANCES_CAP);
+        // A save from before herbs carried a grade holds bare counts. Fold them
+        // into stacks at 地阶 — the anchor the old numbers were — so an upgraded
+        // save keeps exactly what it had, and none of it: the counts are then
+        // zeroed, so the two stores never disagree about what is held.
+        for (herb, held) in [
+            (super::AptitudeHerb::Insight, self.insight_herbs),
+            (super::AptitudeHerb::Wisdom, self.wisdom_herbs),
+        ] {
+            let mut stack = super::HerbStack::single(herb, super::SeedGrade::Earth);
+            stack.count = held;
+            if held > 0 {
+                self.herb_stacks.push(stack);
+            }
+        }
+        self.insight_herbs = 0;
+        self.wisdom_herbs = 0;
         self.equipped.resize(SLOT_COUNT, None);
         // The garden holds between the four free plots and the nine a save can
         // buy: a hand-edited document with fewer is topped up, one with more

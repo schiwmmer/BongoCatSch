@@ -19,7 +19,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{ArtGrade, Rng};
+use super::{ArtGrade, Rng, SeedGrade};
 
 /// The lowest 潜质 a body can hold: −10.0.
 pub const APTITUDE_MIN_TENTHS: i32 = -100;
@@ -229,6 +229,32 @@ pub struct HerbView {
     pub price: u32,
 }
 
+/// A stack of the same 潜质 herb at one grade, the satchel's way of holding
+/// what the shelf and the drops hand over.
+///
+/// A herb is a seed without a plot: the grade still decides what it pays, and
+/// the body is only ever fed one of a stack at a time, so the stack records the
+/// grade rather than a count of something interchangeable. 悟心草 and 慧心草
+/// stack; the 洗髓丹 does not, because a pill pays no 潜质 of its own.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HerbStack {
+    pub herb: AptitudeHerb,
+    #[serde(default)]
+    pub grade: SeedGrade,
+    pub count: u32,
+}
+
+impl HerbStack {
+    /// A stack of one herb.
+    pub const fn single(herb: AptitudeHerb, grade: SeedGrade) -> Self {
+        Self {
+            herb,
+            grade,
+            count: 1,
+        }
+    }
+}
+
 /// The three things a 潜质 build consumes.
 ///
 /// The two herbs are the only way up; the pill opens the gates the herbs cannot
@@ -281,6 +307,40 @@ impl AptitudeHerb {
             Self::Wisdom => Some((5, 20)),
             Self::Marrow => None,
         }
+    }
+
+    /// The 潜质 the herb pays at one grade, in tenths, as an inclusive range.
+    ///
+    /// The base band scaled by the grade's own multiplier, so a herb is a seed
+    /// in everything but the plot: 地阶 — the anchor — pays exactly the base,
+    /// 黄阶 pays a quarter of it, and 神阶 two and a half times. The low end is
+    /// rounded up, so no grade ever pays nothing: a 黄阶 悟心草 is still worth
+    /// a tenth of a point.
+    pub const fn gain_tenths_for(self, grade: SeedGrade) -> Option<(i32, i32)> {
+        let (low, high) = match self.gain_tenths() {
+            Some(band) => band,
+            None => return None,
+        };
+        let mult = grade.multiplier_permille() as i32;
+        Some((
+            (low.saturating_mul(mult) + 999) / 1_000,
+            (high.saturating_mul(mult) + 500) / 1_000,
+        ))
+    }
+
+    /// What the shelf asks for one herb of this grade, in 灵石.
+    ///
+    /// The base price scaled by the grade, the same rule the gain uses: 地阶 is
+    /// the anchor, 神阶 two and a half times it. A grade is what a row is worth,
+    /// and a 神级 慧心草 at the 地阶 price would be the shelf's one unbargained
+    /// number. The pill carries no grade and keeps its own price.
+    pub const fn price_for(self, grade: SeedGrade) -> u32 {
+        if matches!(self, Self::Marrow) {
+            // The pill pays no 潜质, so it carries no grade to price at.
+            return self.price();
+        }
+        let mult = grade.multiplier_permille();
+        (self.price() * mult + 500) / 1_000
     }
 }
 
@@ -470,5 +530,66 @@ mod tests {
         assert_eq!(AptitudeHerb::Marrow.price(), 10_000, "一万灵石");
         assert_eq!(AptitudeHerb::Insight.price(), 1_200, "一千二百灵石");
         assert_eq!(AptitudeHerb::Wisdom.price(), 2_000, "两千灵石");
+    }
+
+    /// A 潜质 herb carries a grade like any seed: 地阶 is the anchor the old
+    /// numbers were, 黄阶 pays a quarter of it, 神阶 two and a half times. No
+    /// grade pays nothing.
+    #[test]
+    fn a_herb_pays_its_grade_and_never_pays_nothing() {
+        // The anchor reproduces the old band exactly.
+        assert_eq!(
+            AptitudeHerb::Insight.gain_tenths_for(SeedGrade::Earth),
+            Some((1, 12))
+        );
+        assert_eq!(
+            AptitudeHerb::Wisdom.gain_tenths_for(SeedGrade::Earth),
+            Some((5, 20))
+        );
+        for herb in [AptitudeHerb::Insight, AptitudeHerb::Wisdom] {
+            let mut low = 0i32;
+            for grade in SeedGrade::ALL {
+                let (band_low, band_high) = herb.gain_tenths_for(grade).unwrap();
+                assert!(band_low >= 1, "a {herb:?} at {grade:?} pays nothing");
+                assert!(band_low <= band_high, "the band must not invert");
+                assert!(
+                    band_low >= low,
+                    "a better grade pays at least as much at {herb:?}"
+                );
+                low = band_low;
+            }
+        }
+        assert_eq!(
+            AptitudeHerb::Marrow.gain_tenths_for(SeedGrade::Divine),
+            None
+        );
+        // A quarter of the base at 黄, two and a half at 神, rounded up at the
+        // low end so a 黄阶 悟心草 is still a tenth of a point.
+        assert_eq!(
+            AptitudeHerb::Insight.gain_tenths_for(SeedGrade::Yellow),
+            Some((1, 3))
+        );
+        assert_eq!(
+            AptitudeHerb::Insight.gain_tenths_for(SeedGrade::Divine),
+            Some((3, 30))
+        );
+    }
+
+    /// A herb's grade prices it the same way it pays it: 地阶 is the anchor and
+    /// 神阶 two and a half times. The pill carries no grade and is unchanged.
+    #[test]
+    fn a_herb_is_priced_at_its_grade() {
+        assert_eq!(AptitudeHerb::Insight.price_for(SeedGrade::Earth), 1_200);
+        assert_eq!(AptitudeHerb::Insight.price_for(SeedGrade::Yellow), 300);
+        assert_eq!(AptitudeHerb::Insight.price_for(SeedGrade::Divine), 3_000);
+        assert_eq!(AptitudeHerb::Wisdom.price_for(SeedGrade::Divine), 5_000);
+        // The pill is not a graded thing.
+        for grade in SeedGrade::ALL {
+            assert_eq!(
+                AptitudeHerb::Marrow.price_for(grade),
+                AptitudeHerb::Marrow.price(),
+                "a 洗髓丹 has no grade to price at"
+            );
+        }
     }
 }

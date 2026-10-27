@@ -937,6 +937,88 @@ fn document_seed(cultivation: &mut Cultivation, attribute: Attribute, tier: u8, 
     *cultivation = Cultivation::new(document);
 }
 
+/// Give the cultivator one 潜质 herb of a grade, without going through a drop.
+///
+/// The purse is topped up so a gate the herb crosses can never be what blocks
+/// the feeding: this is about the grade, not about the pills.
+fn document_herb(cultivation: &mut Cultivation, herb: AptitudeHerb, grade: SeedGrade) {
+    let mut document = cultivation.document().clone();
+    document.marrow_pills = document.marrow_pills.max(100);
+    document.herb_stacks.push(HerbStack::single(herb, grade));
+    *cultivation = Cultivation::new(document);
+}
+
+/// The satchel spends the cheapest grade held first, and the body pays the
+/// grade it was fed: a 黄阶 慧心草 is a warm-up, a 神阶 one is held for the
+/// gate it most wants to cross.
+#[test]
+fn the_satchel_spends_the_cheapest_grade_first() {
+    let mut cultivation = Cultivation::default();
+    document_herb(&mut cultivation, AptitudeHerb::Wisdom, SeedGrade::Yellow);
+    document_herb(&mut cultivation, AptitudeHerb::Wisdom, SeedGrade::Divine);
+    let first = cultivation
+        .use_aptitude_herb(AptitudeHerb::Wisdom, 1_000)
+        .expect("the body is fed");
+    assert!(
+        (2..=5).contains(&first.gained_tenths),
+        "a 黄阶 慧心草 pays its own small band, got {}",
+        first.gained_tenths
+    );
+    assert_eq!(cultivation.aptitude_herbs()[1], 1, "one 慧心草 left");
+    let stacks = &cultivation.document().herb_stacks;
+    assert_eq!(stacks.len(), 1, "the 黄阶 is spent, the 神阶 waits");
+    assert_eq!(
+        stacks[0].grade,
+        SeedGrade::Divine,
+        "the one left is the best"
+    );
+    // The second feeding is the 神阶, and pays the big band.
+    let second = cultivation
+        .use_aptitude_herb(AptitudeHerb::Wisdom, 2_000)
+        .expect("the body is fed again");
+    assert!(
+        (13..=50).contains(&second.gained_tenths),
+        "a 神阶 慧心草 pays its own big band, got {}",
+        second.gained_tenths
+    );
+    assert_eq!(cultivation.aptitude_herbs()[1], 0, "the satchel is empty");
+}
+
+/// A 潜质 herb bought from the shelf is the graded herb the row showed: the
+/// grade the buyer paid for is the grade the body pays, and the satchel holds
+/// the grade it could not feed.
+#[test]
+fn a_bought_herb_keeps_the_grade_the_shelf_showed() {
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        stones: 100_000,
+        ..CultivationDocument::default()
+    });
+    let (day, slot, grade) = (20_000..20_500)
+        .find_map(|day| {
+            roll_offers(day, Realm::from_level(1), day as u64)
+                .into_iter()
+                .enumerate()
+                .find_map(|(slot, offer)| match offer {
+                    ShopOffer::Herb {
+                        herb: AptitudeHerb::Wisdom,
+                        grade,
+                    } => Some((day, slot, grade)),
+                    _ => None,
+                })
+        })
+        .expect("some day stocks a 慧心草");
+    let bought = cultivation
+        .buy_from_shop(slot, day, 1_000)
+        .expect("the herb is bought");
+    match bought {
+        ShopOffer::Herb {
+            herb: AptitudeHerb::Wisdom,
+            grade: got,
+        } => assert_eq!(got, grade, "the row's grade is the one bought"),
+        other => panic!("bought {other:?}, not a 慧心草"),
+    }
+}
+
 #[test]
 fn every_level_pays_one_point_the_user_places() {
     // Level one has bought nothing yet: the ladder starts where the first
@@ -1039,7 +1121,7 @@ fn a_harvest_gives_a_seed_back_about_one_time_in_seven() {
     let mut upgraded = 0u32;
     for _ in 0..10_000 {
         if let Some((attribute, tier, grade)) =
-            super::garden::seed_return(Attribute::Root, 3, &mut rng)
+            super::garden::seed_return(Attribute::Root, 3, super::garden::MAX_GARDEN_RANK, &mut rng)
         {
             let _ = grade;
             returns += 1;
@@ -1055,13 +1137,34 @@ fn a_harvest_gives_a_seed_back_about_one_time_in_seven() {
     }
     assert!(
         (1_200..=1_800).contains(&returns),
-        "10,000 harvests returned {returns} seeds, which is not the ~15% the rate describes"
+        "10,000 harvests at the top 阶 returned {returns} seeds, which is not the ~15% the rate describes"
     );
     let upgrade_percent = upgraded * 100 / returns.max(1);
     assert!(
         (20..=40).contains(&upgrade_percent),
         "{upgrade_percent}% of returns were a tier higher, which is not the ~30% intended"
     );
+}
+
+/// The 仙草园 pays one percent per 阶 for its second seed: a rank-one garden
+/// rolls one percent, and the top 阶 rolls the fifteen percent the old flat
+/// rate always paid. A rank past the top cannot outrun it.
+#[test]
+fn the_seed_return_odds_climb_one_percent_per_garden_rank() {
+    for (rank, permille) in [
+        (1u8, 10u64),
+        (2, 20),
+        (5, 50),
+        (10, 100),
+        (super::garden::MAX_GARDEN_RANK, 150),
+        (super::garden::MAX_GARDEN_RANK + 5, 150),
+    ] {
+        assert_eq!(
+            super::garden::seed_return_permille(rank),
+            permille,
+            "rank {rank} should pay {permille}‰"
+        );
+    }
 }
 
 #[test]

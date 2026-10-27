@@ -88,8 +88,12 @@ pub enum Drop {
         name: String,
     },
     /// One 潜质 herb.
+    ///
+    /// The grade it was found at is what the body pays, so the notice and the
+    /// log name the grade beside the herb.
     Herb {
         herb: super::AptitudeHerb,
+        grade: SeedGrade,
     },
     /// A purse of 灵石.
     Stones(u32),
@@ -790,7 +794,7 @@ fn bonus_event(drop: &Drop) -> EventDetail {
             grade: *grade,
         },
         Drop::Art { name } => BonusFind::Art { name: name.clone() },
-        Drop::Herb { herb } => BonusFind::Herb { herb: *herb },
+        Drop::Herb { herb, .. } => BonusFind::Herb { herb: *herb },
         Drop::Stones(stones) => BonusFind::Stones { stones: *stones },
     };
     EventDetail::Bonus { find }
@@ -1109,10 +1113,21 @@ impl Cultivation {
     /// order.
     pub fn aptitude_herbs(&self) -> [u32; 3] {
         [
-            self.document.insight_herbs,
-            self.document.wisdom_herbs,
+            self.herb_held(super::AptitudeHerb::Insight),
+            self.herb_held(super::AptitudeHerb::Wisdom),
             self.document.marrow_pills,
         ]
+    }
+
+    /// How many of one 潜质 herb the cultivator is holding, across every grade
+    /// of its stacks. The 洗髓丹 is a count of its own.
+    fn herb_held(&self, herb: super::AptitudeHerb) -> u32 {
+        self.document
+            .herb_stacks
+            .iter()
+            .filter(|stack| stack.herb == herb)
+            .map(|stack| stack.count)
+            .sum()
     }
 
     /// Feed one 潜质 herb to the body.
@@ -1129,19 +1144,18 @@ impl Cultivation {
         herb: super::AptitudeHerb,
         now_unix: i64,
     ) -> Result<AptitudeUse, TradeRefusal> {
-        let Some((low, high)) = herb.gain_tenths() else {
-            // The pill opens a gate; it does not feed the body, so there is
-            // nothing for it to do on its own.
-            return Err(TradeRefusal::HerbNotHeld);
-        };
-        let held = match herb {
-            super::AptitudeHerb::Insight => self.document.insight_herbs,
-            super::AptitudeHerb::Wisdom => self.document.wisdom_herbs,
-            super::AptitudeHerb::Marrow => 0,
-        };
-        if held == 0 {
+        // The pill opens a gate; it does not feed the body, so there is nothing
+        // for it to do on its own.
+        if herb.gain_tenths().is_none() {
             return Err(TradeRefusal::HerbNotHeld);
         }
+        // The satchel spends the cheapest grade held first, holding the best
+        // for the gate it most wants to cross: a 黄阶 慧心草 is a warm-up, a
+        // 神阶 one is kept for a hundred that needs a bigger push.
+        let Some(grade) = self.lowest_held_grade(herb) else {
+            return Err(TradeRefusal::HerbNotHeld);
+        };
+        let (low, high) = herb.gain_tenths_for(grade).unwrap_or((1, 1));
         let total = self.aptitude_tenths();
         if total >= super::APTITUDE_MAX_TENTHS {
             return Err(TradeRefusal::AptitudeCapped);
@@ -1155,15 +1169,7 @@ impl Cultivation {
         if self.document.marrow_pills < marble {
             return Err(TradeRefusal::NotEnoughMarrow);
         }
-        match herb {
-            super::AptitudeHerb::Insight => {
-                self.document.insight_herbs = self.document.insight_herbs.saturating_sub(1);
-            }
-            super::AptitudeHerb::Wisdom => {
-                self.document.wisdom_herbs = self.document.wisdom_herbs.saturating_sub(1);
-            }
-            super::AptitudeHerb::Marrow => {}
-        }
+        self.take_one_herb(herb, grade);
         self.document.marrow_pills = self.document.marrow_pills.saturating_sub(marble);
         self.document.aptitude_tenths = Some(super::aptitude::clamp_tenths(
             target.saturating_sub(outright),
@@ -1187,6 +1193,33 @@ impl Cultivation {
         })
     }
 
+    /// The cheapest grade of a herb the satchel is holding, if it holds one.
+    fn lowest_held_grade(&self, herb: super::AptitudeHerb) -> Option<super::SeedGrade> {
+        self.document
+            .herb_stacks
+            .iter()
+            .filter(|stack| stack.herb == herb && stack.count > 0)
+            .min_by_key(|stack| stack.grade.index())
+            .map(|stack| stack.grade)
+    }
+
+    /// Take one herb of a grade out of the satchel, dropping the stack when it
+    /// is spent.
+    fn take_one_herb(&mut self, herb: super::AptitudeHerb, grade: super::SeedGrade) {
+        if let Some(index) = self
+            .document
+            .herb_stacks
+            .iter()
+            .position(|stack| stack.herb == herb && stack.grade == grade && stack.count > 0)
+        {
+            let stack = &mut self.document.herb_stacks[index];
+            stack.count = stack.count.saturating_sub(1);
+            if stack.count == 0 {
+                self.document.herb_stacks.remove(index);
+            }
+        }
+    }
+
     /// Feed a herb that has just been found, the moment it is found.
     ///
     /// The page used to hold the three 潜质 items in a row of their own with a
@@ -1194,25 +1227,44 @@ impl Cultivation {
     /// neither the row nor the button. What is held is written first, so a body
     /// that cannot take it — the band is full, or the gate ahead has no pill for
     /// it — simply keeps it in the bag, where the satchel offers the button the
-    /// page no longer carries.
-    fn feed_found_herb(&mut self, herb: super::AptitudeHerb, now_unix: i64) {
-        match herb {
-            super::AptitudeHerb::Insight => {
-                self.document.insight_herbs = self.document.insight_herbs.saturating_add(1);
-            }
-            super::AptitudeHerb::Wisdom => {
-                self.document.wisdom_herbs = self.document.wisdom_herbs.saturating_add(1);
-            }
-            // A pill is never fed to the body: it opens a gate, and gates are
-            // opened from the satchel by the hand that wants them opened.
-            super::AptitudeHerb::Marrow => {
-                self.document.marrow_pills = self.document.marrow_pills.saturating_add(1);
-                return;
-            }
+    /// page no longer carries. The grade the herb was found at is what it pays,
+    /// and what it keeps when it waits in the bag.
+    fn feed_found_herb(
+        &mut self,
+        herb: super::AptitudeHerb,
+        grade: super::SeedGrade,
+        now_unix: i64,
+    ) {
+        // A pill is never fed to the body: it opens a gate, and gates are
+        // opened from the satchel by the hand that wants them opened.
+        if herb == super::AptitudeHerb::Marrow {
+            self.document.marrow_pills = self.document.marrow_pills.saturating_add(1);
+            return;
         }
         // A refusal is not a failure to report: the herb is in the bag and the
-        // satchel offers it, which is what a hoarded herb always was.
-        let _ = self.use_aptitude_herb(herb, now_unix);
+        // satchel offers it, which is what a hoarded herb always was. Storing it
+        // at the grade it arrived at keeps the satchel honest about what the
+        // body will pay for it.
+        if self.use_aptitude_herb(herb, now_unix).is_err() {
+            self.store_herb(herb, grade);
+        }
+    }
+
+    /// Put one herb of a grade into the satchel, onto the stack that already
+    /// holds it when there is one.
+    fn store_herb(&mut self, herb: super::AptitudeHerb, grade: super::SeedGrade) {
+        if let Some(stack) = self
+            .document
+            .herb_stacks
+            .iter_mut()
+            .find(|stack| stack.herb == herb && stack.grade == grade)
+        {
+            stack.count = stack.count.saturating_add(1);
+        } else {
+            self.document
+                .herb_stacks
+                .push(super::HerbStack::single(herb, grade));
+        }
     }
 
     /// Spend 洗髓丹 to open the gate ahead: 潜质 is carried up to the next even
@@ -1780,17 +1832,23 @@ impl Cultivation {
         edge += BONUS_INSIGHT_PERMILLE;
         if roll < edge {
             // Straight into the body: a herb found is a herb taken, and the
-            // page no longer keeps a shelf of them waiting for a button.
-            self.feed_found_herb(super::AptitudeHerb::Insight, now_unix);
+            // page no longer keeps a shelf of them waiting for a button. The
+            // grade is rolled where the find is, so the body pays the herb it
+            // was found at.
+            let grade = roll_seed_grade(rng);
+            self.feed_found_herb(super::AptitudeHerb::Insight, grade, now_unix);
             return Some(Drop::Herb {
                 herb: super::AptitudeHerb::Insight,
+                grade,
             });
         }
         edge += BONUS_WISDOM_PERMILLE;
         if roll < edge {
-            self.feed_found_herb(super::AptitudeHerb::Wisdom, now_unix);
+            let grade = roll_seed_grade(rng);
+            self.feed_found_herb(super::AptitudeHerb::Wisdom, grade, now_unix);
             return Some(Drop::Herb {
                 herb: super::AptitudeHerb::Wisdom,
+                grade,
             });
         }
         // The rest of the roll — a hundredth of a thousandth — is a 功法: the
@@ -2094,7 +2152,14 @@ impl Cultivation {
         // if the rank rule ever prices the two apart.
         let xp = i32::try_from(self.document.garden_xp - xp_before).unwrap_or(i32::MAX);
         let mut rng = self.rng(now_unix);
-        let seed = seed_return(crop.attribute, crop.tier, &mut rng);
+        // The return odds are the garden's own rank: one percent per 阶, so the
+        // garden pays for its second seed the more it has been tended.
+        let seed = seed_return(
+            crop.attribute,
+            crop.tier,
+            self.document.garden_rank,
+            &mut rng,
+        );
         // The name travels with the stack it landed in, so the notice and the
         // log can both say which herb came back rather than "a seed".
         let mut seed_name = None;
@@ -3544,7 +3609,7 @@ impl Cultivation {
                     grade,
                 },
                 Drop::Art { name } => DropView::Art { name },
-                Drop::Herb { herb } => DropView::Herb { herb },
+                Drop::Herb { herb, .. } => DropView::Herb { herb },
                 Drop::Stones(stones) => DropView::Stones(stones),
             }),
             last_seed_return: self.last_seed_return.clone(),
@@ -3683,10 +3748,11 @@ impl Cultivation {
     /// Rolled from the day and the realm, so the same day always shows the same
     /// goods and a document cannot carry a shelf it never would have rolled. The
     /// bought slots are cleared here rather than in the domain's own transition:
-    /// a user who opens the page on a new day has, for that page, a new shelf.
+    /// a user who opens the page on a new day — or after a 破境 re-rolled the
+    /// same day's shelf — has, for that page, a new shelf.
     pub fn shop(&self, today: i64) -> Vec<ShopOfferView> {
         let realm = self.realm();
-        let bought: &[u8] = if self.document.shop_day == Some(today) {
+        let bought: &[u8] = if self.shop_bought_valid(today) {
             &self.document.shop_bought
         } else {
             &[]
@@ -3810,7 +3876,7 @@ impl Cultivation {
                 name: Some(blueprint(*art_id).name),
                 art_id: Some(*art_id),
             },
-            ShopOffer::Herb { herb } => SaleKind::Herb { herb: *herb },
+            ShopOffer::Herb { herb, .. } => SaleKind::Herb { herb: *herb },
         };
         match bought {
             ShopOffer::Equipment(item) => {
@@ -3833,10 +3899,11 @@ impl Cultivation {
                 // a market that sells what it does not show.
                 self.grant_art_book(art_id);
             }
-            ShopOffer::Herb { herb } => {
+            ShopOffer::Herb { herb, grade } => {
                 // The two 潜质 herbs are fed on arrival — the row that used to
                 // hold them on the page is gone — while a 洗髓丹 lands in the bag,
                 // because a pill is spent by opening a gate from the satchel.
+                // The grade the row showed is the grade the body pays.
                 match herb {
                     super::AptitudeHerb::Marrow => {
                         self.document.marrow_pills = self.document.marrow_pills.saturating_add(1);
@@ -3847,7 +3914,7 @@ impl Cultivation {
                             },
                         );
                     }
-                    _ => self.feed_found_herb(herb, now_unix),
+                    _ => self.feed_found_herb(herb, grade, now_unix),
                 }
             }
         }
@@ -4037,9 +4104,24 @@ impl Cultivation {
     }
 
     /// Roll the shop's day forward if it has not been done yet.
+    /// Whether the recorded bought slots still describe the shelf on display.
+    ///
+    /// They are valid only against the day *and* the realm they were recorded
+    /// under, because that is what the shelf is rolled from. A 破境 lifts the
+    /// realm inside the same day, re-rolling the shelf in place; the indexes in
+    /// [`CultivationDocument::shop_bought`] are positions in that older shelf,
+    /// and honouring them against the new one would mark a good the cultivator
+    /// never bought — a 慧心草 struck through as already bought.
+    fn shop_bought_valid(&self, today: i64) -> bool {
+        self.document.shop_day == Some(today)
+            && self.document.shop_realm == Some(self.document.realm)
+    }
+
     fn roll_shop_day(&mut self, today: i64) {
-        if self.document.shop_day != Some(today) {
+        let realm = self.document.realm;
+        if self.document.shop_day != Some(today) || self.document.shop_realm != Some(realm) {
             self.document.shop_day = Some(today);
+            self.document.shop_realm = Some(realm);
             self.document.shop_bought.clear();
         }
     }
@@ -4796,6 +4878,72 @@ mod tests {
             realm: Realm::from_level(level).index() as u8,
             ..CultivationDocument::default()
         })
+    }
+
+    /// A 破境 re-rolls the same day's shelf in place, so a slot index bought
+    /// under the old realm is a position in a shelf nobody can see any more.
+    /// The bought slots are invalidated, and the good that now sits in that
+    /// slot is not struck through as already paid for.
+    #[test]
+    fn a_breakthrough_clears_the_shelves_bought_slots() {
+        let mut cultivation = a_bare_save_at(20);
+        cultivation.document.stones = 100_000;
+        let today = 20_000;
+        let slot = 0usize;
+        cultivation
+            .buy_from_shop(slot, today, 1_000)
+            .expect("the purchase went through");
+        assert!(
+            cultivation.shop(today)[slot].bought,
+            "the slot is struck through after the buy"
+        );
+        // The guardian falls: the realm lifts inside the same day, and the
+        // shelf is rolled again from the new realm.
+        let old_realm = cultivation.document.realm;
+        cultivation.document.realm = old_realm.saturating_add(1);
+        assert!(
+            !cultivation.shop(today)[slot].bought,
+            "a slot bought under the old realm is not marked on the new shelf"
+        );
+    }
+
+    /// A save from before herbs carried a grade holds bare counts. They fold
+    /// into stacks at 地阶 — the anchor the old numbers were — and the counts
+    /// are spent, so the two stores never disagree about what is held.
+    #[test]
+    fn legacy_herb_counts_become_earth_stacks() {
+        let cultivation = Cultivation::new(CultivationDocument {
+            insight_herbs: 2,
+            wisdom_herbs: 3,
+            ..CultivationDocument::default()
+        });
+        let stacks = &cultivation.document.herb_stacks;
+        assert_eq!(stacks.len(), 2, "two herbs, two stacks");
+        let insight = stacks
+            .iter()
+            .find(|stack| stack.herb == super::super::AptitudeHerb::Insight)
+            .expect("the 悟心草 stack");
+        assert_eq!(insight.count, 2);
+        assert_eq!(
+            insight.grade,
+            super::super::SeedGrade::Earth,
+            "an old herb is 地阶"
+        );
+        let wisdom = stacks
+            .iter()
+            .find(|stack| stack.herb == super::super::AptitudeHerb::Wisdom)
+            .expect("the 慧心草 stack");
+        assert_eq!(wisdom.count, 3);
+        assert_eq!(
+            cultivation.document.insight_herbs, 0,
+            "the legacy count is spent"
+        );
+        assert_eq!(cultivation.document.wisdom_herbs, 0);
+        assert_eq!(
+            cultivation.aptitude_herbs(),
+            [2, 3, 0],
+            "the total the satchel shows is unchanged"
+        );
     }
 
     /// The tower is closed for two different reasons, and the page is told

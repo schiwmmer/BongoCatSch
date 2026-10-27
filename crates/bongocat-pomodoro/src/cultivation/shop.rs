@@ -90,8 +90,16 @@ pub enum ShopOffer {
     /// Kept apart from [`Self::Seed`] because the two are not the same kind of
     /// thing: a seed is planted and pays an attribute when it comes up, while
     /// these are consumed on the spot and move the one number 功法 learning
-    /// turns on.
-    Herb { herb: AptitudeHerb },
+    /// turns on. The two herbs carry a grade like any seed — a 神级 慧心草 pays
+    /// two and a half times the 地阶 one — so the row names the grade the buyer
+    /// is paying for; the pill carries none.
+    Herb {
+        herb: AptitudeHerb,
+        /// The herb's grade. An old save's shelf predates the field and reads
+        /// as 地阶, the anchor its numbers were.
+        #[serde(default)]
+        grade: SeedGrade,
+    },
 }
 
 impl ShopOffer {
@@ -105,7 +113,7 @@ impl ShopOffer {
             Self::Equipment(item) => equipment_price(item.tier, item.rarity),
             Self::Seed { tier, grade, .. } => seed_price(*tier, *grade),
             Self::Art { art_id } => art_price(super::blueprint(*art_id).grade),
-            Self::Herb { herb } => herb.price(),
+            Self::Herb { herb, grade } => herb.price_for(*grade),
         }
     }
 
@@ -300,6 +308,10 @@ pub fn roll_offers(day_number: i64, realm: Realm, seed: u64) -> Vec<ShopOffer> {
                         } else {
                             AptitudeHerb::Wisdom
                         },
+                        // The same discovery roll the seed row above made: a
+                        // 潜质 herb is a seed in everything but the plot, so the
+                        // grade the shelf shows is the grade the body will pay.
+                        grade: super::garden::roll_seed_grade(&mut rng),
                     }
                 }
             }
@@ -330,6 +342,10 @@ pub fn roll_offers(day_number: i64, realm: Realm, seed: u64) -> Vec<ShopOffer> {
     if rng.below(MARROW_SHELF_ONE_IN) == 0 {
         offers.push(ShopOffer::Herb {
             herb: AptitudeHerb::Marrow,
+            // A pill pays no 潜质, so it carries no grade: the anchor is as good
+            // a placeholder as any, and the price and gain rules read the herb
+            // rather than the grade.
+            grade: SeedGrade::Earth,
         });
     }
     offers
@@ -501,7 +517,7 @@ mod tests {
         for day in 0..days {
             for offer in roll_offers(day, Realm::from_index(0), day as u64) {
                 match offer {
-                    ShopOffer::Herb { herb } => match herb {
+                    ShopOffer::Herb { herb, .. } => match herb {
                         AptitudeHerb::Insight => insight += 1,
                         AptitudeHerb::Wisdom => wisdom += 1,
                         AptitudeHerb::Marrow => marrow += 1,
@@ -545,5 +561,32 @@ mod tests {
         assert_eq!(AptitudeHerb::Marrow.price(), 10_000);
         assert_eq!(AptitudeHerb::Insight.price(), 1_200);
         assert_eq!(AptitudeHerb::Wisdom.price(), 2_000);
+    }
+
+    /// A herb's grade prices the offer the same way it prices the gain: 地阶 is
+    /// the anchor, 神阶 two and a half times. A better grade is a dearer row,
+    /// and the pill is priced at its own flat rate whatever the grade.
+    #[test]
+    fn a_herb_offer_is_priced_at_its_grade() {
+        let insight = ShopOffer::Herb {
+            herb: AptitudeHerb::Insight,
+            grade: SeedGrade::Divine,
+        };
+        assert_eq!(
+            insight.price(),
+            3_000,
+            "a 神级 悟心草 is two and a half the 地阶"
+        );
+        let earth = ShopOffer::Herb {
+            herb: AptitudeHerb::Insight,
+            grade: SeedGrade::Earth,
+        };
+        assert_eq!(earth.price(), 1_200, "the 地阶 is the anchor");
+        assert!(insight.price() > earth.price());
+        let pill = ShopOffer::Herb {
+            herb: AptitudeHerb::Marrow,
+            grade: SeedGrade::Yellow,
+        };
+        assert_eq!(pill.price(), 10_000, "a pill carries no grade to price at");
     }
 }

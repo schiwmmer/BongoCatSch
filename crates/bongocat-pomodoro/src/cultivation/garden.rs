@@ -21,8 +21,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ArtGrade, Attribute, Rng, SEED_RETURN_PERMILLE, SEED_RETURN_UPGRADE_PERCENT, STAGE_COUNT,
-    arts::roll_art_grade,
+    ArtGrade, Attribute, Rng, SEED_RETURN_PERMILLE_PER_RANK, SEED_RETURN_UPGRADE_PERCENT,
+    STAGE_COUNT, arts::roll_art_grade,
 };
 
 /// How many plots a cultivator starts with. Every plot is independent, so a
@@ -237,18 +237,36 @@ pub fn harvest_points(tier: u8, grade: SeedGrade) -> i32 {
         .max(1)
 }
 
+/// The odds one harvest gives a seed back, in parts per thousand.
+///
+/// One percent per 阶 of the 仙草园: the first 阶 rolls one percent, and the
+/// fifteenth — the top of the garden — rolls fifteen. Fifteen was the flat rate
+/// a garden always paid, so a garden that has been raised all the way returns a
+/// seed about as often as it always did; a young garden returns fewer, and the
+/// 阶 the cultivator has spent to buy are the ones that buy the second seed
+/// back. Capped at the top 阶, so a rank past the top cannot outrun the ladder.
+pub fn seed_return_permille(garden_rank: u8) -> u64 {
+    let rank = garden_rank.min(MAX_GARDEN_RANK);
+    (rank as u64)
+        .saturating_mul(SEED_RETURN_PERMILLE_PER_RANK)
+        .min(SEED_RETURN_PERMILLE_PER_RANK * MAX_GARDEN_RANK as u64)
+        .max(1)
+}
+
 /// The seed one harvest gives back, if it gives one.
 ///
-/// Most harvests pay only their attribute points. [`SEED_RETURN_PERMILLE`]
-/// decides whether a seed comes back at all, [`SEED_RETURN_UPGRADE_PERCENT`]
-/// decides whether it comes back a tier higher — and the grade rolls fresh, so a
-/// garden is the one place a 神阶 seed can be grown into rather than found.
+/// Most harvests pay only their attribute points. [`seed_return_permille`]
+/// decides whether a seed comes back at all — one percent per 阶 of the 仙草园 —
+/// [`SEED_RETURN_UPGRADE_PERCENT`] decides whether it comes back a tier higher,
+/// and the grade rolls fresh, so a garden is the one place a 神阶 seed can be
+/// grown into rather than found.
 pub fn seed_return(
     attribute: Attribute,
     tier: u8,
+    garden_rank: u8,
     rng: &mut Rng,
 ) -> Option<(Attribute, u8, SeedGrade)> {
-    if rng.below(1_000) >= SEED_RETURN_PERMILLE {
+    if rng.below(1_000) >= seed_return_permille(garden_rank) {
         return None;
     }
     let tier = if rng.below(100) < SEED_RETURN_UPGRADE_PERCENT {

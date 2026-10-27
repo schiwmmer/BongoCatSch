@@ -716,7 +716,7 @@ fn sale_effect(what: &SaleKind, locale: &str) -> Option<String> {
                 locale,
             ))
         }
-        SaleKind::Herb { herb } => Some(super::shop::herb_effect(*herb, locale)),
+        SaleKind::Herb { herb } => Some(super::shop::herb_effect(*herb, None, locale)),
         _ => None,
     }
 }

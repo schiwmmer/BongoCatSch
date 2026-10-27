@@ -31,9 +31,10 @@
 //!   on top of what the level itself raises. The points are paid against the
 //!   highest level ever reached, so a penalty that lowers the ladder never
 //!   takes back a point already earned.
-//! * A harvest pays its attribute and then rolls once at
-//!   [`SEED_RETURN_PERMILLE`] for a seed of the same attribute, the same tier
-//!   or one higher, which is what lets a garden keep running.
+//! * A harvest pays its attribute and then rolls once, at one percent per 阶 of
+//!   the 仙草园 ([`SEED_RETURN_PERMILLE_PER_RANK`]), for a seed of the same
+//!   attribute, the same tier or one higher, which is what lets a garden keep
+//!   running.
 
 mod aptitude;
 mod arts;
@@ -59,7 +60,7 @@ mod trial;
 mod tests;
 
 pub use aptitude::{
-    APTITUDE_MAX_TENTHS, AptitudeHerb, HerbView, base_success_permille, success_permille,
+    APTITUDE_MAX_TENTHS, AptitudeHerb, HerbStack, HerbView, base_success_permille, success_permille,
 };
 pub use arts::{
     APTITUDE_ART_IDS, APTITUDE_ART_TENTHS_PER_RANK, ART_COUNT, ArtBlueprint, ArtGrade, ArtKind,
@@ -96,7 +97,7 @@ pub use explore::{
 pub use garden::{
     CropRecord, FREE_PLOT_COUNT, MAX_GARDEN_RANK, MAX_PLOT_COUNT, MAX_SEED_TIER, PITY_MIN_PERMILLE,
     PITY_STREAK, PlotRecord, SeedGrade, SeedStack, grow_seconds, harvest_points, plant_permille,
-    rank_cost, rank_for_xp, rank_xp, rank_xp_total, wither_points,
+    rank_cost, rank_for_xp, rank_xp, rank_xp_total, seed_return_permille, wither_points,
 };
 pub use items::{
     EquipSlot, EquipmentRecord, GearEffect, MAX_STAR, Rarity, SLOT_COUNT, STAR_SUCCESS_PERMILLE,
@@ -249,12 +250,17 @@ const _: () = assert!(
         < 1_000
 );
 
-/// The chance one harvest gives a seed back, in parts per thousand.
+/// The chance one harvest gives a seed back, in parts per thousand **per 阶 of
+/// the 仙草园**.
 ///
-/// Low enough that a harvest is still a payout rather than a trade, high enough
-/// that a garden keeps running without a session having to feed it: one in
-/// seven harvests returns a seed.
-pub const SEED_RETURN_PERMILLE: u64 = 150;
+/// One percent per 阶: the first 阶 is one percent, and the fifteenth — the top
+/// of the garden — is fifteen. Fifteen was the flat rate the old garden paid
+/// every harvest, so a garden that has been raised all the way still returns a
+/// seed about as often as it always did, and a young garden returns fewer until
+/// it has been tended: the 阶 the cultivator has spent to buy is the one that
+/// buys the second seed back. Read with
+/// [`seed_return_permille`](self::garden::seed_return_permille).
+pub const SEED_RETURN_PERMILLE_PER_RANK: u64 = 10;
 
 /// The share of returned seeds that come back one tier higher, in percent.
 ///
