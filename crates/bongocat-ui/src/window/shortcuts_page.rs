@@ -3,6 +3,7 @@ use super::*;
 use super::behavior_name::{
     behavior_name_edit_control, behavior_name_editor, behavior_name_key, behavior_name_part_id,
 };
+use gpui_kit::AnyElement;
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::Sizable as _;
 
@@ -239,7 +240,7 @@ pub(super) fn content(
                 .when_some(empty_message, |content, message| {
                     content.child(div().text_sm().text_color(tokens.muted).child(message))
                 })
-                .children(rows.into_iter().enumerate().map(|(index, row)| {
+                .children(rows.iter().enumerate().map(|(index, row)| {
                     shortcut_row(
                         view,
                         window,
@@ -248,11 +249,142 @@ pub(super) fn content(
                         gate,
                         tokens,
                         scope,
-                        row,
+                        row.clone(),
                         row_index_offset + index,
                     )
                 }))
+                .when(
+                    matches!(scope, ShortcutScope::Model) && !rows.is_empty(),
+                    |content| content.child(behavior_palettes(cx, language, gate, tokens, &rows)),
+                )
         })
+}
+
+/// How many names one row of a behavior palette holds.
+const BEHAVIOR_PALETTE_COLUMNS: usize = 4;
+
+/// The behavior palettes: every expression and every motion of the active model
+/// as a block of names, four to a row, that plays the behavior when clicked.
+///
+/// The shortcut rows above already bind a chord to each behavior, but a row
+/// costs a whole line, so a model with twenty behaviors reads as twenty
+/// lines of chords and nothing else. The palette is the same list in the shape
+/// the model package declares it — expressions in one block, motions in the
+/// other — and a name is the entire control: there is no chord to read and
+/// nothing to record, so pressing one only ever plays.
+fn behavior_palettes(
+    cx: &mut Context<SettingsView>,
+    language: SettingsLanguage,
+    gate: SettingGate,
+    tokens: Tokens,
+    rows: &[ShortcutRow],
+) -> Div {
+    let disabled = gate.disables_controls();
+    let mut palettes = div().flex().flex_col().gap_3().w_full().child(
+        div()
+            .text_xs()
+            .text_color(tokens.muted)
+            .child(bongocat_i18n::text(
+                language.catalog_locale(),
+                "shortcuts.behavior_palette.hint",
+            )),
+    );
+    for (expressions, heading) in [
+        (true, "shortcuts.behavior_palette.expressions"),
+        (false, "shortcuts.behavior_palette.motions"),
+    ] {
+        let named: Vec<&ShortcutRow> = rows
+            .iter()
+            .filter(|row| {
+                let is_expression = row.playable.as_ref().is_some_and(|playable| {
+                    matches!(playable.behavior, SettingsModelBehavior::Expression { .. })
+                });
+                if expressions {
+                    is_expression
+                } else {
+                    !is_expression
+                }
+            })
+            .collect();
+        if named.is_empty() {
+            continue;
+        }
+        let mut block = div().flex().flex_col().gap_2().w_full().child(
+            div()
+                .text_sm()
+                .text_color(tokens.text)
+                .child(bongocat_i18n::text(language.catalog_locale(), heading)),
+        );
+        for chunk in named.chunks(BEHAVIOR_PALETTE_COLUMNS) {
+            let mut line = div().flex().flex_row().gap_2().w_full();
+            for row in chunk {
+                line = line.child(behavior_palette_chip(cx, language, row, disabled, tokens));
+            }
+            block = block.child(line);
+        }
+        palettes = palettes.child(block);
+    }
+    palettes
+}
+
+/// One name in a palette: a chip the whole width of its column.
+///
+/// The chip is a name and nothing else, so it can be as narrow as a column of
+/// four and still say which behavior it plays. It is inert while the gate is
+/// shut rather than merely painted lighter: a chip that looks clickable and
+/// does nothing is worse than one that is visibly off.
+fn behavior_palette_chip(
+    cx: &mut Context<SettingsView>,
+    language: SettingsLanguage,
+    row: &ShortcutRow,
+    disabled: bool,
+    tokens: Tokens,
+) -> AnyElement {
+    let Some(playable) = row.playable.clone() else {
+        return div().into_any_element();
+    };
+    let target = row.target.clone();
+    let id = match &row.target {
+        ShortcutCaptureTarget::ModelBehavior { behavior_id, .. } => {
+            format!("behavior-palette-{behavior_id}")
+        }
+        ShortcutCaptureTarget::Command(command) => format!("behavior-palette-{command}"),
+    };
+    let chip = div()
+        .id(id)
+        .test_support()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .px_2()
+        .py_1()
+        .rounded_md()
+        .border_1()
+        .border_color(tokens.border)
+        .bg(tokens.overlay)
+        .child(
+            div()
+                .text_xs()
+                .text_color(tokens.text)
+                .truncate()
+                .child(row.name(language)),
+        );
+    if disabled {
+        return chip.into_any_element();
+    }
+    chip.cursor_pointer()
+        .hover(|style| style.border_color(tokens.accent))
+        .on_click(cx.listener(move |view, _, _, cx| {
+            view.play_shortcut_behavior(
+                target.clone(),
+                playable.model.clone(),
+                playable.behavior.clone(),
+                cx,
+            );
+        }))
+        .into_any_element()
 }
 
 #[allow(clippy::too_many_arguments)]

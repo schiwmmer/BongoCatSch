@@ -335,6 +335,11 @@
         "field": "名称"
       }
     },
+    "behavior_palette": {
+      "hint": "点一下即可试看",
+      "expressions": "表情",
+      "motions": "动作"
+    },
     "errors": {
       "conflict": "%{shortcut} 已被其他快捷键占用"
     }
@@ -628,7 +633,9 @@
         "10": "仙人"
       }
     },
-    "badge": "%{stage} %{layer}层%{rank}阶"
+    "plate": {
+      "rank": "%{layer}层 · %{rank}阶"
+    }
   },
   "cultivation": {
     "realm": "%{stage} · %{layer} 层 %{rank} 阶",

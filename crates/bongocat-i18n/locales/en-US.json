@@ -335,6 +335,11 @@
         "field": "Name"
       }
     },
+    "behavior_palette": {
+      "hint": "Click a name to try it",
+      "expressions": "Expressions",
+      "motions": "Motions"
+    },
     "errors": {
       "conflict": "%{shortcut} is already assigned to another shortcut"
     }
@@ -628,7 +633,9 @@
         "10": "Immortal"
       }
     },
-    "badge": "%{stage} L%{layer}R%{rank}"
+    "plate": {
+      "rank": "L%{layer} · R%{rank}"
+    }
   },
   "cultivation": {
     "realm": "%{stage} · layer %{layer} rank %{rank}",
