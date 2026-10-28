@@ -340,17 +340,22 @@ fn snapshot_carries_the_auto_assigned_behavior_shortcuts() {
         )
         .expect("select standard model");
 
-    // Seven behaviours, one chord each, in the legacy order.
-    assert_eq!(selected.shortcuts.model_behaviors.len(), 7);
+    // Nineteen behaviours, one chord each, in the legacy order: the digit
+    // tiers first, then the Shift tier for the expressions that follow the
+    // ten motions.
+    assert_eq!(selected.shortcuts.model_behaviors.len(), 19);
     let primary = if cfg!(target_os = "macos") {
         "Meta"
     } else {
         "Control"
     };
-    for (behavior_id, slot) in [
-        ("motion:CAT_motion:0", 1),
-        ("motion:CAT_motion_lock:1", 4),
-        ("expression:live2d_expression2.exp3.json", 7),
+    for (behavior_id, expected) in [
+        ("motion:CAT_motion:0", format!("{primary}+1")),
+        ("motion:CAT_motion_lock:1", format!("{primary}+7")),
+        (
+            "expression:live2d_expression2.exp3.json",
+            format!("Shift+{primary}+3"),
+        ),
     ] {
         let binding = selected
             .shortcuts
@@ -359,11 +364,7 @@ fn snapshot_carries_the_auto_assigned_behavior_shortcuts() {
             .find(|binding| binding.behavior_id == behavior_id)
             .unwrap_or_else(|| panic!("{behavior_id} has no default binding"));
         assert_eq!(binding.model.id, "standard");
-        assert_eq!(
-            binding.shortcut,
-            format!("{primary}+{slot}"),
-            "{behavior_id}"
-        );
+        assert_eq!(binding.shortcut, expected, "{behavior_id}");
     }
 
     // The rows themselves come from the catalog entry's behaviour list, so
@@ -376,7 +377,7 @@ fn snapshot_carries_the_auto_assigned_behavior_shortcuts() {
         .expect("standard model entry");
     match &entry.availability {
         SettingsModelAvailability::Ready { behaviors, .. } => {
-            assert_eq!(behaviors.len(), 7);
+            assert_eq!(behaviors.len(), 19);
         }
         SettingsModelAvailability::Invalid { .. } => {
             panic!("the bundled standard model must stay valid")

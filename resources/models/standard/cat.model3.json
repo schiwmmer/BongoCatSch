@@ -20,6 +20,30 @@
       {
         "Name": "live2d_expression2.exp3.json",
         "File": "live2d_expression2.exp3.json"
+      },
+      {
+        "Name": "exp_1.exp3.json",
+        "File": "exp_1.exp3.json"
+      },
+      {
+        "Name": "exp_2.exp3.json",
+        "File": "exp_2.exp3.json"
+      },
+      {
+        "Name": "smile.exp3.json",
+        "File": "smile.exp3.json"
+      },
+      {
+        "Name": "surprised.exp3.json",
+        "File": "surprised.exp3.json"
+      },
+      {
+        "Name": "angry.exp3.json",
+        "File": "angry.exp3.json"
+      },
+      {
+        "Name": "wink.exp3.json",
+        "File": "wink.exp3.json"
       }
     ],
     "Motions": {
@@ -34,6 +58,21 @@
           "File": "live2d_motion2.motion3.json",
           "FadeInTime": 0,
           "FadeOutTime": 0
+        },
+        {
+          "File": "nod.motion3.json",
+          "FadeInTime": 0.1,
+          "FadeOutTime": 0.2
+        },
+        {
+          "File": "headshake.motion3.json",
+          "FadeInTime": 0.1,
+          "FadeOutTime": 0.2
+        },
+        {
+          "File": "tilt.motion3.json",
+          "FadeInTime": 0.1,
+          "FadeOutTime": 0.2
         }
       ],
       "CAT_motion_lock": [
@@ -47,6 +86,21 @@
           "File": "live2d_motion2.motion3.json",
           "FadeInTime": 0,
           "FadeOutTime": 0
+        },
+        {
+          "File": "nod.motion3.json",
+          "FadeInTime": 0.1,
+          "FadeOutTime": 0.2
+        },
+        {
+          "File": "headshake.motion3.json",
+          "FadeInTime": 0.1,
+          "FadeOutTime": 0.2
+        },
+        {
+          "File": "tilt.motion3.json",
+          "FadeInTime": 0.1,
+          "FadeOutTime": 0.2
         }
       ]
     }

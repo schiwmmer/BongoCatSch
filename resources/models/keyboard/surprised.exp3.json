@@ -1,0 +1,22 @@
+{
+  "Type": "Live2D Expression",
+  "FadeInTime": 0.3,
+  "FadeOutTime": 0.5,
+  "Parameters": [
+    {
+      "Id": "ParamMouthOpenY",
+      "Value": 1.0,
+      "Blend": "Add"
+    },
+    {
+      "Id": "ParamBrowLY",
+      "Value": 0.8,
+      "Blend": "Add"
+    },
+    {
+      "Id": "ParamBrowRY",
+      "Value": 0.8,
+      "Blend": "Add"
+    }
+  ]
+}

@@ -45,39 +45,45 @@ fn activating_a_model_fills_in_the_legacy_default_behavior_shortcuts() {
         .wait_for_command(token.command_sequence, RUNTIME_TIMEOUT)
         .expect("standard model activation");
 
-    // `standard` declares four motions in two groups and three
+    // `standard` declares five motions in each of two groups and nine
     // expressions. The legacy ordering walks motions before expressions,
-    // so the seven behaviours land on the first seven digit slots.
+    // so the nineteen behaviours land on the digit tiers first and the
+    // Shift tier second.
     let bindings = application
         .config()
         .shortcuts
         .model_behavior_bindings
         .clone();
-    assert_eq!(bindings.len(), 7);
+    assert_eq!(bindings.len(), 19);
     assert!(
         bindings
             .iter()
             .all(|binding| binding.model.id == "standard")
     );
     let primary = behavior_shortcut_primary_name();
-    for (behavior_id, slot) in [
-        ("motion:CAT_motion:0", 1),
-        ("motion:CAT_motion:1", 2),
-        ("motion:CAT_motion_lock:0", 3),
-        ("motion:CAT_motion_lock:1", 4),
-        ("expression:live2d_expression0.exp3.json", 5),
-        ("expression:live2d_expression1.exp3.json", 6),
-        ("expression:live2d_expression2.exp3.json", 7),
+    for (behavior_id, expected) in [
+        ("motion:CAT_motion:0", format!("{primary}+1")),
+        ("motion:CAT_motion:1", format!("{primary}+2")),
+        ("motion:CAT_motion_lock:0", format!("{primary}+6")),
+        ("motion:CAT_motion_lock:1", format!("{primary}+7")),
+        (
+            "expression:live2d_expression0.exp3.json",
+            format!("Shift+{primary}+1"),
+        ),
+        (
+            "expression:live2d_expression1.exp3.json",
+            format!("Shift+{primary}+2"),
+        ),
+        (
+            "expression:live2d_expression2.exp3.json",
+            format!("Shift+{primary}+3"),
+        ),
     ] {
         let binding = bindings
             .iter()
             .find(|binding| binding.behavior_id == behavior_id)
             .unwrap_or_else(|| panic!("{behavior_id} has no default binding"));
-        assert_eq!(
-            binding.shortcut,
-            format!("{primary}+{slot}"),
-            "{behavior_id}"
-        );
+        assert_eq!(binding.shortcut, expected, "{behavior_id}");
     }
 
     // The chords are persisted, but the switch still gates whether the
@@ -207,7 +213,7 @@ fn selecting_a_model_keeps_the_behavior_bindings_the_user_recorded() {
         .shortcuts
         .model_behavior_bindings
         .clone();
-    assert_eq!(bindings.len(), 7);
+    assert_eq!(bindings.len(), 19);
     let chord = |behavior_id: &str| {
         bindings
             .iter()
@@ -227,11 +233,11 @@ fn selecting_a_model_keeps_the_behavior_bindings_the_user_recorded() {
     );
     assert_eq!(
         chord("motion:CAT_motion_lock:0"),
-        Some(format!("{primary}+2"))
+        Some(format!("{primary}+5"))
     );
     assert_eq!(
         chord("expression:live2d_expression2.exp3.json"),
-        Some(format!("{primary}+6"))
+        Some(format!("Shift+{primary}+2"))
     );
     assert_eq!(
         application.config().shortcuts.command_bindings.len(),
@@ -267,7 +273,7 @@ fn clearing_all_shortcuts_does_not_survive_the_next_activation() {
         .expect("select standard model");
     assert_eq!(
         application.config().shortcuts.model_behavior_bindings.len(),
-        7
+        19
     );
 
     // What the page's "Clear all shortcuts" button sends.
@@ -290,7 +296,7 @@ fn clearing_all_shortcuts_does_not_survive_the_next_activation() {
     assert!(application.config().shortcuts.command_bindings.is_empty());
     assert_eq!(
         application.config().shortcuts.model_behavior_bindings.len(),
-        7,
+        19,
         "the model behaviour defaults are re-assigned by activation"
     );
     application.shutdown().expect("clean shutdown");

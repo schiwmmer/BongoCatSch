@@ -14,16 +14,27 @@ fn model_snapshot_exposes_only_declared_behavior_identities() {
         .expect("committed preset")
         .snapshot();
 
-    assert_eq!(snapshot.behaviors.len(), 7);
+    assert_eq!(snapshot.behaviors.len(), 19);
     assert!(snapshot.behaviors.contains(&ModelBehaviorSnapshot::Motion {
         group: "CAT_motion".to_owned(),
         index: 0,
+    }));
+    assert!(snapshot.behaviors.contains(&ModelBehaviorSnapshot::Motion {
+        group: "CAT_motion".to_owned(),
+        index: 2,
     }));
     assert!(
         snapshot
             .behaviors
             .contains(&ModelBehaviorSnapshot::Expression {
                 name: "live2d_expression2.exp3.json".to_owned(),
+            })
+    );
+    assert!(
+        snapshot
+            .behaviors
+            .contains(&ModelBehaviorSnapshot::Expression {
+                name: "smile.exp3.json".to_owned(),
             })
     );
     assert!(snapshot.behaviors.iter().all(|behavior| match behavior {
