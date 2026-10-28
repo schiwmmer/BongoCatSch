@@ -784,7 +784,7 @@ fn item_detail(item: &ItemView, locale: &str, tokens: Tokens) -> impl IntoElemen
 
 fn section_title(locale: &str, key: &'static str, tokens: Tokens) -> impl IntoElement {
     div()
-        .text_xs()
+        .text_base()
         .font_semibold()
         .text_color(tokens.text)
         .child(text(locale, key))

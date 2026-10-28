@@ -327,6 +327,7 @@ fn a_free_attempt_is_fought_with_one_click(cx: &mut TestAppContext) {
     let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
     let (_view, visual) = cultivation_page_with(cx, pomodoro);
     visual.update(|window, cx| window.render_frame(cx));
+    scroll_until_visible(visual, "cultivation-breakthrough-attempt");
     visual.update(|window, cx| {
         window.render_frame(cx);
         window.click("cultivation-breakthrough-attempt", cx);
