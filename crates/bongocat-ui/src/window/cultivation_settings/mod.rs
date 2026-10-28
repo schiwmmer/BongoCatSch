@@ -13,7 +13,7 @@
 //! in every one of the eight catalogs.
 
 use super::*;
-use bongocat_i18n::{compact_number, format_text, text};
+use bongocat_i18n::{compact_number, format_text, group_thousands, text};
 use bongocat_pomodoro::{
     AptitudeHerb, ArtGrade, ArtKind, ArtOutcome, ArtOwnership, ArtView, Attribute, Attributes,
     BonusFind, CultivationView, DailyKind, Derived, DropView, EquipSlot, EventDetail, EventRecord,
@@ -200,7 +200,7 @@ fn realm_header(
     let power = format_text(
         locale,
         "cultivation.power",
-        &[("power", cultivation.power.to_string())],
+        &[("power", group_thousands(cultivation.power))],
     );
     let (growth_text, fraction) = growth_line(cultivation, locale);
     let hint_tokens = tokens;

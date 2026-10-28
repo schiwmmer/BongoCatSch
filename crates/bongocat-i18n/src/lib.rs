@@ -143,6 +143,25 @@ pub fn compact_number(value: u64) -> String {
     format!("{}T", value as u128 / 1_000_000_000_000)
 }
 
+/// A whole number with a comma between every three digits, as a ledger reads
+/// it: `1234567` becomes `1,234,567`.
+///
+/// This is a plain grouping, not [`compact_number`]: a combat figure is read by
+/// its exact magnitude rather than by the unit that shortens it, so "12,345"
+/// says more than "12.3K". The combat powers the cultivator page prints are
+/// `u32`, and a grouping that took `u64` would make every caller cast.
+pub fn group_thousands(value: u32) -> String {
+    let digits = value.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, ch) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
+}
+
 /// Stable identifier for the platform the catalog text targets.
 ///
 /// Returned as the lower-case snake-case suffix used in catalog overrides such

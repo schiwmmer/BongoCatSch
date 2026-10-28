@@ -68,6 +68,21 @@ fn a_count_in_the_millions_keeps_two_decimals() {
     assert_eq!(compact_number(1_230_000_000_000), "1.23T");
 }
 
+/// Every three digits get a comma, and nothing below a thousand does: a combat
+/// figure keeps its exact magnitude instead of a shortened unit.
+#[test]
+fn thousands_group_into_threes() {
+    assert_eq!(group_thousands(0), "0");
+    assert_eq!(group_thousands(7), "7");
+    assert_eq!(group_thousands(999), "999");
+    assert_eq!(group_thousands(1_000), "1,000");
+    assert_eq!(group_thousands(12_345), "12,345");
+    assert_eq!(group_thousands(999_999), "999,999");
+    assert_eq!(group_thousands(1_000_000), "1,000,000");
+    assert_eq!(group_thousands(1_234_567), "1,234,567");
+    assert_eq!(group_thousands(123_456_789), "123,456,789");
+}
+
 /// The unit is chosen after the rounding, not before it: a figure that rounds
 /// up to four digits reads as the next unit rather than as `1000K`.
 #[test]
