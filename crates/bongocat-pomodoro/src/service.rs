@@ -794,8 +794,13 @@ mod tests {
                 estimated_pomodoros: 2,
             })
             .expect("create the task");
-        wait_for(&client, |snapshot| snapshot.tasks.len() == 1);
-        assert_eq!(client.snapshot().tasks[0].name, "focus");
+        wait_for(&client, |snapshot| {
+            snapshot.tasks.iter().any(|t| t.name == "focus")
+        });
+        assert!(
+            client.snapshot().tasks.iter().any(|t| t.name == "focus"),
+            "the created task is present alongside any seeded daily tasks"
+        );
         service.shutdown(TIMEOUT).expect("clean shutdown");
         assert_eq!(client.diagnostics().worker, PomodoroWorkerState::Stopped);
     }
@@ -820,8 +825,13 @@ mod tests {
         });
         service.shutdown(TIMEOUT).expect("clean shutdown");
         let reloaded = PomodoroState::load(&path);
-        assert_eq!(reloaded.document().tasks.len(), 1);
-        assert_eq!(reloaded.document().tasks[0].name, "persisted");
+        let persisted = reloaded
+            .document()
+            .tasks
+            .iter()
+            .find(|t| t.name == "persisted")
+            .expect("the persisted task survives the reload");
+        assert_eq!(persisted.name, "persisted");
         assert_eq!(reloaded.focus_minutes(), 30);
         // The countdown is not in the document: a reload starts with no session.
         assert_eq!(reloaded.timer(), Timer::Idle);
@@ -839,9 +849,18 @@ mod tests {
                 estimated_pomodoros: 1,
             })
             .expect("create the task");
-        wait_for(&client, |snapshot| snapshot.tasks.len() == 1);
+        wait_for(&client, |snapshot| {
+            snapshot.tasks.iter().any(|t| t.name == "focus")
+        });
+        let focus_id = client
+            .snapshot()
+            .tasks
+            .iter()
+            .find(|t| t.name == "focus")
+            .expect("the focus task exists")
+            .id;
         client
-            .try_publish(PomodoroCommand::StartTask { task_id: 1 })
+            .try_publish(PomodoroCommand::StartTask { task_id: focus_id })
             .expect("start the session");
         wait_for(&client, |snapshot| snapshot.timer.is_some());
         client
@@ -882,9 +901,18 @@ mod tests {
                 estimated_pomodoros: 1,
             })
             .expect("create the task");
-        wait_for(&client, |snapshot| snapshot.tasks.len() == 1);
+        wait_for(&client, |snapshot| {
+            snapshot.tasks.iter().any(|t| t.name == "focus")
+        });
+        let focus_id = client
+            .snapshot()
+            .tasks
+            .iter()
+            .find(|t| t.name == "focus")
+            .expect("the focus task exists")
+            .id;
         client
-            .try_publish(PomodoroCommand::StartTask { task_id: 1 })
+            .try_publish(PomodoroCommand::StartTask { task_id: focus_id })
             .expect("start the session");
         wait_for(&client, |snapshot| snapshot.timer.is_some());
         let started = client

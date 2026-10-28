@@ -400,6 +400,27 @@ pub struct PomodoroState {
     utc_offset_seconds: i32,
 }
 
+/// The two recurring tasks seeded at the open of every trading weekday.
+///
+/// They name the date so a week's worth of reviews stays distinguishable in
+/// the list, and they are plain task names rather than UI strings: a task is
+/// user content, not chrome, so it is not run through the locale tables.
+const DAILY_STOCK_REVIEW_TASK: &str = "股票复盘";
+const DAILY_STOCK_CLASS_TASK: &str = "股票上课";
+/// Each seeded task starts with this many planned pomodoros; the user can
+/// retune any task by hand afterwards.
+const DAILY_STOCK_TASK_POMODOROS: u32 = 2;
+
+/// Whether a local day falls on a Monday through Friday.
+///
+/// Day number 0 is 1970-01-01, a Thursday, so the weekday is the day number
+/// mod seven: 0 Thu, 1 Fri, 2 Sat, 3 Sun, 4 Mon, 5 Tue, 6 Wed. The weekend is
+/// therefore 2 (Saturday) and 3 (Sunday).
+fn is_weekday(day: CalendarDay) -> bool {
+    let w = day.day_number().rem_euclid(7);
+    w != 2 && w != 3
+}
+
 impl PomodoroState {
     /// An empty state, as a fresh install sees it.
     pub fn empty() -> Self {
@@ -734,6 +755,7 @@ impl PomodoroState {
         {
             return false;
         }
+        self.create_daily_stock_tasks(today, now_unix);
         self.sync_cultivation();
         true
     }
@@ -754,6 +776,30 @@ impl PomodoroState {
         self.document
             .tasks
             .push(TaskRecord::new(id, name, estimated_pomodoros, now_unix));
+    }
+
+    /// Seed the two recurring weekday stock tasks when a trading day opens.
+    ///
+    /// Called from the same daily tick that opens the day, so it fires once per
+    /// local day and only on weekdays: a Saturday or Sunday carries no stock
+    /// review, and a machine that never opens the app on a weekday simply gets
+    /// nothing for that day.
+    fn create_daily_stock_tasks(&mut self, day: CalendarDay, now_unix: i64) {
+        if !is_weekday(day) {
+            return;
+        }
+        let civil = day.to_civil();
+        let date = format!("{:04}-{:02}-{:02}", civil.year, civil.month, civil.day);
+        self.create_task(
+            format!("{DAILY_STOCK_REVIEW_TASK}{date}"),
+            DAILY_STOCK_TASK_POMODOROS,
+            now_unix,
+        );
+        self.create_task(
+            format!("{DAILY_STOCK_CLASS_TASK}{date}"),
+            DAILY_STOCK_TASK_POMODOROS,
+            now_unix,
+        );
     }
 
     fn start_task(&mut self, task_id: u64, now_unix: i64) {
@@ -1254,6 +1300,42 @@ mod tests {
         assert_eq!(snapshot.tasks[0].completed_pomodoros, 0);
         assert_eq!(snapshot.tasks[0].status, PomodoroTaskStatus::in_progress);
         assert_eq!(snapshot.tasks[0].id, 1);
+    }
+
+    #[test]
+    fn the_two_stock_tasks_are_seeded_when_a_weekday_opens() {
+        let mut state = PomodoroState::empty();
+        // 2024-01-01 00:00:00 UTC is a Monday, read with offset 0.
+        assert!(state.apply_daily_event(1_704_067_200));
+        let tasks = state.snapshot(1).tasks;
+        assert_eq!(tasks.len(), 2);
+        assert!(
+            tasks
+                .iter()
+                .any(|t| t.name == "股票复盘2024-01-01" && t.estimated_pomodoros == 2)
+        );
+        assert!(
+            tasks
+                .iter()
+                .any(|t| t.name == "股票上课2024-01-01" && t.estimated_pomodoros == 2)
+        );
+    }
+
+    #[test]
+    fn no_stock_tasks_are_seeded_when_a_weekend_opens() {
+        let mut state = PomodoroState::empty();
+        // 2023-12-30 00:00:00 UTC is a Saturday, read with offset 0.
+        assert!(state.apply_daily_event(1_703_978_880));
+        assert!(state.snapshot(1).tasks.is_empty());
+    }
+
+    #[test]
+    fn the_stock_tasks_are_seeded_only_once_per_day() {
+        let mut state = PomodoroState::empty();
+        assert!(state.apply_daily_event(1_704_067_200));
+        // A second tick on the same day must not seed a second pair.
+        assert!(!state.apply_daily_event(1_704_067_200 + 3_600));
+        assert_eq!(state.snapshot(1).tasks.len(), 2);
     }
 
     #[test]
