@@ -259,6 +259,11 @@ fn kind_name(kind: JobKind, locale: &str) -> String {
 /// What the job asks of the cultivator, for the attribute(s) it trains, and how
 /// far over or under the requirement they are: a plus is a margin already
 /// cleared, a minus is a shortfall, both in whole percents.
+///
+/// The requirement itself is printed as a number beside the attribute it is
+/// asked of, not only as the margin: a margin alone says "how far off" but
+/// never "off what", so a job that asks for twice the last one's attribute
+/// reads the same until the number is there.
 fn requirement_line(job: &bongocat_pomodoro::JobView, locale: &str) -> String {
     let (first, second) = job.kind.slots();
     match second {
@@ -267,8 +272,13 @@ fn requirement_line(job: &bongocat_pomodoro::JobView, locale: &str) -> String {
             "cultivation.jobs.require_pair",
             &[
                 ("first", text(locale, first.key()).to_string()),
+                ("value_first", group_thousands(job.requirement)),
                 ("a", margin(job.current_first, job.requirement)),
                 ("second", text(locale, second.key()).to_string()),
+                (
+                    "value_second",
+                    group_thousands(job.requirement_second.unwrap_or(0)),
+                ),
                 (
                     "b",
                     margin(
@@ -283,6 +293,7 @@ fn requirement_line(job: &bongocat_pomodoro::JobView, locale: &str) -> String {
             "cultivation.jobs.require_single",
             &[
                 ("attribute", text(locale, first.key()).to_string()),
+                ("value", group_thousands(job.requirement)),
                 ("margin", margin(job.current_first, job.requirement)),
             ],
         ),
