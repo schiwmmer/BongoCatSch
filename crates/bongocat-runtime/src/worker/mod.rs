@@ -703,6 +703,22 @@ pub(crate) fn run_worker(receiver: Receiver<CommandEnvelope>, bootstrap: Runtime
                             });
                         }
                     }
+                    WorkerCommand::Product(RuntimeCommand::ClearExpression) => {
+                        // A borrowed face going back: the pomodoro that put the
+                        // focus face on is over, and what the cat wears now is
+                        // its own face rather than an expression this command
+                        // could name. No memory is written, because the face
+                        // being taken off was never the user's choice.
+                        if let Some(renderer) = &mut renderer {
+                            renderer.clear_expression(clock.now());
+                        }
+                        active_expression = None;
+                        publish(&snapshot, |current| {
+                            current.active_expression = None;
+                            current.last_command_failure = None;
+                            current.last_command_sequence = Some(sequence);
+                        });
+                    }
                     WorkerCommand::Shutdown => {
                         if !shutdown_delay.is_zero() {
                             thread::sleep(shutdown_delay);

@@ -14,7 +14,7 @@ fn model_snapshot_exposes_only_declared_behavior_identities() {
         .expect("committed preset")
         .snapshot();
 
-    assert_eq!(snapshot.behaviors.len(), 19);
+    assert_eq!(snapshot.behaviors.len(), 20);
     assert!(snapshot.behaviors.contains(&ModelBehaviorSnapshot::Motion {
         group: "CAT_motion".to_owned(),
         index: 0,

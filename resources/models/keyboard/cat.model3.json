@@ -44,6 +44,10 @@
       {
         "Name": "wink.exp3.json",
         "File": "wink.exp3.json"
+      },
+      {
+        "Name": "focus.exp3.json",
+        "File": "focus.exp3.json"
       }
     ],
     "Motions": {

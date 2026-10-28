@@ -57,7 +57,7 @@ use bongocat_platform::{
     SingleInstance, SingleInstanceAction, SingleInstanceEnvironment, SingleInstanceStart,
 };
 use bongocat_platform::{SystemMenu, SystemMenuAction, SystemMenuPresentation};
-use bongocat_runtime::{hover_hide_delay_ms, idle_hide_delay_ms};
+use bongocat_runtime::{RuntimeClient, hover_hide_delay_ms, idle_hide_delay_ms};
 use bongocat_ui::{
     SettingsNavigationMemory, SettingsView, SettingsWindowHandle, SettingsWindowSeed,
     open_settings_window,
@@ -217,6 +217,20 @@ struct ProductCoordinator {
     /// A handle to the pomodoro worker.
     #[cfg(target_os = "macos")]
     pomodoro_client: bongocat_pomodoro::PomodoroClient,
+    /// A handle to the runtime, for the one model gesture the frame loop owns:
+    /// putting the focus face on the cat while a pomodoro counts down.
+    #[cfg(target_os = "macos")]
+    runtime_client: RuntimeClient,
+    /// Whether the focus face is on the cat right now. The countdown starts
+    /// once and ends once, so the frame loop that sees every frame needs this
+    /// to tell the first frame of a session from the ten thousandth.
+    #[cfg(target_os = "macos")]
+    focus_face_on: bool,
+    /// The expression the cat wore before the focus face went on, so that
+    /// ending a session can hand the user's own choice back rather than the
+    /// model's default face.
+    #[cfg(target_os = "macos")]
+    focus_face_restore: Option<String>,
     /// The display language a product window opens with.
     ///
     /// Seeded from the startup snapshot and refreshed by the system menu loop, which
@@ -273,6 +287,71 @@ struct ProductCoordinator {
 }
 
 impl Global for ProductCoordinator {}
+
+/// The face a running pomodoro puts on the cat: a dedicated focus expression
+/// the preset models declare, so a session that has started reads on the cat
+/// itself and not only in the countdown on its pad.
+#[cfg(target_os = "macos")]
+const POMODORO_FOCUS_EXPRESSION: &str = "focus.exp3.json";
+
+/// Put the focus face on the cat while a pomodoro counts down, and take it off
+/// when the session is over.
+///
+/// The frame loop is the only place that sees both the countdown and the
+/// runtime, and it sees them every frame, so the state it keeps is what turns
+/// "this frame has a timer" into "the session started just now". A session is
+/// one start and one end, and the face is borrowed rather than chosen: what
+/// the user had on goes back on afterwards, and a model wearing no expression
+/// gets the borrowed face taken off rather than a name invented for it.
+#[cfg(target_os = "macos")]
+fn apply_pomodoro_focus_face(coordinator: &mut ProductCoordinator, counting_down: bool) {
+    if counting_down == coordinator.focus_face_on {
+        return;
+    }
+    coordinator.focus_face_on = counting_down;
+    let client = coordinator.runtime_client.clone();
+    if counting_down {
+        let snapshot = client.snapshot();
+        // A model that declares no focus face keeps the face it has: asking for
+        // an expression the model does not own would only be a failure for the
+        // runtime to report, and the cat is not the one that has to explain it.
+        let declares_focus = snapshot.active_model.as_ref().is_some_and(|model| {
+            model.behaviors.iter().any(|behavior| {
+                matches!(
+                    behavior,
+                    bongocat_model::ModelBehaviorSnapshot::Expression { name }
+                    if name == POMODORO_FOCUS_EXPRESSION
+                )
+            })
+        });
+        coordinator.focus_face_restore = snapshot
+            .active_expression
+            .as_ref()
+            .map(|active| active.expression.name().to_owned());
+        if !declares_focus {
+            return;
+        }
+        let Ok(expression) = bongocat_runtime::ExpressionId::new(POMODORO_FOCUS_EXPRESSION) else {
+            return;
+        };
+        let _ = client.send(bongocat_runtime::RuntimeCommand::SetExpression(expression));
+        return;
+    }
+    match coordinator.focus_face_restore.take() {
+        Some(previous) => {
+            // Naming the user's own expression again is what restores it, and
+            // it is also what leaves the remembered choice theirs: an automatic
+            // face must not overwrite the one the user picked.
+            let Ok(expression) = bongocat_runtime::ExpressionId::new(previous) else {
+                return;
+            };
+            let _ = client.send(bongocat_runtime::RuntimeCommand::SetExpression(expression));
+        }
+        None => {
+            let _ = client.send(bongocat_runtime::RuntimeCommand::ClearExpression);
+        }
+    }
+}
 
 #[cfg(target_os = "windows")]
 fn build_single_instance_environment() -> SingleInstanceEnvironment {
@@ -416,6 +495,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // see `Application::restore_startup_model`.
     application.restore_startup_model()?;
     let runtime_client = application.runtime_client();
+    // The frame loop keeps its own handle: the overlay takes the one above,
+    // and the focus face it puts on the cat when a pomodoro starts is a
+    // command the frame loop sends rather than one the overlay forwards.
+    let frame_loop_runtime_client = runtime_client.clone();
     // The pomodoro handle is taken before the application moves into the
     // settings worker, which is what owns the worker thread from then on. The
     // handle is independent of that lifetime, so the menu, the overlay and the
@@ -648,6 +731,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             pomodoro_window: None,
             #[cfg(target_os = "macos")]
             pomodoro_client,
+            #[cfg(target_os = "macos")]
+            runtime_client: frame_loop_runtime_client,
+            #[cfg(target_os = "macos")]
+            focus_face_on: false,
+            #[cfg(target_os = "macos")]
+            focus_face_restore: None,
             product_language: initial_settings_snapshot.resolved_language,
             product_appearance_theme: initial_settings_snapshot.appearance_theme,
             #[cfg(target_os = "macos")]
@@ -1285,6 +1374,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 sequence: completion.sequence,
                             }
                         });
+                        // A paused countdown is still a session the user is in,
+                        // so the focus face stays on until the session is over
+                        // rather than blinking off with the digits.
+                        let counting_down =
+                            timer.as_ref().is_some_and(|timer| !timer.paused);
                         // Composed before the overlay is borrowed: the copy reads
                         // the catalog, and the overlay owns the panel that draws
                         // it.
@@ -1299,6 +1393,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             // the same snapshot.
                             overlay.set_cultivation_text(Some(cultivation_text));
                         }
+                        // The focus face rides the same edge the countdown
+                        // does: one frame after the timer appears the cat is
+                        // wearing it, and one frame after it goes the face is
+                        // back to the user's.
+                        apply_pomodoro_focus_face(coordinator, counting_down);
                         // A right-click on the countdown pops the menu that
                         // countdown's state offers. It is popped here rather than
                         // from the monitor because presenting a menu is a product

@@ -45,16 +45,16 @@ fn activating_a_model_fills_in_the_legacy_default_behavior_shortcuts() {
         .wait_for_command(token.command_sequence, RUNTIME_TIMEOUT)
         .expect("standard model activation");
 
-    // `standard` declares five motions in each of two groups and nine
+    // `standard` declares five motions in each of two groups and ten
     // expressions. The legacy ordering walks motions before expressions,
-    // so the nineteen behaviours land on the digit tiers first and the
+    // so the twenty behaviours land on the digit tiers first and the
     // Shift tier second.
     let bindings = application
         .config()
         .shortcuts
         .model_behavior_bindings
         .clone();
-    assert_eq!(bindings.len(), 19);
+    assert_eq!(bindings.len(), 20);
     assert!(
         bindings
             .iter()
@@ -213,7 +213,7 @@ fn selecting_a_model_keeps_the_behavior_bindings_the_user_recorded() {
         .shortcuts
         .model_behavior_bindings
         .clone();
-    assert_eq!(bindings.len(), 19);
+    assert_eq!(bindings.len(), 20);
     let chord = |behavior_id: &str| {
         bindings
             .iter()
@@ -273,7 +273,7 @@ fn clearing_all_shortcuts_does_not_survive_the_next_activation() {
         .expect("select standard model");
     assert_eq!(
         application.config().shortcuts.model_behavior_bindings.len(),
-        19
+        20
     );
 
     // What the page's "Clear all shortcuts" button sends.
@@ -296,7 +296,7 @@ fn clearing_all_shortcuts_does_not_survive_the_next_activation() {
     assert!(application.config().shortcuts.command_bindings.is_empty());
     assert_eq!(
         application.config().shortcuts.model_behavior_bindings.len(),
-        19,
+        20,
         "the model behaviour defaults are re-assigned by activation"
     );
     application.shutdown().expect("clean shutdown");

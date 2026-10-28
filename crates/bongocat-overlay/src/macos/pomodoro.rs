@@ -1,4 +1,4 @@
-//! The pomodoro surfaces on the cat: the countdown above its head, and the
+//! The pomodoro surfaces on the cat: the countdown on its mouse pad, and the
 //! performance a finished session plays.
 //!
 //! Both are AppKit work rather than Metal work. The renderer draws the model and
@@ -21,15 +21,16 @@ use objc2_app_kit::NSEventType;
 use objc2_foundation::NSString;
 use std::time::Duration;
 
-/// How far the countdown's bottom edge overlaps the top of the cat window.
-///
-/// The countdown and the level badge both sit over the cat's head, so they must
-/// not collide: the badge's top is [`BADGE_TOP_FRACTION`] below the window top,
-/// so this overlap stays smaller than that and keeps the timer clear of the
-/// badge. A previous build floated the countdown a fixed gap *above* the cat's
-/// top edge, which read as detached from the model; overlapping the top sliver
-/// instead hugs the head the way a desktop-pet readout should.
-const COUNTDOWN_OVERLAP_FRACTION: f64 = 0.08;
+/// The countdown's left edge, as a fraction of the cat window's width: the
+/// clock sits at the near edge of the mouse pad the model draws, in front of
+/// where the mouse itself would rest, with the realm plate further along the
+/// same bottom line.
+const COUNTDOWN_LEFT_FRACTION: f64 = 0.03;
+
+/// The countdown's bottom edge, as a fraction of the cat window's height: the
+/// pad's own bottom line, which is above the window's because the desk
+/// furniture in front of the pad reaches lower than the pad does.
+const COUNTDOWN_BOTTOM_FRACTION: f64 = 0.30;
 
 /// Padding inside the countdown panel.
 const COUNTDOWN_PADDING: f64 = 12.0;
@@ -177,13 +178,12 @@ impl PomodoroCountdown {
         } else {
             OverlayPomodoroMenuRequest::OfferPause
         }));
-        let frame = self.panel.frame();
-        let x = f64::from(cat.x) + (f64::from(cat.width) - frame.size.width) / 2.0;
-        // Hug the head: the countdown's bottom edge overlaps the top sliver of the
-        // cat window rather than floating clear of it. The overlap is a fraction of
-        // the window height and stays below the forehead badge, so the timer reads
-        // as part of the model without covering the realm badge.
-        let y = f64::from(cat.y) + f64::from(cat.height) * (1.0 - COUNTDOWN_OVERLAP_FRACTION);
+        // Sit on the pad: the clock's bottom edge rides the pad's own bottom
+        // line, where the realm plate's does, and its left edge the pad's near
+        // corner. The two share the line without colliding because the plate is
+        // right-aligned against the pad's far edge.
+        let x = f64::from(cat.x) + f64::from(cat.width) * COUNTDOWN_LEFT_FRACTION;
+        let y = f64::from(cat.y) + f64::from(cat.height) * COUNTDOWN_BOTTOM_FRACTION;
         let origin = NSPoint::new(x, y);
         if self.origin.is_none_or(|previous| previous != origin) {
             self.panel.setFrameOrigin(origin);
@@ -250,7 +250,11 @@ impl Drop for PomodoroCountdown {
 
 /// The clock the countdown shows while it is running, and the paused mark it
 /// shows instead.
-const COUNTDOWN_ICON: &str = "⏱";
+/// The countdown's mark is a tomato: the session being counted is a pomodoro,
+/// and a clock glyph says "time is passing" without saying which clock. The
+/// glyph is the system font's own, so it needs no asset of its own and it
+/// inherits the user's appearance the way the digits do.
+const COUNTDOWN_ICON: &str = "\u{1F345}";
 const COUNTDOWN_ICON_PAUSED: &str = "⏸";
 
 /// The countdown's own colour: white, whatever the system appearance is.
@@ -260,7 +264,7 @@ const COUNTDOWN_ICON_PAUSED: &str = "⏸";
 /// wallpaper and white on a dark one, which means the timer changes colour as the
 /// user changes appearance. White is the one colour that reads as an overlay
 /// readout in both, and it is what the shadow below was written for.
-fn set_white_text(label: &NSTextField) {
+pub(crate) fn set_white_text(label: &NSTextField) {
     label.setTextColor(Some(&NSColor::whiteColor()));
 }
 
@@ -270,7 +274,7 @@ fn set_white_text(label: &NSTextField) {
 /// the cat, so white text needs an edge of its own or it disappears into a white
 /// wallpaper. The label's layer rasterizes the string it draws, so the shadow
 /// tracks the glyph outlines rather than reading as a box behind the text.
-fn apply_text_shadow(label: &NSTextField) {
+pub(crate) fn apply_text_shadow(label: &NSTextField) {
     label.setWantsLayer(true);
     let Some(layer) = label.layer() else {
         return;

@@ -340,10 +340,10 @@ fn snapshot_carries_the_auto_assigned_behavior_shortcuts() {
         )
         .expect("select standard model");
 
-    // Nineteen behaviours, one chord each, in the legacy order: the digit
+    // Twenty behaviours, one chord each, in the legacy order: the digit
     // tiers first, then the Shift tier for the expressions that follow the
     // ten motions.
-    assert_eq!(selected.shortcuts.model_behaviors.len(), 19);
+    assert_eq!(selected.shortcuts.model_behaviors.len(), 20);
     let primary = if cfg!(target_os = "macos") {
         "Meta"
     } else {
@@ -377,7 +377,7 @@ fn snapshot_carries_the_auto_assigned_behavior_shortcuts() {
         .expect("standard model entry");
     match &entry.availability {
         SettingsModelAvailability::Ready { behaviors, .. } => {
-            assert_eq!(behaviors.len(), 19);
+            assert_eq!(behaviors.len(), 20);
         }
         SettingsModelAvailability::Invalid { .. } => {
             panic!("the bundled standard model must stay valid")
