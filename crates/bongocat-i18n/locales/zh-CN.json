@@ -65,6 +65,7 @@
       "running": "进行中",
       "paused": "已暂停",
       "progress": "已完成 %{completed} / 预计 %{estimated} 个番茄",
+      "progress_compact": "%{completed}/%{estimated}",
       "none": "还没有任务。在上方命名一个即可开始。",
       "running_now": "进行中：%{name}",
       "created_at": "创建于 %{time}"
@@ -849,8 +850,8 @@
       "refuse_gone": "这份活已经被人接走了",
       "paid_base": "交工：%{kind}，%{hours} 小时，%{stones} 灵石，达成率 %{rate}%",
       "gain": "，额外 +%{points} %{attribute}",
-      "require_single": "需 %{attribute}(%{margin}%)",
-      "require_pair": "需 %{first}(%{a}%) · 需 %{second}(%{b}%)",
+      "require_single": "需 %{attribute} %{value}(%{margin}%)",
+      "require_pair": "需 %{first} %{value_first}(%{a}%) · 需 %{second} %{value_second}(%{b}%)",
       "success": "达成率 %{rate}%",
       "names": {
         "attack": "炼体",

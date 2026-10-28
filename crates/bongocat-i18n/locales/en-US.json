@@ -65,6 +65,7 @@
       "running": "Running",
       "paused": "Paused",
       "progress": "%{completed} of %{estimated} sessions",
+      "progress_compact": "%{completed}/%{estimated}",
       "none": "No tasks yet. Name one above to get started.",
       "running_now": "Running: %{name}",
       "created_at": "Created %{time}"
@@ -849,8 +850,8 @@
       "refuse_gone": "Someone else took that job",
       "paid_base": "Delivered: %{kind}, %{hours}h, %{stones} stones, %{rate}% success",
       "gain": ", plus +%{points} %{attribute}",
-      "require_single": "needs %{attribute} (%{margin}%)",
-      "require_pair": "needs %{first} (%{a}%) · %{second} (%{b}%)",
+      "require_single": "needs %{attribute} %{value} (%{margin}%)",
+      "require_pair": "needs %{first} %{value_first} (%{a}%) · %{second} %{value_second} (%{b}%)",
       "success": "%{rate}% success",
       "names": {
         "attack": "Body Tempering",

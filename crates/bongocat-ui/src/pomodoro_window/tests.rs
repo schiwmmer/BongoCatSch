@@ -264,12 +264,12 @@ fn the_choices_a_task_list_offers_follow_the_task_states(cx: &mut TestAppContext
         "the unfinished task is offered"
     );
     assert!(
-        harness.paints(cx, ("pomodoro-task-start", 2u64).into()),
-        "a startable task offers its own start button"
+        harness.paints(cx, ("pomodoro-task-row", 2u64).into()),
+        "a startable task keeps its row: the row is the start button now"
     );
     assert!(
-        !harness.paints(cx, ("pomodoro-task-start", 9u64).into()),
-        "a finished task offers nothing: this window answers what to work on now"
+        !harness.paints(cx, ("pomodoro-task-row", 9u64).into()),
+        "a finished task folds: this window answers what to work on now"
     );
 }
 
@@ -299,6 +299,38 @@ fn finished_tasks_fold_until_the_group_is_clicked(cx: &mut TestAppContext) {
         harness.paints(cx, ("pomodoro-task-row", 9u64).into()),
         "expanding the group shows the finished task"
     );
+}
+
+/// The row is the start control: clicking anywhere on an unfinished, not-running
+/// row begins its session, publishing the same command the continue row
+/// publishes.
+///
+/// The click is driven through a real pointer dispatch rather than a direct
+/// method call, so a row that only *looks* clickable but was never wired fails
+/// here. The window closes itself once the session is running — the picker has
+/// done its job — so this click is the last frame the test drives; the command
+/// is published before the close, which is what makes it readable here.
+#[gpui_kit::test]
+fn clicking_a_task_row_starts_its_session(cx: &mut TestAppContext) {
+    let mut harness = harness(cx);
+    let mut snapshot = snapshot(PomodoroWorkerState::Ready);
+    snapshot.tasks = vec![task(2, "later", false)];
+    harness.set_snapshot(cx, snapshot);
+
+    // The row's own centre lands on its widest child — the name — which is not
+    // the checkbox, the one child that must stop the click instead of starting
+    // the session. A click there is a click on the row.
+    let _ = cx.update_window(harness.handle.into(), |_, window, cx| {
+        window.click(("pomodoro-task-row", 2u64), cx);
+    });
+    match harness
+        .commands
+        .try_recv()
+        .expect("clicking the row must publish StartTask")
+    {
+        PomodoroCommand::StartTask { task_id } => assert_eq!(task_id, 2),
+        other => panic!("expected StartTask, got {other:?}"),
+    }
 }
 
 #[gpui_kit::test]

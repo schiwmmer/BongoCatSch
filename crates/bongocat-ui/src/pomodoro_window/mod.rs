@@ -68,6 +68,7 @@ pub(super) const POMODORO_LOCALIZED_KEYS: &[&str] = &[
     "pomodoro.task.start",
     "pomodoro.task.running_now",
     "pomodoro.task.progress",
+    "pomodoro.task.progress_compact",
     "pomodoro.task.created_at",
     "pomodoro.task.none",
     "pomodoro.task.section",

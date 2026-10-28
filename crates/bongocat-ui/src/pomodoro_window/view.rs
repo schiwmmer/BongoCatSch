@@ -72,6 +72,16 @@ pub(crate) fn format_local_timestamp(at_unix: i64, utc_offset_seconds: i32) -> S
     )
 }
 
+/// A local timestamp as the `MM-DD` the task rows show beside the progress.
+///
+/// The row is one line now, so the date drops the year and the clock: "created
+/// 10-28" is all a task list needs to tell one day's work from another's, and it
+/// fits the same eye-line as the `X/X` count it sits next to.
+pub(crate) fn format_local_month_day(at_unix: i64, utc_offset_seconds: i32) -> String {
+    let civil = CalendarDay::from_unix(at_unix, utc_offset_seconds).to_civil();
+    format!("{:02}-{:02}", civil.month, civil.day)
+}
+
 /// The countdown, when there is one to show.
 ///
 /// `None` when the worker is gone rather than when nothing is running: the two

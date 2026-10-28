@@ -345,6 +345,9 @@ impl CultivationDocument {
         if self.curve_rev == 1 {
             self.growth = curve::migrate_growth_v1(self.growth);
         }
+        if self.curve_rev == 2 {
+            self.growth = curve::migrate_growth_v2(self.growth);
+        }
         self.curve_rev = curve::CURVE_REV;
     }
 

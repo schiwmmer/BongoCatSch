@@ -420,13 +420,15 @@ impl PomodoroView {
         )
     }
 
-    /// One task: a done checkbox, its name, when it was created, its progress,
-    /// and either "running" or a start button.
+    /// One task on one line: a done checkbox, the name, the `X/X` progress, when
+    /// it was created, and — for a running task — the running mark.
     ///
-    /// The checkbox publishes the same done command the settings page uses, so
-    /// a task can be ticked off right where it is started. A running task's
-    /// checkbox is disabled — its done state belongs to the session, and
-    /// abandoning is the way a running task ends.
+    /// The row itself is the start button: clicking anywhere on it begins the
+    /// session, so there is no separate button to hunt for. The checkbox is the
+    /// one exception — it publishes the done command and stops the click from
+    /// reaching the row, so ticking a task off never also starts it. A finished
+    /// or running row carries no click: a finished task is not something to
+    /// start here, and a running one is already the current session.
     ///
     /// A right-click anywhere on the row opens the same menu every row gets,
     /// finished ones included: edit the name and the plan, duplicate it into a
@@ -442,7 +444,7 @@ impl PomodoroView {
         let done = task.status == bongocat_pomodoro::PomodoroTaskStatus::done;
         let progress = format_text(
             locale,
-            "pomodoro.task.progress",
+            "pomodoro.task.progress_compact",
             &[
                 ("completed", task.completed_pomodoros.to_string()),
                 ("estimated", task.estimated_pomodoros.to_string()),
@@ -453,7 +455,7 @@ impl PomodoroView {
             "pomodoro.task.created_at",
             &[(
                 "time",
-                view::format_local_timestamp(
+                view::format_local_month_day(
                     task.created_at_unix,
                     bongocat_platform::local_utc_offset_seconds(),
                 ),
@@ -472,11 +474,14 @@ impl PomodoroView {
             .checked(done)
             .disabled(task.running)
             .on_change(move |checked, _, cx| {
+                // The row starts the session on a click; the checkbox's own
+                // click must stop there or ticking a task off would start it.
+                cx.stop_propagation();
                 let _ = checkbox_view.update(cx, |view, cx| {
                     view.set_task_done(checkbox_task_id, *checked, cx)
                 });
             });
-        let trailing: gpui_kit::AnyElement = if task.running {
+        let running_label = task.running.then(|| {
             div()
                 .id(("pomodoro-task-running", task.id))
                 .text_xs()
@@ -484,105 +489,101 @@ impl PomodoroView {
                 .child(text(locale, "pomodoro.task.running"))
                 .test_support()
                 .into_any_element()
-        } else if !done {
-            let view = view.clone();
-            let task_id = task.id;
-            Button::new(("pomodoro-task-start", task.id))
-                .label(text(locale, "pomodoro.task.start"))
-                .on_click(move |_, window, cx| {
-                    let _ = view.update(cx, |view, cx| view.start_task(task_id, cx));
-                    // The session is running on the cat; the picker has
-                    // done its job and gets out of the way.
-                    window.remove_window();
-                })
-                .into_any_element()
-        } else {
-            // A finished task carries no action: the checkbox already says its
-            // state, and starting it again is what the "continue" flow is for.
-            div().into_any_element()
-        };
-        div()
+        });
+        // The row is the start control for any task it makes sense to start:
+        // unfinished, and not already the running one.
+        let row = div()
             .id(("pomodoro-task-row", task.id))
             .flex()
             .items_center()
-            .justify_between()
             .gap_3()
             .py_2()
             .border_b_1()
             .border_color(tokens.border)
-            .test_support()
-            .context_menu({
-                let view = view.clone();
-                move |menu, _window, _cx| {
-                    let edit_view = view.clone();
-                    let duplicate_view = view.clone();
-                    let delete_view = view.clone();
-                    menu.item(
-                        PopupMenuItem::new(edit_label)
-                            .icon(Icon::new(IconName::SquarePen))
-                            .on_click(move |_, window, cx| {
-                                let _ = edit_view.update(cx, |view, cx| {
-                                    view.open_task_editor(
-                                        crate::window::PomodoroEditorTarget::Existing(task_id),
-                                        window,
-                                        cx,
-                                    );
-                                });
-                            }),
-                    )
-                    .item(
-                        PopupMenuItem::new(duplicate_label)
-                            .icon(Icon::new(IconName::Copy))
-                            .on_click(move |_, window, cx| {
-                                let _ = duplicate_view.update(cx, |view, cx| {
-                                    view.open_task_editor(
-                                        crate::window::PomodoroEditorTarget::Duplicate(task_id),
-                                        window,
-                                        cx,
-                                    );
-                                });
-                            }),
-                    )
-                    .separator()
-                    .item(
-                        PopupMenuItem::new(delete_label)
-                            .icon(Icon::new(IconName::Trash))
-                            .on_click(move |_, _, cx| {
-                                let _ = delete_view
-                                    .update(cx, |view, cx| view.delete_task(task_id, cx));
-                            }),
-                    )
-                }
+            .test_support();
+        let row = if task.running || done {
+            row
+        } else {
+            let view = view.clone();
+            row.cursor_pointer().on_click(move |_, window, cx| {
+                let _ = view.update(cx, |view, cx| view.start_task(task_id, cx));
+                // The session is running on the cat; the picker has done its
+                // job and gets out of the way.
+                window.remove_window();
             })
-            .child(checkbox)
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .min_w_0()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(if done { tokens.muted } else { tokens.text })
-                            .child(task.name.clone()),
-                    )
-                    .child(
-                        div()
-                            .id(("pomodoro-task-progress", task.id))
-                            .text_xs()
-                            .text_color(tokens.muted)
-                            .child(progress),
-                    )
-                    .child(
-                        div()
-                            .id(("pomodoro-task-created", task.id))
-                            .text_xs()
-                            .text_color(tokens.muted)
-                            .child(created),
-                    ),
-            )
-            .child(trailing)
-            .into_any_element()
+        };
+        row.context_menu({
+            let view = view.clone();
+            move |menu, _window, _cx| {
+                let edit_view = view.clone();
+                let duplicate_view = view.clone();
+                let delete_view = view.clone();
+                menu.item(
+                    PopupMenuItem::new(edit_label)
+                        .icon(Icon::new(IconName::SquarePen))
+                        .on_click(move |_, window, cx| {
+                            let _ = edit_view.update(cx, |view, cx| {
+                                view.open_task_editor(
+                                    crate::window::PomodoroEditorTarget::Existing(task_id),
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(duplicate_label)
+                        .icon(Icon::new(IconName::Copy))
+                        .on_click(move |_, window, cx| {
+                            let _ = duplicate_view.update(cx, |view, cx| {
+                                view.open_task_editor(
+                                    crate::window::PomodoroEditorTarget::Duplicate(task_id),
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new(delete_label)
+                        .icon(Icon::new(IconName::Trash))
+                        .on_click(move |_, _, cx| {
+                            let _ =
+                                delete_view.update(cx, |view, cx| view.delete_task(task_id, cx));
+                        }),
+                )
+            }
+        })
+        .child(checkbox)
+        .child(
+            div()
+                .id(("pomodoro-task-name", task.id))
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_sm()
+                .text_color(if done { tokens.muted } else { tokens.text })
+                .child(task.name.clone())
+                .test_support(),
+        )
+        .child(
+            div()
+                .id(("pomodoro-task-progress", task.id))
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(progress)
+                .test_support(),
+        )
+        .child(
+            div()
+                .id(("pomodoro-task-created", task.id))
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(created)
+                .test_support(),
+        )
+        .children(running_label)
+        .into_any_element()
     }
 }
