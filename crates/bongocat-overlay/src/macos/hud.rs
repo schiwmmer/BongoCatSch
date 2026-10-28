@@ -203,78 +203,119 @@ pub(crate) fn stats_panel(mtm: MainThreadMarker, background_alpha: f64) -> Retai
     panel
 }
 
-/// The level number riding the cat's forehead: the bare number, no chrome —
-/// no background pill, no shadow, just the label floating on the fur — that
-/// is on the cat whenever the cat is presented, and follows it through
-/// moves, resizes and model switches. Like the HUD it is AppKit work — the
-/// renderer is never asked to draw text.
+/// The realm printed on the model's mouse pad: the realm's name on one line
+/// and the layer and rank under it, right-aligned against the pad's right
+/// edge, with no chrome of its own — no background pill, no shadow, just two
+/// labels over the pad the model itself draws. Like the HUD it is AppKit
+/// work: the renderer is never asked to draw text.
 ///
-/// The badge answers to its own pointer gate rather than the window's hover
+/// The pad belongs to the model, so the plate cannot measure it; what it can
+/// do is sit where a pad sits — along the bottom of the model's own box — and
+/// keep to the right-hand third of it, which is where every pad in the
+/// preset set and in the models users bring ends.
+///
+/// The plate answers to its own pointer gate rather than the window's hover
 /// hide: the session hides it once the pointer has rested on the cat for two
 /// seconds and shows it again the moment the pointer leaves, so a pointer
 /// merely crossing the cat never takes the number with it. The window's own
 /// visibility still governs it: a cat the user hid must not leave a floating
 /// number behind.
-pub(crate) struct LevelBadge {
+pub(crate) struct RealmPlate {
     panel: Retained<NSPanel>,
-    label: Retained<NSTextField>,
-    text: String,
+    realm: Retained<NSTextField>,
+    rank: Retained<NSTextField>,
+    realm_text: String,
+    rank_text: String,
     origin: Option<NSPoint>,
 }
 
-/// Padding around the badge label. The panel is invisible, so the padding
-/// only keeps the label's own frame off the panel edges.
-const BADGE_PADDING: f64 = 6.0;
-/// The badge's top edge sits this fraction of the cat window's height below
-/// the window's top: the middle of the bongo cat's forehead, under the ears.
-const BADGE_TOP_FRACTION: f64 = 0.12;
+/// Padding around the plate's labels. The panel is invisible, so the padding
+/// only keeps the labels' own frames off the panel edges.
+const PLATE_PADDING: f64 = 6.0;
+/// The gap between the realm's name and the layer and rank under it.
+const PLATE_LINE_GAP: f64 = 2.0;
+/// The plate's right edge, as a fraction of the cat window's width: a pad
+/// runs along the bottom of the model's box and ends about a third of the way
+/// in, so this is the pad's right edge rather than the window's.
+const PLATE_RIGHT_FRACTION: f64 = 0.36;
+/// The plate's bottom edge, as a fraction of the cat window's height: a pad
+/// sits above the box's own bottom, because the desk furniture in front of it
+/// reaches lower than the pad does.
+const PLATE_BOTTOM_FRACTION: f64 = 0.30;
 
-impl LevelBadge {
-    /// Create the badge panel, hidden and unsized; the first
+impl RealmPlate {
+    /// Create the plate panel, hidden and unsized; the first
     /// [`Self::set_status`] sizes and places it.
     pub(crate) fn create(mtm: MainThreadMarker) -> Result<Self, OverlayError> {
-        // A fully transparent background and no shadow: the number floats on
-        // the cat's fur with nothing behind it.
+        // A fully transparent background and no shadow: the two lines sit on
+        // the pad with nothing behind them.
         let panel = stats_panel(mtm, 0.0);
         panel.setHasShadow(false);
+        // The plate is a readout, not a control: a pad the user cannot click
+        // through is a pad that steals the click meant for the desk.
+        panel.setIgnoresMouseEvents(true);
 
         let content = NSView::new(mtm);
         panel.setContentView(Some(&content));
 
-        let label = NSTextField::labelWithString(&objc2_foundation::NSString::from_str(""), mtm);
-        label.setFont(Some(&NSFont::boldSystemFontOfSize(10.0)));
-        content.addSubview(&label);
+        let realm = NSTextField::labelWithString(&objc2_foundation::NSString::from_str(""), mtm);
+        realm.setFont(Some(&NSFont::boldSystemFontOfSize(12.0)));
+        set_white_text(&realm);
+        apply_text_shadow(&realm);
+        content.addSubview(&realm);
+
+        let rank = NSTextField::labelWithString(&objc2_foundation::NSString::from_str(""), mtm);
+        rank.setFont(Some(&NSFont::boldSystemFontOfSize(10.0)));
+        set_white_text(&rank);
+        apply_text_shadow(&rank);
+        content.addSubview(&rank);
 
         Ok(Self {
             panel,
-            label,
-            text: String::new(),
+            realm,
+            rank,
+            realm_text: String::new(),
+            rank_text: String::new(),
             origin: None,
         })
     }
 
-    /// Update the text and pin the badge to the cat's forehead. The content
-    /// size change keeps the panel's origin, so the pin below re-anchors it
+    /// Update both lines and pin the plate to the pad. The content size
+    /// change keeps the panel's origin, so the pin below re-anchors it
     /// against the current overlay box every call.
-    pub(crate) fn set_status(&mut self, text: &str, cat: OverlayWindowBounds) {
-        if text != self.text {
-            self.text = text.to_owned();
-            self.label
-                .setStringValue(&objc2_foundation::NSString::from_str(text));
-            self.label.sizeToFit();
-            let label_width = self.label.frame().size.width;
-            let label_height = self.label.frame().size.height;
-            let content_width = label_width + BADGE_PADDING * 2.0;
-            let content_height = label_height + BADGE_PADDING * 2.0;
+    pub(crate) fn set_status(&mut self, realm: &str, rank: &str, cat: OverlayWindowBounds) {
+        if realm != self.realm_text || rank != self.rank_text {
+            self.realm_text = realm.to_owned();
+            self.rank_text = rank.to_owned();
+            self.realm
+                .setStringValue(&objc2_foundation::NSString::from_str(realm));
+            self.rank
+                .setStringValue(&objc2_foundation::NSString::from_str(rank));
+            self.realm.sizeToFit();
+            self.rank.sizeToFit();
+            let realm_size = self.realm.frame().size;
+            let rank_size = self.rank.frame().size;
+            let content_width = realm_size.width.max(rank_size.width) + PLATE_PADDING * 2.0;
+            let content_height =
+                realm_size.height + PLATE_LINE_GAP + rank_size.height + PLATE_PADDING * 2.0;
             self.panel
                 .setContentSize(NSSize::new(content_width, content_height));
-            self.label
-                .setFrameOrigin(NSPoint::new(BADGE_PADDING, BADGE_PADDING));
+            // Both lines are right-aligned: the realm's name answers the pad's
+            // top-right corner and the numbers its bottom-right one, so the
+            // plate reads as one block printed on the pad rather than two
+            // labels that happen to be near it.
+            self.realm.setFrameOrigin(NSPoint::new(
+                content_width - PLATE_PADDING - realm_size.width,
+                PLATE_PADDING + rank_size.height + PLATE_LINE_GAP,
+            ));
+            self.rank.setFrameOrigin(NSPoint::new(
+                content_width - PLATE_PADDING - rank_size.width,
+                PLATE_PADDING,
+            ));
         }
         let frame = self.panel.frame();
-        let x = f64::from(cat.x) + (f64::from(cat.width) - frame.size.width) / 2.0;
-        let y = f64::from(cat.y) + f64::from(cat.height) * (1.0 - BADGE_TOP_FRACTION)
-            - frame.size.height;
+        let x = f64::from(cat.x) + f64::from(cat.width) * PLATE_RIGHT_FRACTION - frame.size.width;
+        let y = f64::from(cat.y) + f64::from(cat.height) * PLATE_BOTTOM_FRACTION;
         let origin = NSPoint::new(x, y);
         if self.origin.is_none_or(|previous| previous != origin) {
             self.panel.setFrameOrigin(origin);

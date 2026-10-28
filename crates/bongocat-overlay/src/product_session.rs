@@ -101,8 +101,16 @@ pub struct OverlayPomodoroCompletion {
 /// redraw at all.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct OverlayCultivationText {
-    /// The realm and layer riding the forehead: short enough for a badge.
-    pub badge: String,
+    /// The realm's name, printed at the top-right of the mouse pad.
+    ///
+    /// The pad is part of the model, so the plate is a bare pair of labels
+    /// over it rather than a panel with chrome of its own: a name and a
+    /// number, right-aligned against the pad's right edge.
+    pub plate_realm: String,
+    /// The layer and rank, printed under the realm's name at the pad's
+    /// bottom-right. Two numbers rather than one composite level, so the
+    /// ladder reads the way the settings page states it.
+    pub plate_rank: String,
     /// The hover text: the realm and the growth behind it on the first line,
     /// the pomodoros done and still to go on the second.
     pub hud: String,
@@ -280,7 +288,7 @@ impl ProductOverlaySession {
         self.inner.set_pomodoro_state(timer, completion);
     }
 
-    /// Publish the cultivation copy the forehead badge and the hover HUD draw.
+    /// Publish the cultivation copy the pad plate and the hover HUD draw.
     ///
     /// macOS only: both surfaces are AppKit panels, and the Windows overlay has
     /// neither.

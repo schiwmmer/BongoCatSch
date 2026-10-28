@@ -12,7 +12,7 @@ use super::*;
 use bongocat_pomodoro::CultivationView;
 use bongocat_pomodoro::PomodoroCommand;
 
-/// The copy the forehead badge and the hover HUD draw, composed here.
+/// The copy the pad plate and the hover HUD draw, composed here.
 ///
 /// The overlay is a renderer of text, not a catalog reader: it draws whatever
 /// string it was handed. Composing that string is the application's job for the
@@ -20,8 +20,9 @@ use bongocat_pomodoro::PomodoroCommand;
 /// all belong to the product, and a panel that read them itself would give two
 /// surfaces two chances to disagree about which realm the user is in.
 ///
-/// The badge gets the realm and layer alone, because it rides the forehead and
-/// has room for nothing else. The HUD gets the same line followed by the growth
+/// The plate gets the realm's name on one line and the layer and rank on the
+/// next, because it sits on the model's mouse pad and has room for nothing
+/// else. The HUD gets the same ladder followed by the growth
 /// behind it — the growth banked, a slash, and the growth still owed before the
 /// next layer opens — over the bar that growth fills. A right-click on the model
 /// is meant to answer "how far have I climbed and how far to the next step", so
@@ -37,11 +38,13 @@ pub(crate) fn cultivation_copy(
 ) -> bongocat_overlay::OverlayCultivationText {
     let stage = bongocat_i18n::text(locale, cultivation.realm.name_key()).to_owned();
     let layer = cultivation.layer.to_string();
-    let badge = bongocat_i18n::format_text(
+    // The plate prints the realm's name on its own line and the layer and the
+    // rank under it, so the two numbers stay the two numbers the ladder is
+    // made of rather than a third composite level.
+    let plate_rank = bongocat_i18n::format_text(
         locale,
-        "stats.badge",
+        "stats.plate.rank",
         &[
-            ("stage", stage.clone()),
             ("layer", layer.clone()),
             ("rank", cultivation.rank.to_string()),
         ],
@@ -92,13 +95,14 @@ pub(crate) fn cultivation_copy(
         locale,
         "stats.hud.realm",
         &[
-            ("stage", stage),
+            ("stage", stage.clone()),
             ("layer", layer),
             ("rank", cultivation.rank.to_string()),
         ],
     );
     bongocat_overlay::OverlayCultivationText {
-        badge,
+        plate_realm: stage,
+        plate_rank,
         hud: format!("{realm} · {progress}"),
         hud_progress_permille: permille,
     }
@@ -352,10 +356,14 @@ mod tests {
         let view = bongocat_pomodoro::Cultivation::default().view();
         let copy = cultivation_copy(&view, "zh-CN");
         let stage = bongocat_i18n::text("zh-CN", view.realm.name_key());
+        assert_eq!(
+            copy.plate_realm, stage,
+            "the pad plate does not name {stage}"
+        );
         assert!(
-            copy.badge.starts_with(stage) && copy.badge.contains('1'),
-            "badge {:?} does not name {stage} at layer 1",
-            copy.badge
+            copy.plate_rank.contains('1'),
+            "plate rank {:?} does not report layer 1",
+            copy.plate_rank
         );
         // Nothing has been grown yet, so the bar is empty and the HUD still has
         // a next layer to promise.
@@ -424,14 +432,14 @@ mod tests {
             copy.hud
         );
         // Two cultivators at the same realm but with different growth read their
-        // own line, while the badge still names the realm only.
+        // own line, while the pad plate still names the realm only.
         let mut other = view.clone();
         other.growth = view.floor + span * 2 / 3;
         let other_copy = cultivation_copy(&other, "zh-CN");
         assert_ne!(copy.hud, other_copy.hud);
         assert_eq!(
-            copy.badge, other_copy.badge,
-            "the badge names the realm only"
+            copy.plate_realm, other_copy.plate_realm,
+            "the plate names the realm only"
         );
     }
 
