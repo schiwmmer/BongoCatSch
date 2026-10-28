@@ -910,7 +910,6 @@ name = "bongocat-overlay"
 version = "2.3.1"
 dependencies = [
  "block2 0.6.2",
- "bongocat-i18n",
  "bongocat-input",
  "bongocat-model",
  "bongocat-platform",
