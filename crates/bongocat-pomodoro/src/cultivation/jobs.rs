@@ -1,15 +1,16 @@
-//! 打工: odd jobs, priced off the road the cultivator could have walked instead.
+//! 打工: odd jobs, priced off the 试炼 the cultivator could have fought instead.
 //!
-//! A walk is the ladder's quiet faucet and it pays in kind — a herb, a garment, a
-//! book. A job pays in the one thing the walk barely touches: money. It is the
-//! slower of the two and the safer, and the trade is written into the price: the
-//! same hours spent on a job pay a fifth more than the same hours on the road,
-//! and they pay it in 灵石 rather than in a roll that might come up empty.
+//! A 试炼 is a fight the cultivator can lose and it pays in kind — a herb, a
+//! garment, a book, and only sometimes a purse. A job pays in the one thing the
+//! 试炼 barely touches: money, and money that cannot be lost. It is the slower of
+//! the two and the safer, and the trade is written into the price: the same four
+//! hours spent on a job pay twice the 试炼's middle, and they pay it in 灵石
+//! rather than in a roll that might come up empty.
 //!
-//! The purse is a **figure**, not a range. A walk opens a purse somewhere between
+//! The purse is a **figure**, not a range. A 试炼 opens a purse somewhere between
 //! two numbers because it is a roll; a job is a wage, and a wage the user cannot
-//! read before taking it is not a wage. So the job pays the middle of the walk's
-//! own range, a fifth over — the same expectation the range carried, printed as
+//! read before taking it is not a wage. So the job pays the middle of the 试炼's
+//! own range, twice over — the same expectation the range carried, printed as
 //! one number the board can be judged on.
 //!
 //! What the wage cannot carry, 潜质 does: a cultivator with 潜质 to spare has a
@@ -33,7 +34,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::explore::WALK_STONES;
+use super::explore::PROVING_STONES;
 use super::{ArtGrade, Rng};
 
 /// How many jobs the board holds at a time.
@@ -45,13 +46,13 @@ pub const JOB_MIN_HOURS: u8 = 4;
 /// The longest job the board offers, in hours.
 pub const JOB_MAX_HOURS: u8 = 24;
 
-/// What a job pays over the walk it stands in for, in parts per thousand: a fifth
-/// more.
+/// What a job pays over the 试炼 it stands in for, in parts per thousand: twice.
 ///
-/// A job is the safe half of the choice, so it has to pay better than the road on
-/// average — but only a fifth, because the road pays in goods a job cannot: a
-/// seed, a garment, a book, and the fight that met you on the way.
-const JOB_OVER_WALK_PERMILLE: u64 = 1_200;
+/// A job is the safe half of the choice, so it has to pay better than the 试炼
+/// on average — and it pays twice, because the 试炼 is a fight the cultivator can
+/// lose and a job is a wage the cultivator cannot: the same four hours come home
+/// as double the 试炼's middle, whatever the 试炼 rolled.
+const JOB_OVER_TRIAL_PERMILLE: u64 = 2_000;
 
 /// What the five grades multiply a job's purse by, in parts per thousand.
 ///
@@ -151,19 +152,19 @@ impl JobRun {
 
 /// What one job pays, as the one figure it is.
 ///
-/// Priced off the walk it stands in for: the road's own purse, at this job's tier
-/// and widened by this job's hours, then a fifth again and then the grade. The
-/// walk opens a range and a job pays its middle, so the expectation is exactly
-/// the fifth over the road the trade promised — and the board can be read before
+/// Priced off the 试炼 it stands in for: the courtyard's own purse, at this job's
+/// tier and widened by this job's hours, then twice again and then the grade. The
+/// 试炼 opens a range and a job pays its middle, so the expectation is exactly
+/// twice the 试炼 the trade promised — and the board can be read before
 /// anything is taken. The hours widen it *linearly* — a job twice as long pays
 /// twice as much — because a job is a rate, not a roll, and a rate that paid more
 /// per hour the longer it ran would make the longest job the only job.
 pub fn job_stones(tier: u8, hours: u8, grade: ArtGrade) -> u32 {
     let hours = u64::from(hours.clamp(JOB_MIN_HOURS, JOB_MAX_HOURS));
-    let purse = WALK_STONES.scaled(hours * 250);
+    let purse = PROVING_STONES.scaled(hours * 250);
     let (low, high) = purse.at(tier);
     let middle = (u64::from(low) + u64::from(high)) / 2;
-    let over = middle * JOB_OVER_WALK_PERMILLE / 1_000;
+    let over = middle * JOB_OVER_TRIAL_PERMILLE / 1_000;
     let grade_permille = JOB_GRADE_MULTIPLIER_PERMILLE[grade.index()];
     let paid = over * grade_permille / 1_000;
     u32::try_from(paid.max(1)).unwrap_or(u32::MAX)
@@ -228,16 +229,16 @@ mod tests {
     use crate::cultivation::ArtGrade;
 
     #[test]
-    fn a_job_pays_a_fifth_over_the_middle_of_the_walk_it_stands_in_for() {
-        // Twelve hours at the fourth tier: the road's purse is 25–51, so its
-        // middle is 38 and a fifth over that is 45.
-        let walk = WALK_STONES.scaled(3_000).at(4);
-        let middle = (u64::from(walk.0) + u64::from(walk.1)) / 2;
+    fn a_job_pays_twice_the_middle_of_the_trial_it_stands_in_for() {
+        // Twelve hours at the fourth tier: the 试炼's purse is 72–120, so its
+        // middle is 96 and twice that is 192.
+        let trial = PROVING_STONES.scaled(3_000).at(4);
+        let middle = (u64::from(trial.0) + u64::from(trial.1)) / 2;
         let job = job_stones(4, 12, ArtGrade::Yellow);
-        let expected = middle * 1_200 / 1_000;
+        let expected = middle * 2_000 / 1_000;
         assert!(
             u64::from(job).abs_diff(expected) <= 2,
-            "{job} against a walk at {walk:?}"
+            "{job} against a 试炼 at {trial:?}"
         );
     }
 
