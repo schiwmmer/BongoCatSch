@@ -1765,14 +1765,13 @@ fn a_job_is_taken_and_paid_when_it_comes_due() {
     let paid = cultivation
         .settle_work(run.ends_unix)
         .expect("the job is paid");
+    // The wage is the wage: the work coming off never changes what it paid.
+    assert_eq!(paid.stones, wage, "{paid:?} against the wage {wage}");
     assert!(
-        paid.stones == wage * paid.multiplier,
-        "{paid:?} against the wage {wage}"
-    );
-    assert!(
-        paid.multiplier == 1 || paid.multiplier == 2 || paid.multiplier == 3,
+        paid.success_rate <= 1_000 && paid.success_rate >= 100,
         "{paid:?}"
     );
+    assert!(paid.gain.is_none() || paid.gain.unwrap().1 >= 1, "{paid:?}");
     assert_eq!(cultivation.document().stones, before + paid.stones);
     assert!(cultivation.document().work.is_none());
     // The board turned over: a finished job hands the cultivator a new three.
@@ -1785,6 +1784,39 @@ fn a_job_is_taken_and_paid_when_it_comes_due() {
         )
     });
     assert!(logged, "the purse has to be readable after the quit");
+}
+
+/// The pool a job pays is the pool the fighter reads: a gain lands in the nine
+/// numbers `derived()` returns, and no gain leaves the pool alone.
+#[test]
+fn the_pool_a_job_pays_is_the_pool_the_fight_reads() {
+    let mut cultivation = Cultivation::default();
+    let run = cultivation
+        .accept_job(0, 1_000, 20_000)
+        .expect("the job is taken");
+    let before = cultivation.job_bonus();
+    let paid = cultivation.settle_work(run.ends_unix).expect("paid");
+    let after = cultivation.job_bonus();
+    match paid.gain {
+        Some((slot, points)) => {
+            let mut expected = before;
+            slot.add_to(&mut expected, points);
+            assert_eq!(after, expected, "the gain lands in the pool");
+        }
+        None => assert_eq!(after, before, "no gain leaves the pool alone"),
+    }
+    // And the pool is one of the shares the fighter is built from, so a gain
+    // moves the number the fight reads rather than a figure nobody uses.
+    assert_eq!(
+        cultivation.derived(),
+        cultivation
+            .attributes()
+            .derived()
+            .plus(cultivation.equipment_bonus())
+            .plus(cultivation.art_bonus())
+            .plus(cultivation.job_bonus()),
+        "the derived numbers fold the job pool in"
+    );
 }
 
 /// The job in hand keeps its row on the board, but the board reads it as taken

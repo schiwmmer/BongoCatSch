@@ -335,17 +335,22 @@ pub struct AptitudeUse {
 /// page whose money has no history.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct WorkPaid {
-    /// How many 灵石 the job paid, the wage and any 潜质's windfall together.
+    /// How many 灵石 the job paid. The wage is the wage: nothing about the work
+    /// coming off changes what the wage was.
     pub stones: u32,
     /// How long the job took, in hours.
     pub hours: u8,
-    /// The job's grade, which is what its wage was multiplied by.
+    /// The job's grade, which sized both its wage and its requirement.
     pub grade: ArtGrade,
-    /// What 潜质 did to the wage: one, two or three times.
-    pub multiplier: u32,
+    /// What the job trained, which is what it asked of the cultivator.
+    pub kind: super::JobKind,
+    /// The chance the job came off at, in parts per thousand.
+    pub success_rate: u64,
+    /// The attribute the job paid, and how many points, if the gain came up.
+    pub gain: Option<(super::DerivedSlot, u32)>,
 }
 
-/// One job as a surface reads it: what it is, how long it takes and what it pays.
+/// One job as a surface reads it: what it is, what it asks, and what it pays.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct JobView {
     /// Its position on the board, which is what taking it names.
@@ -359,6 +364,15 @@ pub struct JobView {
     /// keeps the row so the page can say 接取中, but taking it again would be
     /// refused, so the row is shown as taken rather than as open.
     pub working: bool,
+    /// What the job trains, for the name and the reward.
+    pub kind: super::JobKind,
+    /// What the job asks of the first (or only) attribute it trains.
+    pub requirement: u32,
+    /// What the job asks of the second attribute, for a mixed job.
+    pub requirement_second: Option<u32>,
+    /// The chance the job comes off, in parts per thousand, given how the
+    /// cultivator holds the attribute it asks for.
+    pub success_rate: u64,
 }
 
 /// One owned item, as a surface reads it.
@@ -1077,7 +1091,8 @@ impl Cultivation {
     }
 
     /// The nine numbers this cultivator fights with: the four attributes read
-    /// through the one table, plus everything gear and 功法 add outright.
+    /// through the one table, plus everything gear, 功法 and the jobs add
+    /// outright.
     ///
     /// The single reader of the fighter's numbers, so the page, the fight and
     /// the breakdown behind them cannot disagree about what a 神装 is worth.
@@ -1086,6 +1101,15 @@ impl Cultivation {
             .derived()
             .plus(self.equipment_bonus())
             .plus(self.art_bonus())
+            .plus(self.job_bonus())
+    }
+
+    /// The outer attribute values the jobs have paid, permanently.
+    ///
+    /// A job pays a number rather than an attribute: the reward rides in the
+    /// derived line the fight reads, beside the gear that pays the same way.
+    pub fn job_bonus(&self) -> Derived {
+        self.document.job_bonus
     }
 
     /// The attributes the harvests have paid.
@@ -3288,30 +3312,49 @@ impl Cultivation {
             return None;
         }
         self.document.work = None;
-        // The wage is the figure the board printed; 潜质 is the only thing that
-        // moves it, and it is rolled once, here, off the cultivator's own.
+        // The wage is the figure the board printed, and the wage is the wage:
+        // nothing about how the work came off changes what it was. What the work
+        // decides is the lasting gain, off the cultivator's hold on the
+        // attribute the job asked for.
         let wage = run.offer().stones();
+        let grade = run.grade;
+        let kind = run.kind;
+        let level = self.level();
+        let success_rate = super::jobs::success_rate_permille(kind, self.derived(), level, grade);
         let mut rng = self.rng(now_unix);
-        let multiplier = super::jobs::crit_multiplier(&mut rng, self.document.aptitude_tenths);
-        let stones = wage.saturating_mul(multiplier);
-        self.document.stones = self.document.stones.saturating_add(stones);
+        // The gain: one point to as many as the grade, at a chance that is the
+        // success rate over twenty — rolled whether the work came off or not,
+        // because a trade teaches even when it does not pay well.
+        let chance = super::jobs::point_chance_permille(success_rate);
+        let gain = if rng.below(1_000) < chance {
+            let slot = super::jobs::reward_slot(&mut rng, kind);
+            let points = super::jobs::points(&mut rng, grade);
+            slot.add_to(&mut self.document.job_bonus, points);
+            Some((slot, points))
+        } else {
+            None
+        };
+        self.document.stones = self.document.stones.saturating_add(wage);
         // A finished job hands over a new board: the outing is over, and the next
         // three are what the cultivator walks back into.
         self.document.jobs_roll = self.document.jobs_roll.saturating_add(1);
         let paid = WorkPaid {
-            stones,
+            stones: wage,
             hours: run.hours,
-            grade: run.grade,
-            multiplier,
+            grade,
+            kind,
+            success_rate,
+            gain,
         };
         self.last_work = Some(paid);
         self.push_event(
             now_unix,
             EventDetail::Work {
-                stones,
+                stones: wage,
                 hours: run.hours,
-                grade: run.grade,
-                multiplier,
+                grade,
+                success_rate,
+                gain,
             },
         );
         Some(paid)
@@ -3978,6 +4021,9 @@ impl Cultivation {
                             && run.hours == offer.hours
                             && run.grade == offer.grade
                     });
+                    let level = self.level();
+                    let derived = self.derived();
+                    let (first, second) = offer.kind.slots();
                     JobView {
                         slot,
                         tier: offer.tier,
@@ -3985,6 +4031,16 @@ impl Cultivation {
                         grade: offer.grade,
                         stones: offer.stones(),
                         working,
+                        kind: offer.kind,
+                        requirement: super::jobs::requirement(first, level, offer.grade),
+                        requirement_second: second
+                            .map(|slot| super::jobs::requirement(slot, level, offer.grade)),
+                        success_rate: super::jobs::success_rate_permille(
+                            offer.kind,
+                            derived,
+                            level,
+                            offer.grade,
+                        ),
                     }
                 })
                 .collect(),

@@ -61,16 +61,18 @@ pub enum EventDetail {
         seed: Option<String>,
     },
     /// A job came home and was paid for: the purse, the hours it cost, the grade
-    /// that sized it, and what 潜质 did to the wage.
+    /// that sized it, and how the work came off.
     Work {
-        /// What it paid, in 灵石.
+        /// What it paid, in 灵石. The wage is the wage.
         stones: u32,
         /// How long it took, in hours.
         hours: u8,
         /// The job's grade, the way every other line names one.
         grade: super::ArtGrade,
-        /// What 潜质 did to the wage: one, two or three times.
-        multiplier: u32,
+        /// The chance the job came off at, in parts per thousand.
+        success_rate: u64,
+        /// The attribute the job paid, and how many points, if the gain came up.
+        gain: Option<(super::DerivedSlot, u32)>,
     },
     /// One or more whole days passed without a session and were charged for.
     ///

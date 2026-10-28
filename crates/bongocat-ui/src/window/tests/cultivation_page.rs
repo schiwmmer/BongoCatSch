@@ -15,9 +15,9 @@ use crate::window::cultivation_duel;
 use crate::window::cultivation_settings;
 use bongocat_pomodoro::{
     ArtGrade, ArtOutcome, ArtOwnership, Attribute, Attributes, CropRecord, Cultivation,
-    CultivationDocument, DailyKind, DailyOutcome, Derived, DuelReport, DuelRound, EventDetail,
-    EventRecord, ExplorationFindView, ExplorationOutcome, Fighter, ItemView, JobRun,
-    LAYERS_PER_STAGE, OwnedArt, PLAYER_NAME, PlotRecord, PomodoroCommand, PomodoroSnapshot,
+    CultivationDocument, DailyKind, DailyOutcome, Derived, DerivedSlot, DuelReport, DuelRound,
+    EventDetail, EventRecord, ExplorationFindView, ExplorationOutcome, Fighter, ItemView, JobKind,
+    JobRun, LAYERS_PER_STAGE, OwnedArt, PLAYER_NAME, PlotRecord, PomodoroCommand, PomodoroSnapshot,
     PomodoroState, ProvingBlocked, Rarity, Realm, SeedGrade, SeedStack, ShopOffer, TrainingView,
     TrialBlocked, TrialOutcome, WANDERER_NAME, threshold_for,
 };
@@ -375,6 +375,7 @@ fn a_taken_job_reads_as_taken_not_open(cx: &mut TestAppContext) {
         tier: 1,
         hours: 1,
         grade: ArtGrade::Yellow,
+        kind: JobKind::default(),
     });
     let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
     let (_view, visual) = cultivation_page_with(cx, pomodoro);
@@ -473,7 +474,9 @@ fn a_finished_job_says_what_it_paid(cx: &mut TestAppContext) {
         stones: 108,
         hours: 12,
         grade: ArtGrade::Earth,
-        multiplier: 3,
+        kind: JobKind::default(),
+        success_rate: 900,
+        gain: Some((DerivedSlot::Attack, 3)),
     });
     let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
     let (_view, visual) = cultivation_page_with(cx, pomodoro);
@@ -481,7 +484,7 @@ fn a_finished_job_says_what_it_paid(cx: &mut TestAppContext) {
     scroll_until_visible(visual, "cultivation-jobs-paid");
     assert!(
         painted(visual, "cultivation-jobs-paid"),
-        "the last job's purse, and its multiplier, have to be readable"
+        "the last job's purse, and its gain, have to be readable"
     );
     // A job in hand draws the countdown instead, so the two lines never compete.
     assert!(

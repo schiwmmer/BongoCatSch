@@ -282,17 +282,31 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             stones,
             hours,
             grade,
-            multiplier,
-        } => format_text(
-            locale,
-            "cultivation.event.work",
-            &[
-                ("stones", stones.to_string()),
-                ("hours", hours.to_string()),
-                ("grade", text(locale, grade.name_key()).to_string()),
-                ("multiplier", multiplier.to_string()),
-            ],
-        ),
+            success_rate,
+            gain,
+        } => {
+            let mut line = format_text(
+                locale,
+                "cultivation.event.work",
+                &[
+                    ("stones", stones.to_string()),
+                    ("hours", hours.to_string()),
+                    ("grade", text(locale, grade.name_key()).to_string()),
+                    ("rate", (success_rate / 10).to_string()),
+                ],
+            );
+            if let Some((slot, points)) = gain {
+                line.push_str(&format_text(
+                    locale,
+                    "cultivation.event.work_gain",
+                    &[
+                        ("points", points.to_string()),
+                        ("attribute", text(locale, slot.key()).to_string()),
+                    ],
+                ));
+            }
+            line
+        }
         EventDetail::Walk {
             outcome,
             art,

@@ -835,17 +835,25 @@
     },
     "jobs": {
       "title": "打工",
-      "hint": "工钱固定，潜质每点 0.11% 暴击×2、0.01%×3",
+      "hint": "工钱固定，按手艺达成率给额外属性点",
       "row": "%{tier} 阶 · %{hours} 小时 · %{stones} 灵石",
       "accept": "接取",
       "taken": "接取中",
       "refresh": "刷新",
       "refresh_cost": "刷新 %{stones} 灵石",
-      "working": "正在做 %{grade} 的活，%{hours} 小时，工钱 %{stones} 灵石",
+      "working": "正在做 %{kind}（%{grade}），%{hours} 小时，工钱 %{stones} 灵石",
       "due": "%{hours} 小时 %{minutes} 分后交工",
       "refuse_working": "手上的活还没交工",
       "refuse_gone": "这份活已经被人接走了",
-      "paid": "上工交工：%{stones} 灵石（%{multiplier} 倍）"
+      "paid_base": "交工：%{kind}，%{hours} 小时，%{stones} 灵石，达成率 %{rate}%",
+      "gain": "，额外 +%{points} %{attribute}",
+      "kind_single": "%{attribute}活计",
+      "kind_pair": "%{first}·%{second}活计",
+      "require_single": "需 %{attribute} ≥ %{value}",
+      "require_pair": "需 %{first} ≥ %{a} · %{second} ≥ %{b}",
+      "success": "达成率 %{rate}%",
+      "reward_single": "奖励 +%{low}~%{high} %{attribute}",
+      "reward_pair": "奖励 +%{low}~%{high} %{first}/%{second}"
     },
     "explore": {
       "attempt": "外出探索",
@@ -920,7 +928,7 @@
     "event": {
       "session": "完成修炼，成长 +%{growth}",
       "found": "番茄钟掉落",
-      "work": "打工 %{hours} 小时，得 %{stones} 灵石（%{multiplier} 倍）",
+      "work": "打工 %{hours} 小时，得 %{stones} 灵石，达成率 %{rate}%",
       "absence": "%{days} 天未修炼，成长值 -%{charged}",
       "walk": "外出探索：%{outcome}",
       "train_failed": "修习《%{name}》未成，进度仍在",
@@ -949,7 +957,8 @@
       "trial_sweep": "横扫第 %{from}~%{to} 层",
       "sweep_seed": "仙草 ×%{count}",
       "sweep_gear": "装备 ×%{count}",
-      "sweep_art": "功法 ×%{count}"
+      "sweep_art": "功法 ×%{count}",
+      "work_gain": "，额外 +%{points} %{attribute}"
     },
     "shop": {
       "title": "集市",

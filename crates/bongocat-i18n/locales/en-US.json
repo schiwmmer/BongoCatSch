@@ -835,17 +835,25 @@
     },
     "jobs": {
       "title": "Odd jobs",
-      "hint": "Fixed wage; 潜质: 0.11% per point ×2, 0.01% ×3.",
+      "hint": "Fixed wage; attribute bonus by how well the trade went.",
       "row": "tier %{tier} · %{hours}h · %{stones} stones",
       "accept": "Take it",
       "taken": "In progress",
       "refresh": "Reroll",
       "refresh_cost": "Reroll for %{stones} stones",
-      "working": "Working a %{grade} job, %{hours}h, for %{stones} stones",
+      "working": "Working a %{kind} (%{grade}) job, %{hours}h, for %{stones} stones",
       "due": "Done in %{hours}h %{minutes}m",
       "refuse_working": "The job in hand is not finished",
       "refuse_gone": "Someone else took that job",
-      "paid": "Last job paid %{stones} stones (×%{multiplier})"
+      "paid_base": "Delivered: %{kind}, %{hours}h, %{stones} stones, %{rate}% success",
+      "gain": ", plus +%{points} %{attribute}",
+      "kind_single": "%{attribute} work",
+      "kind_pair": "%{first}·%{second} work",
+      "require_single": "needs %{attribute} ≥ %{value}",
+      "require_pair": "needs %{first} ≥ %{a} · %{second} ≥ %{b}",
+      "success": "%{rate}% success",
+      "reward_single": "reward +%{low}~%{high} %{attribute}",
+      "reward_pair": "reward +%{low}~%{high} %{first}/%{second}"
     },
     "explore": {
       "attempt": "Take a walk",
@@ -920,7 +928,7 @@
     "event": {
       "session": "Session finished, +%{growth} growth",
       "found": "Pomodoro find",
-      "work": "Worked %{hours}h for %{stones} stones (×%{multiplier})",
+      "work": "Worked %{hours}h for %{stones} stones (%{rate}% success)",
       "absence": "%{days} days without practice — growth -%{charged}",
       "walk": "Walked out: %{outcome}",
       "train_failed": "Training “%{name}” came to nothing; the progress stays",
@@ -949,7 +957,8 @@
       "trial_sweep": "Swept floors %{from}–%{to}",
       "sweep_seed": "herbs ×%{count}",
       "sweep_gear": "gear ×%{count}",
-      "sweep_art": "arts ×%{count}"
+      "sweep_art": "arts ×%{count}",
+      "work_gain": ", plus +%{points} %{attribute}"
     },
     "shop": {
       "title": "Market",

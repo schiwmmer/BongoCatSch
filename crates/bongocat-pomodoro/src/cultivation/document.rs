@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ART_COUNT, Attributes, EquipmentRecord, FREE_PLOT_COUNT, MAX_GARDEN_RANK, MAX_LEVEL,
+    ART_COUNT, Attributes, Derived, EquipmentRecord, FREE_PLOT_COUNT, MAX_GARDEN_RANK, MAX_LEVEL,
     MAX_PLOT_COUNT, OwnedArt, PlotRecord, RECENT_ARTS_CAP, SLOT_COUNT, STAGE_COUNT, SeedStack,
     blueprint,
     curve::{self, level_for_growth, stage_floor},
@@ -96,6 +96,13 @@ pub struct CultivationDocument {
     /// The attribute points the harvests have paid, permanently.
     #[serde(default)]
     pub crop_bonus: Attributes,
+    /// The outer attribute values the jobs have paid, permanently.
+    ///
+    /// A job trains a number rather than an attribute: a 力量 that feeds 攻击力
+    /// could not hold the 攻击力 a job pays, so the reward rides in the derived
+    /// number the fight reads, beside the gear that pays the same way.
+    #[serde(default)]
+    pub job_bonus: Derived,
     /// The highest level this cultivator has ever reached.
     ///
     /// Free points are paid against this rather than the current level: an

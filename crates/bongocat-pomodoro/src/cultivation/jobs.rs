@@ -13,20 +13,26 @@
 //! own range, twice over — the same expectation the range carried, printed as
 //! one number the board can be judged on.
 //!
-//! What the wage cannot carry, 潜质 does: a cultivator with 潜质 to spare has a
-//! hand that turns up early. Each whole point of it is a 0.11% chance the job
-//! comes home at double and a 0.01% chance at triple, which is the one place the
-//! ladder lets an attribute widen a purse rather than a fighter.
+//! What the wage cannot carry, the job's own trade does. Every job trains an
+//! attribute (or two), and how well the cultivator holds that attribute decides
+//! how the work comes off: the wage is the wage come what may, but the chance of
+//! a lasting gain rides on the cultivator's competence at the work, not on their
+//! 潜质. A gifted hand can be clumsy at a trade it never learnt, and a plain one
+//! can be steady at a trade it has practised.
 //!
-//! Three offers hang on the board at a time, and each carries two dice the user
+//! Three offers hang on the board at a time, and each carries the dice the user
 //! reads before taking it:
 //!
 //! * **品阶** — 黄 to 神, on the same odds a 功法 is graded on. The grade is the
 //!   whole difference between two jobs of the same length, which is what makes
-//!   reading the board a decision rather than a formality.
+//!   reading the board a decision rather than a formality. It also raises the
+//!   attribute the job asks of the cultivator, so a better-paid job is a harder
+//!   one rather than the same work at a better rate.
 //! * **时长** — four to twenty-four hours. The purse follows the hours the way a
 //!   walk's does, so a long job is more money for more of the cultivator's day
 //!   rather than a better rate.
+//! * **种类** — one of the thirty-six trades, each of which trains one outer
+//!   attribute or two, and is judged on the one it trains.
 //!
 //! The 阶级 is not a choice: a job is priced at the realm the cultivator is worth
 //! plus or minus one, so the board always holds something within reach and
@@ -35,7 +41,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::explore::PROVING_STONES;
-use super::{ArtGrade, Rng};
+use super::{ArtGrade, Derived, DerivedSlot, Rng};
 
 /// How many jobs the board holds at a time.
 pub const JOB_OFFER_COUNT: usize = 3;
@@ -62,13 +68,30 @@ const JOB_OVER_TRIAL_PERMILLE: u64 = 2_000;
 /// last.
 const JOB_GRADE_MULTIPLIER_PERMILLE: [u64; 5] = [1_000, 1_600, 2_400, 3_600, 5_400];
 
-/// What ten whole points of 潜质 add to the chance a finished job pays double, in
-/// parts per thousand: 0.11% a point is 1.1 of them, so ten points is eleven.
-const JOB_DOUBLE_PERMILLE_PER_TEN_POINTS: u64 = 11;
+/// What the five grades raise a job's attribute requirement by, in parts per
+/// thousand.
+///
+/// A 黄阶 job asks exactly the realm's baseline for the attribute it trains — the
+/// number a naked body at that level reads — and each higher grade asks more:
+/// a 玄阶 job is a fifth over, a 地阶 half over, a 天阶 nearly double, and a
+/// 神阶 asks two and a half times what the realm itself is worth. The grade is
+/// thus the whole difference between two jobs: more money *and* more asked.
+const JOB_REQUIREMENT_MULTIPLIER_PERMILLE: [u64; 5] = [1_000, 1_200, 1_500, 1_900, 2_400];
 
-/// What ten whole points of 潜质 add to the chance a finished job pays triple, in
-/// parts per thousand: 0.01% a point is a tenth of one, so ten points is one.
-const JOB_TRIPLE_PERMILLE_PER_TEN_POINTS: u64 = 1;
+/// The chance a job comes off when the cultivator clears the requirement by a
+/// wide margin, in parts per thousand: a certainty.
+const JOB_CLEAR_PERMILLE: u64 = 1_000;
+
+/// The chance a job comes off when the cultivator just meets the requirement, in
+/// parts per thousand.
+const JOB_MEET_PERMILLE: u64 = 900;
+
+/// The margin over the requirement a cultivator has to clear before the chance
+/// is a certainty, in parts per thousand: fifteen percent.
+const JOB_CLEAR_RATIO_PERMILLE: u64 = 1_150;
+
+/// The least chance any job comes off at, in parts per thousand: a tenth.
+const JOB_FLOOR_PERMILLE: u64 = 100;
 
 /// What the board charges to be re-rolled, per tier of the cultivator's own
 /// realm, in 灵石.
@@ -84,6 +107,110 @@ pub fn refresh_cost(tier: u8) -> u32 {
         .max(1)
 }
 
+/// One of the thirty-six kinds of work the board offers.
+///
+/// A kind trains one outer attribute or two. The eight a fight reads — 攻击,
+/// 生命, 内息, 法术, 法抗, 速度, 命中, 闪避 — can be worked alone, or any two
+/// of them mixed: 8 alone and 28 in pairs is 36. The 潜质 line is left out: it
+/// is a gift of birth, not a muscle a job can train, which is the whole reason a
+/// job is judged on the attribute it asks for rather than on how gifted the hand
+/// is.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct JobKind {
+    /// The first (or only) attribute the job trains.
+    first: DerivedSlot,
+    /// The second attribute a mixed job trains; `None` for a single.
+    second: Option<DerivedSlot>,
+}
+
+impl JobKind {
+    /// The eight single-attribute trades, in the order the page draws them.
+    const SINGLE_SLOTS: [DerivedSlot; 8] = [
+        DerivedSlot::Attack,
+        DerivedSlot::Health,
+        DerivedSlot::Inner,
+        DerivedSlot::Spell,
+        DerivedSlot::Resist,
+        DerivedSlot::Speed,
+        DerivedSlot::Hit,
+        DerivedSlot::Evade,
+    ];
+
+    /// Every kind the board offers: eight single and twenty-eight mixed.
+    pub const ALL: [Self; 36] = Self::build_all();
+
+    /// The attribute(s) this job trains: the first and the optional second.
+    pub const fn slots(self) -> (DerivedSlot, Option<DerivedSlot>) {
+        (self.first, self.second)
+    }
+
+    /// This kind's place in [`Self::ALL`], for a stable key on a row.
+    pub const fn index(self) -> usize {
+        let mut i = 0;
+        while i < Self::ALL.len() {
+            if Self::same(self, Self::ALL[i]) {
+                return i;
+            }
+            i += 1;
+        }
+        0
+    }
+
+    /// Whether two kinds are the same trade, read by their slots.
+    ///
+    /// Written out rather than derived from `==` so it can run in a `const`
+    /// context, where a derived `PartialEq` is not yet available.
+    const fn same(self, other: Self) -> bool {
+        self.first.index() == other.first.index()
+            && match (self.second, other.second) {
+                (Some(a), Some(b)) => a.index() == b.index(),
+                (None, None) => true,
+                _ => false,
+            }
+    }
+
+    const fn build_all() -> [Self; 36] {
+        let mut table = [Self {
+            first: DerivedSlot::Attack,
+            second: None,
+        }; 36];
+        let mut i = 0;
+        while i < Self::SINGLE_SLOTS.len() {
+            table[i] = Self {
+                first: Self::SINGLE_SLOTS[i],
+                second: None,
+            };
+            i += 1;
+        }
+        let mut n = Self::SINGLE_SLOTS.len();
+        let mut a = 0;
+        while a < Self::SINGLE_SLOTS.len() {
+            let mut b = a + 1;
+            while b < Self::SINGLE_SLOTS.len() {
+                table[n] = Self {
+                    first: Self::SINGLE_SLOTS[a],
+                    second: Some(Self::SINGLE_SLOTS[b]),
+                };
+                n += 1;
+                b += 1;
+            }
+            a += 1;
+        }
+        table
+    }
+}
+
+impl Default for JobKind {
+    /// The first single-attribute trade — 攻击 — which is what an old save with
+    /// no kind written down is treated as.
+    fn default() -> Self {
+        Self {
+            first: DerivedSlot::Attack,
+            second: None,
+        }
+    }
+}
+
 /// One job on the board.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct JobOffer {
@@ -94,6 +221,9 @@ pub struct JobOffer {
     pub hours: u8,
     /// The job's grade, on the ladder a 功法 is graded on.
     pub grade: ArtGrade,
+    /// What the job trains, which is what it asks of the cultivator.
+    #[serde(default)]
+    pub kind: JobKind,
 }
 
 impl JobOffer {
@@ -116,6 +246,9 @@ pub struct JobRun {
     pub tier: u8,
     pub hours: u8,
     pub grade: ArtGrade,
+    /// What the job trains, read again when it comes home.
+    #[serde(default)]
+    pub kind: JobKind,
 }
 
 impl JobRun {
@@ -127,6 +260,7 @@ impl JobRun {
             tier: offer.tier,
             hours: offer.hours,
             grade: offer.grade,
+            kind: offer.kind,
         }
     }
 
@@ -146,6 +280,7 @@ impl JobRun {
             tier: self.tier,
             hours: self.hours,
             grade: self.grade,
+            kind: self.kind,
         }
     }
 }
@@ -170,34 +305,87 @@ pub fn job_stones(tier: u8, hours: u8, grade: ArtGrade) -> u32 {
     u32::try_from(paid.max(1)).unwrap_or(u32::MAX)
 }
 
-/// What a 潜质 is worth as a chance, in parts per thousand.
+/// The attribute a job asks of a cultivator, for one of its slots.
 ///
-/// 潜质 is stored in tenths and is allowed to be negative — a cultivator born
-/// clumsy has nothing to offer a hand that turns up early — so a negative reads
-/// as no chance at all rather than as a negative one. The rounding is to the
-/// nearest part per thousand rather than down: a low 潜质 should still be able
-/// to crit, just rarely.
-fn crit_chance_permille(tenths: i32, per_ten_points: u64) -> u64 {
-    let tenths = u64::try_from(tenths.max(0)).unwrap_or(0);
-    // A point is ten tenths, so ten points are a hundred of them.
-    (tenths * per_ten_points + 50) / 100
+/// The baseline is the slot's own value for a naked body at that level — the
+/// number the cultivator would read on their own panel with nothing worn and
+/// nothing trained — and the grade raises it: a 黄阶 job asks the baseline, and
+/// a 神阶 one asks nearly two and a half times it. Priced off the cultivator's
+/// own realm so the requirement reads as "what this realm is worth" rather than
+/// as an arbitrary number the user has no way to judge.
+pub fn requirement(slot: DerivedSlot, level: u16, grade: ArtGrade) -> u32 {
+    let baseline = slot.of(super::base_attributes(level).derived());
+    let mult = JOB_REQUIREMENT_MULTIPLIER_PERMILLE[grade.index()];
+    u32::try_from(u64::from(baseline) * mult / 1_000).unwrap_or(u32::MAX)
 }
 
-/// What a finished job paid its wage at: one, two or three times.
+/// The chance a job comes off, in parts per thousand.
 ///
-/// Rolled once, when the job comes home, off the cultivator's 潜质. The two
-/// chances are read together and the deeper one wins, so a triple is a triple
-/// and not a double that happens to be a triple.
-pub fn crit_multiplier(rng: &mut Rng, aptitude_tenths: Option<i32>) -> u32 {
-    let tenths = aptitude_tenths.unwrap_or(0);
-    let triple = crit_chance_permille(tenths, JOB_TRIPLE_PERMILLE_PER_TEN_POINTS);
-    let double = crit_chance_permille(tenths, JOB_DOUBLE_PERMILLE_PER_TEN_POINTS);
-    if rng.below(1_000) < triple {
-        3
-    } else if rng.below(1_000) < double {
-        2
-    } else {
-        1
+/// The job is judged on the weakest of its slots: for a mixed job both
+/// attributes have to hold, so the smaller of the two margins decides. A
+/// cultivator at their realm's baseline meets the requirement, which is a
+/// ninety-percent chance; fifteen percent over is a certainty; and a shortfall
+/// costs the same ninety parts, pro-rated, down to a tenth.
+pub fn success_rate_permille(kind: JobKind, derived: Derived, level: u16, grade: ArtGrade) -> u64 {
+    let (first, second) = kind.slots();
+    let worst = match second {
+        Some(second) => ratio_permille(first, derived, level, grade)
+            .min(ratio_permille(second, derived, level, grade)),
+        None => ratio_permille(first, derived, level, grade),
+    };
+    ratio_to_success(worst)
+}
+
+/// The cultivator's margin over a job's requirement for one slot, in parts per
+/// thousand: a thousand means they exactly meet it.
+fn ratio_permille(slot: DerivedSlot, derived: Derived, level: u16, grade: ArtGrade) -> u64 {
+    let requirement = requirement(slot, level, grade);
+    let actual = u64::from(slot.of(derived));
+    actual.saturating_mul(1_000) / u64::from(requirement.max(1))
+}
+
+/// Turn a margin into a chance: at the requirement it is ninety percent, a
+/// fifteen-percent margin is a certainty, and a shortfall costs the same ninety
+/// pro-rated down to a tenth.
+fn ratio_to_success(ratio: u64) -> u64 {
+    if ratio >= JOB_CLEAR_RATIO_PERMILLE {
+        return JOB_CLEAR_PERMILLE;
+    }
+    if ratio >= 1_000 {
+        return JOB_MEET_PERMILLE;
+    }
+    (JOB_MEET_PERMILLE * ratio / 1_000).max(JOB_FLOOR_PERMILLE)
+}
+
+/// The chance a finished job pays a lasting gain, in parts per thousand.
+///
+/// The success rate is read as a share of a fifth: a certain job is a
+/// five-percent chance, a ninety-percent one is four-and-a-half, and a poor one
+/// is less. It is rolled whether the job came off or not — the trade teaches
+/// even when it does not pay well.
+pub fn point_chance_permille(success_rate: u64) -> u64 {
+    success_rate / 20
+}
+
+/// The points a finished job pays, once the chance has come up.
+///
+/// One to as many as the grade's step on the ladder: a 黄阶 job is a single
+/// point, a 神阶 one up to five.
+pub fn points(rng: &mut Rng, grade: ArtGrade) -> u32 {
+    let max = grade.index() as u64 + 1;
+    u32::try_from(rng.below(max) + 1).unwrap_or(u32::MAX)
+}
+
+/// The slot a mixed job pays, when the gain comes up: one of the two, at random.
+///
+/// A single-attribute job pays its own slot. A mixed one pays one of the two it
+/// trains, since a gain cannot be split between two numbers the page reads
+/// separately.
+pub fn reward_slot(rng: &mut Rng, kind: JobKind) -> DerivedSlot {
+    let (first, second) = kind.slots();
+    match second {
+        Some(second) if rng.below(2) == 1 => second,
+        _ => first,
     }
 }
 
@@ -205,7 +393,9 @@ pub fn crit_multiplier(rng: &mut Rng, aptitude_tenths: Option<i32>) -> u32 {
 ///
 /// The tier is the cultivator's own plus or minus one, which is what keeps a board
 /// worth reading: a job a rung down is money for nothing much, a job a rung up is
-/// the same money for a longer day.
+/// the same money for a longer day. Each job carries a kind from the full
+/// thirty-six, so the board holds a spread of trades rather than one trade three
+/// times.
 pub fn roll_jobs(rng: &mut Rng, tier: u8) -> Vec<JobOffer> {
     let tier = tier.clamp(1, 10);
     (0..JOB_OFFER_COUNT)
@@ -214,10 +404,12 @@ pub fn roll_jobs(rng: &mut Rng, tier: u8) -> Vec<JobOffer> {
             let tier = i16::from(tier).saturating_add(offset).clamp(1, 10) as u8;
             let span = u64::from(JOB_MAX_HOURS - JOB_MIN_HOURS + 1);
             let hours = JOB_MIN_HOURS + u8::try_from(rng.below(span)).unwrap_or(0);
+            let kind = JobKind::ALL[rng.below(36) as usize];
             JobOffer {
                 tier,
                 hours,
                 grade: super::arts::roll_art_grade(rng),
+                kind,
             }
         })
         .collect()
@@ -330,6 +522,7 @@ mod tests {
             tier: 3,
             hours: 8,
             grade: ArtGrade::Earth,
+            kind: JobKind::default(),
         };
         let run = JobRun::started(offer, 1_000);
         assert_eq!(run.ends_unix, 1_000 + 8 * 3_600);
@@ -339,65 +532,168 @@ mod tests {
     }
 
     #[test]
-    fn a_point_of_aptitude_is_the_hundredth_of_a_percent_it_was_asked_for() {
-        // Ten points of 潜质: 0.11% at double and 0.01% at triple.
-        assert_eq!(
-            crit_chance_permille(100, JOB_DOUBLE_PERMILLE_PER_TEN_POINTS),
-            11
+    fn there_are_eight_single_and_twenty_eight_mixed_kinds() {
+        // 8 alone and 28 in pairs is 36, and every kind on the board is one of
+        // them: no trade off the table, and no trade twice.
+        assert_eq!(JobKind::ALL.len(), 36);
+        let singles = JobKind::ALL
+            .iter()
+            .filter(|kind| kind.slots().1.is_none())
+            .count();
+        let mixed = JobKind::ALL.len() - singles;
+        assert_eq!(singles, 8, "{singles} single trades");
+        assert_eq!(mixed, 28, "{mixed} mixed trades");
+        for (i, kind) in JobKind::ALL.iter().enumerate() {
+            assert_eq!(kind.index(), i, "kind at {i}");
+        }
+    }
+
+    #[test]
+    fn the_grade_raises_the_requirement_the_way_it_raises_the_wage() {
+        let level = 40;
+        let slot = DerivedSlot::Attack;
+        let yellow = requirement(slot, level, ArtGrade::Yellow);
+        let divine = requirement(slot, level, ArtGrade::Divine);
+        assert!(divine > yellow, "{yellow} to {divine}");
+        assert!(
+            divine * 100 >= yellow * 230 && divine * 100 <= yellow * 250,
+            "{yellow} to {divine}"
         );
+        // Every step asks more, in order.
+        let steps: Vec<u32> = ArtGrade::ALL
+            .into_iter()
+            .map(|grade| requirement(slot, level, grade))
+            .collect();
+        for pair in steps.windows(2) {
+            assert!(pair[1] > pair[0], "{steps:?}");
+        }
+    }
+
+    #[test]
+    fn meeting_the_requirement_is_ninety_percent_and_clearing_it_is_certain() {
+        let level = 40;
+        // A 黄阶 job asks exactly the realm's baseline, so a naked body at the
+        // level meets it to the point.
+        let grade = ArtGrade::Yellow;
+        let kind = JobKind::default(); // 攻击 alone
+        let requirement = requirement(kind.slots().0, level, grade);
+        // A naked body at the level is exactly at the requirement: ninety percent.
+        let bare = crate::base_attributes(level).derived();
         assert_eq!(
-            crit_chance_permille(100, JOB_TRIPLE_PERMILLE_PER_TEN_POINTS),
-            1
+            success_rate_permille(kind, bare, level, grade),
+            JOB_MEET_PERMILLE
         );
-        // A hundred points: eleven times that.
+        // Just past fifteen percent over the requirement is a certainty: the
+        // extra point beats the floor that integer division would leave behind.
+        let clear = Derived {
+            attack: requirement * 15 / 100 + 1,
+            ..Derived::default()
+        };
         assert_eq!(
-            crit_chance_permille(1_000, JOB_DOUBLE_PERMILLE_PER_TEN_POINTS),
-            110
+            success_rate_permille(kind, bare.plus(clear), level, grade),
+            JOB_CLEAR_PERMILLE
         );
-        // A clumsy cultivator offers nothing, and a negative offers less.
+        // A body short of the requirement pays the shortfall pro-rated, down to
+        // the floor.
+        let weak = Derived {
+            attack: requirement * 80 / 100,
+            ..bare
+        };
+        let short = success_rate_permille(kind, weak, level, grade);
+        assert!(short < JOB_MEET_PERMILLE, "{short}");
+        assert!(short >= JOB_FLOOR_PERMILLE, "{short}");
+    }
+
+    #[test]
+    fn a_mixed_job_is_judged_on_its_weakest_slot() {
+        let level = 40;
+        let grade = ArtGrade::Yellow;
+        // 攻击 + 生命: strong in 攻击, weak in 生命, so the 生命 margin rules.
+        let kind = JobKind::ALL
+            .iter()
+            .copied()
+            .find(|kind| kind.slots() == (DerivedSlot::Attack, Some(DerivedSlot::Health)))
+            .expect("the attack-health trade exists");
+        let bare = crate::base_attributes(level).derived();
+        let strong_attack = bare.plus(Derived {
+            attack: requirement(DerivedSlot::Attack, level, grade) * 30 / 100,
+            ..Derived::default()
+        });
+        // Strong attack, baseline health: judged on health, so ninety percent.
         assert_eq!(
-            crit_chance_permille(0, JOB_DOUBLE_PERMILLE_PER_TEN_POINTS),
-            0
+            success_rate_permille(kind, strong_attack, level, grade),
+            JOB_MEET_PERMILLE
         );
+        // Both over by fifteen percent: certain. The extra point on each beats
+        // the floor integer division would leave behind.
+        let both = bare.plus(Derived {
+            attack: requirement(DerivedSlot::Attack, level, grade) * 15 / 100 + 1,
+            health: requirement(DerivedSlot::Health, level, grade) * 15 / 100 + 1,
+            ..Derived::default()
+        });
         assert_eq!(
-            crit_chance_permille(-50, JOB_TRIPLE_PERMILLE_PER_TEN_POINTS),
-            0
+            success_rate_permille(kind, both, level, grade),
+            JOB_CLEAR_PERMILLE
         );
     }
 
     #[test]
-    fn the_deeper_crit_is_the_rarer_one() {
-        // Over a great many hands, doubles happen, triples happen less, and the
-        // ratio is the one the ladder asked for.
-        let tenths = Some(500); // fifty points: 5.5% double, 0.5% triple
-        let mut double = 0u32;
-        let mut triple = 0u32;
-        let mut rng = Rng::seeded(0xC_C17);
-        for _ in 0..200_000 {
-            match crit_multiplier(&mut rng, tenths) {
-                3 => triple += 1,
-                2 => double += 1,
-                _ => {}
+    fn the_reward_chance_is_the_success_rate_over_twenty() {
+        // A certain job is a five-percent chance, a ninety-percent one is
+        // four-and-a-half, and a poor one is less.
+        assert_eq!(point_chance_permille(1_000), 50);
+        assert_eq!(point_chance_permille(900), 45);
+        assert_eq!(point_chance_permille(500), 25);
+        assert_eq!(point_chance_permille(100), 5);
+    }
+
+    #[test]
+    fn points_ride_on_the_grade() {
+        let mut rng = Rng::seeded(0x0B0B_5C17);
+        // A 黄阶 job always pays one point; a 神阶 one pays up to five.
+        assert_eq!(points(&mut rng, ArtGrade::Yellow), 1);
+        let mut seen = [false; 5];
+        for _ in 0..20_000 {
+            let p = points(&mut rng, ArtGrade::Divine);
+            assert!((1..=5).contains(&p), "{p}");
+            seen[(p - 1) as usize] = true;
+        }
+        assert!(seen.iter().all(|s| *s), "{seen:?}");
+    }
+
+    #[test]
+    fn a_mixed_job_pays_one_of_its_two_slots() {
+        let mut rng = Rng::seeded(0xC0DE);
+        let kind = JobKind::ALL
+            .iter()
+            .copied()
+            .find(|kind| kind.slots().1.is_some())
+            .expect("a mixed trade exists");
+        let (_first, second) = kind.slots();
+        let mut first_hits = 0;
+        let mut second_hits = 0;
+        for _ in 0..20_000 {
+            if reward_slot(&mut rng, kind) == second.unwrap() {
+                second_hits += 1;
+            } else {
+                first_hits += 1;
             }
         }
         assert!(
-            double > 0 && triple > 0,
-            "{double} doubles, {triple} triples"
+            first_hits > 0 && second_hits > 0,
+            "{first_hits}/{second_hits}"
         );
-        assert!(
-            triple * 10 < double,
-            "{double} doubles against {triple} triples"
-        );
-        // And it is roughly the share asked for, not a share of a share.
-        let share = double * 1_000 / 200_000;
-        assert!((45..=70).contains(&share), "{share}‰ doubled");
+        // Roughly even: either of the two, not one always.
+        let share = second_hits * 1_000 / (first_hits + second_hits);
+        assert!((450..=550).contains(&share), "{share}‰ to the second");
     }
 
     #[test]
-    fn a_cultivator_with_no_aptitude_never_crits() {
-        let mut rng = Rng::seeded(0x0B0B_5C17);
+    fn a_single_job_always_pays_its_own_slot() {
+        let mut rng = Rng::seeded(0x5EED);
+        let kind = JobKind::ALL[0]; // 攻击 alone
         for _ in 0..1_000 {
-            assert_eq!(crit_multiplier(&mut rng, None), 1);
+            assert_eq!(reward_slot(&mut rng, kind), DerivedSlot::Attack);
         }
     }
 }

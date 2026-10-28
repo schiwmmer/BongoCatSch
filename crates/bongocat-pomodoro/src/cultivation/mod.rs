@@ -108,7 +108,8 @@ pub use items::{
     star_success_permille,
 };
 pub use jobs::{
-    JOB_MAX_HOURS, JOB_MIN_HOURS, JOB_OFFER_COUNT, JobOffer, JobRun, job_stones, refresh_cost,
+    JOB_MAX_HOURS, JOB_MIN_HOURS, JOB_OFFER_COUNT, JobKind, JobOffer, JobRun, job_stones,
+    refresh_cost,
 };
 pub use proving::{ProvingOutcome, TRIAL_CHANCES_CAP};
 pub use shop::SESSION_EARNINGS;
@@ -752,8 +753,8 @@ const DERIVED_SPECS: [DerivedSpec; 9] = [
 /// Named rather than positional so that reordering the table cannot silently
 /// swap two numbers: the value a slot receives is written where the slot is
 /// named, and the compiler is the one that notices a mismatch.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum DerivedSlot {
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum DerivedSlot {
     Attack,
     Health,
     Inner,
@@ -794,6 +795,39 @@ impl DerivedSlot {
             Self::Evade => derived.evade,
             Self::Aptitude => derived.aptitude,
         }
+    }
+
+    /// The catalog key that names this line, read from the one table that says
+    /// how every line is computed — so a surface asking for a name and the table
+    /// filling a number cannot drift apart.
+    pub const fn key(self) -> &'static str {
+        let mut i = 0;
+        while i < DERIVED_SPECS.len() {
+            if DERIVED_SPECS[i].slot.index() == self.index() {
+                return DERIVED_SPECS[i].key;
+            }
+            i += 1;
+        }
+        "cultivation.attack"
+    }
+
+    /// Add to this line in a set of the nine numbers.
+    ///
+    /// Saturation rather than wrapping: a number that wrapped would read as a
+    /// penalty on a page that promised a bonus.
+    pub fn add_to(self, derived: &mut Derived, amount: u32) {
+        let slot = match self {
+            Self::Attack => &mut derived.attack,
+            Self::Health => &mut derived.health,
+            Self::Inner => &mut derived.inner,
+            Self::Spell => &mut derived.spell,
+            Self::Resist => &mut derived.resist,
+            Self::Speed => &mut derived.speed,
+            Self::Hit => &mut derived.hit,
+            Self::Evade => &mut derived.evade,
+            Self::Aptitude => &mut derived.aptitude,
+        };
+        *slot = slot.saturating_add(amount);
     }
 }
 
