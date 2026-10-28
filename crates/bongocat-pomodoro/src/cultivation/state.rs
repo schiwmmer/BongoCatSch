@@ -370,6 +370,11 @@ pub struct JobView {
     pub requirement: u32,
     /// What the job asks of the second attribute, for a mixed job.
     pub requirement_second: Option<u32>,
+    /// What the cultivator actually holds in the first (or only) attribute, for
+    /// the row to say how far over or under the requirement they are.
+    pub current_first: u32,
+    /// What the cultivator holds in the second attribute, for a mixed job.
+    pub current_second: Option<u32>,
     /// The chance the job comes off, in parts per thousand, given how the
     /// cultivator holds the attribute it asks for.
     pub success_rate: u64,
@@ -4035,6 +4040,8 @@ impl Cultivation {
                         requirement: super::jobs::requirement(first, level, offer.grade),
                         requirement_second: second
                             .map(|slot| super::jobs::requirement(slot, level, offer.grade)),
+                        current_first: first.of(derived),
+                        current_second: second.map(|slot| slot.of(derived)),
                         success_rate: super::jobs::success_rate_permille(
                             offer.kind,
                             derived,

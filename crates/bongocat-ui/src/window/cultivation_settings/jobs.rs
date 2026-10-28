@@ -167,26 +167,48 @@ fn job_row(
     // asks, the chance the cultivator meets it, what the trade pays when it
     // does, and the wage — so the board is read as one line and the row is no
     // taller than it was when a job was just money.
-    let parts = [
-        kind_name(job.kind, locale),
-        requirement_line(job, locale),
-        format_text(
+    // The row reads as one line: the trade's own name first — 炼体 is a name,
+    // not a recipe — then the grade in its colour, then what the trade asks and
+    // how far over or under the cultivator is, the chance it comes off, and the
+    // wage. Each piece truncates on its own, so a narrow window clips the wage
+    // rather than breaking the row in two.
+    let grade_word = div()
+        .text_xs()
+        .font_semibold()
+        .text_color(grade_color(job.grade))
+        .child(text(locale, job.grade.name_key()));
+    let details = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .min_w_0()
+        .child(
+            div()
+                .text_xs()
+                .truncate()
+                .child(kind_name(job.kind, locale)),
+        )
+        .child(grade_word)
+        .child(
+            div()
+                .text_xs()
+                .truncate()
+                .child(requirement_line(job, locale)),
+        )
+        .child(div().text_xs().truncate().child(format_text(
             locale,
             "cultivation.jobs.success",
             &[("rate", (job.success_rate / 10).to_string())],
-        ),
-        reward_line(job, locale),
-        format_text(
+        )))
+        .child(div().text_xs().truncate().child(format_text(
             locale,
             "cultivation.jobs.row",
             &[
-                ("tier", job.tier.to_string()),
                 ("hours", job.hours.to_string()),
                 ("stones", job.stones.to_string()),
             ],
-        ),
-    ];
-    let label = parts.join(" · ");
+        )));
     let slot = job.slot;
     // A job the cultivator is already on is not open: the board keeps the row
     // so the page can say 接取中 where the take button would be, and a second
@@ -223,47 +245,20 @@ fn job_row(
         .items_center()
         .justify_between()
         .gap_2()
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_1()
-                .min_w_0()
-                .child(
-                    div()
-                        .text_xs()
-                        .font_semibold()
-                        .text_color(grade_color(job.grade))
-                        .child(text(locale, job.grade.name_key())),
-                )
-                .child(div().min_w_0().text_xs().truncate().child(label)),
-        )
+        .child(details)
         .child(action)
         .test_support()
 }
 
-/// The name of a trade: the attribute it trains, or the two a mixed one does.
+/// The name of a trade: what the board calls the work, distinct from the
+/// attribute(s) it trains.
 fn kind_name(kind: JobKind, locale: &str) -> String {
-    let (first, second) = kind.slots();
-    match second {
-        Some(second) => format_text(
-            locale,
-            "cultivation.jobs.kind_pair",
-            &[
-                ("first", text(locale, first.key()).to_string()),
-                ("second", text(locale, second.key()).to_string()),
-            ],
-        ),
-        None => format_text(
-            locale,
-            "cultivation.jobs.kind_single",
-            &[("attribute", text(locale, first.key()).to_string())],
-        ),
-    }
+    text(locale, kind.name_key()).to_string()
 }
 
-/// What the job asks of the cultivator, for the attribute(s) it trains.
+/// What the job asks of the cultivator, for the attribute(s) it trains, and how
+/// far over or under the requirement they are: a plus is a margin already
+/// cleared, a minus is a shortfall, both in whole percents.
 fn requirement_line(job: &bongocat_pomodoro::JobView, locale: &str) -> String {
     let (first, second) = job.kind.slots();
     match second {
@@ -272,9 +267,15 @@ fn requirement_line(job: &bongocat_pomodoro::JobView, locale: &str) -> String {
             "cultivation.jobs.require_pair",
             &[
                 ("first", text(locale, first.key()).to_string()),
-                ("a", job.requirement.to_string()),
+                ("a", margin(job.current_first, job.requirement)),
                 ("second", text(locale, second.key()).to_string()),
-                ("b", job.requirement_second.unwrap_or(0).to_string()),
+                (
+                    "b",
+                    margin(
+                        job.current_second.unwrap_or(0),
+                        job.requirement_second.unwrap_or(0),
+                    ),
+                ),
             ],
         ),
         None => format_text(
@@ -282,36 +283,45 @@ fn requirement_line(job: &bongocat_pomodoro::JobView, locale: &str) -> String {
             "cultivation.jobs.require_single",
             &[
                 ("attribute", text(locale, first.key()).to_string()),
-                ("value", job.requirement.to_string()),
+                ("margin", margin(job.current_first, job.requirement)),
             ],
         ),
     }
 }
 
-/// What the trade pays when the gain comes up: one point to as many as the grade.
-fn reward_line(job: &bongocat_pomodoro::JobView, locale: &str) -> String {
-    let (first, second) = job.kind.slots();
-    let high = job.grade.index() as u32 + 1;
-    let low = 1u32;
-    match second {
-        Some(second) => format_text(
-            locale,
-            "cultivation.jobs.reward_pair",
-            &[
-                ("low", low.to_string()),
-                ("high", high.to_string()),
-                ("first", text(locale, first.key()).to_string()),
-                ("second", text(locale, second.key()).to_string()),
-            ],
-        ),
-        None => format_text(
-            locale,
-            "cultivation.jobs.reward_single",
-            &[
-                ("low", low.to_string()),
-                ("high", high.to_string()),
-                ("attribute", text(locale, first.key()).to_string()),
-            ],
-        ),
+/// How far the cultivator holds an attribute over or under what the job asks,
+/// in whole percents, signed: `+5` is five percent clear, `-3` is three short.
+fn margin(current: u32, requirement: u32) -> String {
+    let ratio = u64::from(current).saturating_mul(1_000) / u64::from(requirement.max(1));
+    let over = (ratio as i64 - 1_000) / 10;
+    if over == 0 {
+        "0".to_string()
+    } else if over > 0 {
+        format!("+{over}")
+    } else {
+        format!("{over}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_margin_is_signed_and_in_whole_percents() {
+        // At the requirement the margin is zero, and it reads signed either
+        // side of it, truncated to whole percents.
+        assert_eq!(margin(100, 100), "0");
+        assert_eq!(margin(105, 100), "+5");
+        assert_eq!(margin(104, 100), "+4");
+        assert_eq!(margin(95, 100), "-5");
+        assert_eq!(margin(0, 100), "-100");
+    }
+
+    #[test]
+    fn a_zero_requirement_is_read_as_one() {
+        // A 黄阶 job asks the realm's baseline, which a low body can hold at
+        // zero; the margin is still read rather than divided by nothing.
+        assert_eq!(margin(5, 0), "+400");
     }
 }

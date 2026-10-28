@@ -156,6 +156,59 @@ impl JobKind {
         0
     }
 
+    /// The key the board reads for this kind's name.
+    ///
+    /// A trade is a trade, not a pair of attributes, so it has a name of its
+    /// own: 炼体 is a name and 攻击·生命 is a recipe. The name is a catalog key
+    /// read straight off [`Self::ALL`], which is why the table below has to be
+    /// kept in the same order the kinds are built in.
+    pub fn name_key(self) -> &'static str {
+        Self::NAMES[self.index()]
+    }
+
+    /// The catalog key each kind reads by, in the order [`Self::ALL`] draws
+    /// them: the eight single-attribute trades, then the twenty-eight pairs.
+    const NAMES: [&str; 36] = [
+        // Eight trades that train one attribute each.
+        "cultivation.jobs.names.attack",
+        "cultivation.jobs.names.health",
+        "cultivation.jobs.names.inner",
+        "cultivation.jobs.names.spell",
+        "cultivation.jobs.names.resist",
+        "cultivation.jobs.names.speed",
+        "cultivation.jobs.names.hit",
+        "cultivation.jobs.names.evade",
+        // Twenty-eight mixed trades, two attributes at a time.
+        "cultivation.jobs.names.attack_health",
+        "cultivation.jobs.names.attack_inner",
+        "cultivation.jobs.names.attack_spell",
+        "cultivation.jobs.names.attack_resist",
+        "cultivation.jobs.names.attack_speed",
+        "cultivation.jobs.names.attack_hit",
+        "cultivation.jobs.names.attack_evade",
+        "cultivation.jobs.names.health_inner",
+        "cultivation.jobs.names.health_spell",
+        "cultivation.jobs.names.health_resist",
+        "cultivation.jobs.names.health_speed",
+        "cultivation.jobs.names.health_hit",
+        "cultivation.jobs.names.health_evade",
+        "cultivation.jobs.names.inner_spell",
+        "cultivation.jobs.names.inner_resist",
+        "cultivation.jobs.names.inner_speed",
+        "cultivation.jobs.names.inner_hit",
+        "cultivation.jobs.names.inner_evade",
+        "cultivation.jobs.names.spell_resist",
+        "cultivation.jobs.names.spell_speed",
+        "cultivation.jobs.names.spell_hit",
+        "cultivation.jobs.names.spell_evade",
+        "cultivation.jobs.names.resist_speed",
+        "cultivation.jobs.names.resist_hit",
+        "cultivation.jobs.names.resist_evade",
+        "cultivation.jobs.names.speed_hit",
+        "cultivation.jobs.names.speed_evade",
+        "cultivation.jobs.names.hit_evade",
+    ];
+
     /// Whether two kinds are the same trade, read by their slots.
     ///
     /// Written out rather than derived from `==` so it can run in a `const`
@@ -695,5 +748,27 @@ mod tests {
         for _ in 0..1_000 {
             assert_eq!(reward_slot(&mut rng, kind), DerivedSlot::Attack);
         }
+    }
+
+    #[test]
+    fn every_kind_reads_a_name_of_its_own() {
+        // A trade has a name, not a recipe: each of the thirty-six reads a
+        // distinct catalog key, so the board never shows two trades that are
+        // the same word.
+        let mut names = std::collections::BTreeSet::new();
+        for kind in JobKind::ALL {
+            assert!(
+                names.insert(kind.name_key()),
+                "two kinds share the name {}",
+                kind.name_key()
+            );
+        }
+        assert_eq!(names.len(), JobKind::ALL.len());
+        // The first kind — 攻击 alone — is the key an old save with no kind
+        // written down is treated as.
+        assert_eq!(
+            JobKind::default().name_key(),
+            "cultivation.jobs.names.attack"
+        );
     }
 }
