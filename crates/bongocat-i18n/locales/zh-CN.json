@@ -90,6 +90,8 @@
       "chart_days_30": "近 30 天",
       "chart_minutes": "专注时长（分钟）",
       "chart_done": "完成任务数",
+      "tooltip_pomodoros": "番茄 %{count}",
+      "tooltip_minutes": "专注 %{minutes} 分钟",
       "month_tasks": "本月任务",
       "day_tasks": "当日任务",
       "day_tasks_empty": "当日无专注记录",

@@ -90,6 +90,8 @@
       "chart_days_30": "Last 30 days",
       "chart_minutes": "Focus minutes",
       "chart_done": "Tasks finished",
+      "tooltip_pomodoros": "Pomodoros %{count}",
+      "tooltip_minutes": "Focus %{minutes} min",
       "month_tasks": "Tasks this month",
       "day_tasks": "Tasks this day",
       "day_tasks_empty": "No focus sessions this day",

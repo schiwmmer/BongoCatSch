@@ -22,7 +22,7 @@ use gpui_kit::component::Sizable as _;
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
-use gpui_kit::{PathBuilder, canvas, fill};
+use gpui_kit::{PathBuilder, TextAlign, TextRun, canvas, fill};
 
 /// Build the search keywords so the page is reachable from the settings search
 /// box even though its title lives under the `pomodoro` namespace.
@@ -912,6 +912,10 @@ fn trend_chart(
     cx: &mut App,
 ) -> gpui_kit::AnyElement {
     let days_span = view.read(cx).pomodoro_chart_days;
+    // An owned clone for the `'static` mouse listeners below: the tooltip
+    // needs no stored state, so they only ask for a repaint, and the canvas
+    // recomputes the hovered day from the live cursor on each paint.
+    let hover_view = view.clone();
     let offset = bongocat_platform::local_utc_offset_seconds();
     let snapshot = view.read(cx).pomodoro.snapshot();
     let totals = view.read(cx).pomodoro.day_totals(offset);
@@ -929,6 +933,7 @@ fn trend_chart(
     let mut minutes: Vec<u32> = Vec::with_capacity(days_span);
     let mut finished_tasks: Vec<u32> = Vec::with_capacity(days_span);
     let mut day_labels: Vec<String> = Vec::with_capacity(days_span);
+    let mut tooltip_dates: Vec<String> = Vec::with_capacity(days_span);
     for back in (0..days_span).rev() {
         let day = CalendarDay::from_day_number(end_day.day_number() - back as i64);
         let pomodoros = totals.get(&day).map(|total| total.pomodoros).unwrap_or(0);
@@ -948,6 +953,10 @@ fn trend_chart(
         );
         let civil = day.to_civil();
         day_labels.push(format!("{:02}-{:02}", civil.month, civil.day));
+        tooltip_dates.push(format!(
+            "{:04}-{:02}-{:02}",
+            civil.year, civil.month, civil.day
+        ));
     }
 
     let count = days_span.max(1);
@@ -972,6 +981,15 @@ fn trend_chart(
     let minutes_color = MINUTES_SERIES_COLOR;
     let finished_color = FINISHED_SERIES_COLOR;
     let border_color = tokens.border;
+    // The hover tooltip is painted inside the canvas, so its palette and its
+    // two translated line templates ride into the plot rather than being read
+    // from the theme at paint time.
+    let tooltip_bg = tokens.overlay;
+    let tooltip_border = tokens.border;
+    let tooltip_text = tokens.text;
+    let tooltip_muted = tokens.muted;
+    let tooltip_pomodoros = text(locale, "pomodoro.settings.tooltip_pomodoros");
+    let tooltip_minutes = text(locale, "pomodoro.settings.tooltip_minutes");
 
     let plot = canvas(
         move |_bounds, _, _| TrendPlot {
@@ -979,13 +997,20 @@ fn trend_chart(
             finished: finished_tasks,
             count,
             date_ticks: ticks,
+            tooltip_dates,
             minutes_max,
             finished_max,
             minutes_color,
             finished_color,
             border_color,
+            tooltip_bg,
+            tooltip_border,
+            tooltip_text,
+            tooltip_muted,
+            tooltip_pomodoros,
+            tooltip_minutes,
         },
-        move |bounds, plot, window, _| {
+        move |bounds, plot, window, cx| {
             // The axis columns reserve AXIS_UNIT_HEIGHT + AXIS_UNIT_GAP for their
             // unit label, then spread three tick slots over the rest; the
             // gridlines sit at those slots' centres, which is what keeps a tick
@@ -1039,8 +1064,8 @@ fn trend_chart(
             }
 
             for (series, axis_max, color) in [
-                (plot.minutes, plot.minutes_max, plot.minutes_color),
-                (plot.finished, plot.finished_max, plot.finished_color),
+                (&plot.minutes, plot.minutes_max, plot.minutes_color),
+                (&plot.finished, plot.finished_max, plot.finished_color),
             ] {
                 let mut builder = PathBuilder::stroke(px(2.0));
                 for (index, value) in series.iter().enumerate() {
@@ -1058,6 +1083,101 @@ fn trend_chart(
                 if let Ok(path) = builder.build() {
                     window.paint_path(path, color);
                 }
+            }
+
+            // The hover tooltip: a small box floating just inside the top of
+            // the plot, centred on the day under the cursor, carrying the
+            // date, the finished-task count and the focus minutes for that
+            // day. The hovered index is recomputed on every repaint from the
+            // live cursor position against this element's own bounds, so the
+            // tooltip needs no stored hover state — the mouse listeners below
+            // only ask for a repaint, and the box follows the cursor for free.
+            let mouse = window.mouse_position();
+            if mouse.x >= left && mouse.x <= right && mouse.y >= top_y && mouse.y <= bottom_y {
+                let index = ((mouse.x - left) / step)
+                    .floor()
+                    .clamp(0.0, plot.count as f32 - 1.0) as usize;
+                let centre_x = point_x(index);
+                let tooltip_w = px(118.0);
+                let tooltip_h = px(56.0);
+                // The box is centred on the point but kept inside the plot, so
+                // a point at either edge does not push it off the frame.
+                let mut box_left = centre_x - tooltip_w / 2.0;
+                if box_left < left {
+                    box_left = left;
+                }
+                let right_limit = right - tooltip_w;
+                if box_left > right_limit {
+                    box_left = right_limit;
+                }
+                let box_top = top_y + px(2.0);
+                let box_bounds = Bounds::new(point(box_left, box_top), size(tooltip_w, tooltip_h));
+                window.paint_quad(fill(box_bounds, plot.tooltip_bg));
+                // A one-pixel frame, drawn as four quads like the plot's own
+                // frame, so the box reads as a surface rather than a patch.
+                let border = plot.tooltip_border;
+                for (x, y, w, h) in [
+                    (box_left, box_top, tooltip_w, px(1.0)),
+                    (box_left, box_top + tooltip_h - px(1.0), tooltip_w, px(1.0)),
+                    (box_left, box_top, px(1.0), tooltip_h),
+                    (box_left + tooltip_w - px(1.0), box_top, px(1.0), tooltip_h),
+                ] {
+                    window.paint_quad(fill(Bounds::new(point(x, y), size(w, h)), border));
+                }
+
+                // Three lines of text_xs: the full date in muted, then the two
+                // series values in the main text colour. Each is shaped and
+                // painted through the window's own text system — the same
+                // primitive the axis labels are drawn with — so the box sizes
+                // against the platform font rather than a guess.
+                let font_size = window.rem_size() * 0.75;
+                let line_h = font_size * 1.4;
+                let text_x = box_left + px(8.0);
+                let text_top = box_top + px(6.0);
+                let style = window.text_style();
+                let font = style.font();
+                let paint_text =
+                    |text: String, y: Pixels, color: Hsla, window: &mut Window, cx: &mut App| {
+                        let run = TextRun {
+                            len: text.len(),
+                            font: font.clone(),
+                            color,
+                            background_color: None,
+                            underline: None,
+                            strikethrough: None,
+                        };
+                        let line = window.text_system().shape_line(
+                            text.into(),
+                            font_size,
+                            std::slice::from_ref(&run),
+                            None,
+                        );
+                        let _ =
+                            line.paint(point(text_x, y), line_h, TextAlign::Left, None, window, cx);
+                    };
+                paint_text(
+                    plot.tooltip_dates[index].clone(),
+                    text_top,
+                    plot.tooltip_muted,
+                    window,
+                    cx,
+                );
+                paint_text(
+                    plot.tooltip_pomodoros
+                        .replace("%{count}", &plot.finished[index].to_string()),
+                    text_top + line_h,
+                    plot.tooltip_text,
+                    window,
+                    cx,
+                );
+                paint_text(
+                    plot.tooltip_minutes
+                        .replace("%{minutes}", &plot.minutes[index].to_string()),
+                    text_top + line_h * 2.0,
+                    plot.tooltip_text,
+                    window,
+                    cx,
+                );
             }
         },
     )
@@ -1156,6 +1276,23 @@ fn trend_chart(
                 .flex_row()
                 .gap_1()
                 .h(chart_height)
+                // A mouse move or a leave repaints the chart, so the canvas
+                // can redraw the tooltip at the day now under the cursor or
+                // drop it once the pointer is gone. The plot is drawn by a
+                // bare canvas, which owns no pointer events of its own, so the
+                // listeners live on this container.
+                .on_mouse_move({
+                    let hover_view = hover_view.clone();
+                    move |_, _, cx| {
+                        hover_view.update(cx, |_, cx| cx.notify());
+                    }
+                })
+                .on_mouse_exit({
+                    let hover_view = hover_view.clone();
+                    move |_, _, cx| {
+                        hover_view.update(cx, |_, cx| cx.notify());
+                    }
+                })
                 .child(axis_column(
                     "pomodoro.settings.axis_minutes",
                     minutes_max,
@@ -1234,11 +1371,28 @@ struct TrendPlot {
     finished: Vec<u32>,
     count: usize,
     date_ticks: Vec<usize>,
+    // The full `YYYY-MM-DD` date of each data point, one per point, for the
+    // hover tooltip: a rewind window that crosses a month or a year still
+    // reads unambiguously at the point the cursor sits on.
+    tooltip_dates: Vec<String>,
     minutes_max: f32,
     finished_max: f32,
     minutes_color: Hsla,
     finished_color: Hsla,
     border_color: Hsla,
+    // The hover tooltip is painted inside the canvas, so its colours and its
+    // two translated line templates ride along in the plot rather than being
+    // read from the theme at paint time.
+    tooltip_bg: Hsla,
+    tooltip_border: Hsla,
+    tooltip_text: Hsla,
+    tooltip_muted: Hsla,
+    /// The translated `pomodoro.settings.tooltip_pomodoros` template, with a
+    /// literal `%{count}` placeholder the paint closure substitutes.
+    tooltip_pomodoros: &'static str,
+    /// The translated `pomodoro.settings.tooltip_minutes` template, with a
+    /// literal `%{minutes}` placeholder the paint closure substitutes.
+    tooltip_minutes: &'static str,
 }
 
 /// One vertical axis of the trend plot: the unit on top, then the ceiling, the
