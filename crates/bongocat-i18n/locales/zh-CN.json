@@ -671,7 +671,7 @@
       },
       "gain": "%{attribute} +%{value}",
       "cost": "耗内力 %{value}",
-      "multiplier": "威力 %{value}%",
+      "multiplier": "基准威力 %{value}%",
       "select": "修习",
       "selected": "修习中",
       "mastery_attribute": "大成 · 每阶属性 +%{value}%",
@@ -684,6 +684,7 @@
       "copies": "×%{count}",
       "blows": "×%{count} 段",
       "band": "每段 %{min}%~%{max}%",
+      "total_band": "合计 %{min}%~%{max}%",
       "effect_slow": "寒劲 减速 %{value}%",
       "effect_haste": "轻身 加速 %{value}%",
       "effect_focus": "凝神 命中 +%{value}"

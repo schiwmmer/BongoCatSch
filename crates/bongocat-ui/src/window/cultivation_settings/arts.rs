@@ -345,20 +345,34 @@ fn strike_line(
         ));
     }
     if hi > lo {
+        let per_min = multiplier_permille.saturating_mul(lo) / 1_000;
+        let per_max = multiplier_permille.saturating_mul(hi) / 1_000;
         parts.push(format_text(
             locale,
             "cultivation.art.band",
-            &[
-                (
-                    "min",
-                    percent(multiplier_permille.saturating_mul(lo) / 1_000),
-                ),
-                (
-                    "max",
-                    percent(multiplier_permille.saturating_mul(hi) / 1_000),
-                ),
-            ],
+            &[("min", percent(per_min)), ("max", percent(per_max))],
         ));
+        // A multi-hit 外功 quotes its whole worth too: the band is what one blow
+        // draws, and the total is what landing every one of them lays. The 威力
+        // figure is the base each blow scales from rather than the sum three
+        // blows reach, so a row that showed only 威力 283% beside 每段 79%~96%
+        // would read as a sum that never lands.
+        if hits > 1 {
+            parts.push(format_text(
+                locale,
+                "cultivation.art.total_band",
+                &[
+                    (
+                        "min",
+                        percent(per_min.saturating_mul(u32::from(hits))),
+                    ),
+                    (
+                        "max",
+                        percent(per_max.saturating_mul(u32::from(hits))),
+                    ),
+                ],
+            ));
+        }
     }
     if let Some(effect) = effect {
         parts.push(match effect {

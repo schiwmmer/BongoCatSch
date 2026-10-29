@@ -671,7 +671,7 @@
       },
       "gain": "%{attribute} +%{value}",
       "cost": "costs %{value} inner",
-      "multiplier": "%{value}% power",
+      "multiplier": "%{value}% base power",
       "select": "Train",
       "selected": "Training",
       "mastery_attribute": "Mastered · +%{value}% attributes per rank",
@@ -684,6 +684,7 @@
       "copies": "×%{count}",
       "blows": "×%{count} blows",
       "band": "%{min}%~%{max}% a blow",
+      "total_band": "%{min}%~%{max}% total",
       "effect_slow": "chill: 速度 −%{value}%",
       "effect_haste": "footwork: 速度 +%{value}%",
       "effect_focus": "focus: 命中 +%{value}"

@@ -17,20 +17,20 @@
 use super::*;
 
 use crate::{OverlayPomodoroMenuRequest, OverlayPomodoroTimer};
-use objc2_app_kit::NSEventType;
+use objc2_app_kit::{NSEventType, NSPopUpMenuWindowLevel};
 use objc2_foundation::NSString;
 use std::time::Duration;
 
 /// The countdown's left edge, as a fraction of the cat window's width: the
-/// clock sits at the near edge of the mouse pad the model draws, in front of
-/// where the mouse itself would rest, with the realm plate further along the
-/// same bottom line.
+/// clock sits above the cat's head, near the window's left margin.
 const COUNTDOWN_LEFT_FRACTION: f64 = 0.03;
 
 /// The countdown's bottom edge, as a fraction of the cat window's height: the
-/// pad's own bottom line, which is above the window's because the desk
-/// furniture in front of the pad reaches lower than the pad does.
-const COUNTDOWN_BOTTOM_FRACTION: f64 = 0.30;
+/// clock floats just above the cat's head rather than on its body, so it reads
+/// as a status readout over the model instead of a label pinned to the mouse
+/// pad. The cat's head sits in the upper part of the window, so the bottom
+/// edge rides above it at the window's top margin.
+const COUNTDOWN_BOTTOM_FRACTION: f64 = 0.90;
 
 /// Padding inside the countdown panel.
 const COUNTDOWN_PADDING: f64 = 12.0;
@@ -79,6 +79,15 @@ impl PomodoroCountdown {
         // a readout, not a control surface, so it carries no chrome of its own.
         let panel = stats_panel(mtm, 0.0);
         panel.setHasShadow(false);
+        // The countdown must outrank the model window. With the cat configured
+        // always-on-top the model and every stats surface share
+        // `NSStatusWindowLevel`, and the model's own `orderFront` — it runs on
+        // every move and resize — slides a same-level panel behind the cat: the
+        // clock the user is reading disappears under the head it hovers over.
+        // `NSPopUpMenuWindowLevel` is the level the tray and context menus use,
+        // so the clock reads as a foreground readout over the model rather than
+        // a label the cat covers.
+        panel.setLevel(NSPopUpMenuWindowLevel);
         // This is the one surface that does not pass the pointer through: a user
         // has to be able to reach the session they are running in order to pause
         // it. Every other status panel is a mirror and cannot be clicked.
@@ -178,10 +187,10 @@ impl PomodoroCountdown {
         } else {
             OverlayPomodoroMenuRequest::OfferPause
         }));
-        // Sit on the pad: the clock's bottom edge rides the pad's own bottom
-        // line, where the realm plate's does, and its left edge the pad's near
-        // corner. The two share the line without colliding because the plate is
-        // right-aligned against the pad's far edge.
+        // Float above the cat's head: the clock's bottom edge rides the
+        // window's top margin, where the cat's head ends, and its left edge
+        // stays near the window's left margin. It reads as an overlay readout
+        // above the model rather than a label pinned to the mouse pad.
         let x = f64::from(cat.x) + f64::from(cat.width) * COUNTDOWN_LEFT_FRACTION;
         let y = f64::from(cat.y) + f64::from(cat.height) * COUNTDOWN_BOTTOM_FRACTION;
         let origin = NSPoint::new(x, y);
