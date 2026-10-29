@@ -316,11 +316,44 @@ impl SettingsView {
         if !shortcuts_page::ShortcutScope::for_target(&target).is_enabled(snapshot) {
             return;
         }
+        self.play_behavior(model, behavior, cx);
+    }
+
+    /// Play a behavior as the trial the behavior palette offers.
+    ///
+    /// A trial is not a shortcut binding, so unlike
+    /// [`Self::play_shortcut_behavior`] it is never gated by the model behavior
+    /// shortcuts switch: turning that switch off must not take the trial away,
+    /// or a model's own behaviors could not be previewed at all. The structural
+    /// guards stay — a preview needs the model it was rendered for to still be
+    /// the live one, and a service that can play it.
+    pub(super) fn play_behavior_preview(
+        &mut self,
+        model: SettingsModelKey,
+        behavior: SettingsModelBehavior,
+        cx: &mut Context<Self>,
+    ) {
+        self.play_behavior(model, behavior, cx);
+    }
+
+    /// The shared core of playing a behavior as a preview.
+    ///
+    /// The two public entry points differ only in whether the scope's switch
+    /// gates them; everything after that is one path: the model the request
+    /// names must still be the live one (a row or chip left over from a model
+    /// that has since been switched away from is refused instead of playing the
+    /// new model's behavior of the same name), and the service must be ready.
+    fn play_behavior(
+        &mut self,
+        model: SettingsModelKey,
+        behavior: SettingsModelBehavior,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(snapshot) = self.snapshot.as_ref() else {
+            return;
+        };
         // A row only exists for the model the runtime is running, and the
-        // service plays a behavior of the active model only. The request carries
-        // the row's own key rather than the current snapshot's, so a row left
-        // over from a model that has since been switched away from is refused
-        // instead of playing the new model's behavior of the same name.
+        // service plays a behavior of the active model only.
         if snapshot.active_model.as_ref() != Some(&model) {
             return;
         }

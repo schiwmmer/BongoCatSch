@@ -63,6 +63,42 @@ fn seed_action_row(plant: impl IntoElement, sell: impl IntoElement) -> impl Into
         .child(sell)
 }
 
+/// The success rate, with how long the crop would take to come up beside it.
+///
+/// The two facts read on one line so a gardener comparing two seeds sees both
+/// the odds and the wait at a glance: the rate answers "is it worth planting
+/// this bed?", the time answers "how long is the plot committed?". The growing
+/// time is the domain's own — the same figure the open detail and a planted
+/// plot show — so a seed cannot promise a wait the planting will not take.
+fn seed_odds_line(
+    id: String,
+    odds_line: String,
+    locale: &str,
+    tier: u8,
+    tokens: Tokens,
+) -> gpui_kit::AnyElement {
+    // The growing time keeps its own id so a render test can prove it is drawn
+    // next to the rate rather than trusting the rate line's width.
+    let growing_id = format!("{id}-growing");
+    div()
+        .id(id)
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .text_xs()
+        .text_color(tokens.muted)
+        .child(odds_line)
+        .child(
+            div()
+                .id(growing_id)
+                .test_support()
+                .child(growing_line(locale, grow_seconds(tier))),
+        )
+        .test_support()
+        .into_any_element()
+}
+
 /// Which seed a row names — and which open-detail slot it owns.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum SeedKey {
@@ -206,18 +242,17 @@ fn herb_row(
         .flex()
         .flex_col()
         .child(name)
-        .child(
-            div()
-                .id(format!(
-                    "cultivation-seed-odds-herb-{}-{}",
-                    herb.name_key(),
-                    grade.index()
-                ))
-                .text_xs()
-                .text_color(tokens.muted)
-                .child(odds_line)
-                .test_support(),
-        );
+        .child(seed_odds_line(
+            format!(
+                "cultivation-seed-odds-herb-{}-{}",
+                herb.name_key(),
+                grade.index()
+            ),
+            odds_line,
+            locale,
+            seed.tier,
+            tokens,
+        ));
     let mut row = div()
         .id(format!(
             "cultivation-seed-herb-{}-{}",
@@ -475,19 +510,18 @@ pub(super) fn seed_panel(
                     .flex()
                     .flex_col()
                     .child(name)
-                    .child(
-                        div()
-                            .id(format!(
-                                "cultivation-seed-odds-{}-{}-{}",
-                                seed.attribute.index(),
-                                seed.tier,
-                                seed.grade.index()
-                            ))
-                            .text_xs()
-                            .text_color(tokens.muted)
-                            .child(odds_line)
-                            .test_support(),
-                    );
+                    .child(seed_odds_line(
+                        format!(
+                            "cultivation-seed-odds-{}-{}-{}",
+                            seed.attribute.index(),
+                            seed.tier,
+                            seed.grade.index()
+                        ),
+                        odds_line,
+                        locale,
+                        seed.tier,
+                        tokens,
+                    ));
                 let mut row = div()
                     .id(format!(
                         "cultivation-seed-{}-{}-{}",

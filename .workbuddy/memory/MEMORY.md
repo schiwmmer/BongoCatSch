@@ -11,7 +11,7 @@
 
 ## 硬规则：本机 APP 同步（每次提交+push 后必须做）
 - export PATH="$HOME/bin/swift-nosandbox-shim:$PATH" → just verify-app → pkill -f bongocat-app → mv /Applications/BongoCat.app /Applications/BongoCat.app.<ts>.previous → cp -R target/package/BongoCat.app /Applications/ → xattr -dr com.apple.quarantine → open。
-- 禁 rm -rf /Applications/BongoCat.app；.previous 只留 5 个。
+- 禁 rm -rf /Applications/BongoCat.app；.previous 只留 1 个（最新一份作唯一回滚副本，旧 .previous 同步后即刻移入废纸篓，不再堆积）。
 - agent 环境无法带参启动 GUI app（coalition 继承宿主→panic abort）；真机冒烟只能用户 Terminal 跑。
 
 ## 工具链与环境坑

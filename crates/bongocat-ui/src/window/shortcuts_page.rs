@@ -260,6 +260,26 @@ pub(super) fn content(
         })
 }
 
+/// The label of one behavior palette chip.
+///
+/// The shortcut rows above name a behavior by its one-based position ("动作 1",
+/// "表情 2") because a chord is recorded against a position. The palette is the
+/// same behaviors asked by name — which expression, which motion — so it shows
+/// the resource identity the model package declares: an expression names itself
+/// and a motion names its group. A behavior the user renamed keeps that name,
+/// so the palette and the row a chord is bound to can never disagree about
+/// which behavior a click plays.
+fn palette_behavior_name(language: SettingsLanguage, row: &ShortcutRow) -> String {
+    if let Some(name) = row.custom_name.as_deref() {
+        return name.to_owned();
+    }
+    match row.playable.as_ref().map(|playable| &playable.behavior) {
+        Some(SettingsModelBehavior::Expression { name }) => name.clone(),
+        Some(SettingsModelBehavior::Motion { group, .. }) => group.clone(),
+        None => row.name(language),
+    }
+}
+
 /// How many names one row of a behavior palette holds.
 const BEHAVIOR_PALETTE_COLUMNS: usize = 4;
 
@@ -279,7 +299,11 @@ fn behavior_palettes(
     tokens: Tokens,
     rows: &[ShortcutRow],
 ) -> Div {
-    let disabled = gate.disables_controls();
+    // The palette is a trial, not a binding, so it is gated only by the
+    // structural blocks (no snapshot, an import running) and never by the
+    // shortcut switch: turning model behavior shortcuts off must not take the
+    // trial away, or a model's own behaviors could not be previewed at all.
+    let disabled = gate.disables_preview();
     let mut palettes = div().flex().flex_col().gap_3().w_full().child(
         div()
             .text_xs()
@@ -370,9 +394,11 @@ fn palette_blocks(rows: &[ShortcutRow], expressions: bool) -> Vec<Vec<&ShortcutR
 /// One name in a palette: a chip the whole width of its column.
 ///
 /// The chip is a name and nothing else, so it can be as narrow as a column of
-/// four and still say which behavior it plays. It is inert while the gate is
-/// shut rather than merely painted lighter: a chip that looks clickable and
-/// does nothing is worse than one that is visibly off.
+/// four and still say which behavior it plays. It is inert while editing is
+/// structurally blocked (no snapshot yet, an import running) rather than merely
+/// painted lighter: a chip that looks clickable and does nothing is worse than
+/// one that is visibly off. The shortcut switch never disables it — a trial is
+/// not a binding, so turning the switch off must not take the trial away.
 fn behavior_palette_chip(
     cx: &mut Context<SettingsView>,
     language: SettingsLanguage,
@@ -383,7 +409,6 @@ fn behavior_palette_chip(
     let Some(playable) = row.playable.clone() else {
         return div().into_any_element();
     };
-    let target = row.target.clone();
     let id = match &row.target {
         ShortcutCaptureTarget::ModelBehavior { behavior_id, .. } => {
             format!("behavior-palette-{behavior_id}")
@@ -409,7 +434,7 @@ fn behavior_palette_chip(
                 .text_xs()
                 .text_color(tokens.text)
                 .truncate()
-                .child(row.name(language)),
+                .child(palette_behavior_name(language, row)),
         );
     if disabled {
         return chip.into_any_element();
@@ -417,8 +442,10 @@ fn behavior_palette_chip(
     chip.cursor_pointer()
         .hover(|style| style.border_color(tokens.accent))
         .on_click(cx.listener(move |view, _, _, cx| {
-            view.play_shortcut_behavior(
-                target.clone(),
+            // A trial is not bound to a chord, so it is never gated by the
+            // model behavior shortcuts switch — only the structural guards in
+            // the play path remain.
+            view.play_behavior_preview(
                 playable.model.clone(),
                 playable.behavior.clone(),
                 cx,
@@ -896,6 +923,47 @@ mod tests {
                     .iter()
                     .all(|chunk| chunk.len() <= BEHAVIOR_PALETTE_COLUMNS),
             "no row holds more than four names"
+        );
+    }
+
+    /// The palette names a behavior by the name the model package declares, not
+    /// by its one-based position: the trial is asked "which expression, which
+    /// motion", so an expression chip reads the expression's own name and a
+    /// motion chip reads its group — never the "表情 1" / "动作 1" labels the
+    /// shortcut rows use for counting.
+    #[test]
+    fn palette_names_a_behavior_by_its_own_name_not_its_position() {
+        let expression = palette_row(SettingsModelBehavior::Expression {
+            name: "happy".to_owned(),
+        });
+        assert_eq!(
+            palette_behavior_name(SettingsLanguage::English, &expression),
+            "happy",
+            "an expression chip shows the expression's own name"
+        );
+        let motion = palette_row(SettingsModelBehavior::Motion {
+            group: "tap".to_owned(),
+            index: 0,
+        });
+        assert_eq!(
+            palette_behavior_name(SettingsLanguage::English, &motion),
+            "tap",
+            "a motion chip shows the motion group's name"
+        );
+    }
+
+    /// A behavior the user renamed keeps that name on the palette, so the chip
+    /// and the shortcut row it was renamed on can never disagree.
+    #[test]
+    fn palette_prefers_a_renamed_behavior_name() {
+        let mut row = palette_row(SettingsModelBehavior::Expression {
+            name: "happy".to_owned(),
+        });
+        row.custom_name = Some("我的表情".to_owned());
+        assert_eq!(
+            palette_behavior_name(SettingsLanguage::English, &row),
+            "我的表情",
+            "a renamed behavior keeps its custom name on the palette"
         );
     }
 }

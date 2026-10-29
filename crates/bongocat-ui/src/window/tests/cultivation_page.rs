@@ -1413,6 +1413,50 @@ fn the_seed_keys_line_up_across_rows(cx: &mut TestAppContext) {
     );
 }
 
+/// The success rate line also carries how long the crop would take to come up.
+///
+/// The growing time is rendered beside the rate so a gardener comparing two
+/// seeds sees both the odds and the wait at a glance. This checks the growing
+/// element itself is drawn to the right of the rate line — a rate that lost its
+/// growing time would still be a line, so only the growing element proves both
+/// facts are there.
+#[gpui_kit::test]
+fn a_seed_row_shows_the_growing_time_beside_the_odds(cx: &mut TestAppContext) {
+    let seed = |tier: u8, grade: SeedGrade| SeedStack {
+        attribute: Attribute::Root,
+        herb: None,
+        tier,
+        grade,
+        count: 1,
+        name: None,
+    };
+    let cultivation = Cultivation::new(CultivationDocument {
+        seeds: vec![seed(1, SeedGrade::Yellow)],
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    let odds = rendered_bounds(visual, ElementId::from("cultivation-seed-odds-0-1-0"));
+    let growing = rendered_bounds(
+        visual,
+        ElementId::from("cultivation-seed-odds-0-1-0-growing"),
+    );
+    assert!(
+        odds.size.width > px(0.) && odds.size.height > px(0.),
+        "the odds line must draw"
+    );
+    assert!(
+        growing.size.width > px(0.) && growing.size.height > px(0.),
+        "the growing time must draw beside the rate"
+    );
+    assert!(
+        growing.left() > odds.left(),
+        "the growing time must sit to the right of the rate"
+    );
+}
+
 /// The history popup mounted on its own, the way the fight popup is: the
 /// settings frame would put it behind a sidebar and a scroll view, and the
 /// popup is what is under test.

@@ -798,3 +798,97 @@ fn the_model_behavior_page_lists_the_active_models_behaviors(cx: &mut TestAppCon
     );
 }
 
+/// The trial palette plays a behavior even while the model behavior shortcuts
+/// switch is off.
+///
+/// A trial is not a shortcut binding, so the switch that gates the shortcut
+/// rows must not take it away: the chip stays clickable and still asks the
+/// service to play the behavior. This is what a trial is for — seeing what a
+/// model can do before binding anything to it. The test proves it by turning
+/// the switch off and clicking a chip anyway.
+#[gpui_kit::test]
+fn the_behavior_palette_plays_even_with_the_shortcut_switch_off(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (client, endpoint) = crate::SettingsClient::bounded(4);
+    let mut seeded = crate::tests::snapshot(1, false, true);
+    // The switch the palette would have been gated by is off.
+    seeded.behavior_shortcuts_enabled = false;
+    let expression = SettingsModelBehavior::Expression {
+        name: "happy".to_owned(),
+    };
+    seeded.model_catalog.entries = vec![model_entry(
+        "standard",
+        SettingsModelOrigin::BuiltIn,
+        SettingsModelAvailability::Ready {
+            behaviors: vec![expression.clone()],
+        },
+    )];
+    let snapshot = seeded.clone();
+
+    let built = Rc::new(RefCell::new(None));
+    let capture = Rc::clone(&built);
+    let (_, visual) = cx.add_window_view(move |window, cx| {
+        let view = cx.new(|cx| {
+            SettingsView::new(
+                client,
+                SettingsWindowSeed {
+                    language: SettingsLanguage::English,
+                    appearance_theme: SettingsTheme::System,
+                },
+                Rc::new(|_| {}),
+                Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
+                window,
+                cx,
+            )
+        });
+        view.update(cx, |view, _cx| {
+            view.snapshot = Some(snapshot.clone());
+        });
+        capture.borrow_mut().replace(view.clone());
+        Root::new(
+            cx.new(|_| ModelBehaviorPaletteHarness {
+                view,
+                snapshot: Some(snapshot),
+                // The gate reports the switch off; only the structural block
+                // would disable the trial.
+                gate: SettingGate::new(false, false),
+            }),
+            window,
+            cx,
+        )
+    });
+    let _view = built
+        .borrow_mut()
+        .take()
+        .expect("the window builder must hand the page out");
+
+    visual.update(|window, cx| window.render_frame(cx));
+    let chip = rendered_bounds(
+        visual,
+        format!("behavior-palette-{}", model_behavior_id(&expression)).into(),
+    );
+    assert!(
+        chip.size.width > px(0.) && chip.size.height > px(0.),
+        "the chip must be drawn even with the switch off"
+    );
+    visual.simulate_click(chip.center(), Modifiers::default());
+    visual.run_until_parked();
+    match endpoint
+        .try_recv()
+        .expect("clicking the chip must reach the service")
+    {
+        crate::SettingsCommand::PreviewModelBehavior {
+            behavior: sent, ..
+        } => {
+            assert_eq!(
+                sent, expression,
+                "the chip must play the behavior it names, switch off or not"
+            );
+        }
+        _ => panic!(
+            "clicking the chip must ask the service to play the behavior"
+        ),
+    }
+}
+
