@@ -374,6 +374,11 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
                 &[("name", name.clone()), ("rank", rank.to_string())],
             )
         }
+        EventDetail::TrainBody { points } => format_text(
+            locale,
+            "cultivation.event.train_body",
+            &[("points", points.to_string())],
+        ),
         EventDetail::Breakthrough {
             won,
             stage,

@@ -29,13 +29,14 @@ use super::{
 /// user can keep several crops of different lengths growing at once.
 pub const FREE_PLOT_COUNT: usize = 4;
 
-/// How many plots a garden can hold at all: the four free ones and five that
+/// How many plots a garden can hold at all: the four free ones and eight that
 /// are bought with 灵石.
-pub const MAX_PLOT_COUNT: usize = 9;
+pub const MAX_PLOT_COUNT: usize = 12;
 
 /// What the next plot costs, by how many have been bought already: the fifth
 /// plot is the cheapest and every one after it doubles.
-pub const PLOT_PRICES: [u32; MAX_PLOT_COUNT - FREE_PLOT_COUNT] = [150, 300, 600, 1200, 2400];
+pub const PLOT_PRICES: [u32; MAX_PLOT_COUNT - FREE_PLOT_COUNT] =
+    [150, 300, 600, 1200, 2400, 4800, 9600, 19200];
 
 /// What buying one more plot costs, given how many the garden already holds.
 ///
@@ -808,12 +809,14 @@ mod tests {
     }
 
     #[test]
-    fn the_fifth_plot_costs_and_the_tenth_does_not_exist() {
+    fn the_fifth_plot_costs_and_the_thirteenth_does_not_exist() {
         assert_eq!(plot_price(3), None, "the four free plots are free");
         assert_eq!(plot_price(4), Some(150));
         assert_eq!(plot_price(5), Some(300));
         assert_eq!(plot_price(8), Some(2400));
-        assert_eq!(plot_price(9), None, "nine is the whole garden");
+        assert_eq!(plot_price(11), Some(19200));
+        assert_eq!(plot_price(12), None, "twelve is the whole garden");
+        assert_eq!(plot_price(13), None, "past twelve is not for sale");
     }
 
     /// ADR-0098's two anchors, and they pin the whole curve between them: the

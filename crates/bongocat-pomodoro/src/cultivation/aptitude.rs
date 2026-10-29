@@ -271,6 +271,24 @@ pub enum AptitudeHerb {
     Marrow,
 }
 
+/// What a 潜质 herb's grade multiplies its base 潜质 by, in parts per thousand.
+///
+/// One ladder shared by every herb and by the price the shelf asks, so a grade
+/// is one number for the whole row. Unlike the garden's harvest ladder — which
+/// is allowed to be steep, because a crop is worth a fraction of a session — a
+/// herb's ladder is deliberately shallow: the whole span from 黄 to 神 is only
+/// ×1.64, which is what keeps the rare herb above the common one at *every*
+/// grade. A 慧心草 at 黄阶 (+1.0) pays more than a 悟心草 at 神阶 (+0.9), so the
+/// row reads "rarer is always better" and never asks a player to compare a rare
+/// herb's bottom rung against a common one's top.
+///
+/// The anchor is 地 at a thousand, unchanged from the old numbers; 黄/玄 step
+/// just above three quarters, 天/神 step just above the anchor. The old ladder
+/// (250/600/1000/1600/2500) is what a garden harvest still uses — see
+/// [`SeedGrade::multiplier_permille`] — while this one is what a 潜质 herb is
+/// worth in 潜质 and in 灵石.
+pub const HERB_GRADE_MULTIPLIER_PERMILLE: [u32; 5] = [760, 850, 1_000, 1_100, 1_250];
+
 impl AptitudeHerb {
     /// Every herb, commonest first.
     pub const ALL: [Self; 3] = [Self::Insight, Self::Wisdom, Self::Marrow];
@@ -318,33 +336,37 @@ impl AptitudeHerb {
 
     /// The 潜质 the herb pays at one grade, in tenths: one fixed number.
     ///
-    /// The anchor scaled by the grade's own multiplier, so a herb is a seed in
-    /// everything but the plot: 地阶 — the anchor — pays exactly the base, 黄阶
-    /// a quarter of it, and 神阶 two and a half times. Rounded to the nearest
-    /// tenth, so no grade ever pays nothing and no grade pays a fraction it
-    /// cannot spend.
+    /// The anchor scaled by the herb ladder, so a herb is a seed in everything
+    /// but the plot: 地阶 — the anchor — pays exactly the base, and the rarer
+    /// herb out-pays the common one at every grade (慧心草 黄阶 +1.0 above 悟心草
+    /// 神阶 +0.9). Rounded to the nearest tenth, so no grade ever pays nothing
+    /// and no grade pays a fraction it cannot spend.
     pub const fn gain_tenths_for(self, grade: SeedGrade) -> Option<i32> {
         let base = match self.gain_tenths() {
             Some(base) => base,
             None => return None,
         };
-        let mult = grade.multiplier_permille() as i32;
+        let mult = Self::herb_grade_multiplier(grade) as i32;
         Some((base.saturating_mul(mult) + 500) / 1_000)
     }
 
     /// What the shelf asks for one herb of this grade, in 灵石.
     ///
-    /// The base price scaled by the grade, the same rule the gain uses: 地阶 is
-    /// the anchor, 神阶 two and a half times it. A grade is what a row is worth,
-    /// and a 神级 慧心草 at the 地阶 price would be the shelf's one unbargained
-    /// number. The pill carries no grade and keeps its own price.
+    /// The base price scaled by the same ladder the gain uses: 地阶 is the
+    /// anchor, and the rarer herb is the dearer row at every grade. The pill
+    /// carries no grade and keeps its own price.
     pub const fn price_for(self, grade: SeedGrade) -> u32 {
         if matches!(self, Self::Marrow) {
             // The pill pays no 潜质, so it carries no grade to price at.
             return self.price();
         }
-        let mult = grade.multiplier_permille();
+        let mult = Self::herb_grade_multiplier(grade);
         (self.price() * mult + 500) / 1_000
+    }
+
+    /// The herb ladder's multiplier at a grade.
+    const fn herb_grade_multiplier(grade: SeedGrade) -> u32 {
+        HERB_GRADE_MULTIPLIER_PERMILLE[grade.index()]
     }
 }
 
@@ -537,8 +559,8 @@ mod tests {
     }
 
     /// A 潜质 herb carries a grade like any seed: 地阶 is the anchor the old
-    /// numbers were, 黄阶 pays a quarter of it, 神阶 two and a half times. No
-    /// grade pays nothing, and each grade pays one fixed number.
+    /// numbers were, and the rarer herb out-pays the common one at every grade.
+    /// No grade pays nothing, and each grade pays one fixed number.
     #[test]
     fn a_herb_pays_its_grade_in_one_fixed_number() {
         // The anchor is the base: 1.3 for a 慧心草, 0.7 for a 悟心草.
@@ -567,33 +589,43 @@ mod tests {
             AptitudeHerb::Marrow.gain_tenths_for(SeedGrade::Divine),
             None
         );
-        // A quarter of the base at 黄, two and a half at 神, to the nearest tenth.
+        // The rarer herb's floor sits above the common one's ceiling, so a
+        // player never weighs a 慧心草 黄阶 against a 悟心草 神阶.
+        let wisdom_floor = AptitudeHerb::Wisdom.gain_tenths_for(SeedGrade::Yellow).unwrap();
+        let insight_ceiling = AptitudeHerb::Insight.gain_tenths_for(SeedGrade::Divine).unwrap();
+        assert!(
+            wisdom_floor > insight_ceiling,
+            "慧心草 黄阶 {wisdom_floor} must beat 悟心草 神阶 {insight_ceiling}"
+        );
+        // The compressed ladder: the common herb spans +0.5..=+0.9, the rare
+        // +1.0..=+1.6, both to the nearest tenth.
         assert_eq!(
             AptitudeHerb::Wisdom.gain_tenths_for(SeedGrade::Yellow),
-            Some(3)
+            Some(10)
         );
         assert_eq!(
             AptitudeHerb::Wisdom.gain_tenths_for(SeedGrade::Divine),
-            Some(33)
+            Some(16)
         );
         assert_eq!(
             AptitudeHerb::Insight.gain_tenths_for(SeedGrade::Yellow),
-            Some(2)
+            Some(5)
         );
         assert_eq!(
             AptitudeHerb::Insight.gain_tenths_for(SeedGrade::Divine),
-            Some(18)
+            Some(9)
         );
     }
 
     /// A herb's grade prices it the same way it pays it: 地阶 is the anchor and
-    /// 神阶 two and a half times. The pill carries no grade and is unchanged.
+    /// the rarer herb is the dearer row at every grade. The pill carries no
+    /// grade and is unchanged.
     #[test]
     fn a_herb_is_priced_at_its_grade() {
         assert_eq!(AptitudeHerb::Wisdom.price_for(SeedGrade::Earth), 2_000);
-        assert_eq!(AptitudeHerb::Wisdom.price_for(SeedGrade::Yellow), 500);
-        assert_eq!(AptitudeHerb::Wisdom.price_for(SeedGrade::Divine), 5_000);
-        assert_eq!(AptitudeHerb::Insight.price_for(SeedGrade::Divine), 3_000);
+        assert_eq!(AptitudeHerb::Wisdom.price_for(SeedGrade::Yellow), 1_520);
+        assert_eq!(AptitudeHerb::Wisdom.price_for(SeedGrade::Divine), 2_500);
+        assert_eq!(AptitudeHerb::Insight.price_for(SeedGrade::Divine), 1_500);
         // The pill is not a graded thing.
         for grade in SeedGrade::ALL {
             assert_eq!(

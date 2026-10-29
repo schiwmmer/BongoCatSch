@@ -113,6 +113,16 @@ pub struct CultivationDocument {
     /// The free points the user has placed, by attribute.
     #[serde(default)]
     pub allocated: Attributes,
+    /// The attribute points 练功 has paid directly, on top of the ones the
+    /// levels grant.
+    ///
+    /// A finished pomodoro with no 功法 in study is a 练功 session, and one
+    /// occasionally pays the body straight: one to three points, banked here so
+    /// they are still there on the next launch. Kept apart from `allocated` so
+    /// the points the levels grant and the points the body earned at the desk
+    /// are two sources the page can name separately.
+    #[serde(default)]
+    pub training_points: u32,
     /// How many attempts at the current realm's guardian have failed. Flavour
     /// only: a failure never takes anything away.
     #[serde(default)]

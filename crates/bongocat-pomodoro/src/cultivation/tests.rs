@@ -1074,9 +1074,9 @@ fn the_satchel_spends_the_cheapest_grade_first() {
     let first = cultivation
         .use_aptitude_herb(AptitudeHerb::Wisdom, 1_000)
         .expect("the body is fed");
-    assert!(
-        (2..=5).contains(&first.gained_tenths),
-        "a 黄阶 慧心草 pays its own small band, got {}",
+    assert_eq!(
+        first.gained_tenths, 10,
+        "a 黄阶 慧心草 pays its one number, got {}",
         first.gained_tenths
     );
     assert_eq!(cultivation.aptitude_herbs()[1], 1, "one 慧心草 left");
@@ -1087,13 +1087,13 @@ fn the_satchel_spends_the_cheapest_grade_first() {
         SeedGrade::Divine,
         "the one left is the best"
     );
-    // The second feeding is the 神阶, and pays the big band.
+    // The second feeding is the 神阶, and pays the big number.
     let second = cultivation
         .use_aptitude_herb(AptitudeHerb::Wisdom, 2_000)
         .expect("the body is fed again");
-    assert!(
-        (13..=50).contains(&second.gained_tenths),
-        "a 神阶 慧心草 pays its own big band, got {}",
+    assert_eq!(
+        second.gained_tenths, 16,
+        "a 神阶 慧心草 pays its one number, got {}",
         second.gained_tenths
     );
     assert_eq!(cultivation.aptitude_herbs()[1], 0, "the satchel is empty");
@@ -1389,6 +1389,46 @@ fn every_level_pays_one_point_the_user_places() {
         assert_eq!(cultivation.view().allocated_attributes.root, 1);
         assert_eq!(cultivation.free_points(), rest.saturating_sub(1));
     }
+}
+
+#[test]
+fn a_pomodoro_with_no_book_trains_the_body_and_can_pay_points() {
+    use super::events::EventDetail;
+    // A fresh cultivator has no 功法 in study, so every finished pomodoro is a
+    // 练功 session rather than an empty one.
+    let mut cultivation = Cultivation::default();
+    assert!(cultivation.document().selected_art.is_none());
+
+    let mut paid = 0u32;
+    for second in 1..=400i64 {
+        let before = cultivation.document().training_points;
+        cultivation.on_session_completed(second * 7, day(20_000), 25);
+        let after = cultivation.document().training_points;
+        if after > before {
+            let gain = after - before;
+            assert!((1..=3).contains(&gain), "练功 paid {gain} points");
+            paid += gain;
+        }
+    }
+    // The chance is a chance: some sessions pay, and none pays more than three,
+    // so the total is neither nothing nor everything the sessions could have.
+    assert!(paid > 0, "练功 paid over four hundred sessions");
+    assert!(paid < 400 * 3, "练功 is not a dispenser");
+    // The paid points are part of the placeable balance, beside the levels'.
+    assert_eq!(
+        cultivation.free_points(),
+        cultivation.granted_points().saturating_add(paid),
+        "the 练功 points join the level points in the balance"
+    );
+    // A point earned is one the log names.
+    assert!(
+        cultivation
+            .document()
+            .events
+            .iter()
+            .any(|event| matches!(event.detail, EventDetail::TrainBody { .. })),
+        "the log tells the user about a 练功 point"
+    );
 }
 
 #[test]
@@ -2567,11 +2607,11 @@ fn a_spare_is_sold_before_the_book_being_read() {
 }
 
 /// The garden sells its fifth plot for stones, charges double for each one
-/// after it, and refuses the tenth: nine is the whole estate.
+/// after it, and refuses the thirteenth: twelve is the whole estate.
 #[test]
 fn the_garden_sells_plots_up_to_nine() {
     let mut cultivation = Cultivation::new(CultivationDocument {
-        stones: 10_000,
+        stones: 40_000,
         ..CultivationDocument::default()
     });
     let mut prices = Vec::new();
@@ -2580,7 +2620,7 @@ fn the_garden_sells_plots_up_to_nine() {
     }
     assert_eq!(
         prices,
-        vec![150, 300, 600, 1200, 2400],
+        vec![150, 300, 600, 1200, 2400, 4800, 9600, 19200],
         "each plot dearer than the last"
     );
     assert_eq!(
@@ -2590,12 +2630,12 @@ fn the_garden_sells_plots_up_to_nine() {
     );
     assert_eq!(
         cultivation.document().stones,
-        10_000 - 4_650,
-        "the purse paid for exactly the five plots"
+        40_000 - 38_250,
+        "the purse paid for exactly the eight plots"
     );
     assert!(
         matches!(cultivation.buy_plot(1_000), Err(TradeRefusal::PlotLimit)),
-        "the tenth plot does not exist"
+        "the thirteenth plot does not exist"
     );
 }
 

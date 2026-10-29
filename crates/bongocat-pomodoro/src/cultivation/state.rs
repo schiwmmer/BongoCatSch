@@ -1157,11 +1157,14 @@ impl Cultivation {
 
     /// The points still waiting to be placed.
     ///
-    /// A hand-edited document can hold more allocated points than the peak paid.
-    /// The subtraction saturates rather than paying a negative balance, and no
+    /// The levels grant one a level and 练功 occasionally pays a few on top, so
+    /// the waiting balance is both sources minus what is already placed. A
+    /// hand-edited document can hold more allocated points than the peak paid;
+    /// the subtraction saturates rather than paying a negative balance, and no
     /// new point is granted until the peak catches up.
     pub fn free_points(&self) -> u32 {
         self.granted_points()
+            .saturating_add(self.document.training_points)
             .saturating_sub(self.document.allocated.total())
     }
 
@@ -1651,6 +1654,17 @@ impl Cultivation {
         }
     }
 
+    /// The chance one 练功 session pays its points, in parts per thousand.
+    ///
+    /// A finished pomodoro with no 功法 in study is a 练功 session, and it is a
+    /// *chance* rather than a certainty so the desk stays the place the
+    /// numbers come from instead of becoming a point dispenser. A quarter of
+    /// the sessions pay.
+    const TRAIN_BODY_CHANCE_PERMILLE: u64 = 250;
+
+    /// The most one 练功 session can pay: three points. The least is one.
+    const TRAIN_BODY_MAX_POINTS: u32 = 3;
+
     /// Put the finished session into the selected 功法, if there is one.
     ///
     /// 潜质 is what decides how often the attempt lands, so a 根骨 build learns
@@ -1660,8 +1674,12 @@ impl Cultivation {
     /// ones: it is no longer something being trained, and the attributes it
     /// pays are paid from then on whether or not its book is still on the
     /// shelf.
+    ///
+    /// With no 功法 selected the session trains the body instead: 练功, the
+    /// fallback that keeps a pomodoro a session even when no book is open.
     fn train_selected(&mut self, now_unix: i64) {
         let Some(art_id) = self.document.selected_art else {
+            self.train_body(now_unix);
             return;
         };
         let aptitude_tenths = self.aptitude_tenths();
@@ -1728,6 +1746,24 @@ impl Cultivation {
                 rank,
             },
         );
+    }
+
+    /// A finished pomodoro with no 功法 in study trains the body instead.
+    ///
+    /// The desk is the only place the numbers come from, so a session nobody
+    /// spent on a book is still a session — 练功 is what it becomes. It pays
+    /// straight into the attribute points, one to three at a time and only on
+    /// [`TRAIN_BODY_CHANCE_PERMILLE`], and the pay is written to the log so a
+    /// point the body earned is one the user was told about.
+    fn train_body(&mut self, now_unix: i64) {
+        let mut rng = self.rng(now_unix);
+        if rng.below(1_000) >= Self::TRAIN_BODY_CHANCE_PERMILLE {
+            return;
+        }
+        let points = u32::try_from(rng.below(u64::from(Self::TRAIN_BODY_MAX_POINTS)) + 1)
+            .unwrap_or(Self::TRAIN_BODY_MAX_POINTS);
+        self.document.training_points = self.document.training_points.saturating_add(points);
+        self.push_event(now_unix, EventDetail::TrainBody { points });
     }
 
     /// Which 功法 the next finished pomodoro trains, or none.
@@ -4594,7 +4630,7 @@ impl Cultivation {
         Ok(stones)
     }
     ///
-    /// The price doubles with every plot bought, and the garden holds nine at
+    /// The price doubles with every plot bought, and the garden holds twelve at
     /// most: a plot is a permanent capacity, so the last one costs what a
     /// season of sessions earns rather than what one afternoon does. A refusal
     /// is remembered the way every trade's is, so the page can say why.

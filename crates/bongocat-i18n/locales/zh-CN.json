@@ -968,6 +968,7 @@
       "train_progress": "修习《%{name}》有所精进",
       "train_ranked": "《%{name}》突破至第 %{rank} 阶",
       "train_mastered": "《%{name}》已至圆满",
+      "train_body": "练功有成，属性点 +%{points}",
       "breakthrough_won": "闯关成功，晋入新境界！",
       "breakthrough_lost": "闯关未成，尚需砥砺。",
       "bought": "花 %{stones} 灵石购入 %{what}",

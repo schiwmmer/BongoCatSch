@@ -565,8 +565,9 @@ mod tests {
     }
 
     /// A herb's grade prices the offer the same way it prices the gain: 地阶 is
-    /// the anchor, 神阶 two and a half times. A better grade is a dearer row,
-    /// and the pill is priced at its own flat rate whatever the grade.
+    /// the anchor, and the rarer herb is the dearer row at every grade. A better
+    /// grade is a dearer row, and the pill is priced at its own flat rate
+    /// whatever the grade.
     #[test]
     fn a_herb_offer_is_priced_at_its_grade() {
         let wisdom = ShopOffer::Herb {
@@ -575,8 +576,8 @@ mod tests {
         };
         assert_eq!(
             wisdom.price(),
-            5_000,
-            "a 神级 慧心草 is two and a half the 地阶"
+            2_500,
+            "a 神级 慧心草 is a quarter again the 地阶"
         );
         let earth = ShopOffer::Herb {
             herb: AptitudeHerb::Wisdom,

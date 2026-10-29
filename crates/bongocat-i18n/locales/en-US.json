@@ -968,6 +968,7 @@
       "train_progress": "Training “%{name}” moved along",
       "train_ranked": "“%{name}” rose to rank %{rank}",
       "train_mastered": "“%{name}” is mastered",
+      "train_body": "Body training paid off — attribute points +%{points}",
       "breakthrough_won": "The realm fight is won — a new realm opens!",
       "breakthrough_lost": "The realm fight is lost — train and return.",
       "bought": "Bought %{what} for %{stones} stones",

@@ -736,7 +736,7 @@ fn garden_rank_row(
     row.into_any_element()
 }
 
-/// The garden: the plots three to a row — empty, growing, or ready to pick —
+/// The garden: the plots four to a row — empty, growing, or ready to pick —
 /// and, while the garden still has room to grow, the plot that 灵石 can buy.
 pub(super) fn garden_panel(
     view: &Entity<SettingsView>,
@@ -754,7 +754,7 @@ pub(super) fn garden_panel(
         .child(section_title(locale, "cultivation.garden.title", tokens))
         .child(garden_rank_row(view, cultivation, locale, tokens))
         .test_support();
-    for (row_index, chunk) in cultivation.plots.chunks(3).enumerate() {
+    for (row_index, chunk) in cultivation.plots.chunks(4).enumerate() {
         let mut row = div()
             .id(format!("cultivation-plot-row-{row_index}"))
             .flex()
@@ -801,7 +801,7 @@ pub(super) fn garden_panel(
     panel
 }
 
-/// One plot as a cell a row of three can hold: the herb's name on top, and
+/// One plot as a cell a row of four can hold: the herb's name on top, and
 /// what the plot is doing under it.
 fn plot_cell(
     view: &Entity<SettingsView>,

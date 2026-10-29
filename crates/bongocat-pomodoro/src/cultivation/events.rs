@@ -102,6 +102,12 @@ pub enum EventDetail {
         outcome: ArtOutcome,
         rank: u8,
     },
+    /// A finished session with no 功法 in study trained the body instead: 练功,
+    /// and it paid attribute points.
+    TrainBody {
+        /// How many attribute points the session paid.
+        points: u32,
+    },
     /// The guardian was fought. A wanderer fight is part of the walk that met
     /// it, so it needs no line of its own.
     ///
