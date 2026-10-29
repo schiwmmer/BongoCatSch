@@ -103,7 +103,7 @@ prune:
 # exists, which cargo keeps until something removes it. `bongocat_*` are exempt
 # from that check because their multiplicity is legitimate: the check recipes
 # compile them under several `--features` combinations.
-[doc('Report `target/` drift and whether `just prune` is needed')]
+[doc('Report `target/` drift and which reclaim recipe it needs')]
 target-health:
     #!/bin/sh
     set -u
@@ -159,10 +159,15 @@ target-health:
     fi
 
     echo ''
-    if [ "$stale" -eq 1 ]; then
-        echo '建议: just prune'
-    else
+    if [ "$stale" -eq 0 ]; then
         echo '✓ 健康，无需清理。'
+    elif [ "$pf_count" -gt 6 ] || [ -n "$orphan" ]; then
+        # Orphan variants and permission-flow copies live in `target/debug`,
+        # which `prune` never touches — it only reclaims the incremental and
+        # cross-target trees. `clean-dev` is the valve for that cache.
+        echo '建议: just clean-dev（孤儿变体/权限流堆积在 target/debug，just prune 清不掉）'
+    else
+        echo '建议: just prune（仅增量/跨目标膨胀）'
     fi
 
 # Generate the Minisign key pair that signs update payloads (one-time, offline).
