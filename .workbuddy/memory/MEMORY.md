@@ -7,7 +7,7 @@
 
 ## 项目身份
 - BongoCat fork，Rust workspace（入口 crates/bongocat-app），macOS 优先；远程 https://github.com/schiwmmer/BongoCatSch.git（HTTPS+7890），分支 feat/pomodoro。
-- build script 缓存旧绝对路径致链接失败（CubismCore）→ cargo clean 重建；构建瘦身唯一有效 just prune。
+- build script 缓存旧绝对路径致链接失败（CubismCore）→ cargo clean 重建；构建瘦身：just prune 仅清 incremental+aarch64，孤儿变体/权限流在 target/debug 清不掉，须 just clean-dev（2026-10-29 实测修正）。
 
 ## 硬规则：本机 APP 同步（每次提交+push 后必须做）
 - export PATH="$HOME/bin/swift-nosandbox-shim:$PATH" → just verify-app → pkill -f bongocat-app → mv /Applications/BongoCat.app /Applications/BongoCat.app.<ts>.previous → cp -R target/package/BongoCat.app /Applications/ → xattr -dr com.apple.quarantine → open。
@@ -30,7 +30,7 @@
 ## 构建与磁盘
 - ✅ [profile.dev] incremental=false 已落地：target 20G→7.8G，全量重建 2m28s（代价：单 crate 改一行 1.05s→2.34s）；改后须先清空 target 再重建。
 - sccache 与 incremental 互斥（关掉后 sccache 才命中）。
-- ✅ just target-health（只读体检）：阈值 >10240 MiB / permission-flow >6 / 非 bongocat_ 变体 >8；稳态 ≈8027 MiB。
+- ✅ just target-health（只读体检）：阈值 >10240 MiB / permission-flow >6 / 非 bongocat_ 变体 >8；稳态 ≈8027 MiB；建议按根因分组：orphan/pf→clean-dev，仅总超 10GiB→prune（2026-10-29 修）。
 - 已知 flaky：bongocat-packaging 5 测试并行因共享 temp_dir fixture 竞态失败（--test-threads=1 全过）。
 - LAYERS_PER_REALM=10 vs LAYERS_PER_STAGE=100；clippy -D warnings 会抓测试 useless_conversion。
 
