@@ -36,6 +36,12 @@ test:
 
 # Run all default workspace quality gates.
 check:
+    # Windows support was removed in 77c92050; this gate keeps it gone. The
+    # deliberate `pc-windows-msvc` rejection in the cubism bindgen is not a
+    # `cfg(windows)`/`target_os` conditional or a dependency, so it is not
+    # matched by either grep.
+    @if grep -rIn --include='*.rs' -e 'cfg(windows)' -e 'target_os = "windows"' -e 'target_os="windows"' crates tools spikes 2>/dev/null; then echo 'error: Windows conditional found (Windows support was removed in 77c92050)' >&2; exit 1; fi
+    @if grep -rIni --include='Cargo.toml' -e 'windows' -e 'winapi' crates tools spikes 2>/dev/null; then echo 'error: Windows dependency found (Windows support was removed in 77c92050)' >&2; exit 1; fi
     cargo fmt --all -- --check
     cargo clippy --locked --workspace --all-targets --all-features --exclude bongocat-app -- -D warnings
     cargo clippy --locked -p bongocat-app --all-targets --features storage-test-injection -- -D warnings
