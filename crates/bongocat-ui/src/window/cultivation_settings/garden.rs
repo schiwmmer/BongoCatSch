@@ -44,6 +44,25 @@ pub(super) fn seed_facts(locale: &str, attribute: Attribute, tier: u8, grade: Se
     )
 }
 
+/// The 种植 and 卖 keys as one row of fixed width.
+///
+/// The two buttons are laid out at the two ends of a row of fixed width, so
+/// the row is the same width whatever the price is and a column of seeds
+/// reads as one column of buttons. Without the fixed width, a 卖 key that
+/// carries a four-digit price pushes its 种植 key further left than a
+/// neighbour carrying a two-digit one — the two keys of the same column no
+/// longer line up, and the satchel reads as scattered rather than tabular.
+fn seed_action_row(plant: impl IntoElement, sell: impl IntoElement) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .w_40()
+        .child(plant)
+        .child(sell)
+}
+
 /// Which seed a row names — and which open-detail slot it owns.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum SeedKey {
@@ -205,6 +224,8 @@ fn herb_row(
             herb.name_key(),
             grade.index()
         ))
+        .flex_1()
+        .min_w_0()
         .flex()
         .flex_col()
         .gap_1()
@@ -216,8 +237,8 @@ fn herb_row(
                 .items_center()
                 .gap_2()
                 .child(named)
-                .child(button)
-                .child(
+                .child(seed_action_row(
+                    button,
                     Button::new(format!(
                         "cultivation-sell-seed-herb-{}-{}",
                         herb.name_key(),
@@ -237,7 +258,7 @@ fn herb_row(
                             });
                         }
                     }),
-                ),
+                )),
         );
     if open_seed == Some(key) {
         row = row.child(seed_detail(
@@ -489,11 +510,8 @@ pub(super) fn seed_panel(
                             .items_center()
                             .gap_2()
                             .child(named)
-                            .child(button)
-                            // One seed at a time: a stack of ten is nine seeds and one of
-                            // them, and which one the user wants to keep is not a question
-                            // a single "sell all" can ask.
-                            .child(
+                            .child(seed_action_row(
+                                button,
                                 Button::new(format!(
                                     "cultivation-sell-seed-{}-{}-{}",
                                     seed.attribute.index(),
@@ -521,7 +539,7 @@ pub(super) fn seed_panel(
                                         });
                                     }
                                 }),
-                            ),
+                            )),
                     );
                 if open_seed == Some(key) {
                     row = row.child(seed_detail(

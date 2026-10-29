@@ -21,7 +21,7 @@ use bongocat_pomodoro::{
     PomodoroState, ProvingBlocked, Rarity, Realm, SeedGrade, SeedStack, ShopOffer, TrainingView,
     TrialBlocked, TrialOutcome, WANDERER_NAME, threshold_for,
 };
-use gpui_kit::{ScrollDelta, point};
+use gpui_kit::{ScrollDelta, point, px};
 
 /// The page mounted on its own.
 ///
@@ -1356,6 +1356,60 @@ fn the_seed_panel_counts_its_stacks_and_unfolds(cx: &mut TestAppContext) {
     assert!(
         painted(visual, "cultivation-seed-name-0-6-4"),
         "unfolding must draw the stack it was hiding"
+    );
+}
+
+/// The 种植 and 卖 keys of a seed column line up down the page whatever the
+/// price is.
+///
+/// A seed row is two cells and a cell's two keys sit at the end of the space
+/// the seed's name leaves over — so a 卖 key carrying a three-digit price and a
+/// neighbour carrying a one-digit one would push their 种植 keys to different
+/// columns. The two keys are one fixed-width row, so the 种植 keys all start on
+/// the same line and the 卖 keys all end on the same line.
+#[gpui_kit::test]
+fn the_seed_keys_line_up_across_rows(cx: &mut TestAppContext) {
+    let seed = |tier: u8, grade: SeedGrade| SeedStack {
+        attribute: Attribute::Root,
+        herb: None,
+        tier,
+        grade,
+        count: 1,
+        name: None,
+    };
+    let cultivation = Cultivation::new(CultivationDocument {
+        seeds: vec![
+            seed(1, SeedGrade::Yellow), // sells for 0
+            seed(2, SeedGrade::Yellow), // fills the row
+            seed(9, SeedGrade::Divine), // sells for 72
+            seed(10, SeedGrade::Divine), // sells for 120
+        ],
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    // Lowest grade first, two to a row: the first and third stacks are the same
+    // column, and their keys are the pair a price difference would scatter.
+    let plant_first = rendered_bounds(visual, ElementId::from("cultivation-plant-0-1-0"));
+    let plant_third = rendered_bounds(visual, ElementId::from("cultivation-plant-0-9-4"));
+    let one_pixel = px(1.0);
+    assert!(
+        plant_first.left() >= plant_third.left() - one_pixel
+            && plant_first.left() <= plant_third.left() + one_pixel,
+        "a column's 种植 keys must start on the same line whatever the price"
+    );
+    let sell_first = rendered_bounds(visual, ElementId::from("cultivation-sell-seed-0-1-0"));
+    let sell_third = rendered_bounds(visual, ElementId::from("cultivation-sell-seed-0-9-4"));
+    assert!(
+        sell_first.right() >= sell_third.right() - one_pixel
+            && sell_first.right() <= sell_third.right() + one_pixel,
+        "a column's 卖 keys must end on the same line whatever the price"
+    );
+    assert_ne!(
+        plant_first.top(), plant_third.top(),
+        "the two keys compared come from different rows"
     );
 }
 
