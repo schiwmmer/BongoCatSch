@@ -1189,12 +1189,13 @@ fn document_herb_seed(cultivation: &mut Cultivation, herb: AptitudeHerb, grade: 
 }
 
 #[test]
-fn the_herb_tiers_are_fixed_by_the_herb() {
-    // 慧心草 is the rarer, faster herb at tier six; 悟心草 the slower, common
-    // one at tier eight.
-    assert_eq!(herb_tier(AptitudeHerb::Wisdom), 6);
-    assert_eq!(herb_tier(AptitudeHerb::Insight), 8);
-}
+    fn the_herb_tiers_are_fixed_by_the_herb() {
+        // Rarity sets the tier: the rarer 慧心草 grows at tier eight, the common
+        // 悟心草 at tier six — a higher tier is the longer bed, so the rarer
+        // herb is the slower one to mature.
+        assert_eq!(herb_tier(AptitudeHerb::Wisdom), 8);
+        assert_eq!(herb_tier(AptitudeHerb::Insight), 6);
+    }
 
 #[test]
 fn a_herb_seed_planted_and_picked_feeds_the_body() {
@@ -1208,7 +1209,7 @@ fn a_herb_seed_planted_and_picked_feeds_the_body() {
         .iter()
         .find(|seed| seed.herb == Some(AptitudeHerb::Wisdom))
         .expect("the seed is held");
-    assert_eq!(seed.tier, 6, "慧心草 grows at tier six");
+    assert_eq!(seed.tier, 8, "慧心草 grows at tier eight");
     assert!(
         cultivation
             .plant_herb_seed(AptitudeHerb::Wisdom, SeedGrade::Earth, 0)
@@ -1221,7 +1222,7 @@ fn a_herb_seed_planted_and_picked_feeds_the_body() {
     // Once it is ripe it is picked, and the body is fed on the spot.
     let before = cultivation.aptitude_tenths();
     cultivation
-        .harvest(0, grow_seconds(6))
+        .harvest(0, grow_seconds(8))
         .expect("a ripe herb crop");
     assert!(
         cultivation.aptitude_tenths() > before,
@@ -1265,7 +1266,7 @@ fn a_herb_seed_that_cannot_be_fed_is_kept_for_the_satchel() {
         .plant_herb_seed(AptitudeHerb::Insight, SeedGrade::Earth, 0)
         .expect("the seed is planted");
     cultivation
-        .harvest(0, grow_seconds(8))
+        .harvest(0, grow_seconds(6))
         .expect("a ripe herb crop");
     assert_eq!(
         cultivation.aptitude_herbs()[0],

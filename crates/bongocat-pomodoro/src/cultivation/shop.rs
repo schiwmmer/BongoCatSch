@@ -556,12 +556,12 @@ mod tests {
     fn the_aptitude_items_are_priced_apart() {
         // A 潜质 herb is dearer than a 神阶 seed of the middle of the ladder: the
         // number a whole build turns on is not a garden row.
-        assert!(AptitudeHerb::Insight.price() > seed_price(4, SeedGrade::Divine));
-        assert!(AptitudeHerb::Marrow.price() > AptitudeHerb::Insight.price());
-        assert!(AptitudeHerb::Insight.price() > AptitudeHerb::Wisdom.price());
+        assert!(AptitudeHerb::Wisdom.price() > seed_price(4, SeedGrade::Divine));
+        assert!(AptitudeHerb::Marrow.price() > AptitudeHerb::Wisdom.price());
+        assert!(AptitudeHerb::Wisdom.price() > AptitudeHerb::Insight.price());
         assert_eq!(AptitudeHerb::Marrow.price(), 10_000);
-        assert_eq!(AptitudeHerb::Insight.price(), 2_000);
-        assert_eq!(AptitudeHerb::Wisdom.price(), 1_200);
+        assert_eq!(AptitudeHerb::Wisdom.price(), 2_000);
+        assert_eq!(AptitudeHerb::Insight.price(), 1_200);
     }
 
     /// A herb's grade prices the offer the same way it prices the gain: 地阶 is
@@ -569,21 +569,21 @@ mod tests {
     /// and the pill is priced at its own flat rate whatever the grade.
     #[test]
     fn a_herb_offer_is_priced_at_its_grade() {
-        let insight = ShopOffer::Herb {
-            herb: AptitudeHerb::Insight,
+        let wisdom = ShopOffer::Herb {
+            herb: AptitudeHerb::Wisdom,
             grade: SeedGrade::Divine,
         };
         assert_eq!(
-            insight.price(),
+            wisdom.price(),
             5_000,
-            "a 神级 悟心草 is two and a half the 地阶"
+            "a 神级 慧心草 is two and a half the 地阶"
         );
         let earth = ShopOffer::Herb {
-            herb: AptitudeHerb::Insight,
+            herb: AptitudeHerb::Wisdom,
             grade: SeedGrade::Earth,
         };
         assert_eq!(earth.price(), 2_000, "the 地阶 is the anchor");
-        assert!(insight.price() > earth.price());
+        assert!(wisdom.price() > earth.price());
         let pill = ShopOffer::Herb {
             herb: AptitudeHerb::Marrow,
             grade: SeedGrade::Yellow,

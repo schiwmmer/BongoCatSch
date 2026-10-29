@@ -333,13 +333,13 @@ impl SeedStack {
 /// The garden tier a 潜质 herb grows at, when it is one of the two plantable
 /// herbs; `None` for the pill, which is never planted.
 ///
-/// 慧心草 sits at tier six and 悟心草 at tier eight, so the rarer herb is the
-/// slower one: a herb is priced by what its 潜质 band is worth, and the band
-/// that is worth more asks for the longer bed.
+/// Rarity sets the tier: the rarer 慧心草 grows at tier eight, the common
+/// 悟心草 at tier six. A higher tier asks for the longer bed, so the rarer
+/// herb is the slower one to mature — which is the point of ranking it above.
 pub const fn herb_tier(herb: super::AptitudeHerb) -> u8 {
     match herb {
-        super::AptitudeHerb::Wisdom => 6,
-        super::AptitudeHerb::Insight => 8,
+        super::AptitudeHerb::Wisdom => 8,
+        super::AptitudeHerb::Insight => 6,
         super::AptitudeHerb::Marrow => 0,
     }
 }
