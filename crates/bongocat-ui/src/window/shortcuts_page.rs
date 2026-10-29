@@ -293,20 +293,8 @@ fn behavior_palettes(
         (true, "shortcuts.behavior_palette.expressions"),
         (false, "shortcuts.behavior_palette.motions"),
     ] {
-        let named: Vec<&ShortcutRow> = rows
-            .iter()
-            .filter(|row| {
-                let is_expression = row.playable.as_ref().is_some_and(|playable| {
-                    matches!(playable.behavior, SettingsModelBehavior::Expression { .. })
-                });
-                if expressions {
-                    is_expression
-                } else {
-                    !is_expression
-                }
-            })
-            .collect();
-        if named.is_empty() {
+        let blocks = palette_blocks(rows, expressions);
+        if blocks.is_empty() {
             continue;
         }
         let mut block = div().flex().flex_col().gap_2().w_full().child(
@@ -315,16 +303,38 @@ fn behavior_palettes(
                 .text_color(tokens.text)
                 .child(bongocat_i18n::text(language.catalog_locale(), heading)),
         );
-        for chunk in named.chunks(BEHAVIOR_PALETTE_COLUMNS) {
-            let mut line = div().flex().flex_row().gap_2().w_full();
-            for row in chunk {
-                line = line.child(behavior_palette_chip(cx, language, row, disabled, tokens));
+        for line in blocks {
+            let mut row_line = div().flex().flex_row().gap_2().w_full();
+            for row in line {
+                row_line =
+                    row_line.child(behavior_palette_chip(cx, language, row, disabled, tokens));
             }
-            block = block.child(line);
+            block = block.child(row_line);
         }
         palettes = palettes.child(block);
     }
     palettes
+}
+
+/// One kind's names, in rows of [`BEHAVIOR_PALETTE_COLUMNS`], in the order the
+/// model package declares them.
+///
+/// The palette draws the two kinds as two blocks — expressions, then motions —
+/// so the kind a name belongs to is decided here rather than by the caller
+/// re-reading each row's behavior. An empty result means the model has none of
+/// that kind, and the palette draws no heading for an empty block.
+fn palette_blocks<'a>(rows: &'a [ShortcutRow], expressions: bool) -> Vec<Vec<&'a ShortcutRow>> {
+    rows.iter()
+        .filter(|row| {
+            let is_expression = row.playable.as_ref().is_some_and(|playable| {
+                matches!(playable.behavior, SettingsModelBehavior::Expression { .. })
+            });
+            is_expression == expressions
+        })
+        .collect::<Vec<_>>()
+        .chunks(BEHAVIOR_PALETTE_COLUMNS)
+        .map(|chunk| chunk.to_vec())
+        .collect()
 }
 
 /// One name in a palette: a chip the whole width of its column.
@@ -770,4 +780,92 @@ fn shortcut_clear_control(
                 }))
             }),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A minimal palette row for one behavior, enough for `palette_blocks` to
+    /// sort it by kind.
+    fn palette_row(behavior: SettingsModelBehavior) -> ShortcutRow {
+        let model = SettingsModelKey {
+            id: "standard".to_owned(),
+            origin: SettingsModelOrigin::BuiltIn,
+        };
+        ShortcutRow {
+            target: ShortcutCaptureTarget::ModelBehavior {
+                model: model.clone(),
+                behavior_id: model_behavior_id(&behavior),
+            },
+            behavior: None,
+            playable: Some(PlayableBehavior { model, behavior }),
+            shortcut: None,
+            custom_name: None,
+        }
+    }
+
+    /// The palette separates the two kinds and wraps each at four names to a
+    /// row: a model with two motions and five expressions reads as one row of
+    /// motions and two rows of expressions.
+    ///
+    /// The blocks are drawn expressions-first by the palette's own loop (the
+    /// two headings are ordered that way), so the kind separation here is the
+    /// part a render test would have to reach through the DOM to check — this
+    /// is the same decision in a form a test can hold on to.
+    #[test]
+    fn palette_blocks_separate_kinds_and_wrap_at_four() {
+        let rows: Vec<ShortcutRow> = [
+            SettingsModelBehavior::Motion {
+                group: "CAT_motion".to_owned(),
+                index: 0,
+            },
+            SettingsModelBehavior::Motion {
+                group: "CAT_motion".to_owned(),
+                index: 1,
+            },
+            SettingsModelBehavior::Expression {
+                name: "a".to_owned(),
+            },
+            SettingsModelBehavior::Expression {
+                name: "b".to_owned(),
+            },
+            SettingsModelBehavior::Expression {
+                name: "c".to_owned(),
+            },
+            SettingsModelBehavior::Expression {
+                name: "d".to_owned(),
+            },
+            SettingsModelBehavior::Expression {
+                name: "e".to_owned(),
+            },
+        ]
+        .into_iter()
+        .map(palette_row)
+        .collect();
+
+        let expressions = palette_blocks(&rows, true);
+        let motions = palette_blocks(&rows, false);
+        assert_eq!(
+            expressions.iter().flatten().count(),
+            5,
+            "five expressions are all in the expression block"
+        );
+        assert_eq!(
+            motions.iter().flatten().count(),
+            2,
+            "two motions are all in the motion block"
+        );
+        assert_eq!(expressions.len(), 2, "five expressions wrap to two rows");
+        assert_eq!(motions.len(), 1, "two motions fit on one row");
+        assert!(
+            expressions
+                .iter()
+                .all(|chunk| chunk.len() <= BEHAVIOR_PALETTE_COLUMNS)
+                && motions
+                    .iter()
+                    .all(|chunk| chunk.len() <= BEHAVIOR_PALETTE_COLUMNS),
+            "no row holds more than four names"
+        );
+    }
 }
