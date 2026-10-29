@@ -11,9 +11,9 @@ use crate::preset_root::*;
 use crate::product_options::*;
 use crate::product_shutdown::*;
 // The post-install restart test is the only thing here that reaches
-// `product_windows`, and both the delay it asserts on and that test are macOS
+// `product_window`, and both the delay it asserts on and that test are macOS
 // only.
-use crate::product_windows::*;
+use crate::product_window::*;
 use crate::update_schedule::*;
 use bongocat_ui_protocol::SettingsCommand;
 

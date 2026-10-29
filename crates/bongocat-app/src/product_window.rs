@@ -1,5 +1,9 @@
-//! The product's windows: opening the settings and update windows, and reading
-//! back what the overlay and the Dock icon are actually showing.
+//! The product's window subsystem: opening the settings and update windows,
+//! and reading back what the overlay and the Dock icon are actually showing.
+//!
+//! This module is about the application's GUI windows, not the Windows
+//! operating system — the name was singularized from `product_windows` to keep
+//! the two apart.
 //!
 //! Each helper answers one question the run loop asks. A failure is reported
 //! through the shared failure list rather than by unwinding, because a product

@@ -10,7 +10,7 @@
 //! repeats that sequence on every startup failure path, so it is only checkable
 //! while it stays in one place. Everything around it is one module per subsystem:
 //! `product_options` parses the run options, `product_shutdown` owns the quit
-//! protocol, `product_windows` the product's windows, and the rest one concern
+//! protocol, `product_window` the product's windows, and the rest one concern
 //! each.
 
 #[cfg(test)]
@@ -23,7 +23,7 @@ mod preset_root;
 mod product_icons;
 mod product_options;
 mod product_shutdown;
-mod product_windows;
+mod product_window;
 mod smoke;
 mod smoke_status;
 mod system_menu;
@@ -82,11 +82,11 @@ use product_shutdown::{
     FrameSourceShutdown, ProductRunError, begin_product_shutdown, native_theme_for_startup,
     quit_after_startup_failure, record_failure, request_product_quit,
 };
-use product_windows::{
+use product_window::{
     apply_dock_icon_visibility, poll_update_restart, product_dock_icon_state,
     sync_product_dock_icon,
 };
-use product_windows::{
+use product_window::{
     ensure_settings_window, handle_shortcut_toggle_settings, open_update_window_and_check,
     product_overlay_state, publish_overlay_scale, published_update_phase, request_update_check,
     show_update_window, update_settings_window, update_window_is_open,
@@ -965,7 +965,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // session: a user who clicks it has a task in mind, and
                         // starting the wrong one would cost them a session they
                         // did not ask for.
-                        crate::product_windows::ensure_pomodoro_window(cx).map(|_| true)
+                        crate::product_window::ensure_pomodoro_window(cx).map(|_| true)
                     }),
                     SystemMenuAction::StartCultivation => cx.update(|cx| {
                         // Land on the ladder page rather than the settings home:
@@ -1974,12 +1974,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         changed_window_result?;
                         cx.update(assert_window_preserved)?;
                         let update_window = cx.update(|cx| {
-                            product_windows::ensure_update_window(
+                            product_window::ensure_update_window(
                                 cx,
                                 bongocat_ui::UpdateWindowStart::Current,
                             )
                         })?;
-                        cx.update(product_windows::toggle_settings_window)?;
+                        cx.update(product_window::toggle_settings_window)?;
                         Timer::after(Duration::from_millis(100)).await;
                         let (native_with_update, expected_with_update) =
                             cx.update(product_dock_icon_state)?;
