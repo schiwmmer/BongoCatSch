@@ -632,9 +632,6 @@
         "9": "渡劫",
         "10": "仙人"
       }
-    },
-    "plate": {
-      "rank": "%{layer}层 · %{rank}阶"
     }
   },
   "cultivation": {

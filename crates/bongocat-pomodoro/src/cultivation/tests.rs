@@ -3150,6 +3150,11 @@ fn the_morning_event_is_seen_once_and_remembered() {
 
 /// Two 内功 of one 前缀 are one set; a lone book is a collection of one, and
 /// two books of different 前缀 are two collections.
+///
+/// Only 玄阶 and deeper books count towards a family, so the books here are
+/// 玄阶 ones: 241 and 321 are both 内功 (odd) and both carry prefix 0
+/// (((241-1)/2) % 40 is 120 % 40, ((321-1)/2) % 40 is 160 % 40), while 243
+/// carries prefix 1.
 #[test]
 fn two_books_of_one_prefix_are_a_set_and_a_lone_book_is_not() {
     let book = |id: u64| OwnedArt {
@@ -3160,20 +3165,18 @@ fn two_books_of_one_prefix_are_a_set_and_a_lone_book_is_not() {
         copies: 1,
         outcome: None,
     };
-    // ids 1 and 81 are both 内功 (odd) and both carry prefix 0: ((id-1)/2) % 40
-    // is 0 and 40%40. ids 1 and 3 carry 0 and 1.
     assert_eq!(
-        art_set_bonus(&[book(1)]).power(),
+        art_set_bonus(&[book(241)]).power(),
         0,
         "a lone book is not a set"
     );
-    let pair = art_set_bonus(&[book(1), book(81)]);
+    let pair = art_set_bonus(&[book(241), book(321)]);
     assert!(
         pair.power() > 0,
         "two books of one prefix pay their set: {pair:?}"
     );
     assert_eq!(
-        art_set_bonus(&[book(1), book(3)]).power(),
+        art_set_bonus(&[book(241), book(243)]).power(),
         0,
         "two books of different prefixes are two collections"
     );
@@ -3192,12 +3195,18 @@ fn an_art_set_pays_its_familys_primary_combat_number_and_scales() {
         outcome: None,
     };
     // Two same-prefix books that pay attack (the 刚 family) and nothing else.
+    // Only 玄阶+ books count towards a family, so the search stays inside the
+    // books a set can open.
+    let counts = |id: u64| super::arts::book_counts_towards_a_set(id);
     let mut pair_ids = None;
     'outer: for a in 1..=ART_COUNT {
-        if a % 2 == 0 {
+        if a % 2 == 0 || !counts(a) {
             continue;
         }
         for b in (a + 1..=ART_COUNT).step_by(2) {
+            if !counts(b) {
+                continue;
+            }
             let probe = art_set_bonus(&[book(a), book(b)]);
             if probe.attack > 0 && probe.health == 0 && probe.spell == 0 && probe.speed == 0 {
                 pair_ids = Some((a, b));
@@ -3210,7 +3219,7 @@ fn an_art_set_pays_its_familys_primary_combat_number_and_scales() {
     // differ by multiples of 80, so one always exists below ART_COUNT.
     let mut third = None;
     for c in 1..=ART_COUNT {
-        if c % 2 == 0 || c == a || c == b {
+        if c % 2 == 0 || !counts(c) || c == a || c == b {
             continue;
         }
         if super::arts::prefix_of(c) == super::arts::prefix_of(a) {
@@ -3346,8 +3355,8 @@ fn the_art_set_views_add_up_to_the_set_bonus() {
         copies: 1,
         outcome: None,
     };
-    // 1 and 81 share 前缀 0; 3 is 前缀 1.
-    let owned = vec![book(1), book(81), book(3)];
+    // 241 and 321 share 前缀 0; 243 is 前缀 1. All are 玄阶, so all count.
+    let owned = vec![book(241), book(321), book(243)];
     let views = art_set_views(&owned);
     assert_eq!(views.len(), 1, "only the 前缀-0 pair is a set");
     let sum = views

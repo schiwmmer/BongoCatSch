@@ -1143,6 +1143,23 @@ pub fn art_bonus_at(art_id: u64, rank: u8) -> Derived {
 /// school, not a second copy of every book in it.
 const ART_SET_STEP: u32 = 4;
 
+/// The grade a 功法 family first opens at: 玄阶, the second of the five.
+///
+/// A 黄阶 book is the first one off the shelf and the first one outgrown, so
+/// a family two 黄阶 books could open is a school every cultivator has in
+/// their first hour — which is a shelf, not a school. The share the 黄阶 held
+/// goes to the grades above it: from 玄阶 up every book counts, and the
+/// deeper the shelf the more its families pay.
+pub(crate) const SET_ART_GRADE: ArtGrade = ArtGrade::Profound;
+
+/// Whether a book is deep enough to count towards its family.
+///
+/// Crate-visible so a test can use the same gate the bonus does, instead of
+/// re-deriving it.
+pub(crate) fn book_counts_towards_a_set(art_id: u64) -> bool {
+    blueprint(art_id).grade >= SET_ART_GRADE
+}
+
 /// The set bonus the 功法 pay: for every 前缀 family with two or more books on
 /// the shelf, the family's primary combat number is paid again at a share that
 /// grows with how many books the family holds and with the best grade among
@@ -1153,11 +1170,17 @@ const ART_SET_STEP: u32 = 4;
 /// bonus is a combat number because the family's identity is a combat line:
 /// the 刚 family is attack, the 轻 family is footwork, and a family that paid
 /// its set in 根骨 would be paying a number its books never promised.
+///
+/// Only 玄阶 and deeper books are counted: a family is a school the cultivator
+/// kept, and a 黄阶 book is one they were always going to replace.
 pub fn art_set_bonus(owned: &[OwnedArt]) -> Derived {
     let mut total = Derived::default();
     let mut families: std::collections::BTreeMap<usize, Vec<&OwnedArt>> =
         std::collections::BTreeMap::new();
     for art in owned {
+        if !book_counts_towards_a_set(art.art_id) {
+            continue;
+        }
         families.entry(prefix_of(art.art_id)).or_default().push(art);
     }
     for (prefix_index, books) in families {
@@ -1198,6 +1221,9 @@ pub fn art_set_views(owned: &[OwnedArt]) -> Vec<ArtSetView> {
     let mut families: std::collections::BTreeMap<usize, Vec<&OwnedArt>> =
         std::collections::BTreeMap::new();
     for art in owned {
+        if !book_counts_towards_a_set(art.art_id) {
+            continue;
+        }
         families.entry(prefix_of(art.art_id)).or_default().push(art);
     }
     let mut views = Vec::new();

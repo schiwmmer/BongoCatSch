@@ -94,6 +94,10 @@ fn shop_row(
         // on, so a shelf that printed it in the plain text colour would be the
         // one place in the game where the grade was only a word.
         ShopOffer::Seed { grade, .. } if !entry.bought => seed_grade_color(*grade),
+        // And a 潜质 herb the same: the name now carries the grade and the 品阶
+        // in its own line, so a herb read by the colour is a herb read the same
+        // way the seed rows above it are.
+        ShopOffer::Herb { grade, .. } if !entry.bought => seed_grade_color(*grade),
         _ => tokens.text,
     };
     let price = format_text(
@@ -472,7 +476,9 @@ fn shop_offer_label(offer: &ShopOffer, locale: &str) -> String {
             name,
         } => seed_label(locale, *attribute, *tier, *grade, name.as_deref()),
         ShopOffer::Art { art_id } => blueprint(*art_id).name.clone(),
-        ShopOffer::Herb { herb, .. } => text(locale, herb.name_key()).to_string(),
+        ShopOffer::Herb { herb, grade } => {
+            herb_seed_label(locale, *herb, herb_tier(*herb), *grade)
+        }
     }
 }
 
@@ -544,5 +550,24 @@ mod tests {
             None,
             "the 洗髓丹 has no grade, so it tags nothing"
         );
+    }
+
+    /// A 潜质 herb on the shelf names its 品阶 and its grade, the way the seed
+    /// rows do. A row that only said "慧心草" would be the one place the shelf
+    /// left the five grades unread, so the label carries the herb's fixed tier
+    /// and its grade the same sentence a seed row does.
+    #[test]
+    fn a_herb_row_names_its_tier_and_its_grade() {
+        let label = shop_offer_label(
+            &ShopOffer::Herb {
+                herb: AptitudeHerb::Wisdom,
+                grade: SeedGrade::Earth,
+            },
+            "zh-CN",
+        );
+        assert!(label.contains("慧心草"), "{label}");
+        // 慧心草 grows at tier six, and the grade is read on the 功法 ladder.
+        assert!(label.contains("6 阶"), "{label}");
+        assert!(label.contains("地阶"), "{label}");
     }
 }

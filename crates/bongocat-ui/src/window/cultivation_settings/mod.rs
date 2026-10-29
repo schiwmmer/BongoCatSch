@@ -20,7 +20,7 @@ use bongocat_pomodoro::{
     ExplorationHours, ExplorationOutcome, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR,
     MarrowSource, MasteredArtView, PlotView, PomodoroCommand, Rarity, Realm, SaleKind, SeedGrade,
     SeedView, ShopOffer, ShopOfferView, StrikeEffect, TRIAL_ATTEMPTS_PER_DAY, TrialBlocked,
-    art_bonus_at, art_payout_at, blueprint, grow_seconds, harvest_points,
+    art_bonus_at, art_payout_at, blueprint, grow_seconds, harvest_points, herb_tier,
     mastered_art_bonus_payout, mastered_art_payout, plant_permille, star_multiplier_permille,
 };
 
@@ -1079,4 +1079,14 @@ pub(super) fn herb_seed_label(
             ("grade", grade_name),
         ],
     )
+}
+
+/// The plain name of an attribute slot, without the `%{value}` the
+/// `cultivation.<slot>` catalogs carry. Those catalogs are templates meant to
+/// be printed beside a number ("生命值 %{value}"); the sites that want only the
+/// name drop the placeholder rather than leaking it into the page.
+pub(super) fn slot_name(locale: &str, key: &str) -> String {
+    format_text(locale, key, &[("value", String::new())])
+        .trim()
+        .to_string()
 }

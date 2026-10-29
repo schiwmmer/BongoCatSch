@@ -425,7 +425,9 @@ pub fn gear_set_bonus(worn: &[EquipmentRecord]) -> Derived {
     let mut sets: std::collections::BTreeMap<GearSet, Vec<&EquipmentRecord>> =
         std::collections::BTreeMap::new();
     for item in worn {
-        if let Some(set) = item.set {
+        if let Some(set) = item.set
+            && carries_set(item.rarity)
+        {
             sets.entry(set).or_default().push(item);
         }
     }
@@ -460,7 +462,9 @@ pub fn gear_set_views(worn: &[EquipmentRecord]) -> Vec<GearSetView> {
     let mut sets: std::collections::BTreeMap<GearSet, Vec<&EquipmentRecord>> =
         std::collections::BTreeMap::new();
     for item in worn {
-        if let Some(set) = item.set {
+        if let Some(set) = item.set
+            && carries_set(item.rarity)
+        {
             sets.entry(set).or_default().push(item);
         }
     }
@@ -816,7 +820,7 @@ const fn combat_lines(rarity: Rarity) -> usize {
 /// effect, the attributes and the outright combat numbers are rolled here, so a
 /// caller only decides how deep and how good the find is.
 pub fn roll_equipment(id: u64, tier: u8, rarity: Rarity, rng: &mut Rng) -> EquipmentRecord {
-    roll_equipment_with(id, tier, rarity, roll_set(rng), rng)
+    roll_equipment_with(id, tier, rarity, roll_set(rarity, rng), rng)
 }
 
 /// Roll a piece that belongs to no set: the guardian's way in.
@@ -922,14 +926,53 @@ fn roll_equipment_with(
     }
 }
 
+/// The quality a set first appears at: 精良, the third of the eight.
+///
+/// 普通 and 优秀 are the two a cultivator outgrows before a second piece of
+/// anything could drop, so a set on them is a set that is never finished —
+/// the share those two held goes to the qualities above them instead, which
+/// is where a set is a thing the cultivator can actually complete.
+pub(crate) const SET_RARITY_INDEX: usize = Rarity::Rare.index();
+
+/// How likely a piece of one quality is to carry a set, in parts per
+/// thousand.
+///
+/// The two bottom qualities hold none at all, and from 精良 up the chance
+/// climbs a tenth per quality until a 绝世 piece is always part of a family:
+/// the deeper the find, the more it is worth collecting the rest of. Half of
+/// the 精良 finds carrying a set is where the old flat half lived — the quota
+/// simply moved up the ladder rather than shrinking.
+const fn set_chance_permille(rarity: Rarity) -> u32 {
+    let index = rarity.index();
+    if index < SET_RARITY_INDEX {
+        return 0;
+    }
+    // The eight qualities are a closed set, so the step count is a small
+    // constant and the cast cannot overflow it.
+    let steps = (index - SET_RARITY_INDEX) as u32;
+    let chance = 500 + 100 * steps;
+    if chance > 1_000 {
+        1_000
+    } else {
+        chance
+    }
+}
+
+/// Whether a piece of this quality can belong to a set at all.
+///
+/// Read by the roll and by the bonus alike, so a 普通 piece a save already
+/// carries — rolled before the ladder drew the line — pays no set either.
+pub(crate) fn carries_set(rarity: Rarity) -> bool {
+    set_chance_permille(rarity) > 0
+}
+
 /// Whether a fresh drop carries a set, and which one.
 ///
-/// Half the finds belong to nothing — a set that every piece belonged to would
-/// be the only kind of gear there is, and a 曜日 that is never not a set is a
-/// 曜日 that is not a choice. The set is rolled off the same stream that names
-/// the piece, so a drop stays reproducible from its seed.
-fn roll_set(rng: &mut Rng) -> Option<GearSet> {
-    if rng.below(2) == 0 {
+/// The chance is the quality's own, so a 普通 blade belongs to nothing while
+/// a 绝世 one always belongs to something. The set is rolled off the same
+/// stream that names the piece, so a drop stays reproducible from its seed.
+fn roll_set(rarity: Rarity, rng: &mut Rng) -> Option<GearSet> {
+    if rng.below(1_000) >= u64::from(set_chance_permille(rarity)) {
         None
     } else {
         Some(GearSet::from_index(

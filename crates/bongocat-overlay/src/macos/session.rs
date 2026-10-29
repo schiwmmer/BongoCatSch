@@ -9,17 +9,6 @@ use super::*;
 
 pub(crate) const RIGHT_ARROW: PhysicalKey = PhysicalKey::from_hid_usage(0x4f);
 
-/// How long the pointer must rest on the cat before the pad plate steps
-/// aside.
-///
-/// The plate keeps its own timer rather than borrowing the window's hover
-/// hide: the fade is a window-wide presentation rule the user configures,
-/// while the plate is a read-at-a-glance number. Two seconds is long enough
-/// that a pointer crossing the cat never takes the number with it, and short
-/// enough that a pointer deliberately parked on the cat is reaching for
-/// whatever is underneath.
-pub(crate) const REALM_PLATE_HOVER_DELAY: Duration = Duration::from_secs(2);
-
 pub(crate) struct ProductOverlaySession {
     pub(crate) application: Retained<NSApplication>,
     pub(crate) overlay: NativeOverlay,
@@ -47,22 +36,8 @@ pub(crate) struct ProductOverlaySession {
     /// when the HUD shows, so the two surfaces can never disagree about
     /// whether the pointer is on the cat.
     pub(crate) stats_hud: Option<StatsHud>,
-    /// The realm printed on the model's mouse pad. It shares the session's
-    /// frame tick with the HUD but keeps its own pointer gate: the plate
-    /// steps aside only after the pointer has rested on the cat for
-    /// [`REALM_PLATE_HOVER_DELAY`], and comes straight back when the
-    /// pointer leaves.
-    pub(crate) realm_plate: Option<RealmPlate>,
-    /// The plate's own hover timer, kept separate from the window's hover
-    /// hide.
-    ///
-    /// The cat's fade is a window-wide rule the user configures, while the
-    /// plate is a read-at-a-glance number that has to survive a pointer
-    /// merely crossing the cat. One state machine per surface keeps the two
-    /// deadlines from ever being confused for each other.
-    pub(crate) plate_hover: PointerHoverHide,
-    /// The countdown above the cat's head, and the performance a finished session
-    /// plays.
+    /// The countdown on the cat's mouse pad, and the performance a finished
+    /// session plays.
     ///
     /// Both are presentation-only: a panel that cannot be created degrades to no
     /// countdown and no performance, and the cat, the counters and the input
@@ -78,7 +53,7 @@ pub(crate) struct ProductOverlaySession {
     pub(crate) pomodoro_timer: Option<crate::OverlayPomodoroTimer>,
     /// The completion the application last published, if any.
     pub(crate) pomodoro_completion: Option<crate::OverlayPomodoroCompletion>,
-    /// The cultivation copy the HUD and the badge draw, composed by the
+    /// The cultivation copy the HUD draws, composed by the
     /// application: the overlay has no locale of its own, and the copy is the
     /// application's business.
     pub(crate) cultivation: Option<crate::OverlayCultivationText>,
@@ -187,7 +162,6 @@ impl ProductOverlaySession {
         // degrades to no HUD, and the cat, the counters and the input
         // service keep working without it.
         let stats_hud = StatsHud::create(mtm, "").ok();
-        let realm_plate = RealmPlate::create(mtm).ok();
         let pomodoro = PomodoroSurfaces::create(mtm, pomodoro_menu_sender).ok();
         // A pomodoro surface set that came up empty is not worth reporting: the
         // countdown is decoration next to a cat the user is still using.
@@ -214,8 +188,6 @@ impl ProductOverlaySession {
             right_button_monitor: context_menu_monitor,
             hover: PointerHoverHide::default(),
             stats_hud,
-            realm_plate,
-            plate_hover: PointerHoverHide::default(),
             pomodoro,
             played_completion: 0,
             pomodoro_timer: None,
@@ -605,8 +577,17 @@ impl ProductOverlaySession {
             && pointer.is_some_and(|(x, y)| pointer_inside_window(bounds, x, y)))
             || on_countdown;
         let now = self.session_started.elapsed();
+        // A running pomodoro is work the user is doing *on* the cat: the pad
+        // carries the countdown and a right-click on the model is how the
+        // session is paused or abandoned. The hover hide takes both away —
+        // once it has faded the cat out it starts passing pointer events
+        // through, so the right-click lands on the desktop instead and the
+        // session is unreachable until the pointer leaves and the cat comes
+        // back. The hover hide therefore stands down for as long as a timer
+        // is on the clock, and resumes the moment the session ends.
+        let session_running = self.pomodoro_timer.is_some();
         let fade = self.hover.observe(PointerHoverObservation {
-            enabled: options.hide_on_pointer_hover && input_running && !held,
+            enabled: options.hide_on_pointer_hover && input_running && !held && !session_running,
             delay: Duration::from_millis(u64::from(options.hide_on_pointer_hover_delay_ms)),
             pointer_inside,
             now,
@@ -642,31 +623,6 @@ impl ProductOverlaySession {
                     hud.show_below(bounds, &screens);
                 }
                 _ => hud.hide(),
-            }
-        }
-        // The pad plate answers to its own pointer gate rather than the
-        // window's hover hide: the realm is a read-at-a-glance fact about
-        // the cat, so a pointer merely crossing the cat must never take it
-        // along, while one that rests on the cat for a deliberate two
-        // seconds is reaching for whatever is underneath. Leaving brings it
-        // straight back. The window's own visibility still governs it: a cat
-        // the user hid must not leave a floating number behind.
-        let plate_allowed = {
-            self.plate_hover.observe(PointerHoverObservation {
-                enabled: input_running && !held,
-                delay: REALM_PLATE_HOVER_DELAY,
-                pointer_inside,
-                now,
-            });
-            self.runtime_client.snapshot().overlay_visible && !self.plate_hover.hidden()
-        };
-        if let Some(plate) = self.realm_plate.as_mut() {
-            match (plate_allowed, self.cultivation.as_ref()) {
-                (true, Some(copy)) => {
-                    plate.set_status(&copy.plate_realm, &copy.plate_rank, bounds);
-                    plate.show();
-                }
-                _ => plate.hide(),
             }
         }
         // The countdown keeps the cat's own visibility gates: it is part of

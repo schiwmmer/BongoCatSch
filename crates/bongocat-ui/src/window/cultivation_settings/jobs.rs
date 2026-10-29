@@ -138,7 +138,7 @@ fn work_lines(
                 "cultivation.jobs.gain",
                 &[
                     ("points", points.to_string()),
-                    ("attribute", text(locale, slot.key()).to_string()),
+                    ("attribute", slot_name(locale, slot.key())),
                 ],
             ));
         }
@@ -271,10 +271,10 @@ fn requirement_line(job: &bongocat_pomodoro::JobView, locale: &str) -> String {
             locale,
             "cultivation.jobs.require_pair",
             &[
-                ("first", text(locale, first.key()).to_string()),
+                ("first", slot_name(locale, first.key())),
                 ("value_first", group_thousands(job.requirement)),
                 ("a", margin(job.current_first, job.requirement)),
-                ("second", text(locale, second.key()).to_string()),
+                ("second", slot_name(locale, second.key())),
                 (
                     "value_second",
                     group_thousands(job.requirement_second.unwrap_or(0)),
@@ -292,7 +292,7 @@ fn requirement_line(job: &bongocat_pomodoro::JobView, locale: &str) -> String {
             locale,
             "cultivation.jobs.require_single",
             &[
-                ("attribute", text(locale, first.key()).to_string()),
+                ("attribute", slot_name(locale, first.key())),
                 ("value", group_thousands(job.requirement)),
                 ("margin", margin(job.current_first, job.requirement)),
             ],
@@ -334,5 +334,36 @@ mod tests {
         // A 黄阶 job asks the realm's baseline, which a low body can hold at
         // zero; the margin is still read rather than divided by nothing.
         assert_eq!(margin(5, 0), "+400");
+    }
+
+    #[test]
+    fn every_requirement_line_prints_its_value_and_no_placeholder() {
+        // The ask is a number beside the attribute, not only a margin: a
+        // margin alone says how far off the cultivator is and never off what.
+        // And whatever the catalog says, the row must never print a
+        // placeholder — an unsubstituted `%{value}` is a template the caller
+        // and the catalog disagree about, which is exactly the shape a bug
+        // here used to take.
+        let board = bongocat_pomodoro::Cultivation::default().view();
+        assert!(!board.jobs.is_empty(), "a fresh board offers work");
+        for job in &board.jobs {
+            let line = requirement_line(job, "zh-CN");
+            assert!(
+                !line.contains("%{"),
+                "requirement line {line:?} left a placeholder unsubstituted"
+            );
+            assert!(
+                line.contains(&group_thousands(job.requirement)),
+                "requirement line {line:?} does not print {}",
+                group_thousands(job.requirement)
+            );
+            if let Some(second) = job.requirement_second {
+                assert!(
+                    line.contains(&group_thousands(second)),
+                    "requirement line {line:?} does not print the second ask {}",
+                    group_thousands(second)
+                );
+            }
+        }
     }
 }

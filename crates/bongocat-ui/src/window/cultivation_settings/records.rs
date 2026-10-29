@@ -301,7 +301,7 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
                     "cultivation.event.work_gain",
                     &[
                         ("points", points.to_string()),
-                        ("attribute", text(locale, slot.key()).to_string()),
+                        ("attribute", slot_name(locale, slot.key())),
                     ],
                 ));
             }

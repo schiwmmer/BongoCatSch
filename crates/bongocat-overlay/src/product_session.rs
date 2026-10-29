@@ -99,18 +99,12 @@ pub struct OverlayPomodoroCompletion {
 /// The progress is in parts per thousand rather than a fraction so the value
 /// stays comparable — a surface compares what it was handed to decide whether to
 /// redraw at all.
+///
+/// The realm itself is deliberately not part of it: the mouse pad belongs to
+/// the model, and a number the code cannot measure the pad against ends up
+/// printed over the model rather than on it.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct OverlayCultivationText {
-    /// The realm's name, printed at the top-right of the mouse pad.
-    ///
-    /// The pad is part of the model, so the plate is a bare pair of labels
-    /// over it rather than a panel with chrome of its own: a name and a
-    /// number, right-aligned against the pad's right edge.
-    pub plate_realm: String,
-    /// The layer and rank, printed under the realm's name at the pad's
-    /// bottom-right. Two numbers rather than one composite level, so the
-    /// ladder reads the way the settings page states it.
-    pub plate_rank: String,
     /// The hover text: the realm and the growth behind it on the first line,
     /// the pomodoros done and still to go on the second.
     pub hud: String,
