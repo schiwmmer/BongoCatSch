@@ -1,11 +1,16 @@
-//! 打工: odd jobs, priced off the 试炼 the cultivator could have fought instead.
+//! 打工: odd jobs, the safe counterpart to the 外出 a cultivator could have
+//! taken instead.
 //!
-//! A 试炼 is a fight the cultivator can lose and it pays in kind — a herb, a
-//! garment, a book, and only sometimes a purse. A job pays in the one thing the
-//! 试炼 barely touches: money, and money that cannot be lost. It is the slower of
-//! the two and the safer, and the trade is written into the price: the same four
-//! hours spent on a job pay twice the 试炼's middle, and they pay it in 灵石
-//! rather than in a roll that might come up empty.
+//! A 外出 is a walk that spends the same day and comes home with 灵石 — both are
+//! the slow, can't-lose income, and the two compete for the cultivator's hours.
+//! A job is the tamer of the pair: its pay is one figure read before it is
+//! taken, where a walk's is a roll that can come up thin.
+//!
+//! The wage's *number* is still drawn from the 试炼 purse band — a fight's
+//! middle, doubled and widened by the hours — so the pay tracks the realm's own
+//! fighting rather than floating free. The trial is only where the number comes
+//! from; the choice the job stands in for, and the thing it is measured against,
+//! is the walk.
 //!
 //! The purse is a **figure**, not a range. A 试炼 opens a purse somewhere between
 //! two numbers because it is a roll; a job is a wage, and a wage the user cannot
@@ -52,12 +57,14 @@ pub const JOB_MIN_HOURS: u8 = 4;
 /// The longest job the board offers, in hours.
 pub const JOB_MAX_HOURS: u8 = 24;
 
-/// What a job pays over the 试炼 it stands in for, in parts per thousand: twice.
+/// What a job pays over the 试炼 purse band it is drawn from, in parts per
+/// thousand: twice.
 ///
-/// A job is the safe half of the choice, so it has to pay better than the 试炼
-/// on average — and it pays twice, because the 试炼 is a fight the cultivator can
-/// lose and a job is a wage the cultivator cannot: the same four hours come home
-/// as double the 试炼's middle, whatever the 试炼 rolled.
+/// A job is the safe counterpart to a 外出, so it has to pay as well as the walk
+/// it stands in for — and the band it is drawn from is the 试炼's, doubled, which
+/// keeps the wage anchored to the realm's own fighting. A 试炼 is a fight the
+/// cultivator can lose and a job is a wage they cannot: the same four hours come
+/// home as double the 试炼's middle, whatever the 试炼 rolled.
 const JOB_OVER_TRIAL_PERMILLE: u64 = 2_000;
 
 /// What the five grades multiply a job's purse by, in parts per thousand.
@@ -340,13 +347,15 @@ impl JobRun {
 
 /// What one job pays, as the one figure it is.
 ///
-/// Priced off the 试炼 it stands in for: the courtyard's own purse, at this job's
-/// tier and widened by this job's hours, then twice again and then the grade. The
-/// 试炼 opens a range and a job pays its middle, so the expectation is exactly
-/// twice the 试炼 the trade promised — and the board can be read before
-/// anything is taken. The hours widen it *linearly* — a job twice as long pays
-/// twice as much — because a job is a rate, not a roll, and a rate that paid more
-/// per hour the longer it ran would make the longest job the only job.
+/// Drawn from the 试炼 purse band and doubled: the courtyard's own purse, at this
+/// job's tier and widened by this job's hours, then twice again and then the
+/// grade. The 试炼 opens a range and a job pays its middle, so the expectation is
+/// exactly twice the 试炼 the trade promised — and the board can be read before
+/// anything is taken. The job is the safe counterpart to a 外出, the walk it
+/// stands in for; the trial band is only the number's source. The hours widen it
+/// *linearly* — a job twice as long pays twice as much — because a job is a rate,
+/// not a roll, and a rate that paid more per hour the longer it ran would make
+/// the longest job the only job.
 pub fn job_stones(tier: u8, hours: u8, grade: ArtGrade) -> u32 {
     let hours = u64::from(hours.clamp(JOB_MIN_HOURS, JOB_MAX_HOURS));
     let purse = PROVING_STONES.scaled(hours * 250);

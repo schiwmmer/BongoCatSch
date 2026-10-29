@@ -151,7 +151,7 @@ impl ShopOffer {
 /// an 极品 piece is a luxury and not a second ladder bolted onto the first.
 pub fn equipment_price(tier: u8, rarity: Rarity) -> u32 {
     let points = base_points(tier);
-    let base = points * points / 60 + 40;
+    let base = points * points / 60 + 100;
     base * rarity.multiplier() / 10
 }
 
@@ -179,7 +179,7 @@ pub fn seed_price(tier: u8, grade: SeedGrade) -> u32 {
         .max(1)
 }
 
-/// What one attempt at the next star costs: half of what the piece sells for.
+/// What one attempt at the next star costs: a third of what the piece sells for.
 ///
 /// Read off the sell price rather than the asking price, so the number on the
 /// button is the number the user can check against the 卖 button on the same
@@ -192,7 +192,7 @@ pub fn seed_price(tier: u8, grade: SeedGrade) -> u32 {
 /// unstarred one does. Buying stars back at a profit would make the 灵石 purse
 /// a slot machine.
 pub fn star_up_cost(item: &EquipmentRecord) -> u32 {
-    ShopOffer::Equipment(item.clone()).sell_price() / 2
+    ShopOffer::Equipment(item.clone()).sell_price() / 3
 }
 
 /// How much dearer than its own tier of gear a 功法 is, in halves.

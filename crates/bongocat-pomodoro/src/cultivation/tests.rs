@@ -2929,7 +2929,7 @@ fn a_star_is_worth_five_to_eight_percent_of_everything() {
 /// The wager's price is half of what the piece sells for, and the purse pays it
 /// whether the star turns over or not.
 #[test]
-fn a_star_costs_half_of_what_the_piece_sells_for() {
+fn a_star_costs_a_third_of_what_the_piece_sells_for() {
     let item = EquipmentRecord {
         id: 3,
         slot: EquipSlot::Clothes,
@@ -2944,7 +2944,7 @@ fn a_star_costs_half_of_what_the_piece_sells_for() {
     };
     let sell = shop::ShopOffer::Equipment(item.clone()).sell_price();
     let cost = star_up_cost(&item);
-    assert_eq!(cost, sell / 2, "the wager is half the sell price");
+    assert_eq!(cost, sell / 3, "the wager is a third of the sell price");
     // The price does not climb with the stars already bought: every attempt is
     // the same bet.
     let mut deep = item.clone();

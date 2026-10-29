@@ -614,17 +614,23 @@ pub const fn rank_xp_total(garden_rank: u8) -> i64 {
 /// herb is worth its points twice over — the points themselves, or points × 14
 /// sold at the market — so a rank priced in 灵石 is really priced in *how much
 /// of the harvest the gardener has to sell instead of keeping*. The whole ladder
-/// is fifteen thousand seven hundred and fifteen stones, which is twenty-two
-/// percent of what the harvest it takes to reach the top would sell for. Twenty
+/// is seven thousand eight hundred and fifty-four stones, which is twenty-two
+/// percent of what the harvest it takes to reach the top would sell for. Twenty-
 /// two is the number chosen: a cheaper ladder never once asks "keep it or sell
 /// it", and a dearer one takes the choice away by making keeping pointless.
+///
+/// The figure is half of the original ladder. The harvest is *sold* to pay it,
+/// and a sale returns the sell price rather than the buy price, so the old
+/// ladder read as forty-four percent of the harvest's sell value even though it
+/// was written as twenty-two against the buy value. Halving it brings the burden
+/// back to the twenty-two percent the number was meant to be.
 pub const fn rank_cost(garden_rank: u8) -> u32 {
     let step = if garden_rank == 0 {
         0_i64
     } else {
         garden_rank as i64 - 1
     };
-    (50 + 30 * step + 15 * step * step) as u32
+    ((50 + 30 * step + 15 * step * step) / 2) as u32
 }
 
 /// The rank a gardener with this much 造化 banked stands at.
@@ -916,10 +922,13 @@ mod tests {
         }
     }
 
-    /// What the ladder costs, and why: the whole fifteen ranks ask for fifteen
-    /// thousand seven hundred and fifteen stones, and twenty-two percent of
-    /// what the harvest it takes would be worth sold instead of kept. The second
-    /// number is the one chosen; the first is arithmetic.
+    /// What the ladder costs, and why: the whole ladder asks for seven thousand
+    /// eight hundred and fifty-four stones, and twenty-two percent of what the
+    /// harvest it takes would be worth *sold* instead of kept. The first figure
+    /// is half the old ladder; the second is the number chosen, and it is
+    /// measured against the sell price the gardener actually sees, not the buy
+    /// price — which is why the old ladder, measured against the buy price, read
+    /// as forty-four percent to anyone paying in harvest they had sold.
     #[test]
     fn the_rank_ladder_costs_a_fifth_of_the_harvest() {
         let mut xp = 0_i64;
@@ -930,11 +939,17 @@ mod tests {
         }
         assert_eq!(xp, rank_xp_total(MAX_GARDEN_RANK));
         assert_eq!(xp, 5_075, "five thousand and seventy-five points");
-        assert_eq!(stones, 15_715, "fifteen thousand seven hundred and fifteen");
+        assert_eq!(stones, 7_854, "seven thousand eight hundred and fifty-four");
         // Because XP *is* harvest points, and a herb sells for its points times
-        // fourteen, the stones are really "what fraction of the harvest did you
-        // sell".
-        let percent = u64::from(stones) * 100 / (u64::try_from(xp).unwrap() * 14);
+        // fourteen at the buy price — the market returning SELL_NUMERATOR of
+        // SELL_DENOMINATOR of that — the stones a gardener actually earns from
+        // the harvest they sell are the points times fourteen times five tenths.
+        // The ladder is meant to be twenty-two percent of *that* figure, the one
+        // the player sees when they sell, not of the buy price.
+        let earned_per_point = u64::from(crate::cultivation::shop::SEED_STONES_PER_POINT)
+            * u64::from(crate::cultivation::shop::SELL_NUMERATOR)
+            / u64::from(crate::cultivation::shop::SELL_DENOMINATOR);
+        let percent = u64::from(stones) * 100 / (u64::try_from(xp).unwrap() * earned_per_point);
         assert_eq!(percent, 22, "twenty-two percent of the harvest, sold");
         // The thresholds rise, and the increments rise faster still: the last
         // rank is two hundred times the first.
@@ -943,7 +958,7 @@ mod tests {
             assert!(rank_cost(rank) > rank_cost(rank - 1), "rank {rank}");
         }
         assert_eq!(rank_xp(1), 5, "the first step is one crop");
-        assert_eq!(rank_cost(1), 50);
+        assert_eq!(rank_cost(1), 25);
     }
 
     /// Reading a bank back into a rank is the migration every old save takes,
