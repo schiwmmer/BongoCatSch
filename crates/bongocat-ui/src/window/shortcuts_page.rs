@@ -316,6 +316,36 @@ fn behavior_palettes(
     palettes
 }
 
+/// The behavior palette as the ModelBehavior page draws it.
+///
+/// The page previews the active model's behaviors, and this is the same list
+/// the Shortcuts page's model scope draws: expressions first, then motions,
+/// four names to a row, each playing its behavior when clicked. It reads the
+/// active model from the snapshot and draws nothing when the model declares no
+/// behavior, so a page with nothing to preview still reads as the model-wide
+/// settings it is.
+pub(super) fn model_behavior_palette(
+    cx: &mut Context<SettingsView>,
+    language: SettingsLanguage,
+    gate: SettingGate,
+    tokens: Tokens,
+    snapshot: Option<&SettingsSnapshot>,
+) -> Div {
+    let Some(snapshot) = snapshot else {
+        return div();
+    };
+    let rows = ShortcutScope::Model.rows(
+        &snapshot.shortcuts,
+        snapshot.active_model.as_ref(),
+        &snapshot.model_catalog.entries,
+        &snapshot.model_behavior_names,
+    );
+    if rows.is_empty() {
+        return div();
+    }
+    behavior_palettes(cx, language, gate, tokens, &rows)
+}
+
 /// One kind's names, in rows of [`BEHAVIOR_PALETTE_COLUMNS`], in the order the
 /// model package declares them.
 ///
@@ -323,7 +353,7 @@ fn behavior_palettes(
 /// so the kind a name belongs to is decided here rather than by the caller
 /// re-reading each row's behavior. An empty result means the model has none of
 /// that kind, and the palette draws no heading for an empty block.
-fn palette_blocks<'a>(rows: &'a [ShortcutRow], expressions: bool) -> Vec<Vec<&'a ShortcutRow>> {
+fn palette_blocks(rows: &[ShortcutRow], expressions: bool) -> Vec<Vec<&ShortcutRow>> {
     rows.iter()
         .filter(|row| {
             let is_expression = row.playable.as_ref().is_some_and(|playable| {

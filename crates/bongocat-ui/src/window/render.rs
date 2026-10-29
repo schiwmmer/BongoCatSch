@@ -932,6 +932,28 @@ impl Render for SettingsView {
                     ),
                 )
                 .disabled(random_behavior_gate.disables_controls()),
+                // The palette closes the group: it is not a setting but a
+                // preview, so it sits below the switches it previews rather
+                // than among them, and the group heading already names the
+                // page. It reads the active model, so its list follows the
+                // model the page's own rows are about.
+                SettingItem::render({
+                    let view = view_entity.clone();
+                    move |_: &RenderOptions, _window: &mut Window, app: &mut App| {
+                        let tokens = Tokens::from_theme(app);
+                        view.update(app, move |view, cx| {
+                            let snapshot = view.snapshot.clone();
+                            shortcuts_page::model_behavior_palette(
+                                cx,
+                                language,
+                                behavior_shortcuts_gate,
+                                tokens,
+                                snapshot.as_ref(),
+                            )
+                        })
+                        .into_any_element()
+                    }
+                }),
             ],
             &model_behavior_keywords,
         ));

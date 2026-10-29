@@ -682,3 +682,119 @@ fn command_shortcut_clear_removes_only_the_selected_binding() {
     assert_eq!(shortcuts.commands.len(), 1);
     assert_eq!(shortcuts.commands[0].command, "open_settings");
 }
+
+/// The ModelBehavior page's palette, drawn the way the page's settings item
+/// builds it: through `model_behavior_palette`, so the controls under test are
+/// the ones the product draws.
+struct ModelBehaviorPaletteHarness {
+    view: Entity<SettingsView>,
+    snapshot: Option<SettingsSnapshot>,
+    gate: SettingGate,
+}
+
+impl Render for ModelBehaviorPaletteHarness {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let snapshot = self.snapshot.clone();
+        let gate = self.gate;
+        let tokens = Tokens::from_theme(cx);
+        div()
+            .id("model-behavior-palette-harness")
+            .test_support()
+            .child(
+                self.view
+                    .clone()
+                    .update(cx, move |_view, cx| {
+                        shortcuts_page::model_behavior_palette(
+                            cx,
+                            SettingsLanguage::English,
+                            gate,
+                            tokens,
+                            snapshot.as_ref(),
+                        )
+                    }),
+            )
+    }
+}
+
+#[gpui_kit::test]
+fn the_model_behavior_page_lists_the_active_models_behaviors(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (client, _endpoint) = crate::SettingsClient::bounded(4);
+    let mut seeded = crate::tests::snapshot(1, false, true);
+    let expression = SettingsModelBehavior::Expression {
+        name: "a".to_owned(),
+    };
+    let motion = SettingsModelBehavior::Motion {
+        group: "CAT_motion".to_owned(),
+        index: 0,
+    };
+    seeded.model_catalog.entries = vec![model_entry(
+        "standard",
+        SettingsModelOrigin::BuiltIn,
+        SettingsModelAvailability::Ready {
+            behaviors: vec![expression.clone(), motion.clone()],
+        },
+    )];
+    let snapshot = seeded.clone();
+
+    let built = Rc::new(RefCell::new(None));
+    let capture = Rc::clone(&built);
+    let (_, visual) = cx.add_window_view(move |window, cx| {
+        let view = cx.new(|cx| {
+            SettingsView::new(
+                client,
+                SettingsWindowSeed {
+                    language: SettingsLanguage::English,
+                    appearance_theme: SettingsTheme::System,
+                },
+                Rc::new(|_| {}),
+                Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
+                window,
+                cx,
+            )
+        });
+        view.update(cx, |view, _cx| {
+            view.snapshot = Some(snapshot.clone());
+        });
+        capture.borrow_mut().replace(view.clone());
+        Root::new(
+            cx.new(|_| ModelBehaviorPaletteHarness {
+                view,
+                snapshot: Some(snapshot),
+                gate: SettingGate::new(false, true),
+            }),
+            window,
+            cx,
+        )
+    });
+    let _view = built
+        .borrow_mut()
+        .take()
+        .expect("the window builder must hand the page out");
+
+    visual.update(|window, cx| window.render_frame(cx));
+    // The probe is the point of the surrounding assertions: a page that drew
+    // nothing would satisfy every "the chip is present" check below.
+    let harness = rendered_bounds(visual, "model-behavior-palette-harness".into());
+    assert!(
+        harness.size.width > px(0.) && harness.size.height > px(0.),
+        "the palette must draw, not an empty frame"
+    );
+
+    // Each behavior is a chip carrying the behavior's own id, so finding the
+    // chip proves the page listed that behavior and made it clickable.
+    let expression_chip = rendered_bounds(
+        visual,
+        format!("behavior-palette-{}", model_behavior_id(&expression)).into(),
+    );
+    let motion_chip = rendered_bounds(
+        visual,
+        format!("behavior-palette-{}", model_behavior_id(&motion)).into(),
+    );
+    assert!(
+        expression_chip.size.width > px(0.) && motion_chip.size.width > px(0.),
+        "both behaviors must be listed as clickable chips"
+    );
+}
+
