@@ -309,7 +309,7 @@ impl SettingsView {
         // The unified gate rule's guard arm: the row is disabled while its
         // scope's switch is off, so a request nothing displays plays nothing
         // either. The structural blocks (no snapshot, an import running) come
-        // from the availability check below.
+        // from the shared editing predicate in the play path below.
         let Some(snapshot) = self.snapshot.as_ref() else {
             return;
         };
@@ -326,7 +326,8 @@ impl SettingsView {
     /// shortcuts switch: turning that switch off must not take the trial away,
     /// or a model's own behaviors could not be previewed at all. The structural
     /// guards stay — a preview needs the model it was rendered for to still be
-    /// the live one, and a service that can play it.
+    /// the live one, and a service that can play it. A save in flight is not a
+    /// structural block: `pending` deliberately gates no control on any page.
     pub(super) fn play_behavior_preview(
         &mut self,
         model: SettingsModelKey,
@@ -357,7 +358,12 @@ impl SettingsView {
         if snapshot.active_model.as_ref() != Some(&model) {
             return;
         }
-        if !self.shortcut_commands_available() {
+        // A trial answers only to the structural editing blocks, the same
+        // predicate every page gate uses. The binding-oriented availability
+        // check also reads the transient `pending` flag and `config_revision`;
+        // neither has anything to do with playing a preview, and reading them
+        // here silently dropped trial clicks that landed during a save.
+        if self.editing_blocked(self.snapshot.as_ref()) {
             return;
         }
         let client = self.client.clone();

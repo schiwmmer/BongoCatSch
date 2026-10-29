@@ -700,19 +700,15 @@ impl Render for ModelBehaviorPaletteHarness {
         div()
             .id("model-behavior-palette-harness")
             .test_support()
-            .child(
-                self.view
-                    .clone()
-                    .update(cx, move |_view, cx| {
-                        shortcuts_page::model_behavior_palette(
-                            cx,
-                            SettingsLanguage::English,
-                            gate,
-                            tokens,
-                            snapshot.as_ref(),
-                        )
-                    }),
-            )
+            .child(self.view.clone().update(cx, move |_view, cx| {
+                shortcuts_page::model_behavior_palette(
+                    cx,
+                    SettingsLanguage::English,
+                    gate,
+                    tokens,
+                    snapshot.as_ref(),
+                )
+            }))
     }
 }
 
@@ -878,17 +874,173 @@ fn the_behavior_palette_plays_even_with_the_shortcut_switch_off(cx: &mut TestApp
         .try_recv()
         .expect("clicking the chip must reach the service")
     {
-        crate::SettingsCommand::PreviewModelBehavior {
-            behavior: sent, ..
-        } => {
+        crate::SettingsCommand::PreviewModelBehavior { behavior: sent, .. } => {
             assert_eq!(
                 sent, expression,
                 "the chip must play the behavior it names, switch off or not"
             );
         }
-        _ => panic!(
-            "clicking the chip must ask the service to play the behavior"
-        ),
+        _ => panic!("clicking the chip must ask the service to play the behavior"),
     }
 }
 
+/// A trial keeps working while a settings save is in flight.
+///
+/// `pending` flips on and off around every save. The shared editing predicate
+/// deliberately leaves it out of every gate, because threading it through the
+/// page dims and re-enables every control on each change. The trial path still
+/// routed through the *binding* availability check, which does read `pending`,
+/// so a click landing during a save was silently dropped: no playback and no
+/// error. A trial is not a binding, so it answers only to structural blocks.
+#[gpui_kit::test]
+fn the_behavior_palette_plays_while_a_save_is_in_flight(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (client, endpoint) = crate::SettingsClient::bounded(4);
+    let mut seeded = crate::tests::snapshot(1, false, true);
+    let expression = SettingsModelBehavior::Expression {
+        name: "surprised.exp3.json".to_owned(),
+    };
+    seeded.model_catalog.entries = vec![model_entry(
+        "standard",
+        SettingsModelOrigin::BuiltIn,
+        SettingsModelAvailability::Ready {
+            behaviors: vec![expression.clone()],
+        },
+    )];
+    let snapshot = seeded.clone();
+
+    let built = Rc::new(RefCell::new(None));
+    let capture = Rc::clone(&built);
+    let (_, visual) = cx.add_window_view(move |window, cx| {
+        let view = cx.new(|cx| {
+            SettingsView::new(
+                client,
+                SettingsWindowSeed {
+                    language: SettingsLanguage::English,
+                    appearance_theme: SettingsTheme::System,
+                },
+                Rc::new(|_| {}),
+                Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
+                window,
+                cx,
+            )
+        });
+        view.update(cx, |view, _cx| {
+            view.snapshot = Some(snapshot.clone());
+            // A save is in flight: the transient state every page gate is
+            // required to ignore.
+            view.pending = Some(PendingOperation::ModelSelection);
+        });
+        capture.borrow_mut().replace(view.clone());
+        Root::new(
+            cx.new(|_| ModelBehaviorPaletteHarness {
+                view,
+                snapshot: Some(snapshot),
+                gate: SettingGate::new(false, false),
+            }),
+            window,
+            cx,
+        )
+    });
+    let _view = built
+        .borrow_mut()
+        .take()
+        .expect("the window builder must hand the page out");
+
+    visual.update(|window, cx| window.render_frame(cx));
+    let chip = rendered_bounds(
+        visual,
+        format!("behavior-palette-{}", model_behavior_id(&expression)).into(),
+    );
+    assert!(
+        chip.size.width > px(0.) && chip.size.height > px(0.),
+        "the chip must stay drawn while a save is in flight"
+    );
+    visual.simulate_click(chip.center(), Modifiers::default());
+    visual.run_until_parked();
+    match endpoint
+        .try_recv()
+        .expect("a trial click landing during a save must still reach the service")
+    {
+        crate::SettingsCommand::PreviewModelBehavior { behavior: sent, .. } => {
+            assert_eq!(
+                sent, expression,
+                "the trial must play the behavior it names, save in flight or not"
+            );
+        }
+        _ => panic!("clicking the chip must ask the service to play the behavior"),
+    }
+}
+
+/// The palette shows each real act once and names shipped resources by what
+/// they do, instead of printing file names. The two built-in motion groups
+/// declare identical clips, so grouping by real clip is what removes the twins;
+/// the shortcut rows and their behavior_ids are deliberately untouched.
+#[test]
+fn the_palette_deduplicates_motion_groups_and_names_preset_behaviors() {
+    use super::super::shortcuts_page::{ShortcutScope, palette_behavior_name, palette_blocks};
+
+    let behaviors = vec![
+        SettingsModelBehavior::Motion {
+            group: "CAT_motion".to_owned(),
+            index: 2,
+        },
+        SettingsModelBehavior::Motion {
+            group: "CAT_motion_lock".to_owned(),
+            index: 2,
+        },
+        SettingsModelBehavior::Expression {
+            name: "surprised.exp3.json".to_owned(),
+        },
+        SettingsModelBehavior::Expression {
+            name: "angry.exp3.json".to_owned(),
+        },
+    ];
+    let mut seeded = crate::tests::snapshot(1, false, true);
+    seeded.model_catalog.entries = vec![model_entry(
+        "standard",
+        SettingsModelOrigin::BuiltIn,
+        SettingsModelAvailability::Ready { behaviors },
+    )];
+    let rows = ShortcutScope::Model.rows(
+        &seeded.shortcuts,
+        seeded.active_model.as_ref(),
+        &seeded.model_catalog.entries,
+        &seeded.model_behavior_names,
+    );
+
+    let motions = palette_blocks(&rows, false);
+    let expressions = palette_blocks(&rows, true);
+    assert_eq!(
+        motions.iter().map(|line| line.len()).sum::<usize>(),
+        1,
+        "the two shipped groups declare the same clip; the palette shows it once"
+    );
+    assert_eq!(
+        expressions.iter().map(|line| line.len()).sum::<usize>(),
+        2,
+        "two distinct expressions stay two chips"
+    );
+    assert_eq!(
+        palette_behavior_name(SettingsLanguage::ChineseSimplified, motions[0][0]),
+        "点头"
+    );
+    let names: Vec<String> = expressions
+        .iter()
+        .flatten()
+        .map(|row| palette_behavior_name(SettingsLanguage::ChineseSimplified, row))
+        .collect();
+    assert!(
+        names.contains(&"惊讶".to_owned()),
+        "surprised must read as 惊讶"
+    );
+    assert!(
+        names.contains(&"生气".to_owned()),
+        "angry must read as 生气"
+    );
+    assert!(
+        !names.iter().any(|name| name.contains(".exp3.json")),
+        "a shipped expression must never print its file name"
+    );
+}

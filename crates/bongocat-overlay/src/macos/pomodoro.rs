@@ -102,7 +102,7 @@ impl PomodoroCountdown {
         // the icon set, and a countdown that reads as text is still a countdown.
         let icon = NSTextField::labelWithString(&NSString::from_str(COUNTDOWN_ICON), mtm);
         icon.setFont(Some(&NSFont::systemFontOfSize(16.0)));
-        set_white_text(&icon);
+        set_black_text(&icon);
         apply_text_shadow(&icon);
         content.addSubview(&icon);
 
@@ -114,7 +114,7 @@ impl PomodoroCountdown {
         // for the widest `mm:ss` it will ever show, which keeps it from moving
         // either.
         label.setFont(Some(&NSFont::systemFontOfSize(18.0)));
-        set_white_text(&label);
+        set_black_text(&label);
         apply_text_shadow(&label);
         content.addSubview(&label);
 
@@ -266,23 +266,26 @@ impl Drop for PomodoroCountdown {
 const COUNTDOWN_ICON: &str = "\u{1F345}";
 const COUNTDOWN_ICON_PAUSED: &str = "⏸";
 
-/// The countdown's own colour: white, whatever the system appearance is.
+/// The countdown's own colour: black, whatever the system appearance is.
 ///
 /// The panel is transparent, so the digits sit directly on the wallpaper and on
-/// whatever model is behind them — and a system label colour is black on a light
-/// wallpaper and white on a dark one, which means the timer changes colour as the
-/// user changes appearance. White is the one colour that reads as an overlay
-/// readout in both, and it is what the shadow below was written for.
-pub(crate) fn set_white_text(label: &NSTextField) {
-    label.setTextColor(Some(&NSColor::whiteColor()));
+/// whatever model is behind them. The countdown is drawn in black rather than
+/// following the system label colour (which flips with the appearance) or the
+/// old fixed white: it stays one stable, high-contrast ink on the light surface
+/// the HUD is normally read against. The light halo below keeps that black ink
+/// legible when a dark wallpaper happens to sit behind it.
+pub(crate) fn set_black_text(label: &NSTextField) {
+    label.setTextColor(Some(&NSColor::blackColor()));
 }
 
-/// A soft dark shadow behind the floating countdown text.
+/// A light halo behind the floating countdown text.
 ///
 /// With the panel background gone the glyphs sit directly on whatever is behind
-/// the cat, so white text needs an edge of its own or it disappears into a white
-/// wallpaper. The label's layer rasterizes the string it draws, so the shadow
-/// tracks the glyph outlines rather than reading as a box behind the text.
+/// the cat. Black text on a dark wallpaper needs an edge of its own, so the halo
+/// is white now that the ink is black — a dark shadow under black glyphs would
+/// only blur them together. The label's layer rasterizes the string it draws, so
+/// the shadow tracks the glyph outlines rather than reading as a box behind the
+/// text.
 pub(crate) fn apply_text_shadow(label: &NSTextField) {
     label.setWantsLayer(true);
     let Some(layer) = label.layer() else {
@@ -294,7 +297,7 @@ pub(crate) fn apply_text_shadow(label: &NSTextField) {
     // bindings carry none of them, so the selectors go through the same
     // `AnyObject` pointer route the stats panel's corner radius uses.
     unsafe {
-        let shadow_color = NSColor::blackColor().colorWithAlphaComponent(0.55);
+        let shadow_color = NSColor::whiteColor().colorWithAlphaComponent(0.85);
         let (): () = msg_send![layer_object, setShadowColor: &*shadow_color];
         let (): () = msg_send![layer_object, setShadowOpacity: 0.55f32];
         let (): () = msg_send![layer_object, setShadowRadius: 2.0f64];

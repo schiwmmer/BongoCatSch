@@ -260,22 +260,100 @@ pub(super) fn content(
         })
 }
 
+/// The clip behind a shipped motion, plus the name of what it actually does.
+///
+/// The three built-in packages declare the same two motion groups holding the
+/// same five clips in the same order. That is where the duplicate chips came
+/// from: `CAT_motion` and `CAT_motion_lock` are different groups but the same
+/// acts. Names are asserted only where the curve proves the act — `ParamAngleX`,
+/// `ParamAngleY` and `ParamAngleZ` for nod, head-shake and tilt, and
+/// `CatParamLeftHandDown` for the hand motion. The generic `Param`/`Param2`
+/// curves say nothing about intent, so those keep a neutral label rather than
+/// an invented action.
+fn preset_motion(group: &str, index: usize) -> Option<(&'static str, &'static str, &'static str)> {
+    match (group, index) {
+        ("CAT_motion" | "CAT_motion_lock", 0) => Some((
+            "live2d_motion1.motion3.json",
+            "示例动作 1",
+            "Sample Motion 1",
+        )),
+        ("CAT_motion" | "CAT_motion_lock", 1) => {
+            Some(("live2d_motion2.motion3.json", "放下左手", "Lower Left Hand"))
+        }
+        ("CAT_motion" | "CAT_motion_lock", 2) => Some(("nod.motion3.json", "点头", "Nod")),
+        ("CAT_motion" | "CAT_motion_lock", 3) => {
+            Some(("headshake.motion3.json", "摇头", "Shake Head"))
+        }
+        ("CAT_motion" | "CAT_motion_lock", 4) => Some(("tilt.motion3.json", "歪头", "Tilt Head")),
+        _ => None,
+    }
+}
+
+/// The shipped expressions, named by what their parameters do. The empty clip
+/// resets the face; `exp_1` narrows both eyes, `exp_2` closes the left one and
+/// `wink` the right. `Param4`/`Param5` carry no readable intent, so those two
+/// keep a neutral label instead of a guessed emotion.
+fn preset_expression(name: &str) -> Option<(&'static str, &'static str)> {
+    let stem = name.strip_suffix(".exp3.json").unwrap_or(name);
+    match stem {
+        "live2d_expression0" => Some(("恢复默认", "Reset Expression")),
+        "live2d_expression1" => Some(("表情 1", "Expression 1")),
+        "live2d_expression2" => Some(("表情 2", "Expression 2")),
+        "exp_1" => Some(("眯眼", "Squint")),
+        "exp_2" => Some(("闭左眼", "Close Left Eye")),
+        "smile" => Some(("微笑", "Smile")),
+        "surprised" => Some(("惊讶", "Surprised")),
+        "angry" => Some(("生气", "Angry")),
+        "wink" => Some(("眨右眼", "Wink")),
+        "focus" => Some(("专注", "Focus")),
+        _ => None,
+    }
+}
+
+/// The identity a palette chip stands for: the real clip for motions, the name
+/// without its file suffix for expressions. The two shipped motion groups then
+/// collapse to one chip per act. This is a rendering filter only — the shortcut
+/// rows and their stable `behavior_id`s are untouched, so existing bindings and
+/// user renames keep resolving to the same behavior.
+fn palette_identity(behavior: &SettingsModelBehavior) -> String {
+    match behavior {
+        SettingsModelBehavior::Motion { group, index } => preset_motion(group, *index)
+            .map(|(clip, _, _)| format!("motion:{clip}"))
+            .unwrap_or_else(|| format!("motion:{group}:{index}")),
+        SettingsModelBehavior::Expression { name } => {
+            let stem = name.strip_suffix(".exp3.json").unwrap_or(name);
+            format!("expression:{stem}")
+        }
+    }
+}
+
+/// Labels follow the same catalog the rest of the page reads, so a Chinese UI
+/// shows Chinese names and an English UI shows readable English ones.
+fn palette_label_is_chinese(language: SettingsLanguage) -> bool {
+    language.catalog_locale() == "zh-CN"
+}
+
 /// The label of one behavior palette chip.
 ///
 /// The shortcut rows above name a behavior by its one-based position ("动作 1",
 /// "表情 2") because a chord is recorded against a position. The palette is the
-/// same behaviors asked by name — which expression, which motion — so it shows
-/// the resource identity the model package declares: an expression names itself
-/// and a motion names its group. A behavior the user renamed keeps that name,
+/// same behaviors asked by what they do, so shipped resources get a readable
+/// name instead of a file name and imported ones fall back to the identity the
+/// package declares. A behavior the user renamed keeps that name,
 /// so the palette and the row a chord is bound to can never disagree about
 /// which behavior a click plays.
-fn palette_behavior_name(language: SettingsLanguage, row: &ShortcutRow) -> String {
+pub(super) fn palette_behavior_name(language: SettingsLanguage, row: &ShortcutRow) -> String {
     if let Some(name) = row.custom_name.as_deref() {
         return name.to_owned();
     }
+    let chinese = palette_label_is_chinese(language);
     match row.playable.as_ref().map(|playable| &playable.behavior) {
-        Some(SettingsModelBehavior::Expression { name }) => name.clone(),
-        Some(SettingsModelBehavior::Motion { group, .. }) => group.clone(),
+        Some(SettingsModelBehavior::Expression { name }) => preset_expression(name)
+            .map(|(zh, en)| if chinese { zh } else { en }.to_owned())
+            .unwrap_or_else(|| name.clone()),
+        Some(SettingsModelBehavior::Motion { group, index }) => preset_motion(group, *index)
+            .map(|(_, zh, en)| if chinese { zh } else { en }.to_owned())
+            .unwrap_or_else(|| group.clone()),
         None => row.name(language),
     }
 }
@@ -290,8 +368,9 @@ const BEHAVIOR_PALETTE_COLUMNS: usize = 4;
 /// costs a whole line, so a model with twenty behaviors reads as twenty
 /// lines of chords and nothing else. The palette is the same list in the shape
 /// the model package declares it — expressions in one block, motions in the
-/// other — and a name is the entire control: there is no chord to read and
-/// nothing to record, so pressing one only ever plays.
+/// other — with each real act shown once and named by what it does. A name is
+/// the entire control: there is no chord to read and nothing to record, so
+/// pressing one only ever plays.
 fn behavior_palettes(
     cx: &mut Context<SettingsView>,
     language: SettingsLanguage,
@@ -377,13 +456,19 @@ pub(super) fn model_behavior_palette(
 /// so the kind a name belongs to is decided here rather than by the caller
 /// re-reading each row's behavior. An empty result means the model has none of
 /// that kind, and the palette draws no heading for an empty block.
-fn palette_blocks(rows: &[ShortcutRow], expressions: bool) -> Vec<Vec<&ShortcutRow>> {
+pub(super) fn palette_blocks(rows: &[ShortcutRow], expressions: bool) -> Vec<Vec<&ShortcutRow>> {
+    let mut seen = std::collections::HashSet::new();
     rows.iter()
         .filter(|row| {
-            let is_expression = row.playable.as_ref().is_some_and(|playable| {
-                matches!(playable.behavior, SettingsModelBehavior::Expression { .. })
-            });
+            let Some(playable) = row.playable.as_ref() else {
+                return false;
+            };
+            let is_expression =
+                matches!(playable.behavior, SettingsModelBehavior::Expression { .. });
             is_expression == expressions
+                // The two shipped motion groups declare the same clips. Keep the
+                // first declaration of each identity so every act is shown once.
+                && seen.insert(palette_identity(&playable.behavior))
         })
         .collect::<Vec<_>>()
         .chunks(BEHAVIOR_PALETTE_COLUMNS)
@@ -445,11 +530,7 @@ fn behavior_palette_chip(
             // A trial is not bound to a chord, so it is never gated by the
             // model behavior shortcuts switch — only the structural guards in
             // the play path remain.
-            view.play_behavior_preview(
-                playable.model.clone(),
-                playable.behavior.clone(),
-                cx,
-            );
+            view.play_behavior_preview(playable.model.clone(), playable.behavior.clone(), cx);
         }))
         .into_any_element()
 }
