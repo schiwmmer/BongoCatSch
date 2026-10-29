@@ -17,12 +17,9 @@ body:
     id: platform
     attributes:
       label: 平台
-      description: 这个功能面向哪个操作系统？Linux 不在发布范围内，相关建议暂不排期。
+      description: 这个功能面向哪个操作系统？macOS 是唯一发布平台。
       options:
-        - Windows
         - macOS
-        - 两个平台都要
-        - Linux（不在发布范围内）
     validations:
       required: true
 

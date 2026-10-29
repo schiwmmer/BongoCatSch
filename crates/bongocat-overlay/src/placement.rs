@@ -5,7 +5,7 @@
 //!
 //! * The region a window is kept inside is the **union of the connected
 //!   displays' frames**, not the work area of one display. A model window may
-//!   therefore sit over a taskbar, a Dock, or a menu bar, and it keeps the
+//!   therefore sit over a Dock or a menu bar, and it keeps the
 //!   negative coordinates of a display placed left of or above the primary one.
 //! * A window that straddles two adjacent displays is left alone as long as
 //!   every part of it still lands on a display. Only a window that actually
@@ -31,16 +31,16 @@ use crate::{OverlayScreenBounds, OverlayWindowBounds};
 /// multi-display drag (the window is usually released mid-crossing, and the
 /// user often regrabs it immediately) and short enough that a window dragged
 /// off the desktop does not stay lost. Native move loops keep the frame source
-/// blocked for the whole drag: with the system drag loop on Windows and the
-/// AppKit window drag on macOS the session only observes the settled box after
-/// the pointer is released, so the delay is always a post-drag delay.
+/// blocked for the whole drag: with the AppKit window drag the session only
+/// observes the settled box after the pointer is released, so the delay is
+/// always a post-drag delay.
 pub(crate) const PLACEMENT_SETTLE_DELAY: Duration = Duration::from_millis(1_000);
 
 /// How long an inspection of the window's placement stays valid.
 ///
 /// A settled window whose box is already known to be on a display does not need
 /// to be re-checked on every frame, which matters because enumerating displays
-/// allocates on macOS and calls into the window manager on Windows. The
+/// allocates on macOS. The
 /// inspection is nevertheless revalidated regularly so that a display change
 /// under a stationary window (unplugging an external display, a resolution
 /// change) is still noticed and corrected without any platform notification.
@@ -106,10 +106,9 @@ pub(crate) fn bounds_inside_screens(
 ///
 /// The target display is the one with the largest intersection with the window,
 /// with ties broken by the nearest center; a window that intersects no display
-/// at all targets the nearest one. This matches the display selection the two
-/// platform sessions used before the constraint became portable, where Windows
-/// asked for `MonitorFromRect(.., MONITOR_DEFAULTTONEAREST)` and macOS picked
-/// the largest overlap or, failing that, the smallest center distance.
+/// at all targets the nearest one. This matches the display selection the macOS
+/// session used before the constraint became portable: picking the largest
+/// overlap or, failing that, the smallest center distance.
 ///
 /// The window size is never changed, so a window larger than its display is
 /// pinned to the display's origin instead. Callers must check
@@ -332,7 +331,7 @@ mod tests {
             &screens,
             OverlayWindowBounds::new(-200, 300, 350, 350)
         ));
-        // Straddling the seam while sitting over the bottom taskbar strip of both
+        // Straddling the seam while sitting over the bottom edge of both
         // displays is allowed: the displays, not their work areas, are the limit.
         assert!(bounds_inside_screens(
             &screens,

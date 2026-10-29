@@ -23,17 +23,14 @@ cargo run -p bongocat-app --release --features production
 The environment is a mutually exclusive compile-time feature, not a runtime environment variable;
 the legacy `BONGOCAT_BUILD_ENV` name is ignored.
 
-This is the current formal visible product entry on macOS and Windows. It loads the selected bundled
+This is the current formal visible product entry on macOS. It loads the selected bundled
 preset (`standard` by default), starts the product runtime and platform input producer, and displays
-the transparent Metal or D3D11 overlay. Closing the settings window leaves the runtime, input, and
+the transparent Metal overlay. Closing the settings window leaves the runtime, input, and
 overlay active and destroys the settings GPUI window; the next open creates a fresh settings entity
 from the current runtime snapshot. The process-local settings navigation memory restores the last
 top-level sidebar page until the application restarts. Update windows also destroy their window on
-close while their worker continues independently. Explicit Windows quit first stops and joins every
-BongoCat-owned runtime, input, audio, renderer, GPU, and overlay owner. The platform adapter then
-terminates the process without dropping the final GPUI window, because GPUI 0.2.2 synchronously
-re-enters its borrowed `AsyncApp` from `WM_DESTROY`. This final-step workaround must be removed when
-a fixed GPUI revision is adopted.
+close while their worker continues independently. Explicit quit first stops and joins every
+BongoCat-owned runtime, input, audio, renderer, GPU, and overlay owner, then terminates the process.
 The application stays active until an explicit Quit command by default. `--run-seconds <seconds>`
 with a positive value is reserved for bounded smoke and diagnostic runs; `0` is the explicit spelling
 of the normal unbounded lifetime used by platform startup-item registrations.
@@ -47,10 +44,7 @@ cargo run -p bongocat-app --release -- --run-seconds 4 --settings-window-smoke
 
 On macOS, grant Input Monitoring permission to the launching terminal for global keyboard and
 mouse-button animation. Permission denial is reported as a degraded input state and does not
-prevent the model from appearing. On Windows, the product uses a dedicated hidden Raw Input owner
-window, periodically reconciles locally pressed candidates with `GetAsyncKeyState`, and resets input
-on device, session, power, queue, and service lifecycle changes. Physical PixPin, Win+L, UAC,
-administrator-boundary, and long-running input tests remain release evidence tasks.
+prevent the model from appearing.
 
 Production must be selected at build time. The packaging entry point rejects an unknown
 `--environment` value before invoking Cargo and translates the selection into the app's Cargo
@@ -63,9 +57,8 @@ just build
 `just build` forwards its arguments to `crates/bongocat-packaging`, which is the only place that
 decides how the product is compiled and packaged. It compiles the release binary with the immutable
 `production` feature where selected, writes build provenance, and hands the executable to
-`cargo-packager`, which owns the macOS `.app` layout, `Info.plist` generation and the Windows NSIS
-installer. Both local developers and CI run this same entry point, so there is one code path and one
-configuration:
+`cargo-packager`, which owns the macOS `.app` layout and `Info.plist` generation. Both local
+developers and CI run this same entry point, so there is one code path and one configuration:
 
 ```text
 just build                                            # Production, host target, all artifacts
@@ -78,37 +71,20 @@ The product version has one source of truth: `[workspace.package].version` in th
 All workspace crates inherit it, including `bongocat-packaging`, so Cargo itself resolves the
 value before the packager runs; the settings window, system menu, and update runtime read the
 compiled `CARGO_PKG_VERSION`. `Cargo.lock` records the resolved workspace versions as generated
-metadata; a release changes the root manifest once and lets Cargo refresh the lockfile. The Windows
-executable resource derives its file, product, and display versions from that value, and
+metadata; a release changes the root manifest once and lets Cargo refresh the lockfile.
 `cargo-packager` writes `CFBundleShortVersionString` into the bundle from the same configured
 version. The release workflow refuses to publish a tag that disagrees with `just version`.
 
 On macOS `just build` produces `target/package/BongoCat.app` and
 `target/package/BongoCat-<version>-<arch>.dmg`, and prints both absolute paths. The disk image
-contains the signed bundle plus an `/Applications` drop link. On Windows it produces the x64 NSIS
-current-user installer at `target/package/BongoCat_<version>_x64.exe`.
+contains the signed bundle plus an `/Applications` drop link.
 
 Build provenance is written as path-free JSON with the source commit, `Cargo.lock` SHA-256,
 Rust toolchain, target, profile, feature set, and build environment. The macOS package includes
-`Contents/Resources/build-provenance.json`; the Windows installer payload does too.
-
-Windows x64 packaging is a current-user NSIS install. `cargo-packager` obtains its own NSIS
-toolchain, so no release workstation state is required, and the installer requests no administrator
-privileges and writes only HKCU uninstall metadata plus its own product directory. The installer is
-signed only when a signing identity or signing command is configured; without one the release
-workflow reports the unsigned installer as unsuitable for a stable release.
-The wizard opens with a language picker covering exactly the application languages (Simplified and
-Traditional Chinese, English, Arabic, Vietnamese, Brazilian Portuguese, Korean, French); it preselects the
-system language and falls back to English. The choice only changes the installer and uninstaller
-text, never the application language setting. NSIS stores it in HKCU, so a machine that already has
-BongoCat installed reuses the stored language without showing the picker, and silent updates never
-show it. `cargo-packager` embeds the installer messages for every language except Vietnamese, whose
-strings live in `crates/bongocat-packaging/installer/Vietnamese.nsh`. Windows install,
-upgrade, uninstall, and rollback smoke remain release gates.
+`Contents/Resources/build-provenance.json`.
 
 Preset models are product resources, not user data. macOS loads them from
-`BongoCat.app/Contents/Resources/models`; Windows packages must place them under
-`resources/models` beside `bongocat-app.exe`. An unpackaged development binary falls back to the
+`BongoCat.app/Contents/Resources/models`. An unpackaged development binary falls back to the
 repository resource tree only when that product-relative location is absent.
 
 The application does not expose a runtime environment switch. Both environments use the same
@@ -147,10 +123,9 @@ values are nearest-rank percentiles over the interval surrounding each Metal
 full preview-loop iterations that reached the next 60 FPS deadline before the
 loop could sleep. The collector retains at most 4,096 samples and reports
 additional samples as `samples_dropped`; it intentionally excludes input,
-runtime handoff, and sleep. Windows' switch-only preview reports
-`frame_timing=None` until it has an equivalent paced diagnostic path.
+runtime handoff, and sleep.
 
-On Windows or macOS, exercise transactional GPU model replacement with all three presets by running
+On macOS, exercise transactional GPU model replacement with all three presets by running
 100 measured standard -> keyboard -> gamepad -> standard cycles (300 reported generations):
 
 ```text
@@ -160,13 +135,13 @@ cargo run -p bongocat-overlay --release -- standard 0 --switch-cycles 100
 The switch probe first injects one invalid texture preparation and requires the current CPU model,
 input bindings, and GPU generation to remain active and drawable. Rejected candidate generations
 may create a gap, but committed generations must remain strictly monotonic. Every valid generation
-performs a non-transparent frame readback. Before the requested Windows measurement interval, the
+performs a non-transparent frame readback. Before the requested macOS measurement interval, the
 probe runs at least 100 equivalent warmup cycles and waits for driver workers to settle. The warmup
-high-water mark is a snapshot, not a hard ceiling: process-global D3D11, DXGI, and thread-pool
+high-water mark is a snapshot, not a hard ceiling: process-global Metal and thread-pool
 workers can be created after the settle window and then persist for the life of the process, so the
 probe accepts a settled count within two threads of the mark while still rejecting the per-switch
 growth that scales with the measured switch count. It also rejects more than four additional
-handles or DXGI local-memory growth, and the preview reports the warmup mark and the settled count
+handles, and the preview reports the warmup mark and the settled count
 so the remaining allowance stays visible. The macOS probe rejects Metal allocation growth between
 warmed-up standard baselines.
 
@@ -186,7 +161,7 @@ transport; pointer, head, and eye parameters use the active display's logical vi
 gilrs fork now exposes bounded backend queue/epoch recovery and an explicit bounded shutdown
 acknowledgement; BongoCat maps those results into its own diagnostics, while physical gamepad
 focus, device, and long-lifecycle evidence remains a release gate. The product entry now owns this
-runtime/input/render lifecycle on both launch platforms. GPUI settings coexistence, installed-model
+runtime/input/render lifecycle on macOS. GPUI settings coexistence, installed-model
 selection, physical gamepad validation, and remaining lifecycle evidence are separate work items.
 
 Cubism model evaluation and Metal GPU ownership are separated by the platform-independent
@@ -213,7 +188,7 @@ parameter samples. Each frame restores the fresh-model part opacity values befor
 motion, preventing stop or replacement from leaving stale part visibility. Model3 Parameter groups
 drive R5-compatible Model curves: EyeBlink multiplies matching parameter curves, LipSync adds to
 them, and both update unmatched group parameters with the motion fade. Model Opacity travels in the
-immutable render snapshot and is multiplied only in the final D3D11/Metal color pass, leaving mask
+immutable render snapshot and is multiplied only in the final Metal color pass, leaving mask
 generation unchanged.
 Product input is applied after motion curves so an actual pressed key or button remains authoritative
 for hand parameters.

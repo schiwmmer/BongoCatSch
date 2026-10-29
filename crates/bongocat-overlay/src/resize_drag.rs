@@ -32,8 +32,8 @@ pub(crate) const MAXIMUM_RESIZE_DRAG_SCALE_PERCENT: u16 = 400;
 
 /// `100%` 缩放时窗口的基准尺寸，与窗口 bounds 使用同一坐标单位。
 ///
-/// Windows 传 DPI 换算后的物理像素，macOS 传点，因此拖动状态机本身不需要知道
-/// DPI，只需要保证 `base` 与它输出的尺寸同单位。
+/// macOS 传点，因此拖动状态机本身不需要知道 DPI，只需要保证 `base` 与它
+/// 输出的尺寸同单位。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct ResizeBase {
     width: f64,

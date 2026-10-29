@@ -46,20 +46,16 @@ pub struct SettingsInputDiagnostics {
 
 /// The platform capability global input needs, and whether this process has it.
 ///
-/// Each platform gates input behind exactly one thing, and the two are not the
-/// same kind of thing: macOS asks the user for the Input Monitoring TCC grant,
-/// while Windows needs an elevated token to keep receiving Raw Input while a
-/// higher-integrity window is in the foreground (ADR-0032). A single
-/// granted/denied/unsupported enum can only name the macOS case — `unsupported`
-/// on Windows says "this platform has no such concept" when the truth is "this
-/// platform has a different one, and right now the process does not have it".
-/// Naming the capability and saying whether it is present is true on both
-/// platforms and actionable on both.
+/// macOS gates input behind the Input Monitoring TCC grant (ADR-0032). A single
+/// granted/denied/unsupported enum names that case: `unsupported` would say
+/// "this platform has no such concept" when the truth is "this platform has a
+/// different one, and right now the process does not have it". Naming the
+/// capability and saying whether it is present is actionable.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SettingsInputCapability {
-    /// The platform's own stable name for it: `input_monitoring` on macOS,
-    /// `administrator` on Windows. Anonymous by construction — a capability name
-    /// is a property of the platform, never of the machine or the user.
+    /// The platform's own stable name for it: `input_monitoring` on macOS.
+    /// Anonymous by construction — a capability name is a property of the
+    /// platform, never of the machine or the user.
     pub name: &'static str,
     /// Whether this process currently has the capability.
     pub available: bool,

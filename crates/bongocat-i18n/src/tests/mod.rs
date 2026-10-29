@@ -89,7 +89,7 @@ fn placeholders(value: &str) -> BTreeSet<&str> {
 }
 
 /// Platform override suffixes the catalog is expected to carry (ADR-0028).
-const PLATFORM_OVERRIDES: [&str; 2] = ["macos", "windows"];
+const PLATFORM_OVERRIDES: [&str; 1] = ["macos"];
 
 /// A catalog reduced to the two questions a source scan asks of it.
 struct Catalog {

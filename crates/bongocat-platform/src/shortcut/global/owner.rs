@@ -1,10 +1,9 @@
 //! The thread that holds the platform manager and pumps its messages.
 //!
-//! On Windows the platform posts hotkey events to the message queue of the
-//! thread that created the manager's window, so the owner has to pump messages
-//! rather than sleep — which is why the two `wait_and_pump` definitions below
-//! exist and why one of them is platform-gated. The edges table is what turns
-//! the platform's pressed/released pairs into one event per press: the platform
+//! On macOS hotkey events arrive through the Carbon handler on the main event
+//! loop rather than on the owner thread, so the owner waits on its interval and
+//! reads whatever the manager has queued. The edges table is what turns the
+//! platform's pressed/released pairs into one event per press: the platform
 //! repeats a held key, and a repeat is not a second shortcut.
 
 use super::*;
@@ -104,10 +103,9 @@ pub(crate) fn resolve_trigger<'a>(
 
 /// Tracks which registered hotkeys are physically held.
 ///
-/// Both backends report one `Pressed` event per operating-system key
-/// repeat while a chord stays down: Windows forwards every `WM_HOTKEY`
-/// from the message pump, and the Carbon handler forwards every
-/// auto-repeat. Dispatching on `Pressed` alone therefore turns a single
+/// The Carbon handler forwards one `Pressed` event per operating-system key
+/// auto-repeat while a chord stays down. Dispatching on `Pressed` alone
+/// therefore turns a single
 /// key press into a burst of triggers. Only the transition into the held
 /// state is a press edge, and the matching `Released` re-arms the binding,
 /// so each physical press dispatches its target once.
@@ -137,32 +135,7 @@ impl PressEdges {
     }
 }
 
-#[cfg(target_os = "macos")]
 pub(crate) fn wait_and_pump(interval: Duration) {
     std::thread::sleep(interval);
 }
 
-#[cfg(target_os = "windows")]
-pub(crate) fn wait_and_pump(interval: Duration) {
-    use windows::Win32::UI::WindowsAndMessaging::{
-        DispatchMessageW, MSG, MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE,
-        PeekMessageW, QS_ALLINPUT, TranslateMessage,
-    };
-    // SAFETY: no Win32 objects are created here; the calls only wait for
-    // and drain this thread's message queue so the `WM_HOTKEY` messages
-    // for the manager's hidden window (created on this thread) reach its
-    // window procedure.
-    unsafe {
-        let _ = MsgWaitForMultipleObjectsEx(
-            None,
-            interval.as_millis().min(u32::MAX as u128) as u32,
-            QS_ALLINPUT,
-            MWMO_INPUTAVAILABLE,
-        );
-        let mut message = MSG::default();
-        while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
-            let _ = TranslateMessage(&message);
-            DispatchMessageW(&message);
-        }
-    }
-}

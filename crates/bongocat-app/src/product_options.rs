@@ -99,57 +99,17 @@ pub(crate) struct RunOptions {
     pub(crate) startup_permission_smoke: bool,
 
     /// Report how the application answers a second launch.
-    #[cfg(target_os = "macos")]
     #[arg(long)]
     pub(crate) application_reopen_smoke: bool,
 
     /// Report the login item state and leave it as it was found.
-    #[cfg(target_os = "macos")]
     #[arg(long)]
     pub(crate) startup_item_smoke: bool,
 
-    /// Report how a second launch is turned away.
-    #[cfg(target_os = "windows")]
-    #[arg(long)]
-    pub(crate) single_instance_smoke: bool,
 
-    /// The file the primary instance writes once it is ready to be notified.
-    ///
-    /// Hidden for the same reason as `--panic-diagnostics-smoke-child`: CI plumbing
-    /// that only means anything next to `--single-instance-smoke`.
-    #[cfg(target_os = "windows")]
-    #[arg(
-        long,
-        value_name = "PATH",
-        hide = true,
-        requires = "single_instance_smoke",
-        value_parser = non_empty_path
-    )]
-    pub(crate) single_instance_ready_file: Option<PathBuf>,
 
-    /// The file a secondary instance writes to report what the primary did.
-    #[cfg(target_os = "windows")]
-    #[arg(
-        long,
-        value_name = "PATH",
-        hide = true,
-        requires = "single_instance_smoke",
-        value_parser = non_empty_path
-    )]
-    pub(crate) single_instance_result_file: Option<PathBuf>,
 }
 
-/// A path argument that rejects an empty value.
-///
-/// `clap` accepts `--flag ""` as a present value, and an empty marker file path would
-/// name the process's working directory rather than nothing at all.
-#[cfg(target_os = "windows")]
-pub(crate) fn non_empty_path(value: &str) -> Result<PathBuf, String> {
-    if value.is_empty() {
-        return Err("a non-empty file path is required".to_owned());
-    }
-    Ok(PathBuf::from(value))
-}
 
 impl RunOptions {
     pub(crate) fn parse(
@@ -193,15 +153,7 @@ impl RunOptions {
             || self.storage_test_injection_arguments_present()
     }
 
-    /// Whether a single-instance flag or marker file was named.
-    #[cfg(target_os = "windows")]
-    pub(crate) fn single_instance_arguments_present(&self) -> bool {
-        self.single_instance_smoke
-            || self.single_instance_ready_file.is_some()
-            || self.single_instance_result_file.is_some()
-    }
 
-    #[cfg(not(target_os = "windows"))]
     pub(crate) fn single_instance_arguments_present(&self) -> bool {
         false
     }
@@ -210,15 +162,10 @@ impl RunOptions {
     ///
     /// Both report something a script cannot answer, and both would otherwise leave
     /// the startup permission prompt on screen in front of the harness.
-    #[cfg(target_os = "macos")]
     pub(crate) fn macos_smoke_arguments_present(&self) -> bool {
         self.application_reopen_smoke || self.startup_item_smoke
     }
 
-    #[cfg(not(target_os = "macos"))]
-    pub(crate) fn macos_smoke_arguments_present(&self) -> bool {
-        false
-    }
 
     /// Whether a storage-test-injection harness was named.
     #[cfg(feature = "storage-test-injection")]
@@ -238,13 +185,8 @@ impl RunOptions {
     pub(crate) fn opens_settings_window_on_start(&self) -> bool {
         let mut opens_settings_window =
             self.settings_window_smoke || self.settings_window_open_smoke;
-        #[cfg(target_os = "macos")]
         {
             opens_settings_window |= self.application_reopen_smoke;
-        }
-        #[cfg(target_os = "windows")]
-        {
-            opens_settings_window |= self.single_instance_smoke;
         }
         opens_settings_window
     }

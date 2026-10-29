@@ -1,4 +1,5 @@
 # ADR-0013: Startup Item Capability and Environment Isolation
+> ⚠️ 本决策（或其 Windows 部分）随 **Windows 支持的移除（ADR-0099）** 失效，正文保留作历史记录。
 
 状态：Superseded by ADR-0043
 日期：2026-08-31

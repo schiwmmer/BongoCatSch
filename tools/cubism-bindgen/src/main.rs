@@ -73,10 +73,6 @@ struct Target {
 
 const TARGETS: &[Target] = &[
     Target {
-        rust: "x86_64-pc-windows-msvc",
-        clang: "x86_64-pc-windows-msvc",
-    },
-    Target {
         rust: "aarch64-apple-darwin",
         clang: "arm64-apple-darwin",
     },
@@ -576,8 +572,12 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), TARGETS.len());
-        assert!(!names.contains(&"i686-pc-windows-msvc"));
-        assert!(!names.contains(&"aarch64-pc-windows-msvc"));
+        for name in &names {
+            assert!(
+                !name.contains("pc-windows-msvc"),
+                "Windows is not a shipped target: {name} must not be bound",
+            );
+        }
     }
 
     #[test]

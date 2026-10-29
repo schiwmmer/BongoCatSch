@@ -53,13 +53,8 @@ pub use shortcut::{
     GlobalShortcutCounters, GlobalShortcutService, GlobalShortcutServiceError, ShortcutHotkeyError,
 };
 pub use shortcut::{ShortcutDispatch, ShortcutDispatchError, ShortcutDispatcher};
-#[cfg(target_os = "windows")]
-mod single_instance_windows;
-#[cfg(target_os = "windows")]
-pub use single_instance_windows::{SingleInstance, SingleInstanceStart};
 
 mod theme;
-#[cfg(target_os = "macos")]
 pub use theme::system_appearance;
 pub use theme::{
     AppTheme, NativeThemeError, SystemAppearance, apply_process_theme, apply_theme,
@@ -88,28 +83,13 @@ pub use startup_permission::{
 mod native_window;
 pub use native_window::NativeWindowError;
 
-#[cfg(target_os = "macos")]
 mod gilrs_gamepad;
-#[cfg(target_os = "macos")]
 mod macos;
-#[cfg(target_os = "macos")]
 pub use macos::{
     MacInputService, current_display_bounds, display_bounds_for_window, dock_icon_is_visible,
     global_window_origin, hide_native_window, input_monitoring_permission, local_window_origin,
     native_window_is_visible, request_input_monitoring_permission, set_dock_icon_visible,
     show_native_window, system_language, window_content_top_inset,
-};
-#[cfg(target_os = "windows")]
-mod gilrs_gamepad;
-#[cfg(target_os = "windows")]
-mod windows;
-#[cfg(target_os = "windows")]
-pub use windows::WindowsInputService;
-#[cfg(target_os = "windows")]
-pub use windows::{
-    current_display_bounds, display_bounds_for_window, global_window_origin, hide_native_window,
-    local_window_origin, request_native_window_close, show_native_window, system_language,
-    taskbar_icon_is_visible, terminate_after_product_shutdown,
 };
 
 /// Let the user choose the model folder to import.

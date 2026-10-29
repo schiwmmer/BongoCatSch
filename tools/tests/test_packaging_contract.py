@@ -2,19 +2,15 @@
 
 The build and packaging entry point is `crates/bongocat-packaging`, which drives
 `cargo-packager` (see `docs/adr/0033-build-packaging-and-release-toolchain.md`).
-`cargo-packager` owns bundle layout, `Info.plist` generation and the NSIS
-installer, so this file no longer asserts their internals. What it keeps is the
-set of decisions only this repository can make:
+`cargo-packager` owns bundle layout and `Info.plist` generation, so this file no
+longer asserts their internals. What it keeps is the set of decisions only this
+repository can make:
 
 * which targets ship and which artifacts each target publishes,
-* that the Windows installer stays per-user,
-* that the Windows installer offers exactly the application languages,
-* that the Windows installer is published under the release name,
 * that the macOS bundle overlay and the runtime resource lookup agree,
 * that `just` stays a thin entry point and no self-built packaging script returns.
 
-Those were the guarantees the deleted `scripts/` and `windows/installer/BongoCat.nsi`
-used to enforce by construction.
+Those were the guarantees the deleted `scripts/` used to enforce by construction.
 """
 
 import re
@@ -26,11 +22,9 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKAGER = ROOT / "crates" / "bongocat-packaging" / "src" / "main.rs"
 FINDER_STORE = ROOT / "crates" / "bongocat-packaging" / "src" / "finder_store.rs"
 PACKAGER_MANIFEST = ROOT / "crates" / "bongocat-packaging" / "Cargo.toml"
-I18N_LOCALES = ROOT / "crates" / "bongocat-i18n" / "locales"
 JUSTFILE = ROOT / "justfile"
 MACOS_INFO = ROOT / "macos" / "Info.plist"
 APP_PRESET_ROOT = ROOT / "crates" / "bongocat-app" / "src" / "preset_root.rs"
-WINDOWS_RESOURCE = ROOT / "crates" / "bongocat-app" / "windows" / "bongocat-app.rc"
 UPDATE_RELEASE = ROOT / "crates" / "bongocat-update" / "src" / "release.rs"
 DEPENDENCY_POLICY = ROOT / "deny.toml"
 WORKFLOW_DIRECTORY = ROOT / ".github" / "workflows"
@@ -43,94 +37,35 @@ def read(path):
 
 def shipped_targets():
     """The release targets declared by the packaging tool, in declaration order."""
-    body = re.search(r"const ALL: \[Self; 3\] = \[(.*?)\];", read(PACKAGER), re.DOTALL)
+    body = re.search(r"const ALL: \[Self; 2\] = \[(.*?)\];", read(PACKAGER), re.DOTALL)
     if body is None:
         raise AssertionError("the packaging tool must declare its release target list")
     return re.findall(r"Self::([A-Za-z0-9_]+)", body.group(1))
 
 
 class PackagingTargetTests(unittest.TestCase):
-    def test_exactly_three_release_targets_ship(self):
+    def test_exactly_two_release_targets_ship(self):
         variants = re.search(r"enum ReleaseTarget \{(.*?)\n\}", read(PACKAGER), re.DOTALL)
         self.assertIsNotNone(variants, "ReleaseTarget must exist")
 
         declared = re.findall(r"^    ([A-Za-z0-9_]+),$", variants.group(1), re.MULTILINE)
-        self.assertEqual(len(declared), 3, f"expected three targets, found {declared}")
-        self.assertEqual(len(shipped_targets()), 3)
+        self.assertEqual(len(declared), 2, f"expected two targets, found {declared}")
+        self.assertEqual(len(shipped_targets()), 2)
 
         source = read(PACKAGER)
-        for target in ("aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-pc-windows-msvc"):
+        for target in ("aarch64-apple-darwin", "x86_64-apple-darwin"):
             with self.subTest(target=target):
                 self.assertIn(f'"{target}"', source)
-
-        # Windows ARM64 is not shipped: Cubism R5 has no desktop ARM64 Core and
-        # Windows runs the x64 build under emulation.
-        self.assertNotIn("aarch64-pc-windows-msvc", source)
-        self.assertNotIn("i686-pc-windows-msvc", source)
+        for unsupported in ("pc-windows-msvc", "i686-pc-windows-msvc"):
+            with self.subTest(unsupported=unsupported):
+                self.assertNotIn(unsupported, source)
 
     def test_every_release_target_publishes_the_expected_artifacts(self):
-        body = re.search(
-            r"const fn release_formats\(self\).*?match self \{(.*?)\n        \}",
-            read(PACKAGER),
-            re.DOTALL,
-        )
-        self.assertIsNotNone(body, "release_formats must declare the artifact set")
-        apple, windows = body.group(1).split("Self::WindowsX86_64")
-
-        self.assertIn("PackageFormat::App", apple)
-        self.assertIn("PackageFormat::Dmg", apple)
-        self.assertIn("PackageFormat::Nsis", windows)
-        self.assertNotIn("PackageFormat::Wix", body.group(1), "MSI is not a BongoCat artifact")
-
-    def test_windows_installer_stays_per_user(self):
         source = read(PACKAGER)
-        self.assertIn("NSISInstallerMode::CurrentUser", source)
-        self.assertNotIn("NSISInstallerMode::PerMachine", source)
-        self.assertNotIn("NSISInstallerMode::Both", source)
-
-    def test_windows_installer_offers_exactly_the_application_languages(self):
-        # Each application catalog maps to the NSIS language of the same variety. A new
-        # catalog without an installer language (or the reverse) fails here.
-        nsis_languages = {
-            "en-US": "English",
-            "zh-CN": "SimpChinese",
-        }
-        catalogs = {path.stem for path in I18N_LOCALES.glob("*.json")}
-        self.assertEqual(catalogs, set(nsis_languages))
-
-        source = read(PACKAGER)
-        declared = re.search(r"const INSTALLER_LANGUAGES: \[&str; \d+\] = \[(.*?)\];", source, re.DOTALL)
-        self.assertIsNotNone(declared, "the installer language list must be declared")
-        languages = re.findall(r'"([A-Za-z]+)"', declared.group(1))
-        self.assertEqual(sorted(languages), sorted(nsis_languages.values()))
-        self.assertEqual(languages[0], "English", "English is the fallback language")
-        # Both catalogs use cargo-packager's own installer strings, so the build
-        # injects no custom language file.
-        self.assertNotIn("installer/Vietnamese.nsh", source)
-
-    def test_windows_installer_is_published_under_the_product_release_name(self):
-        # cargo-packager names the NSIS installer after the main binary and
-        # appends `-setup`, and exposes no option for it. The published name is a
-        # product decision, so the packaging entry point renames the finished
-        # installer and the release workflow asserts the exact name.
-        source = read(PACKAGER)
-        self.assertIn("fn installer_file_name(self)", source)
-        self.assertIn("fn rename_windows_installer(", source)
-        self.assertIn('"{PRODUCT_NAME}_{}_{}.exe"', source)
-        self.assertIn("rename_windows_installer(target, &mut artifacts)?;", source)
-
-        workflow = read(RELEASE_WORKFLOW)
-        self.assertIn("BongoCat_${env:version}_x64.exe", workflow)
-        # The installer is the Windows update payload, so it is uploaded together with
-        # the signature and the manifest the updater reads.
-        for uploaded in (
-            "target/package/BongoCat_*.exe",
-            "target/package/BongoCat_*.exe.sig",
-            "target/package/windows-x86_64.json",
-        ):
-            with self.subTest(uploaded=uploaded):
-                self.assertIn(uploaded, workflow)
-        self.assertNotIn("-setup", workflow, "the published installer drops the packaging suffix")
+        self.assertIn("PackageFormat::App", source)
+        self.assertIn("PackageFormat::Dmg", source)
+        self.assertNotIn("PackageFormat::Nsis", source)
+        self.assertNotIn("PackageFormat::Wix", source, "MSI is not a BongoCat artifact")
 
     def test_release_jobs_and_the_release_notes_call_a_machine_the_same_thing(self):
         # A reader sees these in two places: the checks list on the tag and the
@@ -140,7 +75,6 @@ class PackagingTargetTests(unittest.TestCase):
         workflow = read(RELEASE_WORKFLOW)
         packager = read(PACKAGER)
 
-        self.assertIn("name: Build Windows x64", workflow)
         self.assertIn("name: Build macOS ${{ matrix.label }}", workflow)
         self.assertNotIn("Build macOS ${{ matrix.triple }}", workflow)
         for label in ("Apple Silicon", "Intel"):
@@ -150,15 +84,12 @@ class PackagingTargetTests(unittest.TestCase):
         # misspelling anywhere in the file: the reasoning next to the constants
         # names the rejected spellings on purpose.
         for assigned in (
-            'windows_label: "Windows 10+"',
-            'windows_architecture_label: "x64"',
             'apple_silicon_label: "Apple Silicon"',
             'intel_label: "Intel"',
         ):
             with self.subTest(assigned=assigned):
                 self.assertEqual(packager.count(assigned), 2, f"both locales must assign {assigned}")
         for rejected in (
-            'windows_label: "Windows 10 1903+"',
             'apple_silicon_label: "Apple silicon"',
             'apple_silicon_label: "Apple 芯片"',
             'intel_label: "Intel 芯片"',
@@ -168,20 +99,19 @@ class PackagingTargetTests(unittest.TestCase):
 
     def test_every_release_job_is_named_by_the_action_it_performs(self):
         # The checks list stacks this workflow's jobs next to the other workflows'
-        # and the reader scans them as one column. Three jobs reading `Windows x64`,
-        # `macOS Apple Silicon`, `macOS Intel` next to `Publish the GitHub release`
+        # and the reader scans them as one column. `macOS Apple Silicon`,
+        # `macOS Intel` next to `Publish the GitHub release`
         # reads as two different naming schemes, and the publish job is the one that
         # is out of step. So every job is verb-first, and the object is
         # `<platform> <chip>`.
         #
-        # The verb names the action, never the artifact: this workflow's Windows
-        # target publishes an installer and its macOS targets publish a bundle and a
-        # disk image, so naming either in the job name would make the three read as
-        # three different products. A reader who needs the file follows the download
-        # link in the release notes.
+        # The verb names the action, never the artifact: this workflow's macOS
+        # targets publish a bundle and a disk image, so naming either in the job
+        # name would make the two read as two different products. A reader who needs
+        # the file follows the download link in the release notes.
         workflow = read(RELEASE_WORKFLOW)
         names = re.findall(r"^  \S+:\n    name: (.+)$", workflow, re.MULTILINE)
-        self.assertEqual(len(names), 3, f"expected three jobs, got {names}")
+        self.assertEqual(len(names), 2, f"expected two jobs, got {names}")
         for name in names:
             with self.subTest(job=name):
                 self.assertRegex(
@@ -199,8 +129,7 @@ class PackagingTargetTests(unittest.TestCase):
     def test_a_step_named_require_actually_fails_the_build(self):
         # A step called "Require X" that only warns is worse than no name at all:
         # a maintainer scanning a green log reads it as proof X was enforced. The
-        # update-signing gate really does exit 1; the Authenticode step cannot,
-        # because CI has no certificate configured, so it is named for what it does.
+        # update-signing gate really does exit 1.
         workflow = read(RELEASE_WORKFLOW)
 
         enforcing = re.findall(r"- name: (Require [^\n]+)\n(.*?)(?=\n      - )", workflow, re.DOTALL)
@@ -212,24 +141,12 @@ class PackagingTargetTests(unittest.TestCase):
                     f"{name} does not fail the build, so it must not be named Require",
                 )
 
-        reporting = re.search(
-            r"- name: (Report Authenticode[^\n]+)\n(.*?)(?=\n      - )", workflow, re.DOTALL
-        )
-        self.assertIsNotNone(reporting, "the Authenticode step must say it reports")
-        self.assertIn("::warning::", reporting.group(2))
-        self.assertNotIn("exit 1", reporting.group(2))
-        self.assertNotIn("Authenticode signatures for a stable release\"", workflow)
-
-    def test_both_build_jobs_name_the_build_step_the_same_way(self):
-        # The two jobs run the same operation on different machines, and the
-        # product vocabulary differs downstream (installer vs bundle and disk
-        # image) because the artifacts really do. Naming that difference here too
-        # made one step read as two unrelated steps; the Verify steps below already
-        # say what each target produced.
+    def test_the_build_job_names_the_build_step_the_same_way(self):
+        # The job runs the same operation on a machine whose product vocabulary
+        # differs downstream only because the artifacts really do.
         workflow = read(RELEASE_WORKFLOW)
         builds = re.findall(r"- name: (Build the Production product[^\n]+)", workflow)
-        self.assertEqual(len(builds), 2, f"expected one build step per job, got {builds}")
-        self.assertEqual(len(set(builds)), 1, f"the build steps must read identically: {builds}")
+        self.assertEqual(len(builds), 1, f"expected one build step, got {builds}")
 
     def test_every_release_artifact_is_keyed_by_the_architecture_token(self):
         # The job a reader sees on the tag is named by chip, but the uploaded
@@ -238,30 +155,18 @@ class PackagingTargetTests(unittest.TestCase):
         # names reading `macOS Apple Silicon` next to an artifact called
         # `release-macos-aarch64-apple-darwin`.
         workflow = read(RELEASE_WORKFLOW)
-        for key in (
-            "name: release-windows-x64",
-            "name: release-macos-${{ matrix.arch }}",
-        ):
-            with self.subTest(key=key):
-                self.assertIn(key, workflow)
+        self.assertIn("name: release-macos-${{ matrix.arch }}", workflow)
 
         # Every `release-*` key is `<os>-<arch>`, never a triple. Match to the end of
         # the line so a `${{ matrix.* }}` interpolation is captured whole rather than
         # truncated at its first space, which would make the check pass vacuously.
         keys = re.findall(r"^\s*name: (release-\S.*?)\s*$", workflow, re.MULTILINE)
-        self.assertEqual(len(keys), 2, f"expected two release artifact keys, got {keys}")
+        self.assertEqual(len(keys), 1, f"expected one release artifact key, got {keys}")
         for key in keys:
             with self.subTest(key=key):
                 self.assertNotIn("apple-darwin", key)
                 self.assertNotIn("pc-windows-msvc", key)
         self.assertNotIn("release-macos-${{ matrix.triple }}", workflow)
-        # The Windows leg has no matrix, so its `x64` is written out. It has to be
-        # the same token `ReleaseTarget::architecture` returns for that target.
-        self.assertIn(
-            'Self::WindowsX86_64 => "x64",',
-            read(PACKAGER),
-            "the Windows artifact key must be the target's own architecture token",
-        )
 
     def test_the_published_changelogs_call_a_chip_by_one_name(self):
         # The changelog entry is fed verbatim into the release body and into the
@@ -309,35 +214,6 @@ class PackagingTargetTests(unittest.TestCase):
         self.assertNotIn("matrix.payload_arch", workflow)
 
 
-class WindowsProductIconTests(unittest.TestCase):
-    """The shipped executable has to carry the product icon where GPUI reads it.
-
-    GPUI loads the application icon with
-    `LoadImageW(module, MAKEINTRESOURCE(1), IMAGE_ICON, ...)` while it registers the
-    window class, and Windows paints a window whose class icon is missing with its
-    generic default icon. The resource id is therefore a product guarantee, not a
-    free choice inside the resource script.
-    """
-
-    def test_product_icon_is_embedded_at_the_id_gpui_loads(self):
-        resource = read(WINDOWS_RESOURCE)
-        declarations = re.findall(
-            r'^\s*(\S+)\s+ICON\s+"?([^"\s]+)"?\s*$', resource, re.MULTILINE
-        )
-        self.assertEqual(
-            len(declarations),
-            1,
-            "the resource script must declare exactly one product icon",
-        )
-
-        name, path = declarations[0]
-        self.assertEqual(name, "1", "GPUI only looks the application icon up at id 1")
-        self.assertTrue(
-            path.endswith("icons/logo-windows.ico"),
-            f"the embedded icon must be the shipped product icon, found {path}",
-        )
-
-
 class MacosBundleTests(unittest.TestCase):
     def test_bundle_identity_and_minimum_version_are_single_sourced(self):
         source = read(PACKAGER)
@@ -367,13 +243,10 @@ class MacosBundleTests(unittest.TestCase):
         source = read(PACKAGER)
         app = read(APP_PRESET_ROOT)
 
-        # macOS resolves Contents/Resources/models; Windows resolves
-        # <executable dir>/resources/models. The packaging tool must produce exactly
-        # those two resource targets or the product silently ships without models.
+        # macOS resolves Contents/Resources/models. The packaging tool must produce
+        # exactly that resource target or the product silently ships without models.
         self.assertIn('Some(contents.join("Resources/models"))', app)
-        self.assertIn('Some(executable.parent()?.join("resources/models"))', app)
-        self.assertIn("let prefix = if target.is_apple()", source)
-        self.assertIn('format!("{RESOURCE_DIRECTORY}/")', source)
+        self.assertIn('let prefix = "";', source)
         self.assertIn('PathBuf::from(format!("{prefix}{MODEL_DIRECTORY}"))', source)
         self.assertIn('PathBuf::from(format!("{prefix}{PROVENANCE_FILE}"))', source)
 
@@ -520,7 +393,6 @@ class BuildEntryPointTests(unittest.TestCase):
             "hdiutil",
             "info.plist",
             "plutil",
-            "makensis",
             "os()",
             "scripts/",
             "cp -r",
@@ -554,8 +426,8 @@ class BuildEntryPointTests(unittest.TestCase):
     def test_no_self_built_packaging_script_remains(self):
         self.assertFalse((ROOT / "scripts").exists(), "scripts/ must be deleted")
         self.assertFalse(
-            (ROOT / "windows" / "installer" / "BongoCat.nsi").exists(),
-            "the hand-written NSIS script must be deleted",
+            (ROOT / "windows").exists(),
+            "the Windows packaging tree must be deleted",
         )
         for workflow in sorted(WORKFLOW_DIRECTORY.glob("*.y*ml")):
             with self.subTest(workflow=workflow.name):
@@ -569,7 +441,6 @@ class ReleaseMatrixTests(unittest.TestCase):
         mapping = {
             "MacosAarch64": "aarch64-apple-darwin",
             "MacosX86_64": "x86_64-apple-darwin",
-            "WindowsX86_64": "x86_64-pc-windows-msvc",
         }
         return [mapping[variant] for variant in shipped_targets()]
 

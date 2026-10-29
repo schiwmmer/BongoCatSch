@@ -80,14 +80,14 @@ Runtime 使用布局无关的稳定物理键名。左右修饰键必须区分，
   - **快捷键名**：设置页热键文本，事实来源是 `bongocat-config::NAMED_SHORTCUT_KEYS`，沿用 DOM `KeyboardEvent.code` 风格。例：`ArrowUp`/`ArrowDown`/`ArrowLeft`/`ArrowRight`、`BracketLeft`、`BracketRight`、`Backquote`、`Semicolon`、`Backslash`、`Period`；数字的 canonical 形式是 `1`，`Digit1` 只是被接受的别名。
 
   ⚠️ **只有键位图名能解析到图片**。照快捷键名做出 `Digit1.png` 或 `ArrowUp.png` 不会被任何键画出来：同一物理键在两套名字下的拼写可能只差大小写（`BackQuote` vs `Backquote`）或词序（`UpArrow` vs `ArrowUp`）。无法识别的平台码保留 `Unknown(<platform-code>)` 诊断值，不得映射成字符。
-- 唯一不在 HID Keyboard/Keypad 页（`0x07`）的物理键是 Apple 地球键（Fn 键）：它是厂商页 `0xFF` 的 usage `0x03`（`KeyboardFn`）折叠成 `0xff00 | usage` = `0xff03`，协议名 `Globe`。**键位图名是 `Globe`，不是 `Fn`**：`Fn` 是模型可为 F1–F24 提供的共享回退图名，一个图片名只能有一个语义（ADR-0049）。该键的旧名 `Function` 只作为末位候选别名，用于兼容未经导入归一化的包。Windows 的 Fn 键由键盘固件处理、Raw Input 从不报告它，因此没有 Windows 映射。
+- 唯一不在 HID Keyboard/Keypad 页（`0x07`）的物理键是 Apple 地球键（Fn 键）：它是厂商页 `0xFF` 的 usage `0x03`（`KeyboardFn`）折叠成 `0xff00 | usage` = `0xff03`，协议名 `Globe`。**键位图名是 `Globe`，不是 `Fn`**：`Fn` 是模型可为 F1–F24 提供的共享回退图名，一个图片名只能有一个语义（ADR-0049）。该键的旧名 `Function` 只作为末位候选别名，用于兼容未经导入归一化的包。macOS 上 Fn 键由键盘固件处理，HID 层把厂商页 `KeyboardFn` 折叠成 `0xff03`，因此有 `Globe` 键位图名。
 - `MouseButton`：`left`、`right`、`middle`、`back`、`forward`。
 - `GamepadButton`：只产生标准位置名 `south`、`east`、`west`、`north`、`left_shoulder`、`right_shoulder`、`left_trigger`、`right_trigger`、`select`、`start`、`left_stick`、`right_stick`、`dpad_up`、`dpad_down`、`dpad_left`、`dpad_right`；backend 的额外/未知位置不伪造 identity，只进入匿名诊断。
 - `GamepadAxis`：使用 `left_stick_x`、`left_stick_y`、`right_stick_x`、`right_stick_y`、`left_trigger`、`right_trigger`；stick 数值归一化到 `[-1, 1]`，trigger 数值归一化到 `[0, 1]`，非有限或越界值拒绝并计数。
 
 数字手柄按钮以 `value >= 0.5` 产生 pressed，低于阈值产生 released；重复 edge 不增加 pressed 计数。axis 和 cursor 只保留最新值，不能阻塞可靠边沿。死区由产品配置决定，adapter 不得把设备默认死区静默写入共享协议。
 
-双平台手柄 adapter 固定使用 `ayangweb/gilrs`：Windows 为 WGI，macOS 为 IOHID。adapter 关闭 gilrs 默认 jitter/dead-zone filter、force feedback 和环境 mapping，保留 fork 内置 SDL mapping，并使用 gilrs 自带 D-pad axis-to-button 转换。gilrs 的 `LeftTrigger`/`RightTrigger` 位置映射为项目 shoulder，`LeftTrigger2`/`RightTrigger2` 的连续值同时产生项目 trigger button edge 与 trigger axis；后者按产品 `>= 0.5` 判定，不使用 gilrs 默认阈值代替。非有限或越界 trigger 值在改变 pressed state 前拒绝并计数。backend device id 不进入项目协议；adapter 分配最多四个 `device_id`，每次连接/重连通过 axis producer 获得新 generation。全局 Reset 成功后以同一 generation 重播 connection、gilrs 已缓存的当前 held button 和六轴，不重新分配连接；进程启动/重连时的 authoritative initial state 仍需 gilrs backend 提供。
+手柄 adapter 固定使用 `ayangweb/gilrs`：macOS 为 IOHID。adapter 关闭 gilrs 默认 jitter/dead-zone filter、force feedback 和环境 mapping，保留 fork 内置 SDL mapping，并使用 gilrs 自带 D-pad axis-to-button 转换。gilrs 的 `LeftTrigger`/`RightTrigger` 位置映射为项目 shoulder，`LeftTrigger2`/`RightTrigger2` 的连续值同时产生项目 trigger button edge 与 trigger axis；后者按产品 `>= 0.5` 判定，不使用 gilrs 默认阈值代替。非有限或越界 trigger 值在改变 pressed state 前拒绝并计数。backend device id 不进入项目协议；adapter 分配最多四个 `device_id`，每次连接/重连通过 axis producer 获得新 generation。全局 Reset 成功后以同一 generation 重播 connection、gilrs 已缓存的当前 held button 和六轴，不重新分配连接；进程启动/重连时的 authoritative initial state 仍需 gilrs backend 提供。
 
 六个轴按 `{device_id, connection_generation, axis}` 分别取**最新的样本**，不先挑一个
 connection 再只投影它的六个值。多个手柄同时连接时，后动的那只在它动过的轴上立即生效，

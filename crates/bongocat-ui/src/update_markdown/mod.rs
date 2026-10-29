@@ -98,9 +98,9 @@ pub(crate) fn render(notes: &str) -> TextView {
             // regardless, so this is the second of two independent refusals rather than
             // the only one.
             //
-            // The hand-off goes to a background executor because `ShellExecuteW` pumps this
-            // process's message queue, and pumping re-enters GPUI's foreground tasks while
-            // they are inside the `App` borrow this callback is holding (issue #1081).
+            // The hand-off goes to a background executor because the `open` call
+            // blocks until the browser takes the URL, and blocking would freeze
+            // the window inside this callback.
             crate::external_link::open(url.to_string(), cx.background_executor()).detach();
         })
 }

@@ -63,7 +63,7 @@ class FailureEvidenceTests(unittest.TestCase):
                     "--output",
                     str(output),
                     "--platform",
-                    "Windows",
+                    "macOS",
                 ],
                 check=True,
             )

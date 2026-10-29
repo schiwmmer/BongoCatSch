@@ -228,7 +228,7 @@ pub fn window_content_top_inset() -> f32 {
 /// The settings and update windows are pre-rendered and reused, so AppKit is asked to
 /// remove the window from the screen (`orderOut:`) while it stays in the application's
 /// window list. GPUI therefore keeps the same view, its subscriptions and its
-/// in-flight drafts, exactly like the Windows `ShowWindow(SW_HIDE)` path.
+/// in-flight drafts.
 pub fn hide_native_window(window: &impl HasWindowHandle) -> Result<(), NativeWindowError> {
     native_window(window)?.orderOut(None);
     Ok(())

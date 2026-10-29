@@ -1,8 +1,7 @@
 //! The macOS overlay adapter.
 //!
 //! The product is one borderless `NSPanel` over the user's desktop, drawn by
-//! Metal through a `CAMetalLayer`. The layout mirrors the Windows adapter's on
-//! purpose, so the two read the same way: `session` is what the product drives,
+//! Metal through a `CAMetalLayer`. `session` is what the product drives,
 //! `renderer`, `pipelines` and `textures` own the frame, `resize_monitor` is
 //! the only view of the desktop, and the rest each answer one question.
 

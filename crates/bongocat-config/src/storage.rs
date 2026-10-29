@@ -32,11 +32,10 @@ pub struct StorageLayout {
     /// The user side of the models the build ships.
     ///
     /// A preset's package lives inside the application bundle — a signed
-    /// `.app` on macOS, the installation directory on Windows — which the
-    /// product may not write to. The artwork that replaces a preset's cover is
-    /// kept here instead, in the same per-model shape a package uses
-    /// (`<id>/resources/cover.png`), so the settings page reads a cover the
-    /// same way whichever origin it came from.
+    /// `.app` on macOS — which the product may not write to. The artwork that
+    /// replaces a preset's cover is kept here instead, in the same per-model
+    /// shape a package uses (`<id>/resources/cover.png`), so the settings page
+    /// reads a cover the same way whichever origin it came from.
     pub model_overrides: PathBuf,
     /// The lifetime interaction counters (one file, one document).
     ///
@@ -105,7 +104,6 @@ pub enum PlatformStorageError {
     DataDirectoryUnavailable,
 }
 
-#[cfg(target_os = "macos")]
 pub fn platform_layout(
     environment: BuildEnvironment,
 ) -> Result<StorageLayout, PlatformStorageError> {
@@ -115,12 +113,3 @@ pub fn platform_layout(
     Ok(StorageLayout::under_application_root(root, environment))
 }
 
-#[cfg(target_os = "windows")]
-pub fn platform_layout(
-    environment: BuildEnvironment,
-) -> Result<StorageLayout, PlatformStorageError> {
-    let root = dirs::data_dir()
-        .ok_or(PlatformStorageError::DataDirectoryUnavailable)?
-        .join(BUNDLE_ID);
-    Ok(StorageLayout::under_application_root(root, environment))
-}

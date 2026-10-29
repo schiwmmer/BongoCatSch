@@ -122,7 +122,7 @@ fn the_command_gate_keeps_the_recorded_bindings_and_only_leaves_the_table() {
     let mut application =
         Application::start_with_layout(layout.clone()).expect("start application");
     // Control+Alt+0 sits outside the primary tier, so the expectation below
-    // reads the same on macOS and Windows.
+    // reads the same on macOS.
     application
         .set_shortcuts(bongocat_ui_protocol::SettingsShortcuts {
             commands: vec![bongocat_ui_protocol::SettingsShortcutBinding {
@@ -185,7 +185,7 @@ fn selecting_a_model_keeps_the_behavior_bindings_the_user_recorded() {
     let layout = StorageLayout::under(base.path(), BUILD_ENVIRONMENT);
     let mut application = Application::start_with_layout(layout).expect("start application");
     // Both chords sit outside the primary tier, so the expectation below
-    // reads the same on macOS and Windows.
+    // reads the same on macOS.
     application
         .set_shortcuts(bongocat_ui_protocol::SettingsShortcuts {
             commands: vec![bongocat_ui_protocol::SettingsShortcutBinding {
@@ -393,7 +393,7 @@ fn switching_models_swaps_the_behavior_half_of_the_shortcut_table() {
         .expect("enable behavior shortcuts");
     // Recorded before any model is active, so `standard` owns a chord no
     // other model will be handed: outside the primary tier, so the
-    // expectation below reads the same on macOS and Windows.
+    // expectation below reads the same on macOS.
     application
         .set_shortcuts(bongocat_ui_protocol::SettingsShortcuts {
             commands: Vec::new(),

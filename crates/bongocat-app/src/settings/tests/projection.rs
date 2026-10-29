@@ -374,7 +374,7 @@ fn an_unobserved_capability_names_no_platform() {
         "an unobserved capability still has to name itself"
     );
     // The pair travels together: a name without a state, or a state without a
-    // name, is what made a Windows report say "unsupported".
+    // name, is what made a report say "unsupported".
     assert_eq!(
         SettingsInputCapability::default(),
         unobserved,
@@ -382,10 +382,10 @@ fn an_unobserved_capability_names_no_platform() {
     );
 }
 
-/// `TokenElevation` on Windows and the TCC grant on macOS answer the same
-/// question, so one query and one shape serve both. This pins the shape: a
-/// platform with no capability concept would have to change the contract, not
-/// report a value that reads like one.
+/// The TCC grant answers the permission question, so one query and one shape
+/// serve the platform. This pins the shape: a platform with no capability
+/// concept would have to change the contract, not report a value that reads
+/// like one.
 #[test]
 fn the_running_system_reports_the_capability_it_actually_gates_input_behind() {
     let capability = system_input_capability();

@@ -12,9 +12,8 @@
 
 ## 1. 项目事实
 
-- Rust 2024 桌面应用：GPUI 设置 UI + Product/Live2D runtime。Windows 用 Raw Input、Win32、D3D11；macOS 用 CGEventTap、AppKit、Metal；共享 schema、资源与 fixture 保持平台无关。
-- 首发平台是 Windows 10 1903+ 与 macOS 12+；Linux 只作首发后评估，不阻塞首发。
-- Windows 只支持 `x86_64-pc-windows-msvc`，不得新增 i686 或 `aarch64-pc-windows-msvc` 的构建、测试或安装包；Windows on ARM 走 x64 仿真。
+- Rust 2024 桌面应用：GPUI 设置 UI + Product/Live2D runtime。macOS 用 CGEventTap、AppKit、Metal；共享 schema、资源与 fixture 保持平台无关。
+- 目标平台是 macOS 12+。
 - “纯 Rust”指自有应用代码全部用 Rust；官方 Cubism Core 平台二进制是唯一允许的厂商 FFI 例外，业务逻辑不得放进 SDK bridge。
 - Bundle ID 固定 `com.ayangweb.bongo-cat`。Development 与 Production 共用数据结构、使用不同存储根；开发构建不得读取、写入或锁住生产数据。
 - 不引入 Tauri、WebView、Node.js、JavaScript 或第二套 UI framework。
@@ -51,7 +50,7 @@
 ## 3. 阶段与数据版本
 
 - 每次只推进一个最小闭环；新增能力先有自动化 contract 或 ADR，再进入实现。ADR-0011 允许已通过自动化 contract 且不依赖缺失外部证据的模块先进入正式实现。
-- 门禁未过的能力不得宣称完成（Live2D、输入可靠性、双平台渲染等）；未取得 Cubism 书面授权、SDK 分发、实机输入/UI/GPU、签名、Windows 实机安装升级卸载与 soak 证据时，不得分发含受限 artifact 的安装包。
+- 门禁未过的能力不得宣称完成（Live2D、输入可靠性、渲染等）；未取得 Cubism 书面授权、SDK 分发、实机输入/UI/GPU、签名与 soak 证据时，不得分发含受限 artifact 的安装包。
 - 不批量迁移历史功能，不为目录美观预建空 crate，未经授权不删除历史源码和行为对照。
 - `config.json` 与 window state 显式带 `schema_version: 1`，保留单一严格解析入口：非 1 明确拒绝，不静默转换。
 - 不做旧 Tauri/Pinia 格式的兼容、探测、字段 alias、自动导入或目录 fallback，也不为开发期中间版本写迁移分支。
@@ -83,15 +82,15 @@
 
 ### 4.3 Renderer 与 Overlay
 
-- 主猫使用独立原生 overlay（Windows D3D11、macOS Metal），不嵌入 GPUI renderer；renderer 只消费不可变 RenderSnapshot，不读配置、不决定动作、不访问 GPUI Entity。
+- 主猫使用独立原生 overlay（macOS Metal），不嵌入 GPUI renderer；renderer 只消费不可变 RenderSnapshot，不读配置、不决定动作、不访问 GPUI Entity。
 - Overlay 的窗口、GPU、frame source 必须有明确 owner 和析构顺序。
 - Shutdown 顺序：阻止新 frame tick → 停止输入生产者 → 确认 frame source 退出 → 停止 runtime → flush 配置 → 停止音频并 join → 释放 renderer/GPU → 销毁 overlay → 关闭 GPUI。
 
 ### 4.4 平台模块
 
-- 共享业务 crate 不导入 Win32、Objective-C、GPUI 或 GPU handle；平台 API 封装在 `bongocat-platform` 或明确的平台子模块，返回稳定的项目类型和 error code，不泄漏裸指针或平台消息结构。
+- 共享业务 crate 不导入 Objective-C、GPUI 或 GPU handle；平台 API 封装在 `bongocat-platform` 或明确的平台子模块，返回稳定的项目类型和 error code，不泄漏裸指针或平台消息结构。
 - 主线程限定、COM apartment、run loop 和 callback 生命周期写入 wrapper 的安全不变量。
-- 不靠 cfg fallback 让 Linux 编译，也禁止 `#[cfg(any(target_os = "macos", target_os = "windows"))]` 及其反向用法；共享桌面代码用直接 cfg、`test` 或单一平台条件，由 `tools/tests/test_supported_platform_cfg.py` 强制。
+- 不靠 cfg fallback 让其他平台编译；共享桌面代码用直接 cfg、`test` 或单一平台条件，由 `tools/tests/test_supported_platform_cfg.py` 强制。
 
 ## 5. 输入可靠性
 
@@ -99,7 +98,6 @@ Issue #47 的“按下后无释放”必须从架构处理，不能只增加动�
 
 - Key/button down/up、设备连接/断开和 command 走可靠、有序队列；溢出可观测、计数并触发安全恢复，不得静默丢失边沿事件。
 - 鼠标移动和手柄轴可合并为 latest value，但不得阻塞 key/button release；每个 pressed key 最终必须由 release、状态校正或 Reset 清除。
-- Windows：Raw Input 是键鼠主路径，正确处理 scan code、E0/E1、左右修饰键和 `RI_KEY_BREAK`，用 `GetAsyncKeyState` 校正 pressed set；锁屏、睡眠、设备移除、输入桌面变化和服务重启必须 Reset；低级 hook 只作补充，不得成为 pressed state 的唯一来源；回归 PixPin `Ctrl+Alt+A`、Win+L、PrintScreen 和 UAC 返回。
 - macOS：listen-only CGEventTap 加明确的 TCC 权限状态；tap timeout、disable、权限变化、session 变化必须可恢复，用 `CGEventSourceKeyState` 校正 pressed set；锁屏、睡眠、快速用户切换和 tap 重建必须 Reset。
 
 ## 6. Cubism、FFI 与依赖
@@ -110,7 +108,7 @@ Issue #47 的“按下后无释放”必须从架构处理，不能只增加动�
 - 业务 crate 默认 `#![forbid(unsafe_code)]`，`unsafe` 只允许在平台 API、GPU 和 Cubism 边界；每个非平凡 block 前说明调用方安全不变量，优先小型 RAII wrapper，不传播裸 handle/指针或手工析构；不用 `unsafe impl Send/Sync` 绕过线程模型；FFI callback 不阻塞，不 panic 穿越 FFI。
 - crates.io 依赖默认精确 pin。新增或升级前用 `cargo info <crate>` 或 crates.io API 核对最新非 yanked 稳定版，不因少改 API 主动选旧版；最新版若不支持既定 toolchain、target、许可证或安全边界，在相关 Phase 文档记录阻塞版本、原因、上游 owner 和解除条件，不只写代码注释。
 - 修改 manifest 后对整个 workspace 执行 `cargo update` 同步 `Cargo.lock`；受上游约束保留的旧版本须能由 `cargo tree --invert` 解释。禁止 `version = "*"` 和未固定 revision 的 git dependency。
-- 不依赖 Zed 应用内部 crate 或私有 GPUI renderer 接口；依赖审计只覆盖正式 workspace 与离线工具，不引入历史 Tauri workspace 依赖。系统能力先找满足边界的成熟 crate，再考虑 `windows-rs`、`objc2` 等基础 binding；第三方事件、错误、配置和平台类型不得进入项目公共 API。
+- 不依赖 Zed 应用内部 crate 或私有 GPUI renderer 接口；依赖审计只覆盖正式 workspace 与离线工具，不引入历史 Tauri workspace 依赖。系统能力先找满足边界的成熟 crate，再考虑 `objc2` 等基础 binding；第三方事件、错误、配置和平台类型不得进入项目公共 API。
 - 不在 `Cargo.toml` 写注释。理由、取舍、许可证判断和踩坑记录属于 ADR 或代码注释，依赖文件只保留声明本身；确有必要时指向对应 ADR 编号而不是就地解释。
 - 移除功能时同步删除其遗留的未使用依赖与零调用公开方法，不用注释或 `#[allow]` 掩盖；未使用依赖不是 `cargo clippy -D warnings` 能发现的问题，删除前用全仓引用搜索确认。
 
@@ -119,7 +117,6 @@ Issue #47 的“按下后无释放”必须从架构处理，不能只增加动�
 - 手柄 driver、mapping 与 backend 生命周期修复**直接推送到该 fork 的 `master`**（可审计的 commit、线性历史、`--ff-only` 合入），`bongocat-platform` 只保留强类型 adapter；不得用 `[patch]` 或 path 依赖在本仓库长期改第三方代码。临时克隆放在项目目录内（`~/Downloads` 受 macOS TCC 保护，非交互 shell 通常无权进入），验证完即删除。
 - 固定 commit 以 `Cargo.toml` 和 ADR-0066 为准。完成定义：上游已推送、本仓库重新精确 pin、`Cargo.lock` 同步、`cargo deny check sources` 通过，并复测**空闲 CPU** 与控制路径延迟（`reset` ack、`shutdown` join 是否仍在既有超时预算内）。只看事件是否到达不算完成。
 - 评估手柄改动必须包含空闲 CPU 复测：macOS IOHID worker 曾把 null mode 传给 `CFRunLoopRunInMode`，CoreFoundation 立即返回而不等待，使空闲 backend 占满一个 CPU 核；回归测试是 `gilrs-core` 的 `idle_backend_does_not_spin`。
-- 更新固定 commit 后核对 `cargo tree --target x86_64-pc-windows-msvc -p bongocat-platform` 只出现 `Cargo.lock` 里的单一 `windows` 版本，必要时在 lock 中把 `gilrs-core` 的依赖指回该版本，并用 `cargo metadata --locked` 确认 lock 无需重解析。
 
 ## 7. 配置、文件安全与更新
 
@@ -145,7 +142,7 @@ Issue #47 的“按下后无释放”必须从架构处理，不能只增加动�
 - visual-first 契约（ADR-0054）：不维护 screen-reader/AccessKit tree、辅助桥、隐藏 label/action 或仅供辅助技术的文案，也不新增直接 AccessKit 依赖。
 - 设置界面安静、紧凑、适合重复操作；图标表达常用工具并提供可见 tooltip；控件覆盖 hover、active、focus、disabled、loading、error；Development、Production 与 smoke 使用同一套可见组成，smoke 只改变驱动方式。
 - 支持浅色、深色、系统主题和现有本地化语言；文案遵循 `docs/localization-copy-conventions.md`（省略号只用单个 `…`，由 `tools/validate-locales.py` 强制）。
-- 800x600、Windows 125/150/200%、macOS Retina 下不得重叠、裁剪或布局跳动；页面必须有真实 loading、empty、error、cancel 和 retry 状态，不用静态占位冒充完成。
+- 800x600、macOS Retina 下不得重叠、裁剪或布局跳动；页面必须有真实 loading、empty、error、cancel 和 retry 状态，不用静态占位冒充完成。
 
 ## 9. 测试、构建与文档
 
@@ -156,7 +153,7 @@ just check          # fmt + clippy（全 target/feature 组合）+ workspace 测
 just test           # 仅 workspace 测试
 ```
 
-`just check` 覆盖 `cargo fmt --all -- --check`、`cargo clippy --locked --workspace --all-targets --all-features -- -D warnings`（`bongocat-app` 按 feature 分组单独跑）、`cargo test --locked --workspace` 与 `cargo check --locked --workspace --release`。平台功能必须在对应平台跑 smoke test（`just dev-smoke`、`just preview` 等），不得用 macOS 编译推断 Windows Raw Input/D3D11，也不得反向推断 macOS CGEventTap/Metal；无法运行的测试必须在最终报告说明原因和残余风险。
+`just check` 覆盖 `cargo fmt --all -- --check`、`cargo clippy --locked --workspace --all-targets --all-features -- -D warnings`（`bongocat-app` 按 feature 分组单独跑）、`cargo test --locked --workspace` 与 `cargo check --locked --workspace --release`。平台功能必须在对应平台跑 smoke test（`just dev-smoke`、`just preview` 等），不得用编译推断 macOS CGEventTap/Metal；无法运行的测试必须在最终报告说明原因和残余风险。
 
 ### 9.2 构建与打包
 
@@ -173,7 +170,7 @@ just version                                            # 唯一产品版本号�
 just schema                                             # 从 Rust 类型生成当前 JSON Schema
 ```
 
-- 不在 `Justfile`、CI 或文档中重实现平台判断、目录复制、`Info.plist` 注入、`.app`/`.dmg`/NSIS 组装或版本解析；不重新引入 `scripts/` 或自维护 `.nsi`。
+- 不在 `Justfile`、CI 或文档中重实现平台判断、目录复制、`Info.plist` 注入、`.app`/`.dmg` 组装或版本解析；不重新引入 `scripts/`。
 - 版本号只来自 `[workspace.package].version`；平台与产物集合由 `crates/bongocat-packaging` 声明，并与 `tools/tests/test_packaging_contract.py`、`deny.toml`、`bongocat-update::UpdateTargetTriple` 保持一致。
 - 更新载荷组装与签名属于该 crate，`SIGNING_PRIVATE_KEY` 与 `SIGNING_PRIVATE_KEY_PASSWORD` 是唯一注入点；未设置则跳过签名，release workflow 断言发布构建已签名。签名必须是最后一步，签名后不得改名、重压缩或 strip；私钥不得进入源码、产物或日志，公钥写入 `bongocat-update::RELEASE_SIGNING_KEY`。
 - 每次 `just build` 只写当前 target 的 fragment（`<os>-<arch>.json`），运行时只请求共享 `latest.json`，多 target 发布必须先执行 `just manifest`；不在 CI 或脚本里拼 manifest JSON。

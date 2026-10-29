@@ -1,7 +1,7 @@
 //! Startup permission check and user guidance.
 //!
 //! The product needs one platform capability before global input works: the macOS Input Monitoring
-//! grant, or an elevated Windows token. The check reads the platform state on every start and
+//! grant. The check reads the platform state on every start and
 //! stores nothing, so a user who dismissed the prompt is asked again while the capability is still
 //! missing (ADR-0032).
 //!
@@ -20,19 +20,10 @@ mod keys {
     /// capability up later.
     pub(super) const SECONDARY: &str = "startup_permission.later";
 
-    #[cfg(target_os = "macos")]
     pub(super) const TITLE: &str = "startup_permission.input_monitoring.title";
-    #[cfg(target_os = "macos")]
     pub(super) const DESCRIPTION: &str = "startup_permission.input_monitoring.description";
-    #[cfg(target_os = "macos")]
     pub(super) const PRIMARY: &str = "startup_permission.input_monitoring.open_settings";
 
-    #[cfg(target_os = "windows")]
-    pub(super) const TITLE: &str = "startup_permission.administrator.title";
-    #[cfg(target_os = "windows")]
-    pub(super) const DESCRIPTION: &str = "startup_permission.administrator.description";
-    #[cfg(target_os = "windows")]
-    pub(super) const PRIMARY: &str = "startup_permission.administrator.open_program_folder";
 }
 
 /// Runs the startup permission check for this platform.
@@ -103,10 +94,8 @@ mod tests {
     /// Monitoring list and add it again. The guided flow clears the grant through `tccutil` before
     /// the panel opens, so that entry is gone by the time the user looks at the list, and the
     /// paragraph only described work the product already did. A blank line is how a second
-    /// paragraph would come back, which is what this pins. The Windows prompt keeps its own setup
-    /// instructions — nothing else on that platform explains the compatibility flag — so the rule
-    /// is macOS-only.
-    #[cfg(target_os = "macos")]
+    /// paragraph would come back, which is what this pins: the macOS prompt description is a
+    /// single paragraph.
     #[test]
     fn the_macos_prompt_description_is_a_single_paragraph() {
         for language in Language::ALL {

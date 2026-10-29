@@ -69,19 +69,11 @@ pub struct OverlaySessionOptions {
     pub hide_on_idle_delay_ms: u32,
     /// Keep the overlay window fully on a display. The region is the union of
     /// the connected displays' frames rather than one display's work area, so a
-    /// window may sit over a taskbar, Dock or menu bar. The correction itself is
+    /// window may sit over a Dock or menu bar. The correction itself is
     /// delayed; see the placement module.
     pub keep_inside_screen: bool,
     pub maximum_fps: u16,
     pub window_bounds: Option<OverlayWindowBounds>,
-    /// Windows only: whether the model window owns a taskbar button.
-    ///
-    /// The model window is a caption-less `WS_POPUP`, so this is the only part
-    /// of its frame the product exposes to the shell; the settings window keeps
-    /// the taskbar button GPUI gives it whatever this says, because hiding that
-    /// one also replaces its caption with a tool window's short caption.
-    #[cfg(target_os = "windows")]
-    pub taskbar_icon_visible: bool,
 }
 
 impl OverlaySessionOptions {
@@ -104,12 +96,10 @@ impl OverlaySessionOptions {
             keep_inside_screen: settings.keep_inside_screen,
             maximum_fps: self.maximum_fps,
             window_bounds: self.window_bounds,
-            // The taskbar button is a system preference rather than overlay
+            // The Dock icon is a system preference rather than overlay
             // state, so it is not part of the runtime overlay settings. The
             // session keeps the applied value here and re-applies it to a
             // replacement window.
-            #[cfg(target_os = "windows")]
-            taskbar_icon_visible: self.taskbar_icon_visible,
         }
     }
 
@@ -127,19 +117,14 @@ impl OverlaySessionOptions {
         }
     }
 
-    /// Windows replaces presentation resources only when switching window mode.
-    /// macOS replaces them for corner-radius and screen-constraint changes.
+    /// macOS replaces presentation resources for corner-radius and
+    /// screen-constraint changes.
     ///
     /// Recalling which modifier suspends pointer routing is not on this list
     /// either: like the hover hide it is consulted inside the frame tick, because
     /// the window has to start and stop passing pointer events through while it
     /// keeps running.
     pub(crate) const fn requires_window_recreation(self, next: Self) -> bool {
-        #[cfg(target_os = "windows")]
-        {
-            self.window_mode != next.window_mode
-        }
-        #[cfg(target_os = "macos")]
         {
             self.corner_radius_percent != next.corner_radius_percent
                 || self.keep_inside_screen != next.keep_inside_screen
@@ -165,11 +150,9 @@ impl Default for OverlaySessionOptions {
             keep_inside_screen: true,
             maximum_fps: 60,
             window_bounds: None,
-            // The shipped v1 configuration leaves the model window's taskbar
-            // button off by default, so the fallback options have to agree with
-            // it rather than invent a second default.
-            #[cfg(target_os = "windows")]
-            taskbar_icon_visible: false,
+            // The shipped v1 configuration leaves the model window's Dock icon
+            // off by default, so the fallback options have to agree with it
+            // rather than invent a second default.
         }
     }
 }
@@ -251,7 +234,6 @@ impl OverlayWindowBounds {
 /// new scale must not apply the ratio a second time. The one-pixel tolerance
 /// absorbs the rounding the physical-to-logical conversion introduces on the
 /// way back from the window system.
-#[cfg(target_os = "macos")]
 pub(crate) fn bounds_match_scale(
     bounds: OverlayWindowBounds,
     base: resize_drag::ResizeBase,
@@ -263,7 +245,7 @@ pub(crate) fn bounds_match_scale(
 
 /// One display's full frame in the shared virtual-desktop coordinate space.
 ///
-/// This is the display's visible extent, including the strip a taskbar, Dock or
+/// This is the display's visible extent, including the strip a Dock or
 /// menu bar occupies, so the placement constraint keeps the overlay on a screen
 /// without pushing it clear of the desktop chrome. Coordinates may be negative
 /// for a display placed left of or above the primary one.

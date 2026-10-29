@@ -19,26 +19,19 @@ pub struct SystemMenuPresentation {
     pub check_for_updates: String,
     /// The pomodoro entry's label.
     ///
-    /// macOS only. The row that carries it is compiled out on Windows, so the
-    /// label is compiled out with the row rather than resolved to an empty
-    /// string the platform would render as a blank entry.
-    #[cfg(target_os = "macos")]
+    /// macOS only. The label is compiled out with the row rather than resolved
+    /// to an empty string the platform would render as a blank entry.
     pub start_pomodoro: String,
     /// What the model-window menu offers while a session is counting.
     ///
-    /// macOS only, for the same reason as [`Self::start_pomodoro`]: the rows
-    /// that carry them are compiled out elsewhere.
-    #[cfg(target_os = "macos")]
+    /// macOS only, for the same reason as [`Self::start_pomodoro`].
     pub pause_pomodoro: String,
     /// What the model-window menu offers while a session is paused.
-    #[cfg(target_os = "macos")]
     pub resume_pomodoro: String,
     /// The row that throws a session away, in both of those states.
-    #[cfg(target_os = "macos")]
     pub abandon_pomodoro: String,
     /// The cultivation entry's label, macOS only for the same reason as
     /// [`Self::start_pomodoro`].
-    #[cfg(target_os = "macos")]
     pub start_cultivation: String,
     pub quit: String,
     pub overlay_visible: bool,
@@ -81,27 +74,20 @@ pub enum SystemMenuAction {
     CheckForUpdates,
     /// Open the pomodoro task picker.
     ///
-    /// macOS only: the row that carries this action is compiled out on Windows,
-    /// so the variant does not exist there either.
-    #[cfg(target_os = "macos")]
+    /// macOS only.
     StartPomodoro,
     /// Open the settings window on the cultivation page.
     ///
-    /// macOS only, mirroring [`Self::StartPomodoro`]: the model-window context
-    /// menu that carries it exists only there.
-    #[cfg(target_os = "macos")]
+    /// macOS only, mirroring [`Self::StartPomodoro`].
     StartCultivation,
     /// Freeze the running focus session.
-    #[cfg(target_os = "macos")]
     PausePomodoro,
     /// Continue a paused focus session from the time it stopped at.
-    #[cfg(target_os = "macos")]
     ResumePomodoro,
     /// End the focus session without counting it.
     ///
     /// The session's work is discarded rather than recorded: an abandoned
     /// session is a session the user chose not to finish.
-    #[cfg(target_os = "macos")]
     AbandonPomodoro,
     Quit,
 }

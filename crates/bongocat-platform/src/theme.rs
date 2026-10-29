@@ -6,22 +6,20 @@
 //! belong to the operating system. This module is the single place that knows what each
 //! platform can and cannot restyle, so the UI layer does not have to.
 //!
-//! What each platform supports (verified 2026-09-18, see ADR-0048):
+//! What macOS supports (verified 2026-09-18, see ADR-0048):
 //!
-//! | surface | macOS | Windows |
-//! | --- | --- | --- |
-//! | window frame | application theme | application theme (DWM attribute) |
-//! | alerts | application theme | system theme |
-//! | tray and context menus | application theme | system theme |
-//! | open/save panels | application theme | system theme |
+//! | surface | macOS |
+//! | --- | --- |
+//! | window frame | application theme |
+//! | alerts | application theme |
+//! | tray and context menus | application theme |
+//! | open/save panels | application theme |
 //!
 //! macOS reaches every row through one process-wide `NSApplication.appearance`: the
 //! appearance is inherited by each window and, through the window, by the alerts, menus
 //! and panels it presents. The application must set it at startup through
 //! [`apply_process_theme`] before creating the overlay; applying it from a settings window
 //! alone would make the overlay's first context menu depend on that window having existed.
-//! Windows has a documented API for the frame only (`DWMWA_USE_IMMERSIVE_DARK_MODE`); the
-//! other rows follow the *system* theme, which [`init_native_theme`] opts the process into.
 //!
 use raw_window_handle::HasWindowHandle;
 
@@ -94,9 +92,8 @@ impl NativeThemeError {
 /// context menu from the overlay does not depend on the settings window having been
 /// created first.
 ///
-/// On macOS this sets `NSApplication.appearance`. Windows has no process-wide application
-/// theme for the surfaces in scope, so its implementation is a documented no-op; the
-/// system-owned surfaces are prepared by [`init_native_theme`].
+/// On macOS this sets `NSApplication.appearance`, the one switch every native surface
+/// in scope inherits.
 pub fn apply_process_theme(theme: Option<AppTheme>) -> Result<(), NativeThemeError> {
     platform::apply_process(theme)
 }
@@ -106,10 +103,9 @@ pub fn apply_process_theme(theme: Option<AppTheme>) -> Result<(), NativeThemeErr
 /// `theme` is the resolved choice; `None` means the product follows the operating
 /// system, and each platform then restores its own system-driven appearance.
 ///
-/// `window` identifies the window whose frame the platform can restyle. Only Windows
-/// uses it: its application theme reaches the DWM frame and nothing else. macOS ignores
-/// it because one process-wide appearance already covers every window and every panel a
-/// window presents, and a per-window override would leave menus and alerts behind.
+/// `window` is accepted so the signature is portable, but macOS ignores it: one
+/// process-wide appearance already covers every window and every panel a window presents,
+/// and a per-window override would leave menus and alerts behind.
 pub fn apply_theme(
     window: &impl HasWindowHandle,
     theme: Option<AppTheme>,
@@ -119,17 +115,16 @@ pub fn apply_theme(
 
 /// Prepares the native surfaces that can only follow the *system* theme.
 ///
-/// Windows is the only platform that needs this. Alerts, menus and the file dialog are
-/// drawn by ComCtl32 and the shell, which render dark only when the process has asked
-/// for it before any window exists. That request is a process-wide, undocumented switch,
-/// so it is made once, from `main`, and never undone.
+/// macOS needs nothing here: the application theme set through
+/// [`apply_process_theme`] reaches the alerts, menus and panels as soon as it is
+/// set, so there is no separate system-driven switch to prepare. The call is kept
+/// so the startup sequence reads the same on every build, and it is a no-op.
 ///
 /// Idempotent: repeated calls repeat nothing.
 pub fn init_native_theme() -> Result<(), NativeThemeError> {
     platform::init()
 }
 
-#[cfg(target_os = "macos")]
 mod platform {
     use super::{AppTheme, NativeThemeError, SystemAppearance};
     use objc2::{MainThreadMarker, rc::Retained};
@@ -196,7 +191,7 @@ mod platform {
         // The window is deliberately unused: `NSApplication.appearance` is inherited by
         // every window, and by the alerts, menus and panels those windows present, which
         // is exactly the set the product wants themed. Setting it per window instead
-        // would leave the menu and panel rows of the table above on the system theme.
+        // would leave the alert, menu and panel rows on the system theme.
         apply_process(theme)
     }
 
@@ -207,197 +202,7 @@ mod platform {
     }
 }
 
-#[cfg(target_os = "windows")]
-mod platform {
-    use super::{AppTheme, NativeThemeError};
-    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    use std::{ffi::c_void, mem::size_of, ptr::from_mut, ptr::from_ref, sync::OnceLock};
-    use windows::{
-        Win32::{
-            Foundation::HWND,
-            Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute},
-            System::LibraryLoader::{GetProcAddress, LOAD_LIBRARY_SEARCH_SYSTEM32, LoadLibraryExW},
-            UI::WindowsAndMessaging::{
-                SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-                SetWindowPos,
-            },
-        },
-        core::{BOOL, PCSTR, w},
-    };
 
-    /// `uxtheme.dll` exports `SetPreferredAppMode` by ordinal only; Microsoft never
-    /// published a header or a name for it. See ADR-0048 for why the product accepts
-    /// that dependency and what it is allowed to affect.
-    const SET_PREFERRED_APP_MODE_ORDINAL: usize = 135;
-
-    /// `PreferredAppMode::AllowDark`: render the ComCtl32 and shell surfaces dark when
-    /// the system is dark, and leave them light when it is not. `ForceDark` is
-    /// deliberately not used — the product's contract for these surfaces is "follow the
-    /// system", not "follow the application theme".
-    const PREFERRED_APP_MODE_ALLOW_DARK: i32 = 1;
-
-    /// The address of `SetPreferredAppMode`, resolved once. The module is never freed:
-    /// the theme engine has to stay loaded for the lifetime of the process.
-    static SET_PREFERRED_APP_MODE: OnceLock<Option<unsafe extern "system" fn(i32) -> i32>> =
-        OnceLock::new();
-
-    pub(super) fn apply_process(_theme: Option<AppTheme>) -> Result<(), NativeThemeError> {
-        // Windows does not expose a supported process-wide application theme for these
-        // surfaces. ComCtl32 and the shell follow the system after `init()` opts into
-        // their system dark-mode policy.
-        Ok(())
-    }
-
-    pub(super) fn init() -> Result<(), NativeThemeError> {
-        let procedure = *SET_PREFERRED_APP_MODE.get_or_init(resolve_set_preferred_app_mode);
-        let Some(procedure) = procedure else {
-            // Ordinal 135 is absent on the builds that predate the switch. The surfaces
-            // it governs then keep the system appearance, which is the documented
-            // fallback; refusing to start over it would be worse.
-            return Err(NativeThemeError::NativeCallFailed);
-        };
-        // SAFETY: `procedure` was resolved from `uxtheme.dll` at ordinal 135 and this is
-        // the call the API expects: it reads one enum-sized argument and returns the
-        // previous mode, which the product does not use.
-        unsafe { procedure(PREFERRED_APP_MODE_ALLOW_DARK) };
-        Ok(())
-    }
-
-    /// Whether the system's application appearance is dark, derived from the same
-    /// source gpui's Windows backend uses: the WinRT `UISettings` foreground colour.
-    ///
-    /// Using gpui's own source is not a style choice. gpui reads exactly this value
-    /// when it creates a window (and on `WM_SETTINGCHANGE`) and pins the frame
-    /// attribute with it, so it is the authority the frame already follows. Any other
-    /// source can disagree with gpui's answer, and the later of the two writes would
-    /// then silently win — a registry-only query did exactly that, overwriting a
-    /// correctly dark frame with light (ADR-0048, 修正 2026-09-18).
-    ///
-    /// Falls back to the personalization registry value when WinRT is unavailable,
-    /// and to Light — the documented fallback for every surface here — when both
-    /// fail.
-    fn system_appearance_is_dark() -> bool {
-        use windows::UI::ViewManagement::{UIColorType, UISettings};
-
-        if let Ok(ui_settings) = UISettings::new()
-            && let Ok(foreground) = ui_settings.GetColorValue(UIColorType::Foreground)
-        {
-            // Same formula as gpui's Windows backend: a light foreground on a dark
-            // surface is what dark mode paints, and the weights come from the
-            // luminance approximation Microsoft documents for that page.
-            return (5 * u32::from(foreground.G))
-                + (2 * u32::from(foreground.R))
-                + u32::from(foreground.B)
-                > 8 * 128;
-        }
-        !system_registry_prefers_light_fallback()
-    }
-
-    /// The registry spelling of the same preference, kept as the fallback for
-    /// environments where the WinRT `UISettings` activation fails. Reports Light
-    /// (the documented fallback) when the value cannot be read.
-    fn system_registry_prefers_light_fallback() -> bool {
-        use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
-
-        let mut light: u32 = 1;
-        let mut size = size_of::<u32>() as u32;
-        // SAFETY: `RegGetValueW` reads one DWORD out of `HKEY_CURRENT_USER` and writes
-        // it through the out pointers below. Both out values live for the duration of
-        // the call, and the key and value names are static wide literals.
-        let result = unsafe {
-            RegGetValueW(
-                HKEY_CURRENT_USER,
-                w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
-                w!("AppsUseLightTheme"),
-                RRF_RT_REG_DWORD,
-                None,
-                Some(from_mut(&mut light).cast::<c_void>()),
-                Some(&mut size),
-            )
-        };
-        result.is_ok() && light == 0
-    }
-
-    fn resolve_set_preferred_app_mode() -> Option<unsafe extern "system" fn(i32) -> i32> {
-        // SAFETY: `uxtheme.dll` is resolved through the system search path, so no
-        // attacker-controlled directory can substitute it, and the module is intentionally
-        // leaked — see `SET_PREFERRED_APP_MODE`. `GetProcAddress` returns either a valid
-        // address or null, and the null case is handled by the caller.
-        unsafe {
-            let module =
-                LoadLibraryExW(w!("uxtheme.dll"), None, LOAD_LIBRARY_SEARCH_SYSTEM32).ok()?;
-            // `MAKEINTRESOURCEA(135)`: an ordinal is passed as an integer cast to a
-            // pointer, which is what the API expects when the name is not a string.
-            let name = PCSTR(SET_PREFERRED_APP_MODE_ORDINAL as *const u8);
-            GetProcAddress(module, name).map(|procedure| {
-                // SAFETY: the caller verified this ordinal is `SetPreferredAppMode`,
-                // whose signature is `PreferredAppMode(PreferredAppMode)`: one
-                // 32-bit enum in, one 32-bit enum out.
-                std::mem::transmute::<
-                    unsafe extern "system" fn() -> isize,
-                    unsafe extern "system" fn(i32) -> i32,
-                >(procedure)
-            })
-        }
-    }
-
-    pub(super) fn apply(
-        window: &impl HasWindowHandle,
-        theme: Option<AppTheme>,
-    ) -> Result<(), NativeThemeError> {
-        // "Follow the system" is not "leave the attribute alone". Once the product has
-        // pinned the frame with an explicit Light or Dark, the attribute stops tracking
-        // the system preference, so restoring the system look means re-deriving the
-        // system's own choice and pinning the frame to that value. The derivation uses
-        // gpui's own source (see `system_appearance_is_dark`) so this write can never
-        // fight the one gpui already made. The UI layer re-issues this call whenever
-        // the system appearance flips while the product follows it.
-        let dark = match theme {
-            Some(theme) => theme.is_dark(),
-            None => system_appearance_is_dark(),
-        };
-        let handle = window
-            .window_handle()
-            .map_err(|_| NativeThemeError::WindowHandleUnavailable)?;
-        let RawWindowHandle::Win32(handle) = handle.as_raw() else {
-            return Err(NativeThemeError::UnsupportedWindowHandle);
-        };
-        let hwnd = HWND(handle.hwnd.get() as *mut c_void);
-        let dark: BOOL = dark.into();
-        // SAFETY: the HWND belongs to a window this process created, and `window` keeps
-        // it alive for the duration of the call. DWM reads one `BOOL` from the pointer
-        // and the length passed matches it.
-        let result = unsafe {
-            DwmSetWindowAttribute(
-                hwnd,
-                DWMWA_USE_IMMERSIVE_DARK_MODE,
-                from_ref(&dark).cast::<c_void>(),
-                size_of::<BOOL>() as u32,
-            )
-        };
-        // A live toggle (Light -> follow-system on a visible window) does not always
-        // repaint the caption on its own — gpui only ever writes this attribute before
-        // a window is shown or on a system-theme change, where DWM repaints for its own
-        // reasons. Nudging the non-client area forces the new colour out immediately.
-        // SAFETY: `hwnd` is alive for the duration of the call; the position arguments
-        // are all suppressed, so the call only triggers a non-client recalulation.
-        unsafe {
-            SetWindowPos(
-                hwnd,
-                None,
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-            )
-        }
-        .map_err(|_| NativeThemeError::NativeCallFailed)?;
-        result.map_err(|_| NativeThemeError::NativeCallFailed)
-    }
-}
-
-#[cfg(target_os = "macos")]
 pub use platform::system_appearance;
 
 #[cfg(test)]

@@ -12,8 +12,6 @@ LOCKFILE = ROOT / "Cargo.lock"
 MACOS_INFO = ROOT / "macos" / "Info.plist"
 PACKAGER = ROOT / "crates" / "bongocat-packaging" / "src" / "main.rs"
 PACKAGER_MANIFEST = ROOT / "crates" / "bongocat-packaging" / "Cargo.toml"
-WINDOWS_RESOURCE = ROOT / "crates" / "bongocat-app" / "windows" / "bongocat-app.rc"
-APP_BUILD_SCRIPT = ROOT / "crates" / "bongocat-app" / "build.rs"
 APP_LIBRARY = ROOT / "crates" / "bongocat-app" / "src" / "lib.rs"
 APP_SETTINGS_SNAPSHOT = ROOT / "crates" / "bongocat-app" / "src" / "settings" / "snapshot.rs"
 UI_LIBRARY = ROOT / "crates" / "bongocat-ui" / "src" / "lib.rs"
@@ -176,38 +174,6 @@ class ProductVersionContractTests(unittest.TestCase):
         self.assertIn('config.version = env!("CARGO_PKG_VERSION").to_owned();', packager)
         self.assertIn("macos.info_plist_path = Some(", packager)
         self.assertIn("version.workspace = true", read(PACKAGER_MANIFEST))
-
-    def test_windows_metadata_is_generated_from_the_workspace_version(self):
-        app_build_script = read(APP_BUILD_SCRIPT)
-        for cargo_version_constant in (
-            "CARGO_PKG_VERSION",
-            "CARGO_PKG_VERSION_MAJOR",
-            "CARGO_PKG_VERSION_MINOR",
-            "CARGO_PKG_VERSION_PATCH",
-        ):
-            with self.subTest(constant=cargo_version_constant):
-                self.assertIn(cargo_version_constant, app_build_script)
-
-        resource = read(WINDOWS_RESOURCE)
-        self.assertIn("VERSIONINFO", resource)
-        self.assertIn("FILEVERSION VERSION_MAJOR,VERSION_MINOR,VERSION_PATCH,0", resource)
-        self.assertIn("PRODUCTVERSION VERSION_MAJOR,VERSION_MINOR,VERSION_PATCH,0", resource)
-        self.assertIn('VALUE "FileVersion", VERSION "\\0"', resource)
-        self.assertIn('VALUE "ProductVersion", VERSION "\\0"', resource)
-
-        # The installer product version comes from the same configured value; the
-        # packaging pipeline never restates it.
-        packager = read(PACKAGER)
-        self.assertIn('config.version = env!("CARGO_PKG_VERSION").to_owned();', packager)
-
-        product_version = workspace_package_version()
-        for path in (APP_BUILD_SCRIPT, WINDOWS_RESOURCE, PACKAGER):
-            with self.subTest(path=path):
-                self.assertNotIn(
-                    product_version,
-                    read(path),
-                    "packaging metadata must be derived from Cargo, not restated",
-                )
 
     def test_build_documentation_uses_a_version_placeholder(self):
         documentation = read(PRODUCT_RUNTIME_DOC)

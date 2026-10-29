@@ -1,9 +1,3 @@
-// Hide the console window in packaged (release) builds so the product runs as a
-// pure GUI application. Debug builds keep the console for developer logging.
-#![cfg_attr(
-    all(not(debug_assertions), target_os = "windows"),
-    windows_subsystem = "windows"
-)]
 #![forbid(unsafe_code)]
 
 //! The product entry point: start every subsystem, hand the windows to GPUI and
@@ -33,11 +27,6 @@ mod product_windows;
 mod smoke;
 mod smoke_status;
 mod system_menu;
-// Windows only in a product build, since the taskbar button is; the tests read
-// the settle decision on every platform, which is the point of keeping it apart
-// from the smoke that polls with it.
-#[cfg(any(target_os = "windows", test))]
-mod taskbar_settle;
 mod update_schedule;
 
 use async_io::Timer;
@@ -45,17 +34,12 @@ use bongocat_app::{
     ApplicationLogCode, ApplicationLogContext, ApplicationLogEvent, application_shortcut_dispatcher,
 };
 use bongocat_live2d::CoreLogHandle;
-#[cfg(target_os = "macos")]
 use bongocat_overlay::OverlayPomodoroMenuRequest;
 use bongocat_overlay::{
     OverlayContextMenuRequest, OverlayInteractionSinks, OverlayResizeOutcome,
     OverlaySessionOptions, OverlayWindowBounds, ProductOverlaySession,
 };
 use bongocat_platform::GlobalShortcutService;
-#[cfg(target_os = "windows")]
-use bongocat_platform::{
-    SingleInstance, SingleInstanceAction, SingleInstanceEnvironment, SingleInstanceStart,
-};
 use bongocat_platform::{SystemMenu, SystemMenuAction, SystemMenuPresentation};
 use bongocat_runtime::{RuntimeClient, hover_hide_delay_ms, idle_hide_delay_ms};
 use bongocat_ui::{
@@ -72,14 +56,11 @@ use gpui_kit::{
     platform::current_platform,
 };
 use gpui_kit::{AsyncApp, Context, Window};
-#[cfg(target_os = "macos")]
 use pomodoro_surfaces::{
     command_for, cultivation_copy, play_cultivation_return_sound, play_pomodoro_complete_sound,
     pomodoro_menu_entries, send_pomodoro_command,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
-#[cfg(target_os = "windows")]
-use std::{cell::RefCell, rc::Rc};
 use std::{
     env,
     io::{self, Write},
@@ -88,46 +69,28 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-#[cfg(target_os = "windows")]
-use taskbar_settle::{
-    TASKBAR_ICON_SETTLE_ATTEMPTS, TASKBAR_ICON_SETTLE_INTERVAL, TaskbarIconSample,
-    TaskbarIconSettleGap, taskbar_icon_settle_gap,
-};
 
 use gamepad_observer::GamepadConnectionObserver;
 use model_cover::{COVER_CAPTURE_POLL_INTERVAL_MS, capture_model_cover_without_blocking};
 use overlay_placement::OverlayPlacementDebouncer;
 use preset_root::preset_root;
-#[cfg(target_os = "macos")]
 use product_icons::ProductDockIcon;
 use product_icons::ProductStatusIcon;
-#[cfg(target_os = "windows")]
-use product_icons::ProductTaskbarIcon;
 use product_options::RunOptions;
-#[cfg(target_os = "macos")]
 use product_shutdown::exit_after_automated_smoke;
 use product_shutdown::{
     FrameSourceShutdown, ProductRunError, begin_product_shutdown, native_theme_for_startup,
     quit_after_startup_failure, record_failure, request_product_quit,
 };
-#[cfg(target_os = "windows")]
-use product_shutdown::{request_windows_product_quit, start_windows_product_shutdown};
-#[cfg(target_os = "macos")]
 use product_windows::{
     apply_dock_icon_visibility, poll_update_restart, product_dock_icon_state,
     sync_product_dock_icon,
-};
-#[cfg(target_os = "windows")]
-use product_windows::{
-    apply_taskbar_icon_visibility, product_taskbar_icon_state, take_update_restart_request,
 };
 use product_windows::{
     ensure_settings_window, handle_shortcut_toggle_settings, open_update_window_and_check,
     product_overlay_state, publish_overlay_scale, published_update_phase, request_update_check,
     show_update_window, update_settings_window, update_window_is_open,
 };
-#[cfg(target_os = "windows")]
-use smoke_status::write_smoke_marker;
 use smoke_status::{SMOKE_FIRST_FRAME_WAIT_TICKS, write_smoke_status};
 use system_menu::{
     apply_system_menu_overlay_action, refresh_system_menu_presentation, system_menu_presentation,
@@ -146,60 +109,10 @@ fn gpui_application() -> GpuiApplication {
     GpuiApplication::new_inaccessible(current_platform(false)).with_quit_mode(QuitMode::Explicit)
 }
 
-/// How long a Windows taskbar check waits for the runtime's published
-/// preference and the two product windows' own taskbar buttons to agree.
-/// See `taskbar_settle` for why it waits at all.
-#[cfg(target_os = "windows")]
-async fn settle_taskbar_icon(
-    smoke_client: &SettingsClient,
-    cx: &mut AsyncApp,
-    expected: bool,
-) -> Result<(), String> {
-    let mut last = TaskbarIconSettleGap::PublishedPreferenceStale;
-    for _ in 0..TASKBAR_ICON_SETTLE_ATTEMPTS {
-        let snapshot = smoke_client
-            .read_snapshot()
-            .await
-            .map_err(|error| format!("read taskbar icon snapshot: {error}"))?;
-        let (model_window, settings_window, model_window_visible) =
-            cx.update(product_taskbar_icon_state)?;
-        if snapshot.overlay.window_mode {
-            if snapshot.taskbar_icon_visible == expected
-                && model_window
-                && settings_window
-                && model_window_visible
-            {
-                return Ok(());
-            }
-            Timer::after(TASKBAR_ICON_SETTLE_INTERVAL).await;
-            continue;
-        }
-        match taskbar_icon_settle_gap(
-            &TaskbarIconSample::new(
-                snapshot.taskbar_icon_visible,
-                model_window,
-                settings_window,
-                model_window_visible,
-            ),
-            expected,
-        ) {
-            None => return Ok(()),
-            Some(gap) => last = gap,
-        }
-        Timer::after(TASKBAR_ICON_SETTLE_INTERVAL).await;
-    }
-    Err(format!(
-        "taskbar icon did not settle on {expected} within {TASKBAR_ICON_SETTLE_ATTEMPTS} attempts: {}",
-        last.reason()
-    ))
-}
 
 struct ProductCoordinator {
     _core_log: CoreLogHandle,
-    #[cfg(target_os = "macos")]
     overlay: Option<ProductOverlaySession>,
-    #[cfg(target_os = "windows")]
-    overlay: Rc<RefCell<Option<ProductOverlaySession>>>,
     settings_service: Option<bongocat_app::ApplicationSettingsService>,
     /// The currently open settings window, if any; close destroys it.
     settings_window: Option<SettingsWindowHandle>,
@@ -211,25 +124,20 @@ struct ProductCoordinator {
     update_window: Option<bongocat_ui::UpdateWindowHandle>,
     /// The open pomodoro window, if any; close destroys it.
     ///
-    /// macOS only: the menu row that opens it is compiled out on Windows.
-    #[cfg(target_os = "macos")]
+    /// The menu row that opens it lives on macOS.
     pomodoro_window: Option<bongocat_ui::PomodoroWindowHandle>,
     /// A handle to the pomodoro worker.
-    #[cfg(target_os = "macos")]
     pomodoro_client: bongocat_pomodoro::PomodoroClient,
     /// A handle to the runtime, for the one model gesture the frame loop owns:
     /// putting the focus face on the cat while a pomodoro counts down.
-    #[cfg(target_os = "macos")]
     runtime_client: RuntimeClient,
     /// Whether the focus face is on the cat right now. The countdown starts
     /// once and ends once, so the frame loop that sees every frame needs this
     /// to tell the first frame of a session from the ten thousandth.
-    #[cfg(target_os = "macos")]
     focus_face_on: bool,
     /// The expression the cat wore before the focus face went on, so that
     /// ending a session can hand the user's own choice back rather than the
     /// model's default face.
-    #[cfg(target_os = "macos")]
     focus_face_restore: Option<String>,
     /// The display language a product window opens with.
     ///
@@ -248,28 +156,14 @@ struct ProductCoordinator {
     /// settings window has already installed (ADR-0048).
     product_appearance_theme: bongocat_ui_protocol::SettingsTheme,
     /// When a completed install that needs a restart was first observed.
-    #[cfg(target_os = "macos")]
     update_installed_since: Option<Instant>,
     /// Whether the post-install restart has already been started.
-    #[cfg(target_os = "macos")]
     update_restart_started: bool,
     system_menu: Option<SystemMenu>,
-    /// The model window's taskbar button the product last applied. The settings
-    /// worker cannot observe a native window from its own thread, and the model
-    /// window may not exist yet while the overlay is starting, so the applied
-    /// value is recorded here and read back by the smoke.
-    #[cfg(target_os = "windows")]
-    taskbar_icon_visible: bool,
     /// The user's Dock preference while only the cat overlay is running.
     /// Settings and update windows keep the Dock icon visible independently.
-    #[cfg(target_os = "macos")]
     background_dock_icon_visible: bool,
-    #[cfg(target_os = "macos")]
     application_reopens: u64,
-    #[cfg(target_os = "windows")]
-    single_instance: Option<SingleInstance>,
-    #[cfg(target_os = "windows")]
-    single_instance_wakes: u64,
     frame_source_running: bool,
     frame_source_shutdown: FrameSourceShutdown,
     /// Work the settings worker has handed to this thread: the settings window a
@@ -280,10 +174,6 @@ struct ProductCoordinator {
     frame_ticks: u64,
     expect_visible_frame: bool,
     failures: Arc<Mutex<Vec<String>>>,
-    #[cfg(target_os = "windows")]
-    shutdown_requested: Arc<AtomicBool>,
-    #[cfg(target_os = "windows")]
-    shutdown_flush_complete: Arc<AtomicBool>,
 }
 
 impl Global for ProductCoordinator {}
@@ -291,7 +181,6 @@ impl Global for ProductCoordinator {}
 /// The face a running pomodoro puts on the cat: a dedicated focus expression
 /// the preset models declare, so a session that has started reads on the cat
 /// itself and not only in the countdown on its pad.
-#[cfg(target_os = "macos")]
 const POMODORO_FOCUS_EXPRESSION: &str = "focus.exp3.json";
 
 /// Put the focus face on the cat while a pomodoro counts down, and take it off
@@ -303,7 +192,6 @@ const POMODORO_FOCUS_EXPRESSION: &str = "focus.exp3.json";
 /// one start and one end, and the face is borrowed rather than chosen: what
 /// the user had on goes back on afterwards, and a model wearing no expression
 /// gets the borrowed face taken off rather than a name invented for it.
-#[cfg(target_os = "macos")]
 fn apply_pomodoro_focus_face(coordinator: &mut ProductCoordinator, counting_down: bool) {
     if counting_down == coordinator.focus_face_on {
         return;
@@ -353,13 +241,6 @@ fn apply_pomodoro_focus_face(coordinator: &mut ProductCoordinator, counting_down
     }
 }
 
-#[cfg(target_os = "windows")]
-fn build_single_instance_environment() -> SingleInstanceEnvironment {
-    match bongocat_app::BUILD_ENVIRONMENT {
-        bongocat_config::BuildEnvironment::Development => SingleInstanceEnvironment::Development,
-        bongocat_config::BuildEnvironment::Production => SingleInstanceEnvironment::Production,
-    }
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let run_options = match RunOptions::parse(env::args().skip(1)) {
@@ -372,12 +253,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Err(error) => return Err(Box::new(error)),
     };
-    // The native surfaces that can only follow the *system* theme — the ComCtl32 alerts,
-    // the Win32 menus and the shell file dialog — render dark only if the process asks
-    // for it before the first window exists, so this is the earliest point that can ask.
-    // A failure is not fatal: those surfaces then keep the system appearance, which is
-    // the documented fallback, and refusing to start over a cosmetic switch would be
-    // worse (ADR-0048).
+    // macOS needs nothing prepared here: the application theme set through
+    // `apply_process_theme` reaches the alerts, menus and panels as soon as it
+    // is set, so there is no separate system-driven switch to get ahead of. The
+    // call is kept so the startup sequence reads the same on every build, and
+    // it is a no-op. A failure is not fatal: those surfaces keep the system
+    // appearance, which is the documented fallback, and refusing to start over
+    // a cosmetic switch would be worse (ADR-0048).
     let _ = bongocat_platform::init_native_theme();
     // A verification mode replaces the product instead of instrumenting it: each one
     // answers for a subsystem the run loop below would otherwise own.
@@ -401,25 +283,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if run_options.diagnostics_export_failure_smoke {
         return smoke::run_diagnostics_export_failure_smoke();
     }
-    #[cfg(target_os = "macos")]
     if run_options.startup_item_smoke {
         return smoke::run_startup_item_smoke();
     }
     if run_options.startup_permission_smoke {
         return smoke::run_startup_permission_smoke();
     }
-    #[cfg(target_os = "windows")]
-    let single_instance = match SingleInstance::acquire(build_single_instance_environment())? {
-        SingleInstanceStart::Primary(single_instance) => single_instance,
-        SingleInstanceStart::SecondaryNotified => {
-            write_smoke_status("secondary instance notified primary")?;
-            #[cfg(target_os = "windows")]
-            if let Some(path) = run_options.single_instance_result_file.as_deref() {
-                write_smoke_marker(path, "secondary instance notified primary")?;
-            }
-            return Ok(());
-        }
-    };
     let mut application = bongocat_app::Application::start(preset_root())?;
     let application_log = application.log_handle();
     application.install_process_panic_hook();
@@ -484,11 +353,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         window_bounds: application.overlay_window_placement().map(|placement| {
             OverlayWindowBounds::new(placement.x, placement.y, placement.width, placement.height)
         }),
-        // The taskbar button belongs to the model window, so the saved v1 value
-        // is applied before the window exists rather than by the settings
-        // window that GPUI creates.
-        #[cfg(target_os = "windows")]
-        taskbar_icon_visible: application.config().system.show_taskbar_icon,
     };
     // Startup model restore: activate the configured selection, or fall back
     // to the always-available standard preset when it is missing or unusable;
@@ -515,28 +379,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // A right-click on the countdown reports what it offers rather than acting:
     // the menu is a product action, and a panel that popped its own would make
     // two surfaces disagree about how pausing a session works.
-    #[cfg(target_os = "macos")]
     let (pomodoro_menu_sender, pomodoro_menu_receiver) =
         std::sync::mpsc::sync_channel::<OverlayPomodoroMenuRequest>(1);
     let status_icon = Arc::new(ProductStatusIcon {
         sender: status_icon_sender,
     });
     let initial_status_icon_visible = application.config().system.show_status_icon;
-    #[cfg(target_os = "windows")]
-    let (taskbar_icon_sender, taskbar_icon_receiver) = std::sync::mpsc::sync_channel(4);
-    #[cfg(target_os = "windows")]
-    let taskbar_icon = Arc::new(ProductTaskbarIcon {
-        sender: taskbar_icon_sender,
-    });
-    #[cfg(target_os = "windows")]
-    let initial_taskbar_icon_visible = application.config().system.show_taskbar_icon;
-    #[cfg(target_os = "macos")]
     let (dock_icon_sender, dock_icon_receiver) = std::sync::mpsc::sync_channel(4);
-    #[cfg(target_os = "macos")]
     let dock_icon = Arc::new(ProductDockIcon {
         sender: dock_icon_sender,
     });
-    #[cfg(target_os = "macos")]
     let initial_dock_icon_visible = application.config().system.show_dock_icon;
     let main_thread_signals = bongocat_app::ApplicationMainThreadSignals::default();
     let input_producer = application.input_producer();
@@ -561,14 +413,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }));
         }
     };
-    #[cfg(target_os = "windows")]
-    let shutdown_requested = Arc::new(AtomicBool::new(false));
     let gpui_application = gpui_application().with_assets(AllAssets);
     let reopen_failures = Arc::clone(&run_failures);
-    #[cfg(target_os = "macos")]
     let application_reopen_smoke = run_options.application_reopen_smoke;
     gpui_application.on_reopen(move |cx| {
-        #[cfg(target_os = "macos")]
         if application_reopen_smoke
             && let Err(error) = write_smoke_status("application-reopen callback received")
         {
@@ -577,7 +425,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if cx.has_global::<ProductCoordinator>() {
             match ensure_settings_window(cx) {
                 Ok(_) => {
-                    #[cfg(target_os = "macos")]
                     {
                         let coordinator = cx.global_mut::<ProductCoordinator>();
                         coordinator.application_reopens =
@@ -605,7 +452,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             OverlayInteractionSinks {
                 context_menu_sender: Some(context_menu_sender),
                 resize_sender: Some(resize_sender),
-                #[cfg(target_os = "macos")]
                 pomodoro_menu_sender: Some(pomodoro_menu_sender),
             },
         ) {
@@ -625,9 +471,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 shortcut_receiver,
                 main_thread_signals.clone(),
                 status_icon,
-                #[cfg(target_os = "windows")]
-                taskbar_icon,
-                #[cfg(target_os = "macos")]
                 dock_icon,
             ) {
                 Ok(service) => service,
@@ -712,48 +555,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        #[cfg(target_os = "windows")]
-        let overlay = Rc::new(RefCell::new(Some(overlay)));
-        #[cfg(target_os = "windows")]
-        let frame_overlay = Rc::clone(&overlay);
         cx.set_global(ProductCoordinator {
             _core_log: core_log,
-            #[cfg(target_os = "macos")]
             overlay: Some(overlay),
-            #[cfg(target_os = "windows")]
-            overlay,
             settings_service: Some(settings_service),
             settings_window: None,
             settings_navigation_memory: SettingsNavigationMemory::new(),
             update_service: Some(update_service),
             update_window: None,
-            #[cfg(target_os = "macos")]
             pomodoro_window: None,
-            #[cfg(target_os = "macos")]
             pomodoro_client,
-            #[cfg(target_os = "macos")]
             runtime_client: frame_loop_runtime_client,
-            #[cfg(target_os = "macos")]
             focus_face_on: false,
-            #[cfg(target_os = "macos")]
             focus_face_restore: None,
             product_language: initial_settings_snapshot.resolved_language,
             product_appearance_theme: initial_settings_snapshot.appearance_theme,
-            #[cfg(target_os = "macos")]
             update_installed_since: None,
-            #[cfg(target_os = "macos")]
             update_restart_started: false,
             system_menu: Some(system_menu),
-            #[cfg(target_os = "windows")]
-            taskbar_icon_visible: initial_taskbar_icon_visible,
-            #[cfg(target_os = "macos")]
             background_dock_icon_visible: initial_dock_icon_visible,
-            #[cfg(target_os = "macos")]
             application_reopens: 0,
-            #[cfg(target_os = "windows")]
-            single_instance: Some(single_instance),
-            #[cfg(target_os = "windows")]
-            single_instance_wakes: 0,
             frame_source_running: true,
             frame_source_shutdown: frame_source_shutdown.clone(),
             main_thread_signals: main_thread_signals.clone(),
@@ -761,17 +582,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             frame_ticks: 0,
             expect_visible_frame,
             failures: Arc::clone(&run_failures),
-            #[cfg(target_os = "windows")]
-            shutdown_requested: Arc::clone(&shutdown_requested),
-            #[cfg(target_os = "windows")]
-            shutdown_flush_complete: Arc::new(AtomicBool::new(false)),
         });
 
         // The overlay started the process as a menu bar accessory application, so a
-        // saved "show Dock icon" preference has to be applied after it, not before.
-        // This is the same ordering rule the Windows taskbar button follows: the
-        // current v1 value is installed before anything the user can see.
-        #[cfg(target_os = "macos")]
+        // saved "show Dock icon" preference has to be applied after it, not before:
+        // the current v1 value is installed before anything the user can see.
         if let Err(error) = bongocat_platform::set_dock_icon_visible(initial_dock_icon_visible) {
             record_failure(
                 &run_failures,
@@ -863,13 +678,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // The check is a read-only platform query; only a missing capability shows the
         // prompt, and the prompt outcome is neither persisted nor logged.
         //
-        // Windows: the primary button promises "exit and open the program folder". A successful
-        // permission flow (the executable's folder was revealed) raises the same shutdown
-        // flag the tray quit uses, so the product exits through the regular shutdown
-        // coordinator while the user flips the compatibility flag. A failed reveal keeps
-        // the product running, per the ADR rule that a failed flow only counts as
-        // "continue for now". macOS has no quit promise: its primary button only opens System
-        // Settings.
+        // macOS has no quit promise: its primary button only opens System Settings.
         //
         // Lifecycle: the thread is deliberately detached. It owns only the resolved
         // language and the prompt strings, shares no locks with the product, and always
@@ -879,8 +688,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // native dialog, so joining on quit would block shutdown on an unanswered
         // prompt, which is exactly the blocking behaviour this design removes.
         if permission_check_enabled {
-            #[cfg(target_os = "windows")]
-            let permission_flow_quit_requested = Arc::clone(&shutdown_requested);
             let spawn_result = std::thread::Builder::new()
                 .name("bongocat-startup-permission".to_owned())
                 .spawn(move || {
@@ -889,8 +696,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         true,
                     ) = status
                     {
-                        #[cfg(target_os = "windows")]
-                        permission_flow_quit_requested.store(true, Ordering::Release);
                     }
                 });
             if let Err(error) = spawn_result {
@@ -919,7 +724,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             {
                 cx.global_mut::<ProductCoordinator>().update_window = None;
             }
-            #[cfg(target_os = "macos")]
             if let Err(error) = sync_product_dock_icon(cx) {
                 record_failure(
                     &cx.global::<ProductCoordinator>().failures,
@@ -1010,10 +814,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .detach();
 
-        #[cfg(target_os = "macos")]
         let fail_on_smoke_failure = run_options.automated_verification();
         cx.on_app_quit(move |cx| {
-            #[cfg(target_os = "macos")]
             if run_options.application_reopen_smoke
                 && let Err(error) = write_smoke_status("application-reopen quit received")
                 && let Some(coordinator) = cx.try_global::<ProductCoordinator>()
@@ -1023,7 +825,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let shutdown = cx
                 .has_global::<ProductCoordinator>()
                 .then(|| begin_product_shutdown(cx));
-            #[cfg(target_os = "macos")]
             if fail_on_smoke_failure
                 && let Some(shutdown) = shutdown.as_ref()
             {
@@ -1035,7 +836,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             async move {
                 if let Some(shutdown) = shutdown {
-                    #[cfg(target_os = "macos")]
                     let _ = fail_on_smoke_failure;
                     let failures = shutdown.finish().await;
                     let _ = failures;
@@ -1118,25 +918,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     });
                     let _ = request.reply.send(result);
                 }
-                #[cfg(target_os = "windows")]
-                while let Ok(request) = taskbar_icon_receiver.try_recv() {
-                    let result = cx.update(|cx| apply_taskbar_icon_visibility(cx, request.visible));
-                    let _ = request.reply.send(result);
-                }
-                #[cfg(target_os = "macos")]
                 while let Ok(request) = dock_icon_receiver.try_recv() {
                     let result = cx.update(|cx| apply_dock_icon_visibility(cx, request.visible));
                     let _ = request.reply.send(result);
                 }
-                // Only macOS observes a completed install: the Windows install path
-                // hands the payload to the NSIS installer and exits the process before
-                // returning, so the request is consumed and nothing else happens there.
-                #[cfg(target_os = "macos")]
+                // A completed install is observed on macOS: the app relaunches itself
+                // after the payload is staged, so the request is consumed here.
                 if cx.update(poll_update_restart) {
                     break;
                 }
-                #[cfg(target_os = "windows")]
-                let _ = cx.update(take_update_restart_request);
                 let action = cx.update(|cx| {
                     cx.try_global::<ProductCoordinator>()
                         .and_then(|coordinator| coordinator.system_menu.as_ref())
@@ -1170,7 +960,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         open_update_window_and_check(cx);
                         Ok(true)
                     }),
-                    #[cfg(target_os = "macos")]
                     SystemMenuAction::StartPomodoro => cx.update(|cx| {
                         // The entry opens the picker rather than starting a
                         // session: a user who clicks it has a task in mind, and
@@ -1178,7 +967,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // did not ask for.
                         crate::product_windows::ensure_pomodoro_window(cx).map(|_| true)
                     }),
-                    #[cfg(target_os = "macos")]
                     SystemMenuAction::StartCultivation => cx.update(|cx| {
                         // Land on the ladder page rather than the settings home:
                         // a user who picks "Cultivation" wants the realm, not the
@@ -1188,7 +976,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .open_cultivation();
                         ensure_settings_window(cx).map(|_| true)
                     }),
-                    #[cfg(target_os = "macos")]
                     SystemMenuAction::PausePomodoro
                     | SystemMenuAction::ResumePomodoro
                     | SystemMenuAction::AbandonPomodoro => {
@@ -1224,39 +1011,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .detach();
 
-        #[cfg(target_os = "windows")]
-        let single_instance_failures = Arc::clone(&run_failures);
-        #[cfg(target_os = "windows")]
-        cx.spawn(async move |cx| {
-            loop {
-                Timer::after(Duration::from_millis(25)).await;
-                if !cx.update(|cx| cx.has_global::<ProductCoordinator>()) {
-                    break;
-                }
-                let action = cx.update(|cx| {
-                    cx.try_global::<ProductCoordinator>()
-                        .and_then(|coordinator| coordinator.single_instance.as_ref())
-                        .and_then(SingleInstance::try_recv)
-                });
-                let Some(action) = action else {
-                    continue;
-                };
-                let handled = cx.update(|cx| match action {
-                    SingleInstanceAction::OpenSettings => {
-                        ensure_settings_window(cx)?;
-                        let coordinator = cx.global_mut::<ProductCoordinator>();
-                        coordinator.single_instance_wakes =
-                            coordinator.single_instance_wakes.saturating_add(1);
-                        Ok::<_, String>(())
-                    }
-                });
-                match handled {
-                    Ok(()) => {}
-                    Err(error) => record_failure(&single_instance_failures, error),
-                }
-            }
-        })
-        .detach();
 
         if run_options.cultivation_page_smoke {
             // Land on the ladder page the way the menu entry does rather than on
@@ -1280,17 +1034,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             None
         };
 
-        #[cfg(target_os = "windows")]
-        let frame_shutdown_requested = Arc::clone(&shutdown_requested);
         let frame_settings_client = settings_client.clone();
         let frame_application_log = application_log.clone();
         let frame_source_guard = frame_source_shutdown.run_guard();
         cx.spawn(async move |cx| {
             let _frame_source_guard = frame_source_guard;
-            #[cfg(target_os = "windows")]
-            let mut frame_active = true;
-            #[cfg(target_os = "windows")]
-            let mut shutdown_flush_started = false;
             let mut last_overlay_bounds = None;
             let mut overlay_placement_debouncer = OverlayPlacementDebouncer::default();
             let mut gamepad_connections = GamepadConnectionObserver::default();
@@ -1331,7 +1079,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // The countdown's own monitor raises what a right-click offers;
                 // this asks the overlay for it and drops a stale answer rather
                 // than popping a menu the user did not ask for.
-                #[cfg(target_os = "macos")]
                 let pomodoro_menu_requested = pomodoro_menu_receiver.try_recv().ok().filter(|_| {
                     cx.update(|cx| {
                         cx.try_global::<ProductCoordinator>()
@@ -1344,14 +1091,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // completion is published the same way: the overlay performs a
                 // session once per sequence it has not played, so handing it the
                 // sequence is what asks for the performance.
-                #[cfg(target_os = "macos")]
                 let mut pomodoro_completion_to_play: Option<u64> = None;
                 // The homecoming figure reads the state line's own answer off
                 // the same snapshot, and is played after the borrow below is
                 // dropped, beside the completion chime.
-                #[cfg(target_os = "macos")]
                 let mut cultivation_home_observed: Option<bool> = None;
-                #[cfg(target_os = "macos")]
                 let (keep_running, next_retry_delay) = cx.update(|cx| {
                     if !cx.has_global::<ProductCoordinator>() {
                         return (false, None);
@@ -1524,168 +1268,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // a side effect on the audio device, and playing it while the
                 // coordinator is borrowed would hold the product's own lock
                 // across an audio call.
-                #[cfg(target_os = "macos")]
                 if let Some(sequence) = pomodoro_completion_to_play {
                     cx.update(|cx| play_pomodoro_complete_sound(cx, sequence));
                 }
-                #[cfg(target_os = "macos")]
                 if let Some(at_home) = cultivation_home_observed {
                     cx.update(|cx| play_cultivation_return_sound(cx, at_home));
                 }
-                #[cfg(target_os = "macos")]
-                {
-                    retry_delay = next_retry_delay;
-                }
-                #[cfg(target_os = "windows")]
-                let (tick_result, system_termination_requested) = if frame_active {
-                    let mut overlay = frame_overlay.borrow_mut();
-                    let overlay = overlay
-                        .as_mut()
-                        .expect("product overlay owner is present while the frame source runs");
-                    let result = overlay.tick();
-                    if result.is_ok()
-                        && let Ok(bounds) = overlay.window_bounds()
-                        && last_overlay_bounds != Some(bounds)
-                        && let Some(bounds) =
-                            overlay_placement_debouncer.observe(bounds, Instant::now())
-                        && {
-                            let sent = frame_settings_client
-                                .update_overlay_window_placement(
-                                    bounds.x,
-                                    bounds.y,
-                                    bounds.width,
-                                    bounds.height,
-                                )
-                                .is_ok();
-                            if sent {
-                                overlay_placement_debouncer.mark_sent(bounds);
-                            }
-                            sent
-                        }
-                    {
-                        last_overlay_bounds = Some(bounds);
-                    }
-                    (Some(result), overlay.system_termination_requested())
-                } else {
-                    (None, false)
-                };
-                #[cfg(target_os = "windows")]
-                if tick_result.as_ref().is_some_and(Result::is_err) {
-                    frame_active = false;
-                }
-                #[cfg(target_os = "windows")]
-                let next_retry_delay = tick_result
-                    .as_ref()
-                    .and_then(|result| result.as_ref().ok())
-                    .and_then(|outcome| outcome.retry_after());
-                #[cfg(target_os = "windows")]
-                let mut tick_result = Some(tick_result);
-                #[cfg(target_os = "windows")]
-                let mut request_shutdown_flush = false;
-                #[cfg(target_os = "windows")]
-                let keep_running = cx.update(|cx| {
-                    if !cx.has_global::<ProductCoordinator>() {
-                        return false;
-                    }
-                    handle_shortcut_toggle_settings(cx);
-                    if context_menu_requested
-                        && let Some(coordinator) = cx.try_global::<ProductCoordinator>()
-                        && let Some(menu) = coordinator.system_menu.as_ref()
-                    {
-                        let result = coordinator
-                            .overlay
-                            .borrow()
-                            .as_ref()
-                            .ok_or(bongocat_platform::SystemMenuError::WindowHandleUnavailable)
-                            .and_then(|overlay| {
-                                menu.show_context_menu_for_window(
-                                    overlay,
-                                    bongocat_platform::PomodoroMenuMode::Idle,
-                                )
-                            });
-                        if let Err(error) = result {
-                            frame_application_log.record(
-                                ApplicationLogEvent::new(ApplicationLogCode::ServiceFailed)
-                                    .with_context(ApplicationLogContext::Service("system_menu"))
-                                    .with_context(ApplicationLogContext::Reason(
-                                        "context_menu_failed",
-                                    )),
-                            );
-                            record_failure(&coordinator.failures, error.to_string());
-                        }
-                    }
-                    let (failure, failures, settings_window) = {
-                        let coordinator = cx.global_mut::<ProductCoordinator>();
-                        match tick_result
-                            .take()
-                            .expect("a successful window update invokes the frame closure once")
-                        {
-                            None => (None, None, None),
-                            Some(Ok(_)) => {
-                                coordinator.frame_ticks = coordinator.frame_ticks.saturating_add(1);
-                                (None, None, None)
-                            }
-                            Some(Err(error)) => {
-                                coordinator.frame_source_running = false;
-                                frame_application_log.record(
-                                    ApplicationLogEvent::new(ApplicationLogCode::ServiceFailed)
-                                        .with_context(ApplicationLogContext::Service("overlay"))
-                                        .with_context(ApplicationLogContext::Reason("tick_failed")),
-                                );
-                                (
-                                    Some(error.to_string()),
-                                    Some(Arc::clone(&coordinator.failures)),
-                                    coordinator.settings_window.clone(),
-                                )
-                            }
-                        }
-                    };
-                    if let (Some(failure), Some(failures)) = (failure, failures) {
-                        record_failure(&failures, failure);
-                        if let Some(settings_window) = settings_window {
-                            let _ = settings_window.update(cx, |view, _, cx| {
-                                view.report_service_error(
-                                    SettingsError::new(SettingsErrorCode::RuntimeUnavailable),
-                                    cx,
-                                );
-                            });
-                        }
-                    }
-                    if system_termination_requested {
-                        frame_shutdown_requested.store(true, Ordering::Release);
-                    }
-                    if frame_shutdown_requested.load(Ordering::Acquire) {
-                        let flush_complete = cx
-                            .global::<ProductCoordinator>()
-                            .shutdown_flush_complete
-                            .load(Ordering::Acquire);
-                        if flush_complete {
-                            start_windows_product_shutdown(cx);
-                            return false;
-                        }
-                        if !shutdown_flush_started {
-                            shutdown_flush_started = true;
-                            request_shutdown_flush = true;
-                        }
-                    }
-                    true
-                });
-                #[cfg(target_os = "windows")]
-                if request_shutdown_flush {
-                    let flush_requested = cx.update(|cx| {
-                        cx.try_global::<ProductCoordinator>()
-                            .and_then(|coordinator| coordinator.settings_window.clone())
-                            .is_some_and(|window| window.request_quit_after_flush(cx).is_ok())
-                    });
-                    if !flush_requested {
-                        cx.update(|cx| {
-                            cx.global::<ProductCoordinator>()
-                                .shutdown_flush_complete
-                                .store(true, Ordering::Release);
-                        });
-                    }
-                }
-                #[cfg(target_os = "windows")]
                 {
                     retry_delay = next_retry_delay;
                 }
@@ -1732,8 +1320,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if run_options.hidden_model_switch_smoke {
             let smoke_client = settings_client.clone();
             let smoke_failures = Arc::clone(&run_failures);
-            #[cfg(target_os = "windows")]
-            let smoke_shutdown_requested = Arc::clone(&shutdown_requested);
             cx.spawn(async move |cx| {
                 Timer::after(Duration::from_millis(500)).await;
                 let result = async {
@@ -1844,10 +1430,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Err(error) = result {
                     record_failure(&smoke_failures, error);
                 }
-                #[cfg(target_os = "macos")]
                 cx.update(request_product_quit);
-                #[cfg(target_os = "windows")]
-                request_windows_product_quit(&smoke_shutdown_requested);
             })
             .detach();
         }
@@ -1857,8 +1440,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let smoke_window = initial_settings_window
                 .clone()
                 .expect("settings window smoke requested its explicit settings window");
-            #[cfg(target_os = "windows")]
-            let smoke_shutdown_requested = Arc::clone(&shutdown_requested);
             cx.spawn(async move |cx| {
                 Timer::after(Duration::from_millis(500)).await;
                 // Wait for the first frame instead of assuming the delay covered it.
@@ -1896,10 +1477,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(()) => {}
                     Err(error) => {
                         record_failure(&smoke_failures, error);
-                        #[cfg(target_os = "macos")]
                         cx.update(request_product_quit);
-                        #[cfg(target_os = "windows")]
-                        request_windows_product_quit(&smoke_shutdown_requested);
                         return;
                     }
                 }
@@ -1915,10 +1493,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         Err(error) => {
                             record_failure(&smoke_failures, error);
-                            #[cfg(target_os = "macos")]
                             cx.update(request_product_quit);
-                            #[cfg(target_os = "windows")]
-                            request_windows_product_quit(&smoke_shutdown_requested);
                             return;
                         }
                     }
@@ -1935,10 +1510,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         Err(error) => {
                             record_failure(&smoke_failures, error);
-                            #[cfg(target_os = "macos")]
                             cx.update(request_product_quit);
-                            #[cfg(target_os = "windows")]
-                            request_windows_product_quit(&smoke_shutdown_requested);
                             return;
                         }
                     }
@@ -1967,10 +1539,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(baseline) => baseline,
                     Err(error) => {
                         record_failure(&smoke_failures, error);
-                        #[cfg(target_os = "macos")]
                         cx.update(request_product_quit);
-                        #[cfg(target_os = "windows")]
-                        request_windows_product_quit(&smoke_shutdown_requested);
                         return;
                     }
                 };
@@ -1995,10 +1564,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         &smoke_failures,
                         "settings close did not destroy the window and clear its handle",
                     );
-                    #[cfg(target_os = "macos")]
                     cx.update(request_product_quit);
-                    #[cfg(target_os = "windows")]
-                    request_windows_product_quit(&smoke_shutdown_requested);
                     return;
                 }
                 let remembered_page = 2;
@@ -2038,10 +1604,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(_) => {}
                     Err(error) => {
                         record_failure(&smoke_failures, error);
-                        #[cfg(target_os = "macos")]
                         cx.update(request_product_quit);
-                        #[cfg(target_os = "windows")]
-                        request_windows_product_quit(&smoke_shutdown_requested);
                         return;
                     }
                 }
@@ -2080,16 +1643,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     Err(error) => {
                         record_failure(&smoke_failures, error);
-                        #[cfg(target_os = "macos")]
                         cx.update(request_product_quit);
-                        #[cfg(target_os = "windows")]
-                        request_windows_product_quit(&smoke_shutdown_requested);
                     }
                 }
-                #[cfg(target_os = "macos")]
                 cx.update(request_product_quit);
-                #[cfg(target_os = "windows")]
-                request_windows_product_quit(&smoke_shutdown_requested);
             })
             .detach();
         }
@@ -2343,106 +1900,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
 
-                #[cfg(target_os = "windows")]
-                {
-                    let taskbar_result = async {
-                        let initial = smoke_client
-                            .read_snapshot()
-                            .await
-                            .map_err(|error| format!("read taskbar icon snapshot: {error}"))?;
-                        let initial_visibility = initial.taskbar_icon_visible;
-                        settle_taskbar_icon(&smoke_client, cx, initial_visibility).await?;
-                        let changed = smoke_client
-                            .set_taskbar_icon_visible(
-                                initial.config_revision.ok_or_else(|| {
-                                    "taskbar icon config revision is unavailable".to_owned()
-                                })?,
-                                !initial_visibility,
-                            )
-                            .await
-                            .map_err(|error| format!("toggle taskbar icon: {error}"))?;
-                        if changed.taskbar_icon_visible == initial_visibility {
-                            return Err(
-                                "taskbar icon toggle did not change the published preference"
-                                    .to_owned(),
-                            );
-                        }
-                        settle_taskbar_icon(&smoke_client, cx, changed.taskbar_icon_visible)
-                            .await
-                            .map_err(|error| {
-                                format!("taskbar icon toggle did not reach both windows: {error}")
-                            })?;
-                        let restored = smoke_client
-                            .set_taskbar_icon_visible(
-                                changed.config_revision.ok_or_else(|| {
-                                    "changed taskbar icon revision is unavailable".to_owned()
-                                })?,
-                                initial_visibility,
-                            )
-                            .await
-                            .map_err(|error| format!("restore taskbar icon: {error}"))?;
-                        if restored.taskbar_icon_visible != initial_visibility {
-                            return Err(
-                                "restoring the taskbar icon did not restore the published \
-                                 preference"
-                                    .to_owned(),
-                            );
-                        }
-                        settle_taskbar_icon(&smoke_client, cx, initial_visibility)
-                            .await
-                            .map_err(|error| {
-                                format!("taskbar icon visibility was not restored atomically: {error}")
-                            })?;
-                        Ok::<(), String>(())
-                    }
-                    .await;
-                    if let Err(error) = taskbar_result {
-                        record_failure(&smoke_failures, error);
-                        cx.update(request_product_quit);
-                        return;
-                    }
-                    if let Err(error) = write_smoke_status("taskbar icon toggled and restored") {
-                        record_failure(&smoke_failures, error.to_string());
-                        cx.update(request_product_quit);
-                        return;
-                    }
-                    let mode_result = async {
-                        let initial = smoke_client.read_snapshot().await.map_err(|error| error.to_string())?;
-                        let initial_settings = initial.overlay;
-                        for enabled in [!initial_settings.window_mode, initial_settings.window_mode] {
-                            let snapshot = smoke_client.read_snapshot().await.map_err(|error| error.to_string())?;
-                            let mut settings = snapshot.overlay;
-                            settings.window_mode = enabled;
-                            smoke_client.set_overlay_settings(snapshot.config_revision.ok_or("window mode revision missing")?, settings).await.map_err(|error| error.to_string())?;
-                            let mut applied = false;
-                            for _ in 0..SMOKE_FIRST_FRAME_WAIT_TICKS {
-                                Timer::after(Duration::from_millis(50)).await;
-                                applied = cx.update(|cx| {
-                                    let coordinator = cx.global::<ProductCoordinator>();
-                                    let overlay = coordinator.overlay.borrow();
-                                    overlay.as_ref().is_some_and(|overlay| overlay.window_mode_is_active() == enabled && overlay.is_visible())
-                                });
-                                if applied { break; }
-                            }
-                            if !applied { return Err("window mode did not reach the product surface".to_owned()); }
-                        }
-                        let restored = smoke_client.read_snapshot().await.map_err(|error| error.to_string())?;
-                        if restored.overlay != initial_settings { return Err("window mode changed pet preferences".to_owned()); }
-                        Ok::<(), String>(())
-                    }.await;
-                    if let Err(error) = mode_result {
-                        record_failure(&smoke_failures, error);
-                        cx.update(request_product_quit);
-                        return;
-                    }
-                    if let Err(error) = write_smoke_status("window mode toggled and restored") {
-                        record_failure(&smoke_failures, error.to_string());
-                        cx.update(request_product_quit);
-                        return;
-                    }
-                }
 
-                #[cfg(target_os = "macos")]
                 {
                     let dock_result = async {
                         let window_handle = cx.update(ensure_settings_window)?;
@@ -2572,7 +2030,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .detach();
         }
 
-        #[cfg(target_os = "macos")]
         if run_options.application_reopen_smoke {
             let smoke_failures = Arc::clone(&run_failures);
             cx.spawn(async move |cx| {
@@ -2701,167 +2158,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .detach();
         }
 
-        #[cfg(target_os = "windows")]
-        if run_options.single_instance_smoke {
-            let single_instance_ready_file = run_options.single_instance_ready_file.clone();
-            let single_instance_result_file = run_options.single_instance_result_file.clone();
-            let smoke_failures = Arc::clone(&run_failures);
-            let smoke_shutdown_requested = Arc::clone(&shutdown_requested);
-            let settings_window = initial_settings_window
-                .clone()
-                .expect("single-instance smoke requested its explicit settings window");
-            cx.spawn(async move |cx| {
-                Timer::after(Duration::from_millis(500)).await;
-                let baseline = update_settings_window(
-                    cx,
-                    &settings_window,
-                    |_, window, cx| -> Result<u64, String> {
-                        let frame_ticks = cx.global::<ProductCoordinator>().frame_ticks;
-                        bongocat_platform::request_native_window_close(window)
-                            .map_err(|error| error.to_string())?;
-                        Ok(frame_ticks)
-                    },
-                )
-                .await;
-                let baseline_ticks = match baseline {
-                    Ok(frame_ticks) => frame_ticks,
-                    Err(error) => {
-                        record_failure(&smoke_failures, error.to_string());
-                        request_windows_product_quit(&smoke_shutdown_requested);
-                        return;
-                    }
-                };
-
-                let mut destroyed = false;
-                for _ in 0..60 {
-                    Timer::after(Duration::from_millis(50)).await;
-                    let observed = cx.update(|cx| {
-                        let coordinator = cx.global::<ProductCoordinator>();
-                        (
-                            coordinator.settings_window.is_none(),
-                            settings_window.read(cx).is_err(),
-                        )
-                    });
-                    if observed == (true, true) {
-                        destroyed = true;
-                        break;
-                    }
-                }
-                if !destroyed {
-                    record_failure(
-                        &smoke_failures,
-                        "single-instance smoke could not destroy the settings window",
-                    );
-                    request_windows_product_quit(&smoke_shutdown_requested);
-                    return;
-                }
-                if let Err(error) = write_smoke_status("single-instance primary ready") {
-                    record_failure(&smoke_failures, error.to_string());
-                    request_windows_product_quit(&smoke_shutdown_requested);
-                    return;
-                }
-                if let Some(path) = single_instance_ready_file.as_deref()
-                    && let Err(error) = write_smoke_marker(path, "single-instance primary ready")
-                {
-                    record_failure(&smoke_failures, error.to_string());
-                    request_windows_product_quit(&smoke_shutdown_requested);
-                    return;
-                }
-
-                // The wake creates the window at once, and the settings snapshot
-                // follows it on the next round trip, so a window without one is not
-                // ready yet rather than broken. Every other not-ready condition in
-                // this loop keeps polling; this one used to give up on its first
-                // poll, and that raced a snapshot which arrives in a few hundred
-                // milliseconds — the same wait the user-reopen smoke makes before it
-                // looks. Keep polling, and name the real reason if it never lands.
-                let mut window_without_snapshot = false;
-                for _ in 0..100 {
-                    Timer::after(Duration::from_millis(50)).await;
-                    let restored = cx.update(|cx| -> Result<bool, String> {
-                        let coordinator = cx.global::<ProductCoordinator>();
-                        if coordinator.single_instance_wakes == 0 {
-                            return Ok(false);
-                        }
-                        if coordinator.frame_ticks <= baseline_ticks {
-                            return Err(
-                                "frame source stopped while waiting for an instance wake"
-                                    .to_owned(),
-                            );
-                        }
-                        let reopened = coordinator.settings_window.clone().ok_or_else(|| {
-                            "instance wake did not create a settings window".to_owned()
-                        })?;
-                        if cx.windows().len() != 1 {
-                            return Err("instance wake created more than one settings window"
-                                .to_owned());
-                        }
-                        if reopened == settings_window {
-                            return Err(
-                                "instance wake reused the destroyed settings window".to_owned(),
-                            );
-                        }
-                        let hidden = reopened
-                            .update(cx, |view, _, _| view.window_hidden())
-                            .map_err(|error| error.to_string())?;
-                        if hidden {
-                            return Ok(false);
-                        }
-                        let revision = reopened
-                            .update(cx, |view, _, _| view.snapshot_revision())
-                            .map_err(|error| error.to_string())?;
-                        if revision.is_none() {
-                            window_without_snapshot = true;
-                            return Ok(false);
-                        }
-                        Ok(true)
-                    });
-                    match restored {
-                        Ok(true) => {
-                            if let Err(error) = write_smoke_status(
-                                "single-instance wake restored the settings window",
-                            ) {
-                                record_failure(&smoke_failures, error.to_string());
-                            }
-                            if let Some(path) = single_instance_result_file.as_deref()
-                                && let Err(error) = write_smoke_marker(
-                                    path,
-                                    "single-instance wake restored the settings window",
-                                )
-                            {
-                                record_failure(&smoke_failures, error.to_string());
-                            }
-                            request_windows_product_quit(&smoke_shutdown_requested);
-                            return;
-                        }
-                        Ok(false) => {}
-                        Err(error) => {
-                            record_failure(&smoke_failures, error.to_string());
-                            request_windows_product_quit(&smoke_shutdown_requested);
-                            return;
-                        }
-                    }
-                }
-                let unobserved = if window_without_snapshot {
-                    "the instance wake reopened the settings window without a runtime snapshot"
-                } else {
-                    "primary instance did not receive the secondary wake"
-                };
-                record_failure(&smoke_failures, unobserved.to_owned());
-                request_windows_product_quit(&smoke_shutdown_requested);
-            })
-            .detach();
-        }
 
         if !run_options.run_duration().is_zero() {
-            #[cfg(target_os = "windows")]
-            let quit_shutdown_requested = Arc::clone(&shutdown_requested);
             cx.spawn(async move |_cx| {
                 Timer::after(run_options.run_duration()).await;
-                #[cfg(target_os = "macos")]
                 _cx.update(request_product_quit);
-                #[cfg(target_os = "windows")]
-                request_windows_product_quit(&quit_shutdown_requested);
             })
             .detach();
         }

@@ -1,9 +1,9 @@
 //! Opening a link the user asked for, from a view callback.
 //!
-//! The regression here is issue #1081: on Windows, asking the operating system
-//! to open a URL from inside a button callback killed the process. Nothing about
-//! the URL was wrong, so what has to be asserted is *where* the launch runs and
-//! *when* the outcome is reported — not that a browser opens.
+//! The regression here is issue #1081: asking the operating system to open a
+//! URL from inside a button callback blocks the launch on the UI thread. Nothing
+//! about the URL was wrong, so what has to be asserted is *where* the launch runs
+//! and *when* the outcome is reported — not that a browser opens.
 //!
 //! The launch is injected throughout, so a test run never spawns one.
 

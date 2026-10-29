@@ -377,8 +377,6 @@ fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<(), PreviewBundleEr
             options.preserve_mode(false).mode(0o600);
             options
         };
-        #[cfg(not(unix))]
-        let options = AtomicWriteFile::options();
         let mut file = options.open(path).map_err(|_| PreviewBundleError)?;
         #[cfg(test)]
         inject_write_failure(WriteFailurePoint::AfterOpen, path)?;

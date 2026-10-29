@@ -43,7 +43,7 @@ probe, not a product settings reset implementation.
 
 This probe is visual-first like the product: it does not maintain a
 project-owned accessibility tree, adapter or action channel, and it does not
-depend on `accesskit`, `accesskit_macos` or `accesskit_windows` (ADR-0054). Its
+depend on `accesskit` or `accesskit_macos` (ADR-0054). Its
 CI smoke therefore checks window lifecycle, the typed runtime bridge and the
 visible UI probes, not an auxiliary-technology tree.
 

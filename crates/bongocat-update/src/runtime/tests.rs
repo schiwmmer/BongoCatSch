@@ -120,7 +120,6 @@ fn the_manifest_endpoint_is_the_shared_release_manifest() {
     for target in [
         UpdateTargetTriple::Aarch64AppleDarwin,
         UpdateTargetTriple::X86_64AppleDarwin,
-        UpdateTargetTriple::X86_64PcWindowsMsvc,
     ] {
         let mut configuration = configuration(ReleaseChannel::Production);
         configuration.target = target;
@@ -360,18 +359,17 @@ fn a_manifest_without_this_platform_stops_the_source_fallback() {
 /// The download-URL conversion rewrites exactly the official GitHub URLs, once.
 ///
 /// The file name is only there to look like a real asset; the rule under test is
-/// about the host, so it carries no version and no `-setup` suffix, both of which
-/// the packaging entry point has since dropped from the published installer.
+/// about the host, so it carries no version.
 #[test]
 fn download_urls_are_proxied_only_when_official_github() {
     let proxy = Some("https://cdn.gh-proxy.org");
     let github = Url::parse(
-        "https://github.com/ayangweb/BongoCat/releases/download/v0.0.0-test/BongoCat_x64.exe",
+        "https://github.com/ayangweb/BongoCat/releases/download/v0.0.0-test/BongoCat_aarch64.dmg",
     )
     .expect("the announced GitHub URL parses");
     assert_eq!(
         UpdateRuntime::proxied_download_url(proxy, &github).as_str(),
-        "https://cdn.gh-proxy.org/https://github.com/ayangweb/BongoCat/releases/download/v0.0.0-test/BongoCat_x64.exe"
+        "https://cdn.gh-proxy.org/https://github.com/ayangweb/BongoCat/releases/download/v0.0.0-test/BongoCat_aarch64.dmg"
     );
 
     // The official run keeps the announced URL untouched.
@@ -387,7 +385,7 @@ fn download_urls_are_proxied_only_when_official_github() {
 
     // Any other host is left alone.
     let elsewhere =
-        Url::parse("https://example.invalid/BongoCat_x64.exe").expect("the foreign URL parses");
+        Url::parse("https://example.invalid/BongoCat_aarch64.dmg").expect("the foreign URL parses");
     assert_eq!(
         UpdateRuntime::proxied_download_url(proxy, &elsewhere),
         elsewhere

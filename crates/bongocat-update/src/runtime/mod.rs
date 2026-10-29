@@ -13,16 +13,16 @@
 //! The library owns the transport and the trust decision. It fetches a release
 //! manifest over HTTPS, compares versions, downloads the announced payload,
 //! verifies it against an embedded minisign public key, and installs it: on macOS
-//! by swapping the whole `.app` bundle, on Windows by running the NSIS installer the
-//! manifest points at. This module owns only what is BongoCat-specific — which
-//! repository and channel an update may come from, when to refuse before touching
-//! the network, the GitHub proxy sources the manifest is requested through before
-//! the official endpoint, and the anonymous diagnostics contract.
+//! by swapping the whole `.app` bundle. This module owns only what is
+//! BongoCat-specific — which repository and channel an update may come from, when
+//! to refuse before touching the network, the GitHub proxy sources the manifest is
+//! requested through before the official endpoint, and the anonymous diagnostics
+//! contract.
 
 use cargo_packager_updater::semver::Version;
 use cargo_packager_updater::url::Url;
 use cargo_packager_updater::{
-    Config, Updater, UpdaterBuilder, WindowsConfig, WindowsUpdateInstallMode,
+    Config, Updater, UpdaterBuilder,
 };
 
 use crate::{
@@ -271,16 +271,12 @@ impl UpdateRuntime {
         let current_version = Version::parse(self.current_version)
             .map_err(|_| UpdateError::new(UpdateErrorCode::NotConfigured))?;
 
-        // A per-user NSIS install needs no elevation, and `/S` keeps the update
-        // silent; `/R` asks the installer to relaunch the application, which the
-        // Windows install path depends on because it exits the current process.
+        // On macOS the runtime swaps the whole `.app` bundle, so no installer
+        // configuration is needed.
         let config = Config {
             endpoints: vec![endpoint],
             pubkey: key.to_owned(),
-            windows: Some(WindowsConfig {
-                installer_args: None,
-                install_mode: Some(WindowsUpdateInstallMode::Quiet),
-            }),
+            windows: None,
         };
 
         UpdaterBuilder::new(current_version, config)
@@ -366,10 +362,8 @@ impl UpdateRuntime {
     /// The library performs the download and the install in one call, so the download
     /// and install counter families advance together.
     ///
-    /// On Windows the NSIS install path terminates the process instead of returning:
-    /// the installer replaces files the running application holds open. `Installed` is
-    /// therefore only observable on macOS; on Windows a successful run ends in process
-    /// exit, and the installer's `/R` argument relaunches the application.
+    /// On macOS the install swaps the whole `.app` bundle and returns, so
+    /// `Installed` is always observable on the shipped platform.
     pub fn install(&self) -> Result<UpdateOutcome, UpdateError> {
         self.install_with_observer(|_| {})
     }
@@ -465,7 +459,7 @@ impl UpdateRuntime {
 /// created without error and reports itself visible, but its window is never laid out
 /// and nothing appears in the menu bar. Only quitting and launching again brings the
 /// icon back, because that is what rebuilds the registration. A new process gets a
-/// clean one, so the restart spawns on macOS as it already did on Windows.
+/// clean one, so the restart spawns a clean macOS process.
 ///
 /// On success this does not return.
 pub(crate) fn restart_current_process() -> Result<std::convert::Infallible, UpdateError> {

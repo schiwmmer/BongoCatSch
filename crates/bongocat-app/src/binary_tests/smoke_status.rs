@@ -38,12 +38,8 @@ fn models_page_smoke_is_opt_in() {
     assert!(options.settings_window_smoke);
     assert!(!options.hidden_model_switch_smoke);
     assert!(!options.system_menu_smoke);
-    #[cfg(target_os = "macos")]
     assert!(!options.application_reopen_smoke);
-    #[cfg(target_os = "macos")]
     assert!(!options.startup_item_smoke);
-    #[cfg(target_os = "windows")]
-    assert!(!options.single_instance_smoke);
 }
 
 #[test]
@@ -55,12 +51,8 @@ fn cultivation_page_smoke_is_opt_in() {
     assert!(!options.models_page_smoke);
     assert!(!options.hidden_model_switch_smoke);
     assert!(!options.system_menu_smoke);
-    #[cfg(target_os = "macos")]
     assert!(!options.application_reopen_smoke);
-    #[cfg(target_os = "macos")]
     assert!(!options.startup_item_smoke);
-    #[cfg(target_os = "windows")]
-    assert!(!options.single_instance_smoke);
 }
 
 #[test]
@@ -139,7 +131,6 @@ fn system_menu_smoke_is_opt_in() {
     assert!(!options.settings_window_smoke);
 }
 
-#[cfg(target_os = "macos")]
 #[test]
 fn application_reopen_smoke_is_opt_in() {
     let options = RunOptions::parse(["--application-reopen-smoke".to_owned()])
@@ -149,7 +140,6 @@ fn application_reopen_smoke_is_opt_in() {
     assert!(options.opens_settings_window_on_start());
 }
 
-#[cfg(target_os = "macos")]
 #[test]
 fn startup_item_smoke_is_opt_in() {
     let options =
@@ -157,99 +147,4 @@ fn startup_item_smoke_is_opt_in() {
     assert!(options.startup_item_smoke);
     assert!(!options.settings_window_smoke);
     assert!(!options.application_reopen_smoke);
-}
-
-#[cfg(target_os = "windows")]
-#[test]
-fn single_instance_smoke_is_opt_in() {
-    let options = RunOptions::parse(["--single-instance-smoke".to_owned()])
-        .expect("single-instance smoke options");
-    assert!(options.single_instance_smoke);
-    assert!(!options.settings_window_smoke);
-    assert!(options.opens_settings_window_on_start());
-    assert!(options.automated_verification());
-    assert_eq!(options.single_instance_ready_file, None);
-    assert_eq!(options.single_instance_result_file, None);
-}
-
-/// Naming a marker file is a harness run even though no smoke flag is set.
-///
-/// `clap` requires the companion flag, so the marker arrives alongside it; what
-/// matters here is that the marker itself is part of the harness set rather than a
-/// separate case.
-#[cfg(target_os = "windows")]
-#[test]
-fn a_single_instance_marker_file_also_marks_a_harness_run() {
-    let options = RunOptions::parse([
-        "--single-instance-smoke".to_owned(),
-        "--single-instance-ready-file".to_owned(),
-        r"C:\runner\primary.ready".to_owned(),
-    ])
-    .expect("single-instance marker options");
-    assert!(options.automated_verification());
-}
-
-#[cfg(target_os = "windows")]
-#[test]
-fn single_instance_marker_options_are_parsed_with_the_smoke_flag() {
-    let options = RunOptions::parse([
-        "--single-instance-smoke".to_owned(),
-        "--single-instance-ready-file".to_owned(),
-        r"C:\runner\primary.ready".to_owned(),
-        "--single-instance-result-file".to_owned(),
-        r"C:\runner\primary.result".to_owned(),
-    ])
-    .expect("single-instance marker options");
-    assert_eq!(
-        options.single_instance_ready_file,
-        Some(PathBuf::from(r"C:\runner\primary.ready"))
-    );
-    assert_eq!(
-        options.single_instance_result_file,
-        Some(PathBuf::from(r"C:\runner\primary.result"))
-    );
-}
-
-#[cfg(target_os = "windows")]
-#[test]
-fn single_instance_marker_options_require_the_smoke_flag() {
-    for arguments in [
-        vec![
-            "--single-instance-ready-file".to_owned(),
-            r"C:\runner\primary.ready".to_owned(),
-        ],
-        vec![
-            "--single-instance-result-file".to_owned(),
-            r"C:\runner\primary.result".to_owned(),
-        ],
-    ] {
-        assert!(RunOptions::parse(arguments).is_err());
-    }
-}
-
-#[cfg(target_os = "windows")]
-#[test]
-fn single_instance_marker_options_require_non_empty_values() {
-    for arguments in [
-        vec![
-            "--single-instance-smoke".to_owned(),
-            "--single-instance-ready-file".to_owned(),
-        ],
-        vec![
-            "--single-instance-smoke".to_owned(),
-            "--single-instance-result-file".to_owned(),
-        ],
-        vec![
-            "--single-instance-smoke".to_owned(),
-            "--single-instance-ready-file".to_owned(),
-            String::new(),
-        ],
-        vec![
-            "--single-instance-smoke".to_owned(),
-            "--single-instance-result-file".to_owned(),
-            String::new(),
-        ],
-    ] {
-        assert!(RunOptions::parse(arguments).is_err());
-    }
 }

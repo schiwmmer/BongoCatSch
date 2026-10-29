@@ -19,9 +19,3 @@ pub(crate) fn write_smoke_status(status: &str) -> io::Result<()> {
     stdout.flush()
 }
 
-#[cfg(target_os = "windows")]
-pub(crate) fn write_smoke_marker(path: &Path, status: &str) -> io::Result<()> {
-    let mut file = atomic_write_file::AtomicWriteFile::open(path)?;
-    writeln!(file, "{status}")?;
-    file.commit()
-}

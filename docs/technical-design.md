@@ -2,8 +2,7 @@
 
 状态：架构决策稿，Phase 0 证据补齐与 Phase 1 渐进实现并行
 最后更新：2026-09-25
-首发平台：Windows 10 1903+、macOS 12+
-后续平台：Linux（首发后评估）
+目标平台：macOS 12+
 
 > BongoCat 采用单一 Rust 应用。GPUI 负责设置界面，Rust 平台模块直接负责输入、窗口、系统集成和 GPU 渲染。
 
@@ -14,7 +13,6 @@ Rust 2024 edition application
 ├── GPUI                         设置、模型管理、快捷键和诊断 UI
 ├── Product Runtime              状态、输入语义、动画和配置协调
 ├── Live2D Runtime               模型、动作、表情、物理和音效
-├── Windows Backend              windows-rs、Raw Input、gilrs/WGI、D3D11
 ├── macOS Backend                objc2、CGEventTap、gilrs/IOHID、Metal
 └── Shared Assets / Fixtures     模型、schema、本地化和测试数据
 ```
@@ -22,35 +20,16 @@ Rust 2024 edition application
 主要决策：
 
 - BongoCat 自有应用代码统一使用 Rust。
-- Windows 只发布 `x86_64-pc-windows-msvc`，不构建或发布 x86 与原生 ARM64；Windows on ARM 通过系统 x64 仿真运行该构建。
 - GPUI 只负责常规设置 UI，不承担模型渲染。
 - 模型窗口由 Rust 平台模块直接创建和管理，与 GPUI 设置窗口共享同一应用生命周期。
-- Windows 模型窗口支持透明桌宠与普通窗口模式（ADR-0089）。普通窗口使用系统标题栏、等比例
-  resize 边框、最小化/关闭按钮和不透明 D3D11 HWND swap chain，支持窗口捕获。背景为用户选择的
-  RGB 纯色，默认绿色；模型自带背景和绘制层次保持不变。模式与背景通过既有 revision-checked
-  overlay command 持久化，缺失新字段的 v1 数据仍按桌宠默认启动，macOS 不应用这两项。
-  普通窗口暂停点击穿透、悬停/空闲隐藏、不透明度及圆角裁剪，不改写桌宠偏好。关闭隐藏模型窗口，
-  不提前销毁 renderer 的 HWND；客户区几何用于 renderer 和持久化，最小化不写入 shell 的占位坐标。
-  Windows 两种呈现共用客户区尺寸规则，保留未取整的模型画布宽高。数字及手势缩放按当前 DPI、
-  100% 时 350 逻辑像素的基准宽度计算绝对尺寸；恢复、模式和模型切换保留客户区宽度，再按
-  画布推导高度。尺寸上下限统一作用于比例，不分别截断两轴；系统边框在最后计算。原生尺寸
-  变更及 DPI 建议矩形同样经过该规则，避免系统标题栏最小宽度再单独改动一轴。renderer 跟随
-  实测客户区尺寸，最小化期间更新恢复几何；边框拖动回写的百分比再次应用时不叠加缩放。
-  只有实际改变客户区尺寸的系统 resize 操作回写缩放；移动窗口（包括跨屏 DPI 调整）、未改变
-  尺寸或取消的 resize 不回写缩放，不把恢复的窗口几何误当作新缩放比例。
-  模型切换在原 HWND 上 prepare/validate/commit，失败保留当前可捕获模型；改变颜色、缩放和置顶
-  同样不替换捕获目标。模式切换需要重建对应呈现资源。
-- Windows 使用 D3D11，macOS 使用 Metal；首发不为了未来 Linux 强行统一 GPU backend。
-- Windows 键鼠输入优先评估成熟输入库；若没有方案能同时满足事件边缘完整性、系统状态校正、
-  Raw Input 设备语义和已确认的生命周期复位不变量，则直接使用 `windows-rs` 实现最小适配层，
-  从架构上避免 issue #47 的永久卡键。
+- macOS 使用 Metal；不为了未来其他平台强行统一 GPU backend。
 - macOS 输入优先评估成熟输入库；若没有方案能同时满足 listen-only CGEventTap、TCC 权限状态、
   tap 恢复和左右修饰键状态校正，则直接使用 `objc2` 封装最小适配层。
-- 双平台手柄 backend 固定使用 `ayangweb/gilrs` 精确 commit：Windows 为 WGI，macOS 为 IOHID；
+- 手柄 backend 固定使用 `ayangweb/gilrs` 精确 commit：macOS 为 IOHID；
   `bongocat-platform` 只保留强类型事件/axis、连接 generation、Reset 重播和产品阈值适配，所有
   驱动、mapping 与 backend 生命周期修复进入 fork（ADR-0066）。
 - 官方 Cubism Core 是预编译厂商二进制，是“应用代码纯 Rust”的唯一 FFI 例外；BongoCat 业务逻辑不得进入 SDK bridge。
-- Linux 不进入首发范围，但共享业务 crate 不得依赖 Win32/AppKit 类型，不得故意封死后续 backend。
+- 共享业务 crate 不得依赖 AppKit 类型，不得故意封死后续 backend。
 
 ## 2. “纯 Rust”的定义
 
@@ -70,7 +49,7 @@ Rust 2024 edition application
 ### 3.1 目标
 
 - 使用 Rust 实现完整的桌面应用、设置 UI 和实时运行链路。
-- 使用一套 Rust 业务实现覆盖 Windows 和 macOS。
+- 使用一套 Rust 业务实现覆盖 macOS。
 - 保持现有模型、动作、表情和用户资源格式尽可能兼容；配置使用全新的配置 schema 和命名。
 - 修复输入事件丢失导致的永久卡键，包括 issue #47 的截图快捷键场景。
 - 设置界面具备一致、清晰、可主题化的桌面体验。
@@ -82,7 +61,7 @@ Rust 2024 edition application
 
 - 首发不支持 Linux，不承诺 Wayland 全局输入能力。
 - 不提供进程内插件 ABI。
-- 不要求 Windows/macOS 像素完全一致。
+- 不要求 macOS 像素级一致。
 - 不把 GPUI fork、Zed 私有 UI crate 或第三方输入库变成业务 API。
 - 历史版本只作为行为与模型资源参考；BongoCat 不读取或导入旧 Tauri/Pinia 配置。
 - 不在技术 spike 通过前完整迁移所有产品功能。
@@ -107,14 +86,14 @@ Rust 2024 edition application
 GPUI 用于设置窗口、模型管理、快捷键编辑、权限状态、更新和诊断：
 
 - Rust 原生、GPU 加速，适合视觉统一的桌面工具界面。
-- Windows 后端使用 Win32、DirectWrite、D3D11/DirectComposition，macOS 使用 AppKit/Metal。
+- macOS 后端使用 AppKit/Metal。
 - retained/immediate 混合模型适合设置表单、列表、实时预览和自定义控件。
 - 已有目标桌面平台 backend，并为后续 Linux 留出路径。
 - Zed 的实际产品规模证明其能够支撑复杂桌面 UI。
 
 ### 5.2 GPUI 边界
 
-GPUI 仍是 pre-1.0，公共渲染 API 也没有稳定的 Windows/macOS 外部 Live2D 纹理合成路径。因此：
+GPUI 仍是 pre-1.0，公共渲染 API 也没有稳定的 macOS 外部 Live2D 纹理合成路径。因此：
 
 - 正式 workspace 只直接依赖 crates.io 的 `gpui-kit = "=0.7.3"` 并提交 `Cargo.lock`；GPUI Kit
   是唯一直接 GPUI 依赖，其 suite 内五个 package 都从同一 registry 版本解析。禁止另行声明或替换
@@ -144,11 +123,7 @@ GPUI 仍是 pre-1.0，公共渲染 API 也没有稳定的 Windows/macOS 外部 L
 - **原生表面（窗口框、系统弹框、右键菜单、托盘菜单、文件选择框）的主题由 `bongocat-platform`
   的 theme 模块独占（ADR-0048）**，UI 层不再直接调用平台外观 API。该模块只接受**已解析**的
   `AppTheme`（`System` 不往下传），并按平台能力矩阵落地：macOS 用进程级
-  `NSApplication.appearance`，一处覆盖窗口框、弹框、菜单和面板；Windows 用
-  `DWMWA_USE_IMMERSIVE_DARK_MODE` 覆盖窗口框——该属性一旦显式写入便不再自动跟随系统，因此
-  偏好为 `system` 时（平台层收到的是 `None`，`System` 不往下传）以 gpui 同源的
-  `UISettings` 查询实时重推导并写入该属性；其余表面接受**跟随系统主题**，由进程在创建任何
-  窗口前调用一次未文档化的 `SetPreferredAppMode(AllowDark)` 使其生效。`system` 的解析口径统一
+  `NSApplication.appearance`，一处覆盖窗口框、弹框、菜单和面板。`system` 的解析口径统一
   在平台层（macOS 查 `NSApplication.effectiveAppearance`）且全 UI crate 只有一处解析入口，
   render 路径与 smoke 断言共用它——不读 gpui 的窗口外观缓存，因为该缓存只在延迟触发的
   `appearance_changed` 中更新；也不复用 gpui 的外观名映射，因为它不识别
@@ -176,8 +151,8 @@ GPUI 仍是 pre-1.0，公共渲染 API 也没有稳定的 Windows/macOS 外部 L
 - 可见控件、键盘导航、focus、loading/error 和 value 共用同一份 UI snapshot；实现和 smoke
   只为可见行为建立断言，不复制辅助语义状态。
 - GPUI 不加载 Cubism、不持有模型 GPU 资源、不驱动模型帧循环。
-- 全局快捷键使用配置边界编译出的 `CompiledShortcuts`，由操作系统注册（Windows
-  `RegisterHotKey`、macOS `RegisterEventHotKey`，见 ADR-0044），单一 owner 线程持有平台
+- 全局快捷键使用配置边界编译出的 `CompiledShortcuts`，由操作系统注册（macOS
+  `RegisterEventHotKey`，见 ADR-0044），单一 owner 线程持有平台
   manager 并把共享 `ShortcutTable` 增量映射为真实注册；只有匹配当前 active model 的
   motion/expression target 才能转成 typed runtime command。只有物理按下边沿才分发：
   两个平台都会在组合键被按住期间按系统重复节奏继续投递 pressed 事件，重复事件必须被丢弃
@@ -241,26 +216,15 @@ GPUI 仍是 pre-1.0，公共渲染 API 也没有稳定的 Windows/macOS 外部 L
   无需重启即可用自己的组合键，非活动模型的绑定也不再占用全局热键。
 - `system.show_status_icon` 通过独立的 revision-checked settings command 修改。settings worker
   以有界 request/reply bridge 请求平台主线程隐藏或显示状态图标，平台成功后才由 Application owner
-  原子提交配置；配置提交失败时必须把图标恢复为旧状态。macOS/Windows 共用 `tray-icon 0.26.1` 托盘
+  原子提交配置；配置提交失败时必须把图标恢复为旧状态。使用 `tray-icon 0.26.1` 托盘
   owner 与直接依赖的 `muda 0.21.2` 菜单 owner：`TrayIcon`、一个 popup 菜单根、菜单项 receiver 和强类型
-  事件队列在整个运行期保持存活，`set_visible` 只改变平台表示（macOS 移除 `NSStatusItem`，Windows 保留
-  注册并设置隐藏），重新显示不创建第二套业务状态或菜单 owner。托盘和 overlay 右键复用同一棵菜单树，
-  由 `muda` 从 overlay 的真实 HWND/`NSView` 弹出，不借用托盘隐藏窗口。
+  事件队列在整个运行期保持存活，`set_visible` 只改变平台表示（macOS 移除 `NSStatusItem`），
+  重新显示不创建第二套业务状态或菜单 owner。托盘和 overlay 右键复用同一棵菜单树，
+  由 `muda` 从 overlay 的真实 `NSView` 弹出，不借用托盘隐藏窗口。
   正式启动不创建或显示设置窗口，设置窗口、单实例唤醒和 application reopen 仍提供恢复入口；
   平台失败只返回稳定匿名 settings error。
-- `system.show_taskbar_icon` 只控制 Windows 模型窗口的任务栏按钮，默认 `false`，不改变窗口
-  可见性，也不映射为 macOS Dock 图标。默认关闭是刻意的：模型窗口是无标题栏的 `WS_POPUP`，
-  它在任务栏里的按钮没有用户可操作的对应窗口，而设置窗口才是可用的任务栏入口，因此默认
-  不额外占用一个任务栏位置。设置窗口始终保留 GPUI 创建时带的任务栏按钮与原生标题栏：
-  给它套上 `WS_EX_TOOLWINDOW` 会连标题栏一起换成工具窗口的短标题栏，因此产品不写它的
-  扩展样式。该偏好在桌宠模式切换模型窗口的 `WS_EX_APPWINDOW`/`WS_EX_TOOLWINDOW`；普通窗口模式
-  固定使用 `WS_EX_APPWINDOW`，以保留普通标题栏和可恢复的任务栏入口，原偏好不被重写。
-  settings worker 通过独立的有界 request/reply bridge 请求主线程在 overlay 会话上应用并回读，
-  平台成功后才由 Application owner 按 expected revision 原子提交；配置提交失败时恢复旧值。
-  启动必须把当前 v1 值写进 overlay 会话选项，模型切换重建 HWND 时沿用会话记录的应用值，
-  平台失败只返回稳定匿名 settings error。
-- `system.show_dock_icon` 控制 macOS 仅剩猫窗口时是否显示程序坞图标，默认 `false`，
-  独立于 Windows 的 `show_taskbar_icon`。设置或更新窗口打开期间（包括最小化）保持 `Regular`
+- `system.show_dock_icon` 控制 macOS 仅剩猫窗口时是否显示程序坞图标，默认 `false`。
+  设置或更新窗口打开期间（包括最小化）保持 `Regular`
   并显示 Dock 图标；全部关闭后按后台偏好使用 `Regular` 或 `Accessory`（ADR-0054）。
   Application 主线程复用 GPUI 的窗口列表计算实际模式，打开普通窗口前启用 Dock，关闭回调中
   重新计算；开窗失败恢复后台偏好。切换偏好不关闭、隐藏或重建已有窗口，不枚举 AppKit 窗口
@@ -275,20 +239,14 @@ GPUI 仍是 pre-1.0，公共渲染 API 也没有稳定的 Windows/macOS 外部 L
   同样不得每秒重建完整快照：它先读取只返回 revision 的命令（`ReadSnapshotRevision`，只比较 service
   已持有的状态），仅在 revision 变化时才读取完整快照，完整快照中的模型目录扫描因此不再随 `20 Hz`
   轮询反复执行；`CGPreflightListenEventAccess` 这类 TCC 查询由 snapshot clock 按上限 `1 s` 缓存，
-  只有显示用途的值不再要求每次快照都访问系统。Windows GPUI 0.2.2 的最终 `WM_DESTROY` 同步重入
-  兼容退出路径仍只用于显式 Quit 后的产品 owner 关闭阶段；普通设置/更新窗口销毁必须由双平台原生
-  smoke 验证。Windows 显式退出先请求 frame source 停止并停止输入生产者，确认 frame source 已退出后
-  再 shutdown/join runtime、配置和音频 owner，最后释放 renderer/GPU 与 overlay；该兼容措施不得提前
-  终止业务 shutdown；升级到修复此回调的固定 GPUI 版本后必须移除，并恢复正常 GPUI 析构门禁。
+  只有显示用途的值不再要求每次快照都访问系统。普通设置/更新窗口销毁必须由 macOS 原生
+  smoke 验证。显式退出先请求 frame source 停止并停止输入生产者，确认 frame source 已退出后
+  再 shutdown/join runtime、配置和音频 owner，最后释放 renderer/GPU 与 overlay。
 - 正式 executable 无参数启动时持续运行到显式 Quit 或系统终止；正数 `--run-seconds` 只用于
   有界 smoke/诊断，不能成为安装包或 Finder/Explorer 启动的隐式退出条件。所有正常退出仍须
   进入同一 shutdown coordinator。
-- Windows 的 GPUI 平台循环独占线程消息派发；宿主产品调用的 overlay `tick` 不得再次 pump
-  Win32 队列，并且必须在没有持有 GPUI `App`/`Window` borrow 时执行。独立 preview 的
-  `run_for` 循环才负责主动 pump。这一约束防止 D3D11 tick 同步派发设置窗口消息后重入
-  `AsyncApp`。
 - 平台服务不返回 GPUI 类型，避免框架扩散到业务模块。
-- GPUI 升级必须单独提交，附变更说明、双平台构建和 UI smoke test。
+- GPUI 升级必须单独提交，附变更说明、macOS 构建和 UI smoke test。
 
 所有新的 crates.io 直接依赖同样先选择引入时最新的非 yanked 稳定版，再精确 pin 并提交 lockfile。只有 Rust toolchain、目标平台、许可证或已验证的安全边界不兼容时才允许暂缓，且必须留下可复核的版本差异和解除条件；不能用旧版本回避正常的 API 迁移。传递依赖在上游约束允许的范围内保持最新，不 fork 上游只为修改版本号。
 
@@ -311,7 +269,7 @@ Platform input ---> Runtime thread ---> Model/Animation state
      +--> reconciliation                 Render snapshot
                                                    |
                                       Native overlay window
-                                      D3D11 / Metal renderer
+                                      Metal renderer
 ```
 
 ### 6.1 模块责任
@@ -346,10 +304,10 @@ ui protocol <------- app -------> runtime <------- platform adapters
                                       |
                                       +------ live2d-playback
 
-                         D3D11 renderer / Metal renderer
+                         Metal renderer
 ```
 
-业务 crate 不得导入 Win32、Objective-C、GPUI 或 GPU handle。平台实现可以依赖业务定义的 command/event 类型。runtime 可直接使用 `live2d-playback` 的 clip/evaluation 类型和 `live2d-render` 的键位图解析 contract；两层都不读取 runtime command、Core snapshot 或 GPU 资源。
+业务 crate 不得导入 Objective-C、GPUI 或 GPU handle。平台实现可以依赖业务定义的 command/event 类型。runtime 可直接使用 `live2d-playback` 的 clip/evaluation 类型和 `live2d-render` 的键位图解析 contract；两层都不读取 runtime command、Core snapshot 或 GPU 资源。
 
 `bongocat-pomodoro` 与 `bongocat-audio` 平行，由 app startup 接线，方向单向：`app → ui/overlay/platform → pomodoro`。领域 crate 不认识任何展示面；三个展示面（macOS 倒计时浮层、托盘与右键菜单、设置窗口 GPUI 页）读同一份带 revision 的 snapshot。
 
@@ -360,7 +318,7 @@ ui protocol <------- app -------> runtime <------- platform adapters
 - 修仙体系是番茄钟成长值的支出层，全部是纯值计算：十境一百层一千级的阶梯、成长曲线、四属性与战力折算、装备与仙草园的阶位定价、五百套功法的修习与大成、每日集市货架 `(日, 境界)` 纯函数、探索掉落表、ATB 行动条战斗与命中比值模型。随机源是可注入种子的 SplitMix64，测试因此能钉死具体掉落（ADR-0092、ADR-0094）。
 - 字段演进遵循 §3.1：新字段一律 `#[serde(default)]`，旧档不得读失败；曲线重标定这类不兼容迁移单独建 ADR、顺序执行、幂等，等级/已发属性点/装备/功法原样保留（ADR-0094）。
 - 拒绝是带原因的值（`TradeRefusal` 等），经 `last_refusal` 回到 UI 统一呈现为 toast；事件日志 cap 16，`serde default` 兼容旧档。
-- 番茄钟菜单入口与倒计时浮层只在 macOS 编译，Windows 菜单树保持原样；i18n 只发 zh-CN 与 en-US 两个 catalog，键集一致性由 catalog 测试强制（ADR-0093）。
+- 番茄钟菜单入口与倒计时浮层只在 macOS 编译；i18n 只发 zh-CN 与 en-US 两个 catalog，键集一致性由 catalog 测试强制（ADR-0093）。
 
 ## 7. 仓库布局
 
@@ -387,7 +345,7 @@ BongoCat/
     bongocat-render/          render snapshot/contract
     bongocat-ui/              GPUI 设置界面和 design system
     bongocat-update/          发布清单读取、版本/target 判定、载荷验签与安装策略
-    bongocat-platform/        Windows/macOS 平台服务
+    bongocat-platform/        macOS 平台服务
   shared/
     config/                   JSON 配置 schema、命名与存储契约
     behavior/                 输入、动画和快捷键规范
@@ -461,7 +419,7 @@ Gamepad axes -------- latest-value slot -------+        +--> UI snapshot
   行为快捷键分配、失败回滚、`selected_model` 持久化与两阶段 commit），不新增第二条切换路径，
   也不在 platform callback、UI executor 或 GPUI Entity 内加载模型。
 - 平台 input worker 通过独立 latest diagnostics producer 发布项目稳定计数；该通道不占用可靠
-  command/input edge 队列，Windows service tick 与 macOS run-loop slice 都刷新 live snapshot。
+  command/input edge 队列，macOS run-loop slice 刷新 live snapshot。
   callback 原子计数、worker 恢复计数和 cursor latest 统计在平台 owner 内合并后进入
   `RuntimeSnapshot::platform_input`；停止输入时须先发布包含 `clean_shutdown` 的最终快照，再停止 runtime。
 - 动画和延迟使用单调时钟 `Instant`，持久化时间才使用墙上时钟。
@@ -571,35 +529,13 @@ enum InputEvent {
 
 PixPin、Win+L 或其他系统级快捷键可能让应用收到按下边沿，却收不到对应的释放边沿。输入系统不能把事件流视为永远完整，必须通过系统状态查询和生命周期复位保证 pressed state 最终一致。系统查询集中在输入服务中，renderer 不直接读取键盘状态。
 
-### 9.2 Windows
-
-1. 使用 `windows-rs` 调用 `RegisterRawInputDevices`，后台窗口接收 `WM_INPUT`。
-2. 从 scan code、extended flag 和 `RI_KEY_BREAK` 建立物理键边沿。
-3. runtime 维护 pressed set，但事件流不是唯一事实来源。
-4. 校正使用单调时钟周期调度；默认每 `250 ms` 查询一次，并要求同一个 key 连续 `2` 次快照缺失才确认释放，避免单次系统查询异常误清除。时钟回退不得推进调度游标。
-5. 对 pressed set 中确认释放的键生成内部 `KeyUp`。
-6. 会话锁定、桌面切换、睡眠、设备移除、服务重启和队列异常时发送 `Reset`；这些生命周期复位不等待确认阈值。
-7. 必要时用 `WH_KEYBOARD_LL` 补充合成事件，但 hook 不得覆盖 Raw Input 物理状态。
-8. `RegisterHotKey` 只处理应用快捷键；冲突必须反馈 UI 并保留旧绑定。
-9. 手柄由 `ayangweb/gilrs` 固定 commit 的 WGI backend 提供。adapter 将位置名、连接/断开和按钮
-   送入可靠序列，将 stick/trigger 送入带 connection generation 的 latest-values；每 tick 最多
-   drain 256 个 event，产品最多活动 4 个手柄。gilrs 默认 dead-zone、force feedback 和环境 mapping
-   关闭，D-pad 使用 gilrs 自带转换；backend 构造失败只禁用手柄并计数，不能停止键鼠服务。Windows
-   WGI 的 bounded join/错误 acknowledgement、hidden/unfocused Raw Input window 与 click-through
-   overlay 下的实机投递仍是发布门禁；初始 held-state snapshot 也必须由 backend 提供。
-
-Windows 的 `WM_QUERYENDSESSION` 与已确认的 `WM_ENDSESSION` 只记录系统终止请求并立即返回；
-GPUI owner 在下一帧进入既有 shutdown coordinator，Win32 callback 不阻塞或析构 runtime/GPU 资源。
+### 9.2 macOS
 
 该方案不承诺安全桌面交付每个释放事件，而是保证丢事件不会产生永久卡键。
 清除一个已按下 control 的路径是且只有三条：可靠 `KeyUp`、系统状态校正和生命周期 `Reset`。
 经过的时间不构成释放：用户仍按住的按键与丢失的松开事件在时长上无法区分，用时长区分会把一帧
 变慢变成一个猫不再相信的按键。因此没有按键释放超时配置，runtime 也不维护基于单调时钟的按键
 期限或与之相关的匿名计数。
-
-Windows 验收覆盖 PixPin `Ctrl+Alt+A`、Win+L、PrintScreen、UAC、管理员/非管理员进程、睡眠唤醒、多键连按和队列压力。
-
-### 9.3 macOS
 
 - 使用 listen-only `CGEventTap`，不经过 GPUI 响应链。
 - 区分 Input Monitoring 的 unknown、denied、granted、restart-required 状态。
@@ -641,13 +577,12 @@ Windows 验收覆盖 PixPin `Ctrl+Alt+A`、Win+L、PrintScreen、UAC、管理员
   模型 id、标题或目录）、设置窗口的显示缩放与逻辑尺寸（复制当刻从 `Window` 读取，因此布局问题
   可以被复现）；不含任何路径、模型名、日志正文、快捷键或用户配置值。系统无法自报版本时该字段
   缺省而不是填占位值。
-  输入能力不是一个跨平台同形的 granted/denied/unsupported：macOS 门在 TCC Input Monitoring，
-  Windows 门在提权令牌（`TokenElevation`，高完整性前台窗口存在时 Raw Input 才会继续送达，
-  ADR-0032），因此契约用「平台自己的能力名 + 本进程是否具备」表达，两平台都真、都有用。
-  早期实现用 macOS 语汇的 `input_monitoring_permission`，在 Windows 上报 `unsupported`，
-  读起来像「该平台没有权限概念」而实际是「门在提权上且当前未提权」，已随本字段改为能力模型。
-  仍未采集的是 GPU adapter 名称与渲染后端：它需要 Metal/DXGI 枚举（新的 `objc2-metal` 依赖或新的
-  `windows` feature）与无法在本机验证的 unsafe FFI，不属于本字段的最小闭环；渲染问题先靠
+  输入能力不是一个跨平台同形的 granted/denied/unsupported：macOS 门在 TCC Input Monitoring
+  （ADR-0032），因此契约用「平台自己的能力名 + 本进程是否具备」表达。
+  早期实现用 macOS 语汇的 `input_monitoring_permission`，读起来像「该平台没有权限概念」
+  而实际是「门在 TCC 上且当前未授权」，已随本字段改为能力模型。
+  仍未采集的是 GPU adapter 名称与渲染后端：它需要 Metal 枚举（新的 `objc2-metal` 依赖）
+  与无法在本机验证的 unsafe FFI，不属于本字段的最小闭环；渲染问题先靠
   `runtime_error_code` 与 `cubism_core_version` 定位，adapter 名称是下一个独立条目。
   About 的描述只在标题和按钮说不清时才出现：产品信息行显示产品版本，不带 build environment
   （Development/Production 是同一份二进制、不同数据根，只对更新通道有意义，该值仍留在 snapshot
@@ -692,49 +627,6 @@ Windows 验收覆盖 PixPin `Ctrl+Alt+A`、Win+L、PrintScreen、UAC、管理员
 - callback 只做映射和入队，不执行模型、文件或 UI 工作。
 
 ## 10. 平台实现
-
-### 10.1 Windows
-
-- 应用：GPUI/Win32 主事件循环，单实例使用 named mutex + 唤醒消息。
-- Overlay：透明桌宠用 Win32 无边框 popup，普通窗口使用系统标题栏与 resize 边框（ADR-0089）。
-  无已保存 bounds 时以 `350px` 作为 `100%` 的默认逻辑宽度，再应用当前 DPI 与缩放；高度按
-  Cubism Core 返回的模型 Canvas 宽高比推导。恢复保存位置时保留客户区宽度并校正高度。
-  只有呈现模式切换重建窗口资源；桌宠模式切换模型仍重建窗口，普通窗口切换模型保留 HWND。
-  scale/opacity、圆角和屏幕约束设置在现有窗口上更新。桌宠非 click-through 模式的
-  客户区支持拖动，click-through 仍返回 `HTTRANSPARENT`。桌宠右键拖动缩放窗口：位移越过
-  `3px` 后按 `(dx + dy) * 0.5` 改 `overlay.scale_percent`（钳制在 `25–400`），窗口左上角
-  不动，尺寸逐帧经 `IDXGISwapChain1::ResizeBuffers` 与就地重建的 render target、staging
-  纹理、mask target 生效（不重建窗口、不重载模型纹理），松手后缩放写回配置（ADR-0057）。
-  `keep_inside_screen` 开启时，窗口必须完整落在所有显示器矩形（`EnumDisplayMonitors` +
-  `MONITORINFO.rcMonitor`）的并集内，因此允许覆盖任务栏，负坐标保持有效；跨显示器摆放只要不越过
-  桌面边界就不纠正。创建、缩放/资源设置重建和模型重建立即收敛一个不可用的放置（窗口大于显示器时保留
-  尺寸并把原点贴到显示器原点）；拖动后的收敛由 frame tick 驱动的延迟约束完成：窗口静止累计 1 秒后
-  才移回显示器内，期间任何被观测到的位移都重新计时，因此跨显示器拖拽不会被打断。约束缓存最多
-  `500ms` 复用一次放置检查，显示器变化（含拔掉外接屏）在静止窗口下也会被重新评估并纠正。关闭时
-  不执行该收敛，但完全离开现存显示器的持久化 bounds 仍按 state 恢复规则回退。
-- Renderer：D3D11 + DXGI；桌宠使用 DirectComposition/DWM 与预乘 alpha，普通窗口使用
-  不透明 HWND blt swap chain，同时支持 OBS BitBlt 与 Windows Graphics Capture。
-- DPI：Per-Monitor-V2，处理 `WM_DPICHANGED`、显示器热插拔和负坐标。
-- 输入：Raw Input、状态校正、可选低级 hook、gilrs/WGI 手柄。
-- 产品图标：`bongocat-app` 在构建期把 BongoCat 自有 `.ico` 编译进 Windows executable，用于窗口、
-  任务栏和文件身份；它不再是托盘图标来源，托盘也不会回退到系统通用应用图标。
-- 托盘：`tray-icon 0.26.1` 拥有 `TrayIcon` 和固定 GUID，直接依赖的 `muda 0.21.2` 拥有一个由托盘和
-  overlay 右键共用的 popup 根。Windows 状态图标从 BongoCat 自有
-  `resources/icons/tray-windows.png` 解码；托盘隐藏点击恢复和 overlay 右键入口均由该唯一菜单 owner
-  管理，overlay 弹出使用自身 HWND，不借用托盘隐藏窗口。共用菜单根包含设置入口、模型窗口操作分组（显隐、
-  穿透、置顶、鼠标移入隐藏）、可用的更新入口和退出。
-- 启动项：统一由 `auto-launch 0.6.0` 提供双平台后端。Windows 写当前用户 HKCU Run 并同步
-  `StartupApproved\Run` 启用标记；macOS 写 `~/Library/LaunchAgents/{app_name}.plist`
-  （`RunAtLoad`）。Production 使用该后端；命令固定为当前 executable 加 `--run-seconds 0`，
-  默认不要求管理员权限或 TCC 授权（ADR-0043）。该能力只属于已发布的产品：开发构建的可执行文件是
-  构建产物而非已安装应用，所以 `bongocat-app` 按构建环境判定，开发构建直接汇报
-  `Unsupported(BuildEnvironment)`、不触碰平台，设置里的启动项整行按统一禁用样式置灰，并保留可见的 `unsupported_build` 文案（ADR-0051）。
-- 启动权限：产品启动时以自身进程令牌的 `TokenElevation` 判断是否已提权，未提权时用 `rfd` 的
-  原生系统弹框说明「属性 → 兼容性 → 勾选以管理员身份运行此程序」路径，并提供定位当前
-  executable 的操作。检查非阻塞：主线程完成窗口、菜单栏等正常初始化后，由专用 worker 线程
-  执行检查与提示，提示未应答或被关闭不影响任何产品窗口（ADR-0032「非阻塞执行修正」）。
-  产品不原地提权、不写 HKCU/HKLM、不注册 service，提示也不持久化任何状态；
-  每次启动重新读取真实令牌状态，已提权则完全不提示（ADR-0032）。
 
 ### 10.2 macOS
 
@@ -808,9 +700,8 @@ hand 归属的按键，且该集合由契约测试遍历而不是由实现恰好
 （`KeyboardFn`）折叠成 `0xff00 | usage`，即 `bongocat-render::GLOBE_KEY_USAGE` = `0xff03`。任何
 `0x04..=0xe7` 式区间都覆盖不到它，所以命名、绑定和两处契约并集都必须显式写出。它的精确名是 `Globe`，
 旧名 `Function` 作为末位别名；它与功能键的候选列表完全不相交（见 ADR-0049）。平台可达性：macOS 经
-CGEvent keycode `63`（`kVK_Function`）以 `FlagsChanged` + `MaskSecondaryFn` 到达，Windows 的 Fn 键由
-键盘固件处理、Raw Input 从不报告，所以没有 Windows 映射。同理，F13–F24 在 Windows 侧没有可依据的扫描码
-（不猜值）、在 macOS 侧 Carbon 没有 `kVK_F21`…`kVK_F24`，`0x70..=0x73` 属于"命名到位但两个平台都不可达"。
+CGEvent keycode `63`（`kVK_Function`）以 `FlagsChanged` + `MaskSecondaryFn` 到达。F13–F24 在
+macOS 侧 Carbon 没有 `kVK_F21`…`kVK_F24`，`0x70..=0x73` 属于"命名到位但平台不可达"。
 
 **只有模型确实提供对应键位图时，按键才产生动作**（见 ADR-0042）：`bongocat-app` 在激活模型时用
 `bongocat-live2d-render::KeyImageInventory` 读取该模型的键位图清单（与渲染侧加载共用同一次目录扫描和同一套
@@ -844,11 +735,11 @@ CGEvent keycode `63`（`kVK_Function`）以 `FlagsChanged` + `MaskSecondaryFn` �
 该图自身较大的一边——按键图就是画布在窗口里的尺寸，窗口不会比它窄，作者不按画布尺寸设窗口时用的是
 包含它的正方形——所以按键图宽 ≥ 高时偏移为 0，画布四边形原样返回，出厂预置模型与所有宽按键图模型
 都不动；只有比宽更窄的按键图（例如 issue #1129 的 986×1000 对 1000×1000 窗口）才左移。
-这条规则在双平台渲染器里对每张按键图各建一个四边形缓冲，背景仍用画布四边形，因此旧包与新包、
+这条规则在渲染器里对每张按键图各建一个四边形缓冲，背景仍用画布四边形，因此旧包与新包、
 `resources` 里任何分辨率与宽高比的按键图都落在同一套几何里，不需要重写已转换的模型资源。
 
 
-列表，双平台渲染器都按这个顺序绘制且都没有深度附件或深度模板，因此**列表里最后一项就是最上层**；
+列表，渲染器都按这个顺序绘制且都没有深度附件或深度模板，因此**列表里最后一项就是最上层**；
 z 序完全由列表顺序决定，渲染器没有额外状态。`model.show_all_pressed_keys` 决定这份列表的内容：
 
 - 关闭（默认，兼容模式）：`InputState::model_snapshot_with_filter` 对每只手只保留一个"最后按下且仍
@@ -878,7 +769,7 @@ model evaluation + render snapshot
 - Core 二进制按平台分发，版本、hash、来源和许可证记录在构建清单中。
 - 当前验证基线固定为 Cubism Native `5-r.5` / Core `06.00.0001`；升级必须重跑
   header/binding provenance、目标 ABI、三个预置 Moc、offscreen/enhanced rendering
-  fixture 和双 renderer 门禁。
+  fixture 和 renderer 门禁。
 - raw binding 只由精确锁定的离线生成工具从 hash 固定的官方 header 生成；生成配置、target ABI、libclang 版本和输出 hash 必须进入 provenance，禁止手改生成代码。
 - 维护者提供并批准用于开发的固定基线已存入 `vendor/cubism/5-r.5`，包括
   Core、官方 header 和由该 header 生成的 target binding。公开发布前另行核对
@@ -951,33 +842,29 @@ RenderSnapshot
 ├── vertex / uv / index buffers
 ├── texture ids
 └── transform / viewport
-        ├── Windows D3D11 renderer
         └── macOS Metal renderer
 ```
 
-renderer 负责遮罩、混合、裁剪、纹理上传、dirty flag、present 和 GPU 生命周期；不读取配置、不决定动作、不访问 GPUI entity。模型、背景和按键先在 premultiplied render target 中按模型 alpha 完成合成；窗口呈现 opacity 不再乘入每个 drawable，而是在合成完成后由 Windows DirectComposition visual effect 或 macOS `NSPanel` 对最终 surface 统一施加一次，避免多层 Live2D 互相重复衰减。Core 的 `double_sided` 必须同时驱动 D3D11/Metal 的背面剔除状态。水平镜像会反转三角形 winding，因此单面 drawable 在镜像时必须改用相反的剔除面；D3D11 与 Metal 都以 counter-clockwise 为正面，背景和按键 overlay 不剔除。
+renderer 负责遮罩、混合、裁剪、纹理上传、dirty flag、present 和 GPU 生命周期；不读取配置、不决定动作、不访问 GPUI entity。模型、背景和按键先在 premultiplied render target 中按模型 alpha 完成合成；窗口呈现 opacity 不再乘入每个 drawable，而是在合成完成后由 macOS `NSPanel` 对最终 surface 统一施加一次，避免多层 Live2D 互相重复衰减。Core 的 `double_sided` 必须同时驱动 Metal 的背面剔除状态。水平镜像会反转三角形 winding，因此单面 drawable 在镜像时必须改用相反的剔除面；Metal 以 counter-clockwise 为正面，背景和按键 overlay 不剔除。
 
 Cubism Core 在每次 `UpdateModel` 后的 drawable dynamic flags 必须随 `RenderSnapshot` 一起复制，
 并在 `ResetDrawableDynamicFlags` 前完成读取。v1 中 drawable index topology 在同一 model generation
-内不可变，backend 检测到变化即拒绝该 snapshot；Windows 与 macOS 只在
+内不可变，backend 检测到变化即拒绝该 snapshot；macOS 只在
 `vertex_positions_changed` 时重写对应 vertex buffer，render order、visibility、opacity 与颜色仍以
 同一帧 snapshot 更新 CPU-side draw state。
 
 所有 v1 PNG RGBA 贴图（Cubism texture、背景与按键 overlay）遵循 ADR-0063 固定的
-encoded-space 兼容契约：Windows 使用 `R8G8B8A8_UNORM` texture view 和
-`B8G8R8A8_UNORM` composition/render target，macOS 使用 `RGBA8Unorm` texture view 和
-`BGRA8Unorm` drawable。两端 shader 都不得加入 sRGB decode 或 encode；normal、additive 与
+encoded-space 兼容契约：macOS 使用 `RGBA8Unorm` texture view 和
+`BGRA8Unorm` drawable。shader 都不得加入 sRGB decode 或 encode；normal、additive 与
 multiplicative blend 使用相同的 premultiplied 输入。clipping mask 只携带 alpha，保持
 UNORM，避免对 coverage 作颜色空间转换。
 
 该契约是为兼容历史 Mver 观感而作的产品选择，不是对实际 Mver 二进制来源链或跨平台像素
 一致性的既成证明。精确 Mver build provenance、背景/按键上传语义和目标硬件 readback 仍是
-TODO 的验收门禁。若未来要切换到物理 linear-light 合成，必须同时修改两端的 texture view、
-composition attachment、shader 和跨平台像素 contract，不能只改一个平台。v1 不解释或转换
+TODO 的验收门禁。若未来要切换到物理 linear-light 合成，必须同时修改 texture view、
+composition attachment 和 shader。v1 不解释或转换
 嵌入 ICC/wide-gamut profile；模型导入将此类颜色管理作为明确的后续能力，而不是让平台默认
-行为决定结果。系统级显示色彩管理仍存在平台差异：macOS Core Animation 与 Windows
-DirectComposition 对最终 surface 的显示转换不同，因此同一组 encoded 值在广色域显示器上的
-绝对观感仍可能不同；这属于合成器行为，不由 renderer 消除。
+行为决定结果。
 
 窗口圆角是 overlay 窗口自身的形状属性，与模型、动作和输入无关。`overlay.corner_radius_percent`
 按窗口宽高的百分比给出四个角的椭圆半径：`N%` 表示水平半轴为窗口宽度的 `N%`、垂直半轴为窗口
@@ -985,10 +872,9 @@ DirectComposition 对最终 surface 的显示转换不同，因此同一组 enco
 圆角比垂直圆角更大；`0` 保持直角，`50` 时四条弧线相接、内容被裁剪为窗口的内切椭圆。renderer
 在片元着色器中按 drawable 像素位置求该椭圆的 coverage，并把它乘进每次绘制的 alpha，因此圆角
 只改变窗口边缘的合成结果，不改变 `RenderSnapshot`、模型资源、绘制顺序或 blend 模式。该值只
-作用于 overlay 窗口；GPUI 设置窗口和其他产品窗口保持各自的平台边框。Windows 圆角与屏幕范围约束
-在现有窗口上更新，普通窗口模式暂停圆角裁剪；macOS 改变这两项仍重建原生窗口资源。缩放通过
+作用于 overlay 窗口；GPUI 设置窗口和其他产品窗口保持各自的平台边框。macOS 改变这两项仍重建原生窗口资源。缩放通过
 现有窗口与 renderer 原地调整，不透明度则更新最终 surface 的 presentation alpha，二者都不应
-因为设置变化替换 HWND/NSPanel。
+因为设置变化替换 NSPanel。
 
 指针悬停隐藏是 overlay 窗口的临时呈现状态，不是窗口可见性。`overlay.hide_on_pointer_hover`
 开启时，指针进入 overlay 窗口矩形并停留 `overlay.hide_on_pointer_hover_delay_seconds` 之后，owner 把
@@ -1026,7 +912,7 @@ runtime 的 overlay visibility 不受影响，frame source 继续按 `overlay.ma
 左右两侧各占一位。它存在的理由是现有两条读法都答不了这个问题：snapshot 只有按键计数，而模型投影
 会丢掉当前模型没有对应按键图的键——修饰键恰好就是模型不会提供的键。因此设置页的录入控件也读它，
 而不是读 GPUI 的按键事件：GPUI 把修饰键报告为不带键身份的布尔标志变化（macOS 上按修饰键根本不
-产生按键事件，Windows 上左右 Shift 的虚拟键码落在同一分支），既分不出左右，也没有可供录入的
+产生按键事件），既分不出左右，也没有可供录入的
 按键事件。控件因此是「按住」语义而非「点按」语义，这也正好是设置本身要求用户做的动作。
 
 无操作隐藏与悬停隐藏是同一呈现通道上的第二个临时状态。`overlay.hide_on_idle` 开启且
@@ -1056,10 +942,7 @@ renderer 的模型资源准备结果通过稳定项目 error code 回到 runtime
 临时 presentation unavailable（例如 macOS `CAMetalLayer` 未交付 drawable）不是模型或设备
 准备失败：frame source 必须以单调、有限的退避延迟重试，成功 present 后重置；不得把重复临时
 不可用写成 failure 日志或停止 frame source。候选模型的可靠 commit token 必须保留至实际首帧
-成功，不能因临时 drawable 缺失被拒绝。未知 D3D11 present/device-loss 仍按明确 HRESULT 恢复策略
-处理，不能笼统归类为临时成功。
-
-Linux 阶段再决定增加 Vulkan/OpenGL backend，或基于数据迁移到 wgpu。首发优先保证 Windows/macOS 透明窗口的确定性。
+成功，不能因临时 drawable 缺失被拒绝。
 
 ### 11.3 Motion 音效
 
@@ -1102,13 +985,12 @@ resolver，不接受外部 `StorageLayout`、根目录或生产路径覆盖；�
 
 | 平台    | Development                                                         | Production                                                         |
 | ------- | ------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Windows | `%APPDATA%\com.ayangweb.bongo-cat\development\`                     | `%APPDATA%\com.ayangweb.bongo-cat\production\`                     |
 | macOS   | `~/Library/Application Support/com.ayangweb.bongo-cat/development/` | `~/Library/Application Support/com.ayangweb.bongo-cat/production/` |
 
 每个根目录包含 `config.json`、`window-state.json`、`models/`、`model-overrides/`、`backups/`、`logs/`、`updates/` 和 `locks/`。`model-overrides/` 是预置模型用户侧内容的命名空间（每张替换封面一个 `<id>/resources/cover.png`），因为预置包位于 app 包内、不可写；它与 `models/` 一样只被设置页与 app 层写入。锁、单实例命名、更新 channel 和诊断同样按环境隔离；任何环境不得读取、写入或 fallback 到另一个环境。`updates/` 是保留给更新的环境私有命名空间：当前 `cargo-packager-updater` 使用进程临时文件/目录下载和暂存载荷，不落在该目录下，因此 `updates/` 当前无写入方，仅作为环境形状契约的一部分保留。`StorageLayout` 只描述这些用户数据路径；安装器使用平台 `InstallationLayout` 描述 product files root，不能从用户数据根推导或操作安装目录。
 
-预置模型属于 product files：macOS 从 `BongoCat.app/Contents/Resources/models` 解析，Windows 从
-`bongocat-app.exe` 同级 `resources/models` 解析。仅未打包的开发二进制可在该相对路径缺失时回退到
+预置模型属于 product files：macOS 从 `BongoCat.app/Contents/Resources/models` 解析。
+仅未打包的开发二进制可在该相对路径缺失时回退到
 仓库 `resources/models`；安装产物不得依赖源码树、当前工作目录或用户数据目录。
 
 要求：
@@ -1249,16 +1131,17 @@ resolver，不接受外部 `StorageLayout`、根目录或生产路径覆盖；�
   和纹理尺寸上限。model ID、资源路径、model3 数组索引、任意 JSON bytes 和 PNG header/
   dimensions 具有可收缩 property contract；接受的资源路径必须规范化为幂等、相对且只含
   normal component 的包内引用，任何随机输入不得 panic、越界索引或绕过分配上限。
-- model ID 是跨 Windows/macOS 可移植的 ASCII store key：禁止前导/尾随点、路径分隔符及
-  Windows 保留设备 stem（含带扩展名的 `CON`、`PRN`、`AUX`、`NUL`、`COM1..9`、
-  `LPT1..9`），不得让同一 installed identity 在目标平台解析为设备或隐藏路径。
+- model ID 是可移植的 ASCII store key：禁止前导/尾随点、路径分隔符及隐藏路径，
+  不得让同一 installed identity 在目标平台解析为隐藏路径；也不得与 Windows 保留
+  设备名（`CON`/`PRN`/`AUX`/`NUL`/`COM1..9`/`LPT1..9`）冲突——这是数据格式契约而非
+  平台行为，随 Windows 支持移除（ADR-0099）保留。
 - 任意外部目录只能产生待导入的 `PreparedModel`；只有当前环境 `ModelStore` 完成复制、复验和
   原子提交后签发的 `InstalledModel` 才能进入 runtime 激活 command。
 - 应用装配时打开并持有只读 `PresetModelCatalog`；设置与模型管理只消费预置目录和当前
   环境 `ModelStore` 的合并目录，不在 UI executor 临时扫描或解析模型文件。
 - installed 目录扫描逐条目降级：`ModelStore::list` 只在 store 根目录本身不可读或 writer
   lock 竞争时失败，单个条目绝不使整表不可用。文件管理器与操作系统元数据（`.DS_Store`、
-  `.localized`、`Thumbs.db`、`desktop.ini`、AppleDouble `._*`）按文件名忽略，既不计入
+  `.localized`、AppleDouble `._*`）按文件名忽略，既不计入
   目录也不计入诊断；其余不是「自有模型目录」的条目（非常规目录、符号链接、非 UTF-8 名称、
   非可移植 `model_id` 的目录名）静默跳过并计入 `InstalledModelCatalog::skipped_entries`。
   带合法 `model_id` 但包校验失败的目录仍签发 `Invalid` 条目，保持可见。过滤完全在 store
@@ -1318,10 +1201,10 @@ resolver，不接受外部 `StorageLayout`、根目录或生产路径覆盖；�
   阻塞于分块复制时仍可取消。cancel 在原子 rename 提交前生效并清理 staging，
   final result 携带同一 operation ID；后续 Models 页面只消费该契约，不自行执行文件 I/O。
 - 模型来源进入设置 UI 有两个等价入口：原生文件夹选择器 `pick_model_folder`，以及设置窗口根视图
-  接收的 GPUI `ExternalPaths` 文件拖放。两平台的选择器都用 `rfd 0.17.2` 的 `pick_folder`（macOS
-  `AsyncFileDialog`，Windows `FileDialog`）。macOS 只在 AppKit 主线程且已有窗口可作为 sheet parent
-  时创建 `AsyncFileDialog`，缺少 sheet parent 时返回 `BackendUnavailable`，不回退同步 `runModal`；
-  Windows 在专用 worker 的 STA 中调用 `FileDialog`。两平台都只向上返回 `Selected(PathBuf)` /
+  接收的 GPUI `ExternalPaths` 文件拖放。选择器用 `rfd 0.17.2` 的 `pick_folder`（macOS
+  `AsyncFileDialog`）。macOS 只在 AppKit 主线程且已有窗口可作为 sheet parent
+  时创建 `AsyncFileDialog`，缺少 sheet parent 时返回 `BackendUnavailable`，不回退同步 `runModal`。
+  选择层只向上返回 `Selected(PathBuf)` /
   `Cancelled` 和稳定无路径错误码，Rust 侧重新检查绝对、存在与类型（必须是目录）并 canonicalize；
   选择层不判定所选目录里是不是可用的模型包，真正的包解析/复制仍只由 settings worker 执行。
   `rfd` 将取消与后端失败都表示为 `None`，当前 adapter 按取消处理；对话框取消不是错误，错误不得
@@ -1335,8 +1218,7 @@ resolver，不接受外部 `StorageLayout`、根目录或生产路径覆盖；�
   流程；UI executor 不遍历、复制或解析模型文件。
 - 剪贴板 adapter 通过私有 `arboard 3.6.1` 边界只接受最多 1 MiB、无内嵌 NUL 的纯文本；无文本
   返回空选项，过大、无效、拒绝或系统故障只返回稳定匿名错误，绝不记录文本。macOS 调用必须
-  在 AppKit 主线程和 autorelease pool 内，Windows 的打开、写入和关闭由 `arboard` 的 RAII
-  guard 在同一线程完成。依赖类型、系统错误和剪贴板内容都不离开 adapter；底层读取在项目
+  在 AppKit 主线程和 autorelease pool 内。依赖类型、系统错误和剪贴板内容都不离开 adapter；底层读取在项目
   大小校验前可能已物化系统提供的完整文本，这是当前第三方文本 API 的已知边界。
 - Models 页面在 GPUI Entity 中只保存视图状态——导入草稿（来源目录、由来源名派生的标题、导入状态
   与本次导入的 baseline，运行中的 operation monitor 就在该状态里）、删除确认、编辑草稿、每行的
@@ -1386,16 +1268,11 @@ resolver，不接受外部 `StorageLayout`、根目录或生产路径覆盖；�
   被误当条目；版本在 changelog 里没有条目时提取直接失败，而不是发出一份描述别的版本的说明。
 
 - 更新载荷：macOS 为已完成的 `.app` 打包成的 `BongoCat-<version>-<arch>.app.tar.gz`，
-  架构段是 `aarch64` / `x64`（归档根必须是 `BongoCat.app/`，库会丢弃根条目再装到 bundle 路径）；
-  Windows 复用已发布的 NSIS 安装器 `BongoCat_<version>_x64.exe`。载荷名不带 target triple：
-  该文件只可能出现在它所属的那个平台上，重复平台后缀对读者和 updater 都没有信息量，而扩展名
-  已经足以区分它和 Windows 安装器。`.dmg` 不是更新载荷——它是人工安装路径。
+  架构段是 `aarch64` / `x64`（归档根必须是 `BongoCat.app/`，库会丢弃根条目再装到 bundle 路径）。
+  `.dmg` 不是更新载荷——它是人工安装路径。
   签名是打包流程的最后一步：minisign 签名覆盖发布时的确切字节，签名后不得改名、重压缩或 strip。
 - 传输与安装由库承担，启用 Rustls 与 HTTPS；库的 `reqwest` 后端不启用。安装位置：macOS 由库从
-  运行中的可执行文件推导其所属 `.app` 并整包替换；Windows 由库运行下载到的安装器
-  （`install_mode = Quiet` → NSIS `/S` 静默、`/R` 重启）后自行退出进程，因此
-  `UpdateOutcome::Installed` 只在 macOS 可观测。安装根为 `$LOCALAPPDATA\Programs\BongoCat`，
-  用户可写，不需要提权。
+  运行中的可执行文件推导其所属 `.app` 并整包替换。
 - 库的错误、配置与平台类型不得扩散为项目公共 API。`cargo_packager_updater::Error` 在
   `bongocat-update` 边界内映射为 14 个稳定错误码，未识别的变体降级为 `update_internal_failed`；
   诊断导出只消费这些码与匿名聚合计数，不含任何库类型或动态平台文本。
@@ -1424,7 +1301,7 @@ resolver，不接受外部 `StorageLayout`、根目录或生产路径覆盖；�
   平台会把内容高度取整到整像素，所以「已经在目标高度」允许半像素误差，否则窗口会每帧重问一个
   平台给不出的高度。
 - **更新窗口不允许拖拽边缘改变尺寸**（`is_resizable: false`，macOS 去掉
-  `NSWindowStyleMaskResizable`、Windows 去掉 `WS_THICKFRAME`/`WS_MAXIMIZEBOX`）：窗口高度就是
+  `NSWindowStyleMaskResizable`）：窗口高度就是
   内容高度，允许拖拽等于让用户选一个下一次状态变化就会撤销的高度。窗口没有 resize 手柄，因此
   也不需要「用户拖过就接管高度」这条分支。
 - **开窗时先按内容定高并画完，再显示**：内容定高只能在布局后才知道，而窗口未显示时拿不到帧
@@ -1448,7 +1325,7 @@ resolver，不接受外部 `StorageLayout`、根目录或生产路径覆盖；�
   直到它被赋予用户可见含义。
 - 安装后是否需要重启进程是**平台事实**：macOS 由库整包替换 `.app`，运行中的进程此后执行已删除的
   文件（预设模型目录是惰性读盘的），因此安装成功后自动重启——先按 §5.3 的顺序完成产品 shutdown，
-  再以**新进程**启动新构建；Windows 由安装器 `/R` 重启，`Installed` 在该平台不可观测。
+  再以**新进程**启动新构建。
   重启不用 `exec` 替换进程镜像：它不结束进程、PID 不变，而 shutdown 已移除托盘 `NSStatusItem`，
   替换后的镜像创建的 status item 不会被布局，菜单栏图标因此消失（ADR-0035 §5）。
 - 自动检查由 GPUI 侧调度（开关与间隔只有设置服务读得到）：新配置的
@@ -1532,7 +1409,7 @@ resources/background.png  resources/cover.png
 - 设备断开、锁屏和睡眠后 pressed set 为空。
 - 鼠标移动合并不能阻塞键盘释放。
 - gilrs adapter 的每 tick event 上限不能替代 backend 与高层 pending queue 上界；fork 的 bounded
-  queue/epoch、overflow marker、authoritative reset 和 bounded stop/join acknowledgement 已有代码证据，但 WGI 焦点矩阵和双平台
+  queue/epoch、overflow marker、authoritative reset 和 bounded stop/join acknowledgement 已有代码证据，但 macOS
   物理设备/长期证据仍未完成。backend context 启动后的最终诊断必须真实反映 gilrs shutdown 结果；不得
   因键鼠 callback 和 final Reset 成功而伪造 clean shutdown。
 
@@ -1544,13 +1421,13 @@ resources/background.png  resources/cover.png
 - 8 小时固定模型无持续内存增长或 GPU 资源泄漏。
 - 所有线程在退出超时内完成 join，不依赖进程强杀。
 
-Windows 使用 ETW/WPA、PresentMon、GPUView；macOS 使用 Instruments、Metal System Trace 和 os_signpost。基准记录硬件、系统、模型、DPI、FPS、样本和构建 commit。
+macOS 使用 Instruments、Metal System Trace 和 os_signpost。基准记录硬件、系统、模型、DPI、FPS、样本和构建 commit。
 
 ## 14. Linux 策略
 
 Linux 是后续能力，不是隐藏的首发任务：
 
-- runtime、配置、模型和 UI 不使用 Windows/macOS 类型。
+- runtime、配置、模型和 UI 不使用平台类型。
 - GPUI 保持 X11/Wayland 构建路径，但首期 CI 不发布 Linux 安装包。
 - X11 评估 XInput2；Wayland 全局输入受 compositor/portal 限制，不能承诺功能等价。
 - Linux renderer、托盘、启动项和打包单独立项并建立能力矩阵。
@@ -1560,14 +1437,13 @@ Linux 是后续能力，不是隐藏的首发任务：
 
 | 风险                         | 控制措施                         | 退出条件                          |
 | ---------------------------- | -------------------------------- | --------------------------------- |
-| GPUI pre-1.0                 | 精确 pin、UI 封装、升级隔离      | 双平台 UI/IME/主题 smoke 通过    |
+| GPUI pre-1.0                 | 精确 pin、UI 封装、升级隔离      | macOS UI/主题 smoke 通过         |
 | GPUI 与 overlay 生命周期冲突 | 最小平台原型                     | 两窗口反复开关并正常退出          |
 | Rust Live2D 工作量过大       | Core/动作/物理/renderer spike    | 三个预置模型完成输入到绘制闭环    |
-| 透明合成不稳定               | D3D11/Metal 截图和压力测试       | alpha、置顶、穿透双平台通过       |
-| 输入仍卡键                   | Raw Input/CGEventTap + reconcile | #47 和生命周期矩阵无残留键        |
-| gilrs backend 生命周期/队列  | 固定 fork、窄 adapter、发布门禁 | bounded overflow/reset、bounded stop/join、双平台物理矩阵通过 |
+| 透明合成不稳定               | Metal 截图和压力测试            | alpha、置顶、穿透通过             |
+| 输入仍卡键                   | CGEventTap + reconcile          | #47 和生命周期矩阵无残留键        |
+| gilrs backend 生命周期/队列  | 固定 fork、窄 adapter、发布门禁 | bounded overflow/reset、bounded stop/join、物理矩阵通过 |
 | Cubism 授权不明确            | 二进制/许可证清单                | 发布方式有书面结论                |
-| 后续 Linux 不等价            | 单独能力矩阵                     | 不影响 Windows/macOS 首发         |
 
 任一核心退出条件失败，先记录 ADR 并调整受影响的实现或发布目标，不能用产品代码、合成测试或编译结果掩盖 spike 失败。按 ADR-0011，未完成的外部证据不阻止无关模块的渐进实现，但持续阻塞对应功能声明和 stable 发布。
 
@@ -1583,7 +1459,7 @@ GPUI 提供设置体验，但不成为 Live2D renderer 或实时状态所有者�
 
 ### ADR-003：平台原生 Overlay Renderer
 
-Windows 使用 D3D11，macOS 使用 Metal。模型窗口不嵌入 GPUI renderer。
+macOS 使用 Metal。模型窗口不嵌入 GPUI renderer。
 
 ### ADR-004：输入状态可校正
 
@@ -1617,12 +1493,14 @@ runtime 非阻塞发布强类型音效命令，独立 Rust worker 使用最小 r
 
 Windows 当前用户 Run value 按 Development/Production 分名；macOS 13+ 只允许 Production
 `.app` 使用 `SMAppService.mainAppService`，macOS 12 与 Development 明确报告不支持且不回退。
+随 Windows 支持的移除（ADR-0099），Windows Run value 决策失效；正文保留在 `docs/adr/` 作历史记录。
 
 ### ADR-043：启动项后端统一 auto-launch
 
-双平台启动项后端统一为 `auto-launch 0.6.0`：macOS 12+ 全版本 LaunchAgent plist、Windows
-HKCU Run（CurrentUser），环境隔离通过不同 `app_name` 保持；后端只产生 Enabled/Disabled，
-`Stale`/`RequiresApproval`/`NotFound` 保留为契约变体。Windows stale 检测退役。
+启动项后端统一为 `auto-launch 0.6.0`：macOS 12+ 全版本 LaunchAgent plist，
+环境隔离通过不同 `app_name` 保持；后端只产生 Enabled/Disabled，
+`Stale`/`RequiresApproval`/`NotFound` 保留为契约变体。随 Windows 支持的移除（ADR-0099），
+HKCU Run 与 stale 检测决策失效；正文保留在 `docs/adr/` 作历史记录。
 
 ### ADR-051：开发构建不提供登录时启动
 
@@ -1661,8 +1539,8 @@ ADR-0026 由本 ADR 取代。本 ADR 的库选择（`self_update 1.3.0`）与签
 
 更新管线由独立 worker 线程独占，窗口只消费它发布的状态；UI 拥有协议，app 做穷尽映射。三段可观测
 （下载/校验/安装）靠把库的 `download_and_install` 拆成 `download_extended` + `install` 实现。发布说明
-随共享 manifest 的 `notes` 一起发布（有界、无第二次请求）。安装后重启是平台事实：macOS 自动重启，
-Windows 由安装器 `/R` 负责。明确不做下载取消。**记录一处与 §8.4 措辞不同的取舍**：shutdown 协调放在
+随共享 manifest 的 `notes` 一起发布（有界、无第二次请求）。安装后重启是平台事实：macOS 自动重启。
+明确不做下载取消。**记录一处与 §8.4 措辞不同的取舍**：shutdown 协调放在
 安装完成之后、替换进程之前，理由见该 ADR。
 
 ### ADR-0034：Detached Minisign 更新信任模型
@@ -1670,8 +1548,8 @@ Windows 由安装器 `/R` 负责。明确不做下载取消。**记录一处与 
 更新库改为 `cargo-packager-updater 0.2.3`，信任模型改为 detached minisign 签名。签名端与打包端
 是同一个 crate（`cargo_packager::sign`），签名器与验签器不会各自演进。发行清单是一份共享
 `latest.json`（库的 *static* 形状，含 `<os>-<arch>` 平台映射），由每个 target 的 fragment 合并
-而成；macOS 载荷是根为 `BongoCat.app/` 的 `.app.tar.gz`，Windows 载荷复用已发布的 NSIS 安装器；
-两者各附一个 `.sig`，签名是打包流程的最后一步。本 ADR 取代 ADR-0029 的更新库与签名部分，并记录
+而成；macOS 载荷是根为 `BongoCat.app/` 的 `.app.tar.gz`；
+每个载荷各附一个 `.sig`，签名是打包流程的最后一步。本 ADR 取代 ADR-0029 的更新库与签名部分，并记录
 换实现新引入的能力损失（归档完整性校验、per-platform 资产匹配、公钥轮换窗）与待验证项。
 
 ### ADR-0030：先复用现有方案
@@ -1682,10 +1560,10 @@ Windows 由安装器 `/R` 负责。明确不做下载取消。**记录一处与 
 
 ### ADR-0031：托盘第三方库边界
 
-macOS/Windows 托盘使用 `tray-icon 0.26.1`，菜单与右键弹出使用直接依赖的 `muda 0.21.2`；平台
+托盘使用 `tray-icon 0.26.1`，菜单与右键弹出使用直接依赖的 `muda 0.21.2`；平台
 adapter 负责加载 PNG、映射强类型 action、调用 hide/show，并从 overlay session 的真实
-HWND/`NSView` 弹出与托盘共用的菜单树。第三方类型、句柄和错误不进入 runtime/UI 公共 API，Windows
-固定 GUID 与双平台唯一 owner 由 ADR-0031 约束。
+`NSView` 弹出与托盘共用的菜单树。第三方类型、句柄和错误不进入 runtime/UI 公共 API，
+唯一 owner 由 ADR-0031 约束。
 
 ### ADR-0068：托盘与模型窗口右键菜单复用
 
@@ -1695,9 +1573,9 @@ HWND/`NSView` 弹出与托盘共用的菜单树。第三方类型、句柄和错
 
 ### ADR-0066：gilrs 手柄后端边界
 
-Windows/macOS 手柄统一使用 `ayangweb/gilrs` 固定 commit，平台只保留强类型输入与 generation/axis
+macOS 手柄统一使用 `ayangweb/gilrs` 固定 commit，平台只保留强类型输入与 generation/axis
 适配。BongoCat 不再维护 XInput/GameController backend；fork 已提供 bounded queue/epoch、authoritative
-reset、macOS/WGI bounded stop/join 和 target-scoped compile guard，Windows WGI 焦点矩阵与双平台物理/
+reset、macOS bounded stop/join 和 target-scoped compile guard，macOS 物理/
 长期证据仍是完成门禁，相关修复不在产品层增加 workaround。
 
 ### ADR-0070：手柄按键图片词表与解析通道
@@ -1713,8 +1591,8 @@ reset、macOS/WGI bounded stop/join 和 target-scoped compile guard，Windows WG
 
 Windows 首发采用固定、可审计 NSIS per-user installer，不请求管理员权限或触及环境数据。原设计中的
 「独立 Rust update helper 只接收已验证 artifact」已随 ADR-0029 作废：不再有独立 helper，替换由
-更新库在进程内完成（Windows 上由库运行下载到的安装器），installer 权限、原子替换与 rollback 仍是
-独立发布门禁。
+更新库在进程内完成，installer 权限、原子替换与 rollback 仍是
+独立发布门禁。该决策随 Windows 支持的移除（ADR-0099）而失效，正文保留在 `docs/adr/` 作历史记录。
 
 ### ADR-0066：任务导向的设置信息架构
 
@@ -1731,11 +1609,11 @@ About 仍是 Settings 中的普通页面，产品/软件信息、项目与反馈
 
 ### Phase 1：Rust 工程骨架
 
-在 Phase 0 外部证据补齐期间渐进建立 Cargo workspace、CI、日志、配置最小实现、runtime 生命周期、GPUI 空设置窗口和双平台空 overlay；只提升已通过对应 contract 的模块。
+在 Phase 0 外部证据补齐期间渐进建立 Cargo workspace、CI、日志、配置最小实现、runtime 生命周期、GPUI 空设置窗口和 macOS 空 overlay；只提升已通过对应 contract 的模块。
 
 ### Phase 2：输入到 Live2D 最小闭环
 
-加载标准模型，键鼠输入驱动参数/动作并绘制；Windows 完成 #47 校正，macOS 完成权限和 tap 恢复。
+加载标准模型，键鼠输入驱动参数/动作并绘制；macOS 完成权限和 tap 恢复。
 
 ### Phase 3：产品 Runtime 与模型兼容
 

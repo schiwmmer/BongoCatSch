@@ -1087,14 +1087,6 @@ fn main() {
             KeyBinding::new("cmd-c", Copy, Some("SettingsTextInput")),
             KeyBinding::new("cmd-x", Cut, Some("SettingsTextInput")),
         ]);
-        #[cfg(target_os = "windows")]
-        cx.bind_keys([
-            KeyBinding::new("ctrl-q", Quit, None),
-            KeyBinding::new("ctrl-a", SelectAll, Some("SettingsTextInput")),
-            KeyBinding::new("ctrl-v", Paste, Some("SettingsTextInput")),
-            KeyBinding::new("ctrl-c", Copy, Some("SettingsTextInput")),
-            KeyBinding::new("ctrl-x", Cut, Some("SettingsTextInput")),
-        ]);
         cx.set_menus(vec![
             Menu {
                 name: "BongoCat GPUI Spike".into(),

@@ -121,15 +121,14 @@ fn the_report_names_the_facts_a_bug_triage_needs() {
     );
 }
 
-/// The report has to name the capability the running platform actually gates
-/// input behind, with the state this process is in.
+/// The report has to name the capability macOS actually gates input behind, with
+/// the state this process is in.
 ///
-/// A Windows report used to say `input_monitoring_permission: "unsupported"`,
-/// which reads as "this platform has no such concept" when the truth is "this
-/// platform gates input behind elevation, and you are not elevated" — the one
-/// answer that decides whether raw input keeps arriving while an elevated window
-/// has focus. So the two fields below are the whole contract: the name is the
-/// platform's own, and the boolean is that platform's own question.
+/// A report that said `input_monitoring_permission: "unsupported"` would read as
+/// "this platform has no such concept" when the truth is "macOS gates input
+/// behind the TCC grant, and the grant is missing" — the one answer that decides
+/// whether raw input keeps arriving. So the two fields below are the whole
+/// contract: the name is macOS's own, and the boolean is that grant.
 #[test]
 fn the_report_names_the_platform_input_capability_and_whether_we_have_it() {
     for (name, available) in [("administrator", false), ("input_monitoring", true)] {
@@ -425,10 +424,9 @@ fn model_behavior_shortcut_copy_stays_aligned_between_scope_and_gate() {
 /// explains why it cannot act have to spell it the same way.
 ///
 /// The switch used to be called "登录时启动" while the three unavailable states
-/// said the same words again, and a reader who has only ever seen the Windows
-/// task manager has to work out that this is what "start with Windows" is
-/// called here. Each catalog entry is pinned so the wording cannot drift back
-/// into two vocabularies for the same setting.
+/// said the same words again, and a reader has to work out that this is what
+/// "start at login" is called here. Each catalog entry is pinned so the wording
+/// cannot drift back into two vocabularies for the same setting.
 #[test]
 fn the_login_item_row_names_one_concept_in_its_switch_and_its_states() {
     for (locale, label, platform, operating_system, build) in [

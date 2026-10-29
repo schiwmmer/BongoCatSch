@@ -150,13 +150,9 @@ impl ApplicationSettingsService {
         receiver: ShortcutReceiver<bongocat_config::ShortcutCommand>,
         signals: ApplicationMainThreadSignals,
         status_icon: Arc<dyn StatusIconCapability>,
-        #[cfg(target_os = "windows")] taskbar_icon: Arc<dyn TaskbarIconCapability>,
-        #[cfg(target_os = "macos")] dock_icon: Arc<dyn DockIconCapability>,
+        dock_icon: Arc<dyn DockIconCapability>,
     ) -> Result<Self, SettingsServiceJoinError> {
-        #[cfg(not(target_os = "windows"))]
         let taskbar_icon = Arc::new(UnavailableTaskbarIcon);
-        #[cfg(not(target_os = "macos"))]
-        let dock_icon = Arc::new(UnavailableDockIcon);
         Self::start_with_startup_item_and_shortcuts(
             application,
             Arc::new(SystemStartupItem),

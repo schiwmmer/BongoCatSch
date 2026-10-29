@@ -8,7 +8,6 @@ English | [简体中文](README.zh-CN.md)
 
 <div align="center">
   <div>
-    <a href="https://github.com/ayangweb/BongoCat/releases"><img alt="Windows" src="https://img.shields.io/badge/-Windows-blue?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB0PSIxNzI2MzA1OTcxMDA2IiBjbGFzcz0iaWNvbiIgdmlld0JveD0iMCAwIDEwMjQgMTAyNCIgdmVyc2lvbj0iMS4xIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHAtaWQ9IjE1NDgiIHdpZHRoPSIxMjgiIGhlaWdodD0iMTI4Ij48cGF0aCBkPSJNNTI3LjI3NTU1MTYxIDk2Ljk3MTAzMDEzdjM3My45OTIxMDY2N2g0OTQuNTEzNjE5NzVWMTUuMDI2NzU3NTN6TTUyNy4yNzU1NTE2MSA5MjguMzIzNTA4MTVsNDk0LjUxMzYxOTc1IDgwLjUyMDI4MDQ5di00NTUuNjc3NDcxNjFoLTQ5NC41MTM2MTk3NXpNNC42NzA0NTEzNiA0NzAuODMzNjgyOTdINDIyLjY3Njg1OTI1VjExMC41NjM2ODE5N2wtNDE4LjAwNjQwNzg5IDY5LjI1Nzc5NzUzek00LjY3MDQ1MTM2IDg0Ni43Njc1OTcwM0w0MjIuNjc2ODU5MjUgOTE0Ljg2MDMxMDEzVjU1My4xNjYzMTcwM0g0LjY3MDQ1MTM2eiIgcC1pZD0iMTU0OSIgZmlsbD0iI2ZmZmZmZiI+PC9wYXRoPjwvc3ZnPg==" /></a>
     <a href="https://github.com/ayangweb/BongoCat/releases"><img alt="macOS" src="https://img.shields.io/badge/-macOS-black?style=flat-square&logo=apple&logoColor=white" /></a>
   </div>
 
@@ -34,19 +33,17 @@ English | [简体中文](README.zh-CN.md)
 <table width="100%">
   <thead>
     <tr>
-      <th width="50%" align="center">macOS</th>
-      <th width="50%" align="center">Windows</th>
+      <th width="100%" align="center">macOS</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td width="50%" align="center"><img src="https://i0.hdslb.com/bfs/openplatform/56f72568579bb44284382fe1f9b9049a700282d3.png" alt="macOS" width="100%" /></td>
-      <td width="50%" align="center"><img src="https://i0.hdslb.com/bfs/openplatform/65129576aa3062f840d0640c060298c1d52b9be2.png" alt="Windows" width="100%" /></td>
+      <td width="100%" align="center"><img src="https://i0.hdslb.com/bfs/openplatform/56f72568579bb44284382fe1f9b9049a700282d3.png" alt="macOS" width="100%" /></td>
     </tr>
   </tbody>
 </table>
 
-BongoCat is a desktop companion for Windows and macOS. A Live2D cat lives on your screen, its eyes
+BongoCat is a desktop companion for macOS. A Live2D cat lives on your screen, its eyes
 and paws follow your mouse, and it reacts to every key, mouse button and gamepad button you press.
 Bring your own models, move the window wherever you like, and it stays out of your way until you
 want it again.
@@ -56,7 +53,7 @@ Inspired by [Bongo-Cat-Mver](https://github.com/MMmmmoko/Bongo-Cat-Mver) by
 
 ## Features
 
-- Runs on macOS and Windows.
+- Runs on macOS.
 - Matches the right motion to every key, mouse button or gamepad button you press.
 - Bring your own Live2D models and make the cat your own.
 - Fully open source, public code, and no collection of user data.

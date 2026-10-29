@@ -4,7 +4,6 @@ use muda::{
     CheckMenuItem, ContextMenu, IsMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem,
     Submenu,
 };
-#[cfg(target_os = "macos")]
 use objc2::MainThreadMarker;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::{
@@ -12,12 +11,8 @@ use std::{
     sync::mpsc::{self, Receiver, Sender},
 };
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder, TrayIconId};
-#[cfg(target_os = "windows")]
-use tray_icon::{MouseButton, MouseButtonState, TrayIconEvent};
 
 const TRAY_ICON_ID: &str = "bongocat.system-menu";
-#[cfg(target_os = "windows")]
-const TRAY_ICON_GUID: u128 = 0x123f3c6f_7d2a_4ca3_b8cb_9b1d1eaf2f10;
 const OPEN_SETTINGS_ID: &str = "bongocat.open-settings";
 const MODEL_WINDOW_SUBMENU_ID: &str = "bongocat.model-window";
 const TOGGLE_OVERLAY_VISIBILITY_ID: &str = "bongocat.toggle-overlay";
@@ -26,39 +21,28 @@ const TOGGLE_ALWAYS_ON_TOP_ID: &str = "bongocat.toggle-always-on-top";
 const TOGGLE_HIDE_ON_POINTER_HOVER_ID: &str = "bongocat.toggle-hide-on-pointer-hover";
 const CHECK_FOR_UPDATES_ID: &str = "bongocat.check-for-updates";
 const QUIT_ID: &str = "bongocat.quit";
-#[cfg(target_os = "macos")]
 const START_POMODORO_ID: &str = "bongocat.start-pomodoro";
-#[cfg(target_os = "macos")]
 const START_CULTIVATION_ID: &str = "bongocat.start-cultivation";
-#[cfg(target_os = "macos")]
 const PAUSE_POMODORO_ID: &str = "bongocat.pomodoro-pause";
-#[cfg(target_os = "macos")]
 const RESUME_POMODORO_ID: &str = "bongocat.pomodoro-resume";
-#[cfg(target_os = "macos")]
 const ABANDON_POMODORO_ID: &str = "bongocat.pomodoro-abandon";
 
-#[cfg(target_os = "macos")]
 const STATUS_ICON_BYTES: &[u8] = include_bytes!("../../../resources/icons/tray-macos.png");
-#[cfg(target_os = "windows")]
-const STATUS_ICON_BYTES: &[u8] = include_bytes!("../../../resources/icons/tray-windows.png");
 
 /// The platform owner for both native menu surfaces.
 ///
 /// The tray and model-window context surfaces intentionally share one native
 /// menu tree and one set of item instances. The owner keeps the menu rooted
 /// with the tray icon while also allowing the overlay to present that same
-/// menu at its own HWND/`NSView`.
+/// menu at its own `NSView`.
 pub struct SystemMenu {
     // Keep the tray icon first: the native menu handles must be released after
     // the status item stops using them.
     tray_icon: TrayIcon,
     /// The tray's menu tree.
     ///
-    /// Only Windows presents this instance directly: its model-window popup has
-    /// no pomodoro rows, so it can reuse the tray menu. macOS rebuilds that popup
-    /// per right-click, and the tray keeps its own handle on the tree.
-    #[cfg(target_os = "windows")]
-    menu: Menu,
+    /// The model-window popup is rebuilt per right-click, and the tray keeps its
+    /// own handle on the tree.
     model_window: Submenu,
     items: NativeMenuItems,
     /// The labels the model-window menu is rebuilt from.
@@ -68,8 +52,6 @@ pub struct SystemMenu {
     /// session, and a menu built once would keep offering to start a session
     /// that is already running.
     presentation: SystemMenuPresentation,
-    #[cfg(target_os = "windows")]
-    tray_icon_id: TrayIconId,
     sender: Sender<SystemMenuAction>,
     receiver: Receiver<SystemMenuAction>,
     visible: bool,
@@ -82,15 +64,10 @@ struct NativeMenuItems {
     toggle_always_on_top: CheckMenuItem,
     toggle_hide_on_pointer_hover: CheckMenuItem,
     check_for_updates: Option<MenuItem>,
-    #[cfg(target_os = "macos")]
     start_pomodoro: MenuItem,
-    #[cfg(target_os = "macos")]
     pause_pomodoro: MenuItem,
-    #[cfg(target_os = "macos")]
     resume_pomodoro: MenuItem,
-    #[cfg(target_os = "macos")]
     abandon_pomodoro: MenuItem,
-    #[cfg(target_os = "macos")]
     start_cultivation: MenuItem,
     quit: MenuItem,
 }
@@ -105,15 +82,10 @@ enum MenuEntry {
     ToggleAlwaysOnTop,
     ToggleHideOnPointerHover,
     CheckForUpdates,
-    #[cfg(target_os = "macos")]
     StartPomodoro,
-    #[cfg(target_os = "macos")]
     PausePomodoro,
-    #[cfg(target_os = "macos")]
     ResumePomodoro,
-    #[cfg(target_os = "macos")]
     AbandonPomodoro,
-    #[cfg(target_os = "macos")]
     StartCultivation,
     Quit,
 }
@@ -121,11 +93,8 @@ enum MenuEntry {
 const MENU_ENTRIES: &[MenuEntry] = &[
     MenuEntry::OpenSettings,
     // The pomodoro row is a primary action beside Settings. Placing it before the
-    // first separator means the Windows build drops the entry without touching
-    // the separator-collapsing rule below.
-    #[cfg(target_os = "macos")]
+    // first separator keeps it out of the separator-collapsing rule below.
     MenuEntry::StartPomodoro,
-    #[cfg(target_os = "macos")]
     MenuEntry::StartCultivation,
     MenuEntry::Separator,
     MenuEntry::ModelWindow,
@@ -147,7 +116,6 @@ const MODEL_WINDOW_ENTRIES: &[MenuEntry] = &[
 /// Everything else in the menu is fixed; only the pomodoro rows move, and they
 /// are rebuilt per popup rather than mutated in place so a menu that is open
 /// cannot change under the pointer.
-#[cfg(target_os = "macos")]
 fn context_menu_entries(mode: PomodoroMenuMode) -> Vec<MenuEntry> {
     let pomodoro: &[MenuEntry] = match mode {
         PomodoroMenuMode::Idle => &[MenuEntry::StartPomodoro],
@@ -217,35 +185,30 @@ impl NativeMenuItems {
                     None,
                 )
             }),
-            #[cfg(target_os = "macos")]
             start_pomodoro: MenuItem::with_id(
                 START_POMODORO_ID,
                 &presentation.start_pomodoro,
                 true,
                 None,
             ),
-            #[cfg(target_os = "macos")]
             pause_pomodoro: MenuItem::with_id(
                 PAUSE_POMODORO_ID,
                 &presentation.pause_pomodoro,
                 true,
                 None,
             ),
-            #[cfg(target_os = "macos")]
             resume_pomodoro: MenuItem::with_id(
                 RESUME_POMODORO_ID,
                 &presentation.resume_pomodoro,
                 true,
                 None,
             ),
-            #[cfg(target_os = "macos")]
             abandon_pomodoro: MenuItem::with_id(
                 ABANDON_POMODORO_ID,
                 &presentation.abandon_pomodoro,
                 true,
                 None,
             ),
-            #[cfg(target_os = "macos")]
             start_cultivation: MenuItem::with_id(
                 START_CULTIVATION_ID,
                 &presentation.start_cultivation,
@@ -277,16 +240,11 @@ impl NativeMenuItems {
             check_for_updates.set_text(&presentation.check_for_updates);
             check_for_updates.set_enabled(presentation.update_check_available);
         }
-        #[cfg(target_os = "macos")]
         self.start_pomodoro.set_text(&presentation.start_pomodoro);
-        #[cfg(target_os = "macos")]
         self.pause_pomodoro.set_text(&presentation.pause_pomodoro);
-        #[cfg(target_os = "macos")]
         self.resume_pomodoro.set_text(&presentation.resume_pomodoro);
-        #[cfg(target_os = "macos")]
         self.abandon_pomodoro
             .set_text(&presentation.abandon_pomodoro);
-        #[cfg(target_os = "macos")]
         self.start_cultivation
             .set_text(&presentation.start_cultivation);
         self.quit.set_text(&presentation.quit);
@@ -298,7 +256,6 @@ impl SystemMenu {
         visible: bool,
         presentation: SystemMenuPresentation,
     ) -> Result<Self, SystemMenuError> {
-        #[cfg(target_os = "macos")]
         MainThreadMarker::new().ok_or(SystemMenuError::WrongThread)?;
 
         let icon = load_status_icon()?;
@@ -323,19 +280,11 @@ impl SystemMenu {
             .with_tooltip(&presentation.tooltip)
             .with_menu_on_left_click(cfg!(target_os = "macos"))
             .with_menu_on_right_click(true);
-        #[cfg(target_os = "macos")]
         let tray_icon_builder = tray_icon_builder.with_icon_templated(icon);
-        #[cfg(not(target_os = "macos"))]
-        let tray_icon_builder = tray_icon_builder.with_icon(icon);
-        #[cfg(target_os = "windows")]
-        let tray_icon_builder = tray_icon_builder.with_guid(TRAY_ICON_GUID);
         let tray_icon = tray_icon_builder.build().map_err(|error| {
-            #[cfg(target_os = "macos")]
             if matches!(error, tray_icon::Error::NotMainThread) {
                 return SystemMenuError::WrongThread;
             }
-            #[cfg(not(target_os = "macos"))]
-            let _ = error;
             SystemMenuError::StatusItemCreateFailed
         })?;
 
@@ -348,13 +297,9 @@ impl SystemMenu {
         let (sender, receiver) = mpsc::channel();
         Ok(Self {
             tray_icon,
-            #[cfg(target_os = "windows")]
-            menu,
             model_window,
             items,
             presentation,
-            #[cfg(target_os = "windows")]
-            tray_icon_id,
             sender,
             receiver,
             visible,
@@ -364,18 +309,13 @@ impl SystemMenu {
     /// Applies a new settings snapshot to both native menu surfaces.
     ///
     /// `SystemMenuPresentation::tooltip` is a creation-time input: it is applied once by
-    /// [`Self::start_with_presentation`] and deliberately not re-applied here. `tray-icon 0.25.0`
-    /// cannot update the tooltip of a GUID-registered Windows icon, because its `set_tooltip`
-    /// issues `NIM_MODIFY` without `NIF_GUID`. The shell ignores `uID` for an icon identified by
-    /// `guidItem` and requires the same GUID in every later call, so that call always fails
-    /// (<https://learn.microsoft.com/windows/win32/api/shellapi/ns-shellapi-notifyicondataw#troubleshooting>).
-    /// The tooltip must therefore stay invariant for the lifetime of this owner; changing it
+    /// [`Self::start_with_presentation`] and deliberately not re-applied here. The tooltip
+    /// must therefore stay invariant for the lifetime of this owner; changing it
     /// requires replacing the tray owner, which ADR-0031 forbids while the app is running.
     pub fn set_presentation(
         &mut self,
         presentation: SystemMenuPresentation,
     ) -> Result<(), SystemMenuError> {
-        #[cfg(target_os = "macos")]
         MainThreadMarker::new().ok_or(SystemMenuError::WrongThread)?;
 
         self.items.update(&presentation);
@@ -391,19 +331,6 @@ impl SystemMenu {
             }
         }
 
-        #[cfg(target_os = "windows")]
-        while let Ok(event) = TrayIconEvent::receiver().try_recv() {
-            if let TrayIconEvent::Click {
-                id,
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-                && id == self.tray_icon_id
-            {
-                let _ = self.sender.send(SystemMenuAction::OpenSettings);
-            }
-        }
 
         self.receiver.try_recv().ok()
     }
@@ -415,9 +342,7 @@ impl SystemMenu {
     /// offers a resume and an abandon, so a menu kept as fixed state would have to
     /// be rewritten on every transition anyway.
     ///
-    /// macOS only. The countdown is a macOS surface, so there is nothing to offer
-    /// on Windows.
-    #[cfg(target_os = "macos")]
+    /// macOS only. The countdown is a macOS surface.
     pub fn show_pomodoro_menu(
         &self,
         window: &impl HasWindowHandle,
@@ -457,8 +382,7 @@ impl SystemMenu {
     /// Present the model-window context menu at the current pointer location.
     ///
     /// `mode` says which pomodoro rows the menu carries. macOS rebuilds the menu
-    /// for the popup because those rows follow the session; Windows has no
-    /// pomodoro surface, so it presents the tray menu unchanged.
+    /// for the popup because those rows follow the session.
     pub fn show_context_menu_for_window(
         &self,
         window: &impl HasWindowHandle,
@@ -469,18 +393,6 @@ impl SystemMenu {
             .map_err(|_| SystemMenuError::WindowHandleUnavailable)?;
 
         match window.as_raw() {
-            #[cfg(target_os = "windows")]
-            RawWindowHandle::Win32(handle) => {
-                let _ = mode;
-                // SAFETY: `window` keeps the HWND alive for the duration of this
-                // synchronous popup, and `muda` only tracks the owned menu.
-                let _ = unsafe {
-                    self.menu
-                        .show_context_menu_for_hwnd(handle.hwnd.get(), None)
-                };
-                Ok(())
-            }
-            #[cfg(target_os = "macos")]
             RawWindowHandle::AppKit(handle) => {
                 let _main_thread = MainThreadMarker::new().ok_or(SystemMenuError::WrongThread)?;
                 let menu = self.context_menu(mode)?;
@@ -505,7 +417,6 @@ impl SystemMenu {
     /// Built fresh rather than cloned so the pomodoro rows can differ from the
     /// tray's: the row a right-click lands on is the one that describes what the
     /// click would do right now.
-    #[cfg(target_os = "macos")]
     fn context_menu(&self, mode: PomodoroMenuMode) -> Result<Menu, SystemMenuError> {
         let items =
             NativeMenuItems::new(&self.presentation, self.items.check_for_updates.is_some());
@@ -604,15 +515,10 @@ fn append_menu_entries(
                     .as_ref()
                     .ok_or(SystemMenuError::MenuCreateFailed)?,
             )?,
-            #[cfg(target_os = "macos")]
             MenuEntry::StartPomodoro => append_item(menu, &items.start_pomodoro)?,
-            #[cfg(target_os = "macos")]
             MenuEntry::PausePomodoro => append_item(menu, &items.pause_pomodoro)?,
-            #[cfg(target_os = "macos")]
             MenuEntry::ResumePomodoro => append_item(menu, &items.resume_pomodoro)?,
-            #[cfg(target_os = "macos")]
             MenuEntry::AbandonPomodoro => append_item(menu, &items.abandon_pomodoro)?,
-            #[cfg(target_os = "macos")]
             MenuEntry::StartCultivation => append_item(menu, &items.start_cultivation)?,
             MenuEntry::Quit => append_item(menu, &items.quit)?,
         }
@@ -668,15 +574,10 @@ fn action_for_menu_id(id: &MenuId) -> Option<SystemMenuAction> {
         TOGGLE_ALWAYS_ON_TOP_ID => SystemMenuAction::ToggleAlwaysOnTop,
         TOGGLE_HIDE_ON_POINTER_HOVER_ID => SystemMenuAction::ToggleHideOnPointerHover,
         CHECK_FOR_UPDATES_ID => SystemMenuAction::CheckForUpdates,
-        #[cfg(target_os = "macos")]
         START_POMODORO_ID => SystemMenuAction::StartPomodoro,
-        #[cfg(target_os = "macos")]
         START_CULTIVATION_ID => SystemMenuAction::StartCultivation,
-        #[cfg(target_os = "macos")]
         PAUSE_POMODORO_ID => SystemMenuAction::PausePomodoro,
-        #[cfg(target_os = "macos")]
         RESUME_POMODORO_ID => SystemMenuAction::ResumePomodoro,
-        #[cfg(target_os = "macos")]
         ABANDON_POMODORO_ID => SystemMenuAction::AbandonPomodoro,
         QUIT_ID => SystemMenuAction::Quit,
         _ => return None,
@@ -751,7 +652,6 @@ mod tests {
             action_for_menu_id(&MenuId::new("bongocat.quit")),
             Some(SystemMenuAction::Quit)
         );
-        #[cfg(target_os = "macos")]
         assert_eq!(
             action_for_menu_id(&MenuId::new("bongocat.start-cultivation")),
             Some(SystemMenuAction::StartCultivation)

@@ -89,6 +89,13 @@ impl ModelId {
     }
 }
 
+/// A model ID may not collide with a Windows reserved device name.
+///
+/// This is a platform-neutral data-format rule rather than a platform behavior:
+/// `CON`/`PRN`/`AUX`/`NUL` and `COM1..9`/`LPT1..9` are reserved by the Windows
+/// file system, and a model ID that equals one of them would not round-trip
+/// through a package stored or exchanged on Windows. The check is kept with the
+/// Windows support removal (ADR-0099) as part of the portable model-ID contract.
 pub(crate) fn is_windows_reserved_name(value: &str) -> bool {
     let stem = value.split('.').next().unwrap_or(value);
     if ["CON", "PRN", "AUX", "NUL"]

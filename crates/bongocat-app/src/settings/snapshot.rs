@@ -378,11 +378,11 @@ pub(super) fn observe_snapshot_state(
             );
         }
         // The record names the capability the platform actually gates input
-        // behind, so a Windows line says `source=administrator` and a macOS one
-        // says `source=input_monitoring`. Spelling either platform's gate as the
-        // other's is what made the previous `input_monitoring_unsupported` state
-        // wrong everywhere except macOS. The code carries present/absent and the
-        // context names which capability, so neither half has to be assembled
+        // behind, so a macOS line says `source=input_monitoring`. Spelling a
+        // gate as another platform's is what made the previous
+        // `input_monitoring_unsupported` state wrong. The code carries
+        // present/absent and the context names which capability, so neither
+        // half has to be assembled
         // into one string that could drift from the platform's own name.
         if previous.input_capability != input_diagnostics.input_capability {
             let capability = ApplicationLogContext::Source(input_diagnostics.input_capability.name);

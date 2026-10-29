@@ -16,16 +16,15 @@ use std::path::Path;
 /// Every HID usage the key vocabulary has to cover, written out rather than
 /// derived from the ranges this crate happens to use.
 ///
-/// This is a **superset** of what either platform adapter can produce, and
+/// This is a **superset** of what the macOS adapter can produce, and
 /// deliberately so: the vocabulary is a contract with model authors, so a
 /// key is named even when no keyboard can press it. Two usages here are
-/// unreachable on both platforms today — `IntlHash` (`0x32`, macOS gives the
+/// unreachable on macOS today — `IntlHash` (`0x32`, macOS gives the
 /// ISO `#` key the same keycode as ANSI `\`) and `F21` … `F24`
-/// (`0x70..=0x73`, no Carbon keycode and no Windows scan code this adapter
-/// maps). Everything else is reachable on at least one platform; each
-/// adapter has its own exhaustive test pinning exactly which
-/// (`bongocat-platform`'s `this_adapter_reports_exactly_the_keycodes_the_platform_defines`
-/// and the Windows scan-code matrix).
+/// (`0x70..=0x73`, no Carbon keycode this adapter maps). Everything else is
+/// reachable; the macOS adapter has its own exhaustive test pinning exactly
+/// which (`bongocat-platform`'s
+/// `this_adapter_reports_exactly_the_keycodes_the_platform_defines`).
 ///
 /// The modifier block sits outside `0x04..=0x65` and outside `0x68..=0x73`,
 /// and the globe key is not on the Keyboard/Keypad page at all, so no range

@@ -8,7 +8,6 @@
 
 use super::*;
 
-#[cfg(target_os = "macos")]
 use bongocat_pomodoro::CultivationView;
 use bongocat_pomodoro::PomodoroCommand;
 
@@ -29,7 +28,6 @@ use bongocat_pomodoro::PomodoroCommand;
 /// The two growth figures are the pair on one line rather than a total on one
 /// line and a remainder on the next: the banked figure is the total, so printing
 /// it twice would only be printing the same number in two shapes.
-#[cfg(target_os = "macos")]
 pub(crate) fn cultivation_copy(
     cultivation: &CultivationView,
     locale: &str,
@@ -98,7 +96,6 @@ pub(crate) fn cultivation_copy(
 /// The sound is played from the frame loop, which runs many times a second, so
 /// the sequence that has been played is what stops a session finishing between
 /// two polls from chiming once per frame.
-#[cfg(target_os = "macos")]
 static PLAYED_COMPLETION_SEQUENCE: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 
@@ -107,7 +104,6 @@ static PLAYED_COMPLETION_SEQUENCE: std::sync::atomic::AtomicU64 =
 /// The sound is decoration: a machine with no audio device, a busy output device
 /// or a denied audio permission all end the same way, and none of them should
 /// stop the performance or the recorded completion that accompany it.
-#[cfg(target_os = "macos")]
 pub(crate) fn play_pomodoro_complete_sound(_cx: &mut App, sequence: u64) {
     use std::sync::atomic::Ordering;
 
@@ -121,13 +117,6 @@ pub(crate) fn play_pomodoro_complete_sound(_cx: &mut App, sequence: u64) {
     bongocat_platform::play_pomodoro_complete_sound();
 }
 
-/// Play the chime for a completion on a platform that has no countdown.
-///
-/// Windows has no pomodoro surface at all, so there is no session that could
-/// finish here; the function exists so the frame loop's call site does not need
-/// a platform branch.
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn play_pomodoro_complete_sound(_cx: &mut App, _sequence: u64) {}
 
 /// Where the cultivator stood the last time the frame loop looked.
 ///
@@ -135,7 +124,6 @@ pub(crate) fn play_pomodoro_complete_sound(_cx: &mut App, _sequence: u64) {}
 /// a homecoming that happened while it was closed — and `1`/`2` are away and
 /// home. The sound plays only on the `1 → 2` edge, so the figure marks the
 /// moment the road or the job ends rather than the state of being home.
-#[cfg(target_os = "macos")]
 static CULTIVATION_HOME_STATE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
 /// Play the homecoming figure when the cultivator gets back, once per return.
@@ -145,7 +133,6 @@ static CULTIVATION_HOME_STATE: std::sync::atomic::AtomicU8 = std::sync::atomic::
 /// wall-clock minute the walk or the job ends rather than on the tick that
 /// settles it). Only the away → home edge plays; staying home or going out is
 /// silent.
-#[cfg(target_os = "macos")]
 pub(crate) fn play_cultivation_return_sound(_cx: &mut App, at_home: bool) {
     use std::sync::atomic::Ordering;
 
@@ -157,16 +144,11 @@ pub(crate) fn play_cultivation_return_sound(_cx: &mut App, at_home: bool) {
     bongocat_platform::play_cultivation_return_sound();
 }
 
-/// Play the homecoming figure on a platform that has no countdown.
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn play_cultivation_return_sound(_cx: &mut App, _at_home: bool) {}
-
 /// What a right-click on the countdown offers.
 ///
 /// It is a list of descriptions rather than an enum of commands so the menu is
 /// built from it and the mapping back to a timer command cannot drift from the
 /// rows the user actually sees.
-#[cfg(target_os = "macos")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PomodoroMenuEntry {
     pub(crate) id: &'static str,
@@ -174,7 +156,6 @@ pub(crate) struct PomodoroMenuEntry {
 }
 
 /// What a running countdown offers.
-#[cfg(target_os = "macos")]
 pub(crate) const PAUSE_ROW: PomodoroMenuEntry = PomodoroMenuEntry {
     id: "bongocat.pomodoro-pause",
     label_key: "pomodoro.timer.pause",
@@ -186,14 +167,12 @@ pub(crate) const PAUSE_ROW: PomodoroMenuEntry = PomodoroMenuEntry {
 /// to keep going is itself a decision, and a menu that hid the exit would leave
 /// abandoning the only action that takes three clicks. The row is placed below
 /// the non-destructive one on purpose — the hand goes to Pause first.
-#[cfg(target_os = "macos")]
 pub(crate) const ABANDON_ROW: PomodoroMenuEntry = PomodoroMenuEntry {
     id: "bongocat.pomodoro-abandon",
     label_key: "pomodoro.timer.abandon",
 };
 
 /// What a running countdown offers: freeze it, or throw it away.
-#[cfg(target_os = "macos")]
 pub(crate) const PAUSE_AND_ABANDON_ROWS: [PomodoroMenuEntry; 2] = [PAUSE_ROW, ABANDON_ROW];
 
 /// What a paused countdown offers.
@@ -201,7 +180,6 @@ pub(crate) const PAUSE_AND_ABANDON_ROWS: [PomodoroMenuEntry; 2] = [PAUSE_ROW, AB
 /// Abandoning is one row below resuming because a paused session is already
 /// interrupted: throwing it away is a decision the user is in the middle of
 /// making, not an accident one click away from a common action.
-#[cfg(target_os = "macos")]
 pub(crate) const RESUME_AND_ABANDON_ROWS: [PomodoroMenuEntry; 2] = [
     PomodoroMenuEntry {
         id: "bongocat.pomodoro-resume",
@@ -215,7 +193,6 @@ pub(crate) const RESUME_AND_ABANDON_ROWS: [PomodoroMenuEntry; 2] = [
 /// Both states offer abandoning: the session the user no longer wants is the
 /// reason they are looking at the menu, and hiding that row while it runs only
 /// makes them pause first to reach it.
-#[cfg(target_os = "macos")]
 pub(crate) fn pomodoro_menu_entries(request: OverlayPomodoroMenuRequest) -> Vec<PomodoroMenuEntry> {
     match request {
         OverlayPomodoroMenuRequest::OfferPause => PAUSE_AND_ABANDON_ROWS.to_vec(),
@@ -224,7 +201,6 @@ pub(crate) fn pomodoro_menu_entries(request: OverlayPomodoroMenuRequest) -> Vec<
 }
 
 /// The timer command a chosen action means.
-#[cfg(target_os = "macos")]
 pub(crate) const fn command_for(action: SystemMenuAction) -> Option<PomodoroCommand> {
     match action {
         SystemMenuAction::PausePomodoro => Some(PomodoroCommand::Pause),
@@ -240,7 +216,6 @@ pub(crate) const fn command_for(action: SystemMenuAction) -> Option<PomodoroComm
 /// clicking faster than the worker folds in time rather than anything wrong; the
 /// click is still recorded as a failure so it shows up in the log rather than
 /// silently doing nothing.
-#[cfg(target_os = "macos")]
 pub(crate) fn send_pomodoro_command(cx: &mut App, command: PomodoroCommand) -> Result<(), String> {
     cx.try_global::<ProductCoordinator>()
         .map(|coordinator| coordinator.pomodoro_client.clone())

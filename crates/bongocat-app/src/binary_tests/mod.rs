@@ -12,11 +12,8 @@ use crate::product_options::*;
 use crate::product_shutdown::*;
 // The post-install restart test is the only thing here that reaches
 // `product_windows`, and both the delay it asserts on and that test are macOS
-// only. Globbing the module everywhere else leaves an unused import behind on
-// Windows, which clippy refuses.
-#[cfg(target_os = "macos")]
+// only.
 use crate::product_windows::*;
-use crate::taskbar_settle::*;
 use crate::update_schedule::*;
 use bongocat_ui_protocol::SettingsCommand;
 
@@ -26,5 +23,4 @@ mod preset_root;
 mod product_options;
 mod product_shutdown;
 mod smoke_status;
-mod taskbar_settle;
 mod update_schedule;

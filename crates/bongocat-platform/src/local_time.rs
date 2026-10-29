@@ -38,19 +38,6 @@ fn read_offset(at: libc::time_t) -> i32 {
     }
 }
 
-#[cfg(windows)]
-fn read_offset(at: libc::time_t) -> i32 {
-    // SAFETY: `localtime_s` writes into the caller-provided `tm` and returns 0 on
-    // success. The buffer outlives the read below.
-    unsafe {
-        let mut local: libc::tm = std::mem::zeroed();
-        if libc::localtime_s(&mut local, &at) != 0 {
-            return 0;
-        }
-        i32::try_from(local.tm_gmtoff).unwrap_or(0)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

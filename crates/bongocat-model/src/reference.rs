@@ -1,9 +1,8 @@
 //! Turning a declared reference into a path that stays inside the package.
 //!
 //! A reference is what a package says about its own files, so it is untrusted
-//! input: absolute paths, `..` segments and Windows reserved names are all
-//! refused here rather than at each of the many places a reference could
-//! otherwise be resolved.
+//! input: absolute paths and `..` segments are all refused here rather than at
+//! each of the many places a reference could otherwise be resolved.
 
 use super::*;
 

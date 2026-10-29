@@ -34,7 +34,7 @@ WORKSPACE_MANIFEST = ROOT / "Cargo.toml"
 DENY = ROOT / "deny.toml"
 PACKAGER = ROOT / "crates" / "bongocat-packaging" / "src" / "main.rs"
 
-EXPECTED_PLATFORM_KEYS = ["macos-aarch64", "macos-x86_64", "windows-x86_64"]
+EXPECTED_PLATFORM_KEYS = ["macos-aarch64", "macos-x86_64"]
 
 
 def read(path):

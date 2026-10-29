@@ -38,17 +38,15 @@ impl ReleaseChannel {
     }
 }
 
-/// The three release targets BongoCat ships.
+/// The two release targets BongoCat ships, both macOS.
 ///
 /// The list is closed on purpose: `AGENTS.md` §1 restricts the product to these
 /// combinations, so an unrecognized host must refuse to update rather than fall
-/// back to a guessed asset. Windows ARM64 is not shipped, because Cubism Native
-/// R5 has no desktop ARM64 Core and Windows runs the x64 build under emulation.
+/// back to a guessed asset.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UpdateTargetTriple {
     Aarch64AppleDarwin,
     X86_64AppleDarwin,
-    X86_64PcWindowsMsvc,
 }
 
 impl UpdateTargetTriple {
@@ -56,7 +54,6 @@ impl UpdateTargetTriple {
         match self {
             Self::Aarch64AppleDarwin => "aarch64-apple-darwin",
             Self::X86_64AppleDarwin => "x86_64-apple-darwin",
-            Self::X86_64PcWindowsMsvc => "x86_64-pc-windows-msvc",
         }
     }
 
@@ -84,7 +81,6 @@ impl UpdateTargetTriple {
         match self {
             Self::Aarch64AppleDarwin => "macos-aarch64",
             Self::X86_64AppleDarwin => "macos-x86_64",
-            Self::X86_64PcWindowsMsvc => "windows-x86_64",
         }
     }
 }
@@ -96,15 +92,11 @@ pub const HOST_TARGET_TRIPLE: UpdateTargetTriple = UpdateTargetTriple::Aarch64Ap
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 pub const HOST_TARGET_TRIPLE: UpdateTargetTriple = UpdateTargetTriple::X86_64AppleDarwin;
 
-#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-pub const HOST_TARGET_TRIPLE: UpdateTargetTriple = UpdateTargetTriple::X86_64PcWindowsMsvc;
-
 #[cfg(not(any(
     all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "macos", target_arch = "x86_64"),
-    all(target_os = "windows", target_arch = "x86_64")
+    all(target_os = "macos", target_arch = "x86_64")
 )))]
-compile_error!("BongoCat builds only for macOS and x86_64 Windows");
+compile_error!("BongoCat builds only for macOS");
 
 /// Immutable configuration for one update run.
 ///
@@ -168,12 +160,7 @@ mod tests {
             UpdateTargetTriple::Aarch64AppleDarwin.as_str(),
             "aarch64-apple-darwin"
         );
-        assert_eq!(
-            UpdateTargetTriple::X86_64PcWindowsMsvc.as_str(),
-            "x86_64-pc-windows-msvc"
-        );
         assert!(UpdateTargetTriple::X86_64AppleDarwin.is_apple());
-        assert!(!UpdateTargetTriple::X86_64PcWindowsMsvc.is_apple());
     }
 
     /// The manifest keys are what `cargo-packager-updater` looks up, so they must use
@@ -188,14 +175,9 @@ mod tests {
             UpdateTargetTriple::X86_64AppleDarwin.manifest_platform(),
             "macos-x86_64"
         );
-        assert_eq!(
-            UpdateTargetTriple::X86_64PcWindowsMsvc.manifest_platform(),
-            "windows-x86_64"
-        );
         for target in [
             UpdateTargetTriple::Aarch64AppleDarwin,
             UpdateTargetTriple::X86_64AppleDarwin,
-            UpdateTargetTriple::X86_64PcWindowsMsvc,
         ] {
             assert_ne!(
                 target.manifest_platform(),
@@ -211,7 +193,6 @@ mod tests {
             HOST_TARGET_TRIPLE,
             UpdateTargetTriple::Aarch64AppleDarwin
                 | UpdateTargetTriple::X86_64AppleDarwin
-                | UpdateTargetTriple::X86_64PcWindowsMsvc
         ));
     }
 }

@@ -122,11 +122,9 @@ pub fn open_settings_window(
                 {
                     let _ = window_state.request_persist_if_current(revision);
                 }
-                // The window keeps the taskbar button and caption GPUI creates it
-                // with. `show_taskbar_icon` belongs to the model window, which
-                // the overlay owns, and a framed window that traded its
-                // `WS_EX_APPWINDOW` for `WS_EX_TOOLWINDOW` would show the tool
-                // window's short caption instead of this title bar.
+                // The settings window keeps the title bar GPUI creates it with.
+                // It is a framed window, unlike the borderless overlay the model
+                // window owns, so it keeps its own Dock icon.
                 window.activate_window();
                 cx.new(|cx| Root::new(view, window, cx))
             },
@@ -239,13 +237,8 @@ fn placement_from_window(window: &Window, cx: &App) -> Option<SettingsWindowPlac
 }
 
 fn settings_window_content_top_inset() -> f32 {
-    #[cfg(target_os = "macos")]
     {
         bongocat_platform::window_content_top_inset()
-    }
-    #[cfg(target_os = "windows")]
-    {
-        0.0
     }
 }
 

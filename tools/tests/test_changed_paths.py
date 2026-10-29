@@ -57,7 +57,6 @@ class DocumentationOnlyTests(unittest.TestCase):
             "justfile",
             "Justfile",
             "macos/Info.plist",
-            "windows/bongocat-app.rc",
             "shared/fixtures/manifest.json",
             "crates/bongocat-i18n/locales/en-US/app.ftl",
             "spikes/gpui-settings/Cargo.toml",

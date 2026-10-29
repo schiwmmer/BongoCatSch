@@ -107,13 +107,8 @@ pub(crate) const fn native_theme_for_startup(
     }
 }
 
-#[cfg(target_os = "windows")]
-pub(crate) fn request_windows_product_quit(shutdown_requested: &AtomicBool) {
-    shutdown_requested.store(true, Ordering::Release);
-}
 
 pub(crate) fn finish_product_quit(cx: &mut App) {
-    #[cfg(target_os = "macos")]
     {
         // The application-owned quit must own its exit boundary: AppKit can terminate
         // the process after `on_app_quit` completes without returning from
@@ -133,17 +128,6 @@ pub(crate) fn finish_product_quit(cx: &mut App) {
         cx.quit();
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        if let Some(coordinator) = cx.try_global::<ProductCoordinator>() {
-            coordinator
-                .shutdown_requested
-                .store(true, Ordering::Release);
-            coordinator
-                .shutdown_flush_complete
-                .store(true, Ordering::Release);
-        }
-    }
 }
 
 pub(crate) fn request_product_quit(cx: &mut App) {
@@ -158,19 +142,6 @@ pub(crate) fn request_product_quit(cx: &mut App) {
     finish_product_quit(cx);
 }
 
-#[cfg(target_os = "windows")]
-pub(crate) fn start_windows_product_shutdown(cx: &mut App) {
-    if !cx.has_global::<ProductCoordinator>() {
-        return;
-    }
-    let shutdown = begin_product_shutdown(cx);
-    cx.spawn(async move |_| {
-        let failures = shutdown.finish().await;
-        let exit_code = windows_product_exit_code(&failures);
-        bongocat_platform::terminate_after_product_shutdown(exit_code);
-    })
-    .detach();
-}
 
 pub(crate) struct ProductShutdown {
     pub(crate) coordinator: ProductCoordinator,
@@ -236,27 +207,10 @@ pub(crate) fn begin_product_shutdown(cx: &mut App) -> ProductShutdown {
     let mut coordinator = cx.remove_global::<ProductCoordinator>();
     coordinator.frame_source_running = false;
     coordinator.frame_source_shutdown.request_stop();
-    #[cfg(target_os = "windows")]
-    if let Some(single_instance) = coordinator.single_instance.take()
-        && let Err(error) = single_instance.shutdown()
-    {
-        record_failure(&coordinator.failures, error.to_string());
-    }
-    if let Some(system_menu) = coordinator.system_menu.take()
-        && let Err(error) = system_menu.shutdown()
-    {
-        record_failure(&coordinator.failures, error.to_string());
-    }
-    #[cfg(target_os = "macos")]
     let mut overlay = coordinator
         .overlay
         .take()
         .expect("product overlay owner is present");
-    #[cfg(target_os = "windows")]
-    let mut overlay = {
-        let mut overlay = coordinator.overlay.borrow_mut();
-        overlay.take().expect("product overlay owner is present")
-    };
     // Registered hotkeys must stop consuming keys before any service that
     // would re-trigger them is torn down.
     if let Some(shortcut_service) = coordinator.shortcut_service.take()
@@ -280,7 +234,6 @@ pub(crate) fn begin_product_shutdown(cx: &mut App) -> ProductShutdown {
     }
 }
 
-#[cfg(target_os = "macos")]
 pub(crate) fn exit_after_automated_smoke(failures: &Arc<Mutex<Vec<String>>>) {
     let failures = failures
         .lock()
@@ -299,7 +252,3 @@ pub(crate) fn exit_after_automated_smoke(failures: &Arc<Mutex<Vec<String>>>) {
     std::process::exit(1);
 }
 
-#[cfg(target_os = "windows")]
-pub(crate) fn windows_product_exit_code(failures: &Arc<Mutex<Vec<String>>>) -> i32 {
-    product_failures_exit_code(failures)
-}

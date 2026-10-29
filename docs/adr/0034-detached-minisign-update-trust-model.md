@@ -1,4 +1,5 @@
 # ADR-0034: Detached Minisign Update Trust Model
+> ⚠️ 本决策（或其 Windows 部分）随 **Windows 支持的移除（ADR-0099）** 失效，正文保留作历史记录。
 
 状态：已接受（2026-09-14；§3 的 manifest 形状于同日修订，见该节修订说明）
 取代：ADR-0029 的更新库与签名部分（正文保留为历史记录）

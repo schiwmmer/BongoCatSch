@@ -1,4 +1,5 @@
 # ADR-0023: Windows Per-User Installer
+> ⚠️ 本决策（或其 Windows 部分）随 **Windows 支持的移除（ADR-0099）** 失效，正文保留作历史记录。
 
 状态：已接受（2026-09-05）；NSIS toolchain 与 wrapper 边界已由 ADR-0033 取代（2026-09-14）
 

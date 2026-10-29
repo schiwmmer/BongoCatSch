@@ -231,13 +231,10 @@ pub(super) fn settings_input_diagnostics(
 
 /// What this platform gates global input behind, and whether we have it.
 ///
-/// One query serves both platforms because the platform adapter already models
-/// the difference: its capability is `input_monitoring` on macOS and
-/// `administrator` on Windows, and its availability is the TCC grant on one and
-/// `TokenElevation` on the other (ADR-0032). Projecting that pair is what keeps
-/// a Windows report from claiming the platform has no permission concept at all
-/// — the question a bug report has to answer there is whether the process runs
-/// elevated.
+/// The platform adapter already models the difference: its capability is
+/// `input_monitoring`, and its availability is the TCC grant (ADR-0032).
+/// Projecting that is what keeps the report honest about the permission concept
+/// a bug report has to answer on macOS.
 pub(super) fn system_input_capability() -> SettingsInputCapability {
     SettingsInputCapability {
         name: STARTUP_PERMISSION_CAPABILITY,

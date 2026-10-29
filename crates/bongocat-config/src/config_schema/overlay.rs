@@ -16,7 +16,9 @@ use super::*;
 #[cfg_attr(any(test, feature = "schema-generation"), derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct OverlayConfig {
-    /// Windows ordinary capture window; other platforms retain overlay behavior.
+    /// Retained for configuration compatibility. macOS always renders the model
+    /// window in overlay mode: the `window_mode` switch is inert here, and the
+    /// field is kept so existing configuration files keep loading.
     #[serde(default)]
     pub window_mode: bool,
     #[serde(default = "default_window_background_color")]

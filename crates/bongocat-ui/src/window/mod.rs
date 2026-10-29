@@ -99,8 +99,6 @@ mod shortcuts;
 mod shortcuts_page;
 mod smoke;
 mod view_state;
-#[cfg(target_os = "windows")]
-mod window_mode;
 use crate::pop_confirm::PopConfirm;
 pub use lifecycle::open_settings_window;
 use localization::{
@@ -267,12 +265,6 @@ pub(crate) enum PomodoroEditorTarget {
 }
 
 pub struct SettingsView {
-    #[cfg(target_os = "windows")]
-    pub(crate) window_background_color: Entity<gpui_kit::component::color_picker::ColorPickerState>,
-    #[cfg(target_os = "windows")]
-    pub(crate) window_background_debouncer: crate::SettingsPatchDebouncer<[u8; 3]>,
-    #[cfg(target_os = "windows")]
-    pub(crate) window_background_timer_generation: u64,
     pub(crate) client: SettingsClient,
     /// The pomodoro timer client, so the settings page can read the task list
     /// and toggle a task's done state without owning the worker.

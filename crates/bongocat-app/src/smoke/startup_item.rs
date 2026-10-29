@@ -28,7 +28,6 @@ pub(crate) fn run_startup_permission_smoke() -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
 pub(crate) fn run_startup_item_smoke() -> Result<(), Box<dyn std::error::Error>> {
     use bongocat_platform::{
         StartupItemEnvironment, StartupItemState, set_startup_item_enabled, startup_item_state,

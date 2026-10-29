@@ -931,25 +931,6 @@ mod tests {
         runtime.shutdown(TIMEOUT).expect("runtime stop");
     }
 
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn gamepad_backend_failure_does_not_stop_the_input_service() {
-        const TIMEOUT: Duration = Duration::from_secs(2);
-        let runtime = RuntimeOwner::start(true, 8);
-        let mut gamepad =
-            GilrsGamepad::new(runtime.input_producer(), runtime.gamepad_axis_producer());
-        gamepad.gilrs = None;
-        gamepad.backend_failure_reported = false;
-        let mut diagnostics = PlatformInputDiagnostics::default();
-        gamepad
-            .drain(MonotonicMillis::new(1), &mut diagnostics)
-            .expect("keyboard service remains operational");
-        gamepad
-            .drain(MonotonicMillis::new(2), &mut diagnostics)
-            .expect("keyboard service remains operational");
-        assert_eq!(diagnostics.gamepad_backend_failures, 1);
-        runtime.shutdown(TIMEOUT).expect("runtime stop");
-    }
 
     #[test]
     fn runtime_stop_is_not_misreported_as_a_capacity_rejection() {

@@ -13,125 +13,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  windows-x64:
-    name: Build Windows x64
-    runs-on: windows-latest
-    env:
-      # The Minisign key that signs the update payload. Without it the build produces
-      # bundle and installer artifacts but no update assets, and the release would be
-      # one no installed copy can ever move to.
-      SIGNING_PRIVATE_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
-      SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.SIGNING_PRIVATE_KEY_PASSWORD }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-      # `rust-toolchain.toml` pins the toolchain every `cargo` invocation in this
-      # workspace resolves to, and that pin is the single product version source for
-      # the release. The action above installs the target for `stable`, which is not
-      # the toolchain that actually compiles here, so the target has to be installed
-      # for the pinned one as well. Without this the cross-compiled macOS job dies
-      # with `can't find crate for 'std'`; the jobs whose target happens to be the
-      # runner's host are only passing because a host toolchain ships its own std.
-      - name: Install the target for the pinned toolchain
-        run: rustup target add x86_64-pc-windows-msvc
-      - uses: taiki-e/install-action@just
-      - name: Check the tag against the single product version source
-        shell: bash
-        run: |
-          set -euo pipefail
-          version=$(just version)
-          echo "version=$version" >> "$GITHUB_ENV"
-          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "tag $GITHUB_REF_NAME does not match the workspace product version $version" >&2
-            exit 1
-          fi
-          # A release is titled after the tag it produces, so the history reads the way
-          # the release page does and a version bump is findable without knowing the
-          # version in advance. Checked before the build because the build is the
-          # expensive part of this job, and a mistitled release should cost seconds.
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            subject=$(git log -1 --format=%s)
-            if [ "$subject" != "chore: release $GITHUB_REF_NAME" ]; then
-              echo "::error::the commit tagged $GITHUB_REF_NAME is titled '$subject'; a release commit must be titled 'chore: release $GITHUB_REF_NAME'" >&2
-              exit 1
-            fi
-          fi
-      - name: Require the update signing key
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${SIGNING_PRIVATE_KEY:-}" ]; then
-            echo "::error::SIGNING_PRIVATE_KEY is not configured. Publishing unsigned update assets would leave every installed copy unable to update, because the runtime refuses to install a payload it cannot authenticate." >&2
-            exit 1
-          fi
-      - name: Build the Production product and package the release artifacts
-        run: just build
-      - name: Verify the installer artifact
-        shell: pwsh
-        run: |
-          # The published name is BongoCat_<version>_<arch>.exe: the packaging
-          # entry point renames the cargo-packager installer to it.
-          $expected = "BongoCat_${env:version}_x64.exe"
-          $installers = @(Get-ChildItem -Path "target/package" -Filter "*.exe" -File)
-          if ($installers.Count -ne 1) {
-            throw "expected exactly one installer, found $($installers.Count)"
-          }
-          $installer = $installers[0]
-          if ($installer.Name -ne $expected) {
-            throw "expected the installer to be named $expected, found $($installer.Name)"
-          }
-          if ($installer.Length -le 0) { throw "installer is empty" }
-          Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256 |
-            Select-Object -ExpandProperty Hash |
-            ForEach-Object { Write-Host "installer sha256=$_" }
-      - name: Verify the signed update assets
-        shell: pwsh
-        run: |
-          # The updater installs the installer it downloads, so the update payload and
-          # the published installer are the same file; this target's manifest fragment
-          # and the detached signature are what make it installable.
-          $payload = "target/package/BongoCat_${env:version}_x64.exe"
-          if (-not (Test-Path $payload)) { throw "missing update payload $payload" }
-          $signature = "$payload.sig"
-          if (-not (Test-Path $signature)) { throw "missing signature $signature" }
-          if ((Get-Item $signature).Length -le 0) { throw "empty signature $signature" }
-
-          $fragment = "target/package/windows-x86_64.json"
-          if (-not (Test-Path $fragment)) { throw "missing manifest fragment $fragment" }
-          $json = Get-Content -LiteralPath $fragment -Raw | ConvertFrom-Json
-          if ($json.version -ne $env:version) { throw "fragment version $($json.version) is not $env:version" }
-          if ($json.format -ne 'nsis') { throw "fragment format $($json.format) is not nsis" }
-          if (-not $json.signature) { throw "fragment carries no signature" }
-          if ($json.url -notmatch '^https://github\.com/') { throw "fragment url is not https: $($json.url)" }
-          Write-Host "signed update assets for $payload"
-      # Reports rather than enforces, and the name says so: a maintainer scanning
-      # the log must not read a green step named "Require ..." as proof the
-      # installer was signed. The update-signing gate above really does exit 1;
-      # this one cannot, because CI has no Authenticode certificate configured.
-      # Whether a stable release should hard-fail here instead is open — see
-      # ADR-0033.
-      - name: Report Authenticode signature status for a stable release
-        shell: pwsh
-        run: |
-          # Update signing and Authenticode are separate gates: cargo-packager signs the
-          # product binaries and the installer only when a signing command or certificate
-          # is configured, and the Minisign key above does not affect that.
-          $signed = Get-ChildItem -Path "target/package" -Filter "*.exe" -File |
-            Where-Object { (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -eq 'Valid' }
-          if (-not $signed) {
-            Write-Host "::warning::no valid Authenticode signature found; this installer is not a stable release artifact"
-          }
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-windows-x64
-          path: |
-            target/package/BongoCat_*.exe
-            target/package/BongoCat_*.exe.sig
-            target/package/windows-x86_64.json
-          if-no-files-found: error
-
   macos:
     name: Build macOS ${{ matrix.label }}
     runs-on: ${{ matrix.runs_on }}
@@ -165,9 +46,9 @@ jobs:
         # Intel Mac tops out at macOS 26, where the SDK 26.x build matches.
         #
         # The job name deliberately does not name the artifact. This target
-        # publishes a bundle and a disk image, the Windows job publishes an
-        # installer, and a reader who needs to know which is which follows the
-        # download link in the release notes, where the file name is spelled out.
+        # publishes a bundle and a disk image, and a reader who needs to know
+        # which is which follows the download link in the release notes, where
+        # the file name is spelled out.
         include:
           - label: Apple Silicon
             runs_on: xcode-27
@@ -298,8 +179,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           # The uploaded bundle is named after the same architecture token the
-          # artifacts inside it carry, and after the `release-<os>-<arch>` shape the
-          # Windows leg already uses. The job display name is the reader-facing
+          # artifacts inside it carry, following the `release-<os>-<arch>` shape.
+          # The job display name is the reader-facing
           # label; this one is what `download-artifact` matches on, so it stays a
           # stable key rather than a triple or a string with a space in it.
           name: release-macos-${{ matrix.arch }}
@@ -309,7 +190,6 @@ jobs:
   publish:
     name: Publish the GitHub release
     needs:
-      - windows-x64
       - macos
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
@@ -356,17 +236,15 @@ jobs:
           # asset name stay owned by that crate.
           just release-manifest artifacts release-notes.md \
             artifacts/macos-aarch64.json \
-            artifacts/macos-x86_64.json \
-            artifacts/windows-x86_64.json
+            artifacts/macos-x86_64.json
           test -f artifacts/latest.json
           jq -e '.version and (.notes | length > 0) and
-                 (.platforms | keys | sort == ["macos-aarch64", "macos-x86_64", "windows-x86_64"])' \
+                 (.platforms | keys | sort == ["macos-aarch64", "macos-x86_64"])' \
             artifacts/latest.json >/dev/null
           # The fragments are build inputs, not release assets; the notes are folded into
           # the manifest and stay in the workspace for the release body.
           rm -f artifacts/macos-aarch64.json \
-                artifacts/macos-x86_64.json \
-                artifacts/windows-x86_64.json
+                artifacts/macos-x86_64.json
       - name: Create the release and attach every artifact
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

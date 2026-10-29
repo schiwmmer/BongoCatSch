@@ -1,9 +1,8 @@
 //! Startup permission check and native user guidance.
 //!
 //! The product needs a platform capability before global input works: macOS requires the
-//! Input Monitoring TCC grant, and Windows needs an elevated token to keep receiving Raw Input
-//! while a higher-integrity window is in the foreground. Both are read-only queries that never
-//! prompt, so the check may run on every start.
+//! Input Monitoring TCC grant. It is a read-only query that never prompts, so the check may
+//! run on every start.
 //!
 //! Nothing about the prompt is persisted. A user who dismisses it is asked again on the next start
 //! while the platform still reports the capability as missing, and a user who already granted the
@@ -13,8 +12,7 @@
 //! macOS presents the prompt itself through an `NSAlert` on the main thread, which follows the
 //! application appearance (ADR-0048), and then hands the user to the guided flow from
 //! `permission-flow` (ADR-0078): a floating panel that opens the Input Monitoring pane and shows
-//! the drag guidance. Windows presents an `rfd` message dialog, which maps to a Task Dialog, and
-//! reveals the running executable. No product UI is built for either.
+//! the drag guidance. No product UI is built for the prompt.
 
 /// Whether the operating system currently grants the input capability the
 /// product needs before global input works.
@@ -110,7 +108,6 @@ pub fn check_startup_permission(prompt: &StartupPermissionPrompt) -> StartupPerm
 /// product applies at startup. `rfd`'s *synchronous* macOS dialog remains banned for a
 /// different, older reason: it would still create the shared `NSApplication` on this worker
 /// before GPUI's subclass owns it (the contract test below keeps pinning that).
-#[cfg(target_os = "macos")]
 mod platform {
     use crate::{
         InputPermission, StartupPermissionPrompt, input_monitoring_permission,
@@ -437,90 +434,13 @@ mod platform {
     }
 }
 
-#[cfg(target_os = "windows")]
-mod platform {
-    use crate::StartupPermissionPrompt;
-    use std::{mem::size_of, path::Path};
-    use windows::Win32::{
-        Foundation::{CloseHandle, HANDLE},
-        Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation},
-        System::Threading::{GetCurrentProcess, OpenProcessToken},
-    };
-
-    pub const CAPABILITY: &str = "administrator";
-
-    pub fn available() -> bool {
-        process_is_elevated()
-    }
-
-    pub fn present_prompt(prompt: &StartupPermissionPrompt) -> rfd::MessageDialogResult {
-        rfd::MessageDialog::new()
-            .set_level(rfd::MessageLevel::Warning)
-            .set_title(prompt.title.clone())
-            .set_description(prompt.description.clone())
-            .set_buttons(rfd::MessageButtons::OkCancelCustom(
-                prompt.primary.clone(),
-                prompt.secondary.clone(),
-            ))
-            .show()
-    }
-
-    /// Runs the user-initiated permission flow.
-    ///
-    /// There is no in-place elevation: ADR-0023 keeps the per-user installer and the product
-    /// unprivileged by default. The standard path is the compatibility flag, so the flow only
-    /// reveals the running executable for the user to open its properties dialog. The locale is a
-    /// macOS concern: this path shows no panel of its own.
-    pub fn request_permission_flow(_locale: &str) -> bool {
-        let Ok(executable) = std::env::current_exe() else {
-            return false;
-        };
-        reveal_executable(&executable)
-    }
-
-    fn reveal_executable(executable: &Path) -> bool {
-        opener::reveal(executable).is_ok()
-    }
-
-    /// Reads `TokenElevation` from the current process token.
-    ///
-    /// The compatibility flag the prompt asks for starts the process elevated, so this reports
-    /// exactly the state the guidance promises, and it also reports it for a user who launched the
-    /// product from an already elevated shell.
-    fn process_is_elevated() -> bool {
-        // SAFETY: the process handle is a pseudo handle that needs no release, the token handle is
-        // closed on every path below, and `TOKEN_ELEVATION` is the documented output type for
-        // `TokenElevation`, so the buffer has the exact size the call expects.
-        unsafe {
-            let mut token = HANDLE::default();
-            if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
-                return false;
-            }
-            let mut elevation = TOKEN_ELEVATION::default();
-            let mut returned_length = 0_u32;
-            let result = GetTokenInformation(
-                token,
-                TokenElevation,
-                Some(std::ptr::from_mut(&mut elevation).cast()),
-                u32::try_from(size_of::<TOKEN_ELEVATION>()).unwrap_or_default(),
-                &mut returned_length,
-            );
-            let _ = CloseHandle(token);
-            result.is_ok() && elevation.TokenIsElevated != 0
-        }
-    }
-}
 
 /// Maps an `rfd` result back to "the user asked for the platform permission flow".
 ///
 /// macOS returns the custom label, because the parentless dialog is a `CFUserNotification` whose
-/// buttons carry the requested titles. Windows returns the custom labels too since the workspace
-/// enables `rfd`'s `common-controls-v6` feature and the executable already carries an application
-/// manifest declaring the ComCtl32 v6 dependency (embedded by `gpui-pre`'s static library), so the
-/// prompt is a `TaskDialogIndirect` whose buttons carry the requested titles; closing the dialog
-/// reports `Cancel`. The standard-button mapping below stays as a safety net for a `MessageBoxW`
-/// fallback: if the task dialog cannot bind (activation context missing), `TaskDialogIndirect`
-/// fails and `rfd` reports `Cancel`, which must never be mistaken for consent.
+/// buttons carry the requested titles. The standard-button mapping below stays as a safety net
+/// in case a fallback reports the standard pair instead of the custom label, so a dismissal is
+/// never mistaken for consent.
 fn requested_permission_flow(result: &rfd::MessageDialogResult, primary: &str) -> bool {
     match result {
         rfd::MessageDialogResult::Custom(label) => label == primary,
@@ -559,8 +479,8 @@ mod tests {
     #[test]
     fn standard_button_results_map_without_a_custom_label() {
         let prompt = prompt();
-        // Windows without `common-controls-v6` reports the standard pair instead of the custom
-        // labels, so dismissal must stay distinguishable from the permission flow.
+        // A fallback reports the standard pair instead of the custom labels, so dismissal
+        // must stay distinguishable from the permission flow.
         assert!(requested_permission_flow(
             &rfd::MessageDialogResult::Ok,
             &prompt.primary
@@ -591,15 +511,14 @@ mod tests {
     /// 3. The guided flow's drag target must come from this executable, never from
     ///    `AppPath::suggested_host_app`: that helper walks the parent process chain, so a
     ///    development build would ask the user to grant whichever application launched it.
-    #[cfg(target_os = "macos")]
     #[test]
     fn macos_prompt_keeps_the_appkit_free_dialog_path() {
         let source = include_str!("startup_permission.rs");
         let macos_module = source
-            .split("#[cfg(target_os = \"macos\")]\nmod platform {")
+            .split("\nmod platform {")
             .nth(1)
             .expect("macOS platform module")
-            .split("#[cfg(target_os = \"windows\")]")
+            .split("#[cfg(test)]")
             .next()
             .expect("macOS platform module end");
         assert!(
@@ -630,7 +549,6 @@ mod tests {
     ///
     /// Both are supplied outside this module — the rpath by the build scripts and the resource
     /// bundle by packaging — so nothing else would fail until a user pressed the button.
-    #[cfg(target_os = "macos")]
     #[test]
     fn macos_guided_flow_declares_its_build_prerequisites() {
         let source = include_str!("startup_permission.rs");
@@ -664,7 +582,6 @@ mod tests {
     /// The lookup that used to be pinned to Xcode 27's `[out/]Products` shape is what made
     /// packaging fail in CI, and here the same mistake is silent: the bundle is not found, the
     /// panel never starts, and the user is left with the old prompt instead of the guided one.
-    #[cfg(target_os = "macos")]
     #[test]
     fn macos_development_copy_finds_the_bundle_in_every_products_layout() {
         use super::platform::built_resource_bundle;
@@ -695,7 +612,6 @@ mod tests {
 
     /// A profile directory with no Swift output at all is the state of a build that never ran the
     /// guide, and it has to read as "not found" so the caller falls back instead of guessing.
-    #[cfg(target_os = "macos")]
     #[test]
     fn a_profile_directory_without_swift_output_reports_no_bundle() {
         use super::platform::built_resource_bundle;

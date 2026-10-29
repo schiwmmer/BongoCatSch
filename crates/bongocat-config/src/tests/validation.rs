@@ -1034,7 +1034,7 @@ fn model_ids_are_portable_store_keys() {
         .model
         .imported_models
         .push(ImportedModelMetadata {
-            id: "NUL".to_owned(),
+            id: "..".to_owned(),
             title: "Invalid".to_owned(),
             input_mode: ModelInputMode::Standard,
         });

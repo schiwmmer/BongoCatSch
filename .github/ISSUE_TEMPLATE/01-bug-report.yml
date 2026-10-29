@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to report this. BongoCat ships for Windows and macOS.
+        Thanks for taking the time to report this. BongoCat ships for macOS.
 
         Before you send it:
 
@@ -18,11 +18,9 @@ body:
     id: platform
     attributes:
       label: Platform
-      description: Which operating system does this happen on? Linux is not a release target, so those reports are not handled.
+      description: Which operating system does this happen on? macOS is the only release target.
       options:
-        - Windows
         - macOS
-        - Linux (not a release target)
     validations:
       required: true
 

@@ -3,10 +3,9 @@
 #[path = "src/product_icon_contract.rs"]
 mod product_icon_contract;
 
-use product_icon_contract::{validate_icns, validate_ico, validate_png};
+use product_icon_contract::{validate_icns, validate_png};
 use std::path::{Path, PathBuf};
 
-const WINDOWS_RESOURCE_FILE: &str = "windows/bongocat-app.rc";
 
 fn main() {
     println!("cargo::rerun-if-changed=src/product_icon_contract.rs");
@@ -22,41 +21,11 @@ fn main() {
         validate_icns,
     );
     validate_icon(
-        &resources_dir.join("logo-windows.ico"),
-        "Windows product icon",
-        validate_ico,
-    );
-    validate_icon(
         &resources_dir.join("tray-macos.png"),
         "macOS status icon",
         validate_png,
     );
-    validate_icon(
-        &resources_dir.join("tray-windows.png"),
-        "Windows status icon",
-        validate_png,
-    );
 
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        println!("cargo::rerun-if-changed={WINDOWS_RESOURCE_FILE}");
-        let version = std::env::var("CARGO_PKG_VERSION")
-            .expect("Cargo must provide CARGO_PKG_VERSION to the build script");
-        let version_major = std::env::var("CARGO_PKG_VERSION_MAJOR")
-            .expect("Cargo must provide CARGO_PKG_VERSION_MAJOR to the build script");
-        let version_minor = std::env::var("CARGO_PKG_VERSION_MINOR")
-            .expect("Cargo must provide CARGO_PKG_VERSION_MINOR to the build script");
-        let version_patch = std::env::var("CARGO_PKG_VERSION_PATCH")
-            .expect("Cargo must provide CARGO_PKG_VERSION_PATCH to the build script");
-        let version_parameters = [
-            format!("VERSION=\"{version}\""),
-            format!("VERSION_MAJOR={version_major}"),
-            format!("VERSION_MINOR={version_minor}"),
-            format!("VERSION_PATCH={version_patch}"),
-        ];
-        embed_resource::compile(WINDOWS_RESOURCE_FILE, version_parameters)
-            .manifest_required()
-            .unwrap_or_else(|error| panic!("Windows product resource compilation failed: {error}"));
-    }
 }
 
 /// Puts the Swift runtime on the loader path of this package's binaries.

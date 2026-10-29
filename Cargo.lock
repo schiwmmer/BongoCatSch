@@ -924,7 +924,6 @@ dependencies = [
  "objc2-quartz-core 0.3.2",
  "raw-window-handle",
  "thiserror 2.0.21",
- "windows 0.62.2",
 ]
 
 [[package]]
@@ -976,7 +975,6 @@ dependencies = [
  "thiserror 2.0.21",
  "tray-icon",
  "url",
- "windows 0.62.2",
 ]
 
 [[package]]
@@ -2783,7 +2781,6 @@ dependencies = [
  "vec_map",
  "wasm-bindgen",
  "web-sys",
- "windows 0.62.2",
 ]
 
 [[package]]

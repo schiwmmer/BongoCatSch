@@ -113,11 +113,6 @@
       "title": "需要「输入监控」权限",
       "description": "BongoCat 需要「输入监控」权限，才能正常接收键盘和鼠标输入。",
       "open_settings": "打开系统设置"
-    },
-    "administrator": {
-      "title": "建议以管理员权限运行",
-      "description": "BongoCat 需要管理员权限，才能在其他应用以管理员权限运行时继续接收键盘和鼠标输入。\n\n设置方法：右键 BongoCat → 属性 → 兼容性 → 勾选「以管理员身份运行此程序」。",
-      "open_program_folder": "退出并前往设置"
     }
   },
   "about": {
@@ -582,12 +577,8 @@
       },
       "status_icon": {
         "label": {
-          "macos": "显示菜单栏图标",
-          "windows": "显示系统托盘图标"
+          "macos": "显示菜单栏图标"
         }
-      },
-      "taskbar_icon": {
-        "label": "显示任务栏图标"
       },
       "dock_icon": {
         "label": "始终显示程序坞图标"

@@ -25,18 +25,13 @@ pub(crate) fn system_menu_presentation(snapshot: &SettingsSnapshot) -> SystemMen
         // than composed so the catalog coverage scan recognises it as a leaf on
         // either target; the catalog carries it in all eight languages even
         // though only one platform shows the row.
-        #[cfg(target_os = "macos")]
         start_pomodoro: text("system_menu.start_pomodoro"),
         // The rows a right-click on the model offers while a session is under
         // way. Same rule as the start row: spelled out so the coverage scan
         // sees the leaves.
-        #[cfg(target_os = "macos")]
         pause_pomodoro: text("system_menu.pause_pomodoro"),
-        #[cfg(target_os = "macos")]
         resume_pomodoro: text("system_menu.resume_pomodoro"),
-        #[cfg(target_os = "macos")]
         abandon_pomodoro: text("system_menu.abandon_pomodoro"),
-        #[cfg(target_os = "macos")]
         start_cultivation: text("system_menu.start_cultivation"),
         quit: text("system_menu.quit"),
         overlay_visible: snapshot.overlay_visible,

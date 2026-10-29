@@ -113,11 +113,6 @@
       "title": "Input Monitoring Permission Required",
       "description": "BongoCat needs Input Monitoring permission to receive keyboard and mouse input.",
       "open_settings": "Open System Settings"
-    },
-    "administrator": {
-      "title": "Recommend running with administrator access",
-      "description": "BongoCat needs administrator access to keep receiving keyboard and mouse input when another app is running with administrator privileges.\n\nTo set it up: right-click BongoCat → Properties → Compatibility → turn on \"Run this program as an administrator\".",
-      "open_program_folder": "Exit and open Settings"
     }
   },
   "about": {
@@ -582,12 +577,8 @@
       },
       "status_icon": {
         "label": {
-          "macos": "Show menu bar icon",
-          "windows": "Show system tray icon"
+          "macos": "Show menu bar icon"
         }
-      },
-      "taskbar_icon": {
-        "label": "Show taskbar icon"
       },
       "dock_icon": {
         "label": "Always show Dock icon"

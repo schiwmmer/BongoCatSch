@@ -74,7 +74,6 @@ pub fn play_cultivation_return_sound() {
 /// `soundNamed:`, but `soundNamed:` only looks up registered sound names —
 /// handed an absolute path it returns nil, so every clip was silently
 /// dropped. `initWithData:` takes the same bytes directly.
-#[cfg(target_os = "macos")]
 fn play(bytes: &[u8]) {
     use objc2::AnyThread as _;
     use objc2_app_kit::NSSound;
@@ -86,14 +85,6 @@ fn play(bytes: &[u8]) {
     };
     sound.play();
 }
-
-/// Play one clip on a platform that has no pomodoro surface.
-///
-/// Windows has no pomodoro surface at all (ADR-0068 and ADR-0090), so there is
-/// no session that could finish here. The functions exist so the call sites
-/// do not need a platform branch.
-#[cfg(target_os = "windows")]
-fn play(_bytes: &[u8]) {}
 
 #[cfg(test)]
 mod tests {

@@ -3,7 +3,7 @@
 //! The legacy application hid its main window while the pointer rested on it:
 //! the window content faded out, pointer events started passing through, and
 //! both were restored once the pointer left. This module holds the portable
-//! part of that behaviour so the Windows and macOS sessions apply exactly the
+//! part of that behaviour so the macOS session applies the
 //! same edge detection, delay, and fade, and so the rules can be tested without
 //! a GPU or a native window.
 //!

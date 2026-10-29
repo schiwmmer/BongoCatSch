@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn current_platform_id_is_one_of_the_supported_platforms() {
     assert!(
-        matches!(current_platform_id(), "macos" | "windows"),
+        matches!(current_platform_id(), "macos"),
         "platform id must be a known suffix, got {:?}",
         current_platform_id()
     );
@@ -18,7 +18,6 @@ fn platform_text_picks_the_current_platform_override() {
     // build host and the fallback copy on every other platform.
     let expected_override = match current_platform_id() {
         "macos" => text("en-US", "settings.app_system.status_icon.label.macos"),
-        "windows" => text("en-US", "settings.app_system.status_icon.label.windows"),
         _ => text("en-US", "settings.app_system.status_icon.label"),
     };
     assert_eq!(
@@ -29,7 +28,6 @@ fn platform_text_picks_the_current_platform_override() {
         platform_text("zh-CN", "settings.app_system.status_icon.label"),
         match current_platform_id() {
             "macos" => text("zh-CN", "settings.app_system.status_icon.label.macos"),
-            "windows" => text("zh-CN", "settings.app_system.status_icon.label.windows"),
             _ => text("zh-CN", "settings.app_system.status_icon.label"),
         }
     );
@@ -37,7 +35,7 @@ fn platform_text_picks_the_current_platform_override() {
 
 #[test]
 fn platform_text_falls_back_to_the_base_key_when_no_override_exists() {
-    // `navigation.settings.title` carries no `.macos` or `.windows`
+    // `navigation.settings.title` carries no `.macos`
     // override, so the helper must always return the shared string for
     // every supported platform id.
     let base_key = "navigation.settings.title";

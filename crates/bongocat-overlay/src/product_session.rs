@@ -45,10 +45,7 @@ pub(crate) fn start_platform_input<T>(
 }
 
 pub struct ProductOverlaySession {
-    #[cfg(target_os = "macos")]
     pub(crate) inner: macos::ProductOverlaySession,
-    #[cfg(target_os = "windows")]
-    pub(crate) inner: windows::ProductOverlaySession,
 }
 
 /// A right-click on the model window. The application owns menu presentation
@@ -169,7 +166,6 @@ impl ProductOverlaySession {
         options: OverlaySessionOptions,
         interaction_sinks: OverlayInteractionSinks,
     ) -> Result<Self, OverlayError> {
-        #[cfg(target_os = "macos")]
         {
             macos::ProductOverlaySession::start(
                 runtime_client,
@@ -183,55 +179,27 @@ impl ProductOverlaySession {
             .map(|inner| Self { inner })
         }
 
-        #[cfg(target_os = "windows")]
-        {
-            windows::ProductOverlaySession::start(
-                runtime_client,
-                input_producer,
-                cursor_producer,
-                gamepad_axis_producer,
-                render_consumer,
-                options,
-                interaction_sinks,
-            )
-            .map(|inner| Self { inner })
-        }
     }
 
     pub fn run_for(&mut self, duration: Duration) -> Result<(), OverlayError> {
-        #[cfg(target_os = "macos")]
         {
             self.inner.run_for(duration)
         }
 
-        #[cfg(target_os = "windows")]
-        {
-            self.inner.run_for(duration)
-        }
     }
 
     pub fn tick(&mut self) -> Result<OverlayTickOutcome, OverlayError> {
-        #[cfg(target_os = "macos")]
         {
             self.inner.tick()
         }
 
-        #[cfg(target_os = "windows")]
-        {
-            self.inner.tick()
-        }
     }
 
     pub fn window_bounds(&self) -> Result<OverlayWindowBounds, OverlayError> {
-        #[cfg(target_os = "macos")]
         {
             self.inner.window_bounds()
         }
 
-        #[cfg(target_os = "windows")]
-        {
-            self.inner.window_bounds()
-        }
     }
 
     pub fn is_visible(&self) -> bool {
@@ -242,25 +210,6 @@ impl ProductOverlaySession {
         self.inner.model_generation()
     }
 
-    #[cfg(target_os = "windows")]
-    pub fn window_mode_is_active(&self) -> bool {
-        self.inner.overlay.window._state.window_mode
-    }
-
-    /// Windows only: apply the configured taskbar button to the model window.
-    ///
-    /// macOS has no per-window equivalent: the Dock belongs to the process
-    /// activation policy, which `show_dock_icon` owns.
-    #[cfg(target_os = "windows")]
-    pub fn set_taskbar_icon_visible(&mut self, visible: bool) -> Result<(), OverlayError> {
-        self.inner.set_taskbar_icon_visible(visible)
-    }
-
-    /// Windows only: what the model window's taskbar currently shows.
-    #[cfg(target_os = "windows")]
-    pub fn taskbar_icon_is_visible(&self) -> bool {
-        self.inner.taskbar_icon_is_visible()
-    }
 
     /// Publish what the pomodoro worker last reported.
     ///
@@ -271,9 +220,7 @@ impl ProductOverlaySession {
     /// played — so a session that finished while the application was busy is
     /// still performed, exactly once.
     ///
-    /// macOS only. The countdown and the performance are macOS surfaces, and the
-    /// Windows overlay has neither.
-    #[cfg(target_os = "macos")]
+    /// macOS only. The countdown and the performance are macOS surfaces.
     pub fn set_pomodoro_state(
         &mut self,
         timer: Option<OverlayPomodoroTimer>,
@@ -284,45 +231,28 @@ impl ProductOverlaySession {
 
     /// Publish the cultivation copy the pad plate and the hover HUD draw.
     ///
-    /// macOS only: both surfaces are AppKit panels, and the Windows overlay has
-    /// neither.
-    #[cfg(target_os = "macos")]
+    /// macOS only: both surfaces are AppKit panels.
     pub fn set_cultivation_text(&mut self, copy: Option<OverlayCultivationText>) {
         self.inner.set_cultivation_text(copy);
     }
 
     /// The right-click the countdown raised since the last call, taken once.
-    #[cfg(target_os = "macos")]
     pub fn take_pomodoro_menu_request(&self) -> Option<OverlayPomodoroMenuRequest> {
         self.inner.take_pomodoro_menu_request()
     }
 
-    #[cfg(target_os = "windows")]
-    pub fn system_termination_requested(&self) -> bool {
-        self.inner.system_termination_requested()
-    }
 
     pub fn stop_input(&mut self) -> Result<(), OverlayError> {
-        #[cfg(target_os = "macos")]
         {
             self.inner.stop_input()
         }
 
-        #[cfg(target_os = "windows")]
-        {
-            self.inner.stop_input()
-        }
     }
 
     pub fn finish_after_runtime_shutdown(self) -> Result<ProductOverlayReport, OverlayError> {
-        #[cfg(target_os = "macos")]
         {
             self.inner.finish_after_runtime_shutdown()
         }
 
-        #[cfg(target_os = "windows")]
-        {
-            self.inner.finish_after_runtime_shutdown()
-        }
     }
 }

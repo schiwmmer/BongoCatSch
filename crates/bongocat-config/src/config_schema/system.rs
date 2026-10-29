@@ -12,9 +12,10 @@ use super::*;
 #[cfg_attr(any(test, feature = "schema-generation"), derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SystemConfig {
-    /// Whether the Windows model window keeps its taskbar button, default
-    /// `false`. Windows only: macOS never reads this field as a Dock icon, and
-    /// the settings window keeps its own taskbar button either way.
+    /// Retained for configuration compatibility. macOS never reads this field:
+    /// the overlay has no taskbar button, and the settings window keeps the
+    /// Dock icon independently. Kept so existing configuration files keep
+    /// loading.
     pub show_taskbar_icon: bool,
     /// Whether the macOS Dock icon stays visible while only the cat overlay is
     /// running, default `false`. Settings and update windows always show the Dock

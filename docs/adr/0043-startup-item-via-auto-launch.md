@@ -1,4 +1,5 @@
 # ADR-0043: Startup Item Backend via auto-launch
+> ⚠️ 本决策（或其 Windows 部分）随 **Windows 支持的移除（ADR-0099）** 失效，正文保留作历史记录。
 
 状态：Accepted
 日期：2026-09-17

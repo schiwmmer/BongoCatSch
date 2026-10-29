@@ -10,8 +10,6 @@
 //! Unix modes are applied after every directory creation and every atomic
 //! replacement, because a file that replaces another can otherwise inherit the
 //! mode of the file it replaced instead of the mode it was created with.
-//! Windows has nothing to do here: the profile directory ACL is already the
-//! platform's user-private boundary, so every helper is a no-op there.
 //!
 //! This crate owns the permission and replacement primitives only. Deciding
 //! *where* product state lives stays in `bongocat-config`, and log retention
@@ -33,8 +31,6 @@ pub fn set_private_directory(path: &Path) -> io::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
     }
-    #[cfg(not(unix))]
-    let _ = path;
     Ok(())
 }
 
@@ -45,8 +41,6 @@ pub fn set_private_file(file: &File) -> io::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         file.set_permissions(fs::Permissions::from_mode(0o600))?;
     }
-    #[cfg(not(unix))]
-    let _ = file;
     Ok(())
 }
 
@@ -57,8 +51,6 @@ pub fn set_private_path(path: &Path) -> io::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     }
-    #[cfg(not(unix))]
-    let _ = path;
     Ok(())
 }
 
@@ -83,8 +75,6 @@ pub fn create_private_dir_all(path: &Path) -> io::Result<()> {
 pub fn write_private_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     #[cfg(unix)]
     let mut options = AtomicWriteFile::options();
-    #[cfg(not(unix))]
-    let options = AtomicWriteFile::options();
     #[cfg(unix)]
     {
         use atomic_write_file::unix::OpenOptionsExt;

@@ -2,31 +2,26 @@
 //!
 //! The product knows its own version at compile time, but almost nothing about
 //! a bug report can be acted on without the system it came from: a rendering
-//! difference, a Raw Input behaviour and a TCC decision all depend on the exact
-//! macOS or Windows build, and none of them can be inferred from the app's own
-//! version. This module is the one place that asks the operating system.
+//! difference and a TCC decision both depend on the exact macOS build, and
+//! neither can be inferred from the app's own version. This module is the one
+//! place that asks the operating system.
 //!
-//! Both platforms answer the same two questions in their own notation, and
-//! neither notation is rewritten into the other's:
+//! macOS answers both questions in its own notation, which is not rewritten
+//! into any other:
 //!
-//! | | macOS | Windows |
-//! | --- | --- | --- |
-//! | [`version`](OperatingSystemVersion::version) | `kern.osproductversion` — "15.6" | major/minor under `CurrentVersion` — "10.0" |
-//! | [`build`](OperatingSystemVersion::build) | `kern.osversion` — "24G90" | `CurrentBuildNumber` + `UBR` — "22631.4169" |
+//! | | macOS |
+//! | --- | --- |
+//! | [`version`](OperatingSystemVersion::version) | `kern.osproductversion` — "15.6" |
+//! | [`build`](OperatingSystemVersion::build) | `kern.osversion` — "24G90" |
 //!
-//! macOS is read through `sysctlbyname` rather than `NSProcessInfo` on purpose:
-//! `operatingSystemVersion` answers with the compatibility version a process
-//! linked against an older SDK sees, while the kernel's own `kern.os*` keys
-//! always name the system the process is running on. The build is read from
-//! `kern.osversion` rather than the older `kern.osbuildversion`: both carry the
-//! same build identifier where both exist, and `kern.osbuildversion` is absent
-//! on current macOS releases, so the key that is still there is the one to ask.
-//! Windows is read from
-//! `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion` because the supported
-//! `RtlGetVersion` reports no update build number, and "which patch level" is
-//! exactly what a rendering or Raw Input report has to carry. The key is read
-//! through the 64-bit view because the product only ships an `x86_64` binary,
-//! so nothing redirects it to `WOW6432Node`.
+//! The version is read through `sysctlbyname` rather than `NSProcessInfo` on
+//! purpose: `operatingSystemVersion` answers with the compatibility version a
+//! process linked against an older SDK sees, while the kernel's own `kern.os*`
+//! keys always name the system the process is running on. The build is read
+//! from `kern.osversion` rather than the older `kern.osbuildversion`: both
+//! carry the same build identifier where both exist, and `kern.osbuildversion`
+//! is absent on current macOS releases, so the key that is still there is the
+//! one to ask.
 
 /// The running operating system's version, in the notation its own API uses.
 ///
@@ -35,9 +30,9 @@
 /// is the only form that pins one exact installation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OperatingSystemVersion {
-    /// The version the platform itself reports: "15.6" on macOS, "10.0" on Windows.
+    /// The version the platform itself reports: "15.6" on macOS.
     pub version: String,
-    /// The build identity: "24G90" on macOS, "22631.4169" on Windows.
+    /// The build identity: "24G90" on macOS.
     pub build: String,
 }
 
@@ -53,7 +48,6 @@ pub fn operating_system_version() -> Option<OperatingSystemVersion> {
     platform::version()
 }
 
-#[cfg(target_os = "macos")]
 mod platform {
     use super::OperatingSystemVersion;
     use std::{ffi::CString, ptr};
@@ -131,117 +125,20 @@ mod platform {
     }
 }
 
-#[cfg(target_os = "windows")]
-mod platform {
-    use super::OperatingSystemVersion;
-    use std::{ffi::c_void, mem::size_of, ptr::from_mut};
-    use windows::{
-        Win32::System::Registry::{
-            HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegGetValueW,
-        },
-        core::w,
-    };
-
-    /// The key Windows itself records the running build under.
-    const CURRENT_VERSION_KEY: windows::core::PCWSTR =
-        w!("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion");
-    const CURRENT_BUILD_KEY: windows::core::PCWSTR = w!("CurrentBuildNumber");
-    const UPDATE_BUILD_KEY: windows::core::PCWSTR = w!("UBR");
-    const MAJOR_VERSION_KEY: windows::core::PCWSTR = w!("CurrentMajorVersionNumber");
-    const MINOR_VERSION_KEY: windows::core::PCWSTR = w!("CurrentMinorVersionNumber");
-    /// A value name, not a version, is bounded by the registry itself; this only
-    /// has to be large enough for `CurrentBuildNumber`, and is not a limit the
-    /// product imposes on the system.
-    const MAX_VALUE_BYTES: u32 = 64;
-
-    pub(super) fn version() -> Option<OperatingSystemVersion> {
-        let major = read_dword(MAJOR_VERSION_KEY)?;
-        let minor = read_dword(MINOR_VERSION_KEY)?;
-        let build = read_string(CURRENT_BUILD_KEY)?;
-        // `UBR` is absent on builds that never recorded an update build number.
-        // The build identifier then stays the build alone rather than ending in
-        // a `.0` that no system ever reported.
-        let build = match read_dword(UPDATE_BUILD_KEY) {
-            Some(update_build) => format!("{build}.{update_build}"),
-            None => build,
-        };
-        Some(OperatingSystemVersion {
-            version: format!("{major}.{minor}"),
-            build,
-        })
-    }
-
-    fn read_dword(name: windows::core::PCWSTR) -> Option<u32> {
-        let mut value = 0_u32;
-        let mut size = size_of::<u32>() as u32;
-        // SAFETY: the call reads one `REG_DWORD` from a preopened key into the
-        // out pointer below, which is a live `u32` for the duration of the call,
-        // and `size` carries its size. The type filter rejects every other value
-        // type, so nothing else is written.
-        let read = unsafe {
-            RegGetValueW(
-                HKEY_LOCAL_MACHINE,
-                CURRENT_VERSION_KEY,
-                name,
-                RRF_RT_REG_DWORD,
-                None,
-                Some(from_mut(&mut value).cast::<c_void>()),
-                Some(&mut size),
-            )
-        };
-        // `RegGetValueW` answers with a `WIN32_ERROR` rather than a `Result`, so
-        // a missing value is `ERROR_FILE_NOT_FOUND` instead of a `Result::Err`.
-        read.is_ok().then_some(value)
-    }
-
-    fn read_string(name: windows::core::PCWSTR) -> Option<String> {
-        let mut buffer = [0_u16; MAX_VALUE_BYTES as usize];
-        let mut size = size_of_val(&buffer) as u32;
-        // SAFETY: the call reads one `REG_SZ` from a preopened key into the out
-        // pointer below, which is a live array of the `size` bytes `size` claims,
-        // and `size` is a live `u32` the call writes the stored byte count
-        // through. The type filter rejects every other value type, and a value
-        // larger than the buffer is reported as a failure rather than truncated.
-        let read = unsafe {
-            RegGetValueW(
-                HKEY_LOCAL_MACHINE,
-                CURRENT_VERSION_KEY,
-                name,
-                RRF_RT_REG_SZ,
-                None,
-                Some(from_mut(&mut buffer).cast::<c_void>()),
-                Some(&mut size),
-            )
-        };
-        if !read.is_ok() {
-            return None;
-        }
-        // The stored byte count includes the NUL terminator, and a value written
-        // by the system always ends in one; an unterminated read is reported as
-        // no value so no caller ever sees half a wide character.
-        let units = size as usize / size_of::<u16>();
-        let units = units.min(buffer.len());
-        let end = buffer[..units]
-            .iter()
-            .position(|unit| *unit == 0)
-            .unwrap_or(units);
-        String::from_utf16(&buffer[..end]).ok()
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::operating_system_version;
 
-    /// Both supported platforms have to answer, not just the one this test runs
-    /// on: a system that names no version produces a report that is missing the
-    /// one field a triage reads first, and nothing else would notice. The `None`
-    /// return is for a system that answers unreliably, not for a platform that
-    /// has no way to answer — and this module only compiles where there is one.
+    /// macOS has to answer, not just the host this test runs on: a system that
+    /// names no version produces a report that is missing the one field a triage
+    /// reads first, and nothing else would notice. The `None` return is for a
+    /// system that answers unreliably, not for a platform that has no way to
+    /// answer — and this module only compiles where there is one.
     #[test]
     fn the_running_system_reports_a_complete_version() {
         let version = operating_system_version()
-            .expect("both supported platforms report a version, and this build is one of them");
+            .expect("macOS reports a version, and this build is macOS");
         assert!(!version.version.is_empty());
         assert!(!version.build.is_empty());
         for value in [&version.version, &version.build] {

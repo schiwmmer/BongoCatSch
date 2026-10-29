@@ -3,9 +3,8 @@
 //!
 //! A model's identity is its id *and* its source, so two catalog entries that
 //! happen to share a name are still two models. The id is validated rather than
-//! trusted: a portable id may not contain a path separator, and a Windows id may
-//! not be one the operating system reserves, because either would let a document
-//! name a file outside the store.
+//! trusted: a portable id may not contain a path separator, because that would
+//! let a document name a file outside the store.
 
 use super::*;
 
@@ -423,6 +422,13 @@ pub(crate) fn is_portable_model_id(value: &str) -> bool {
         && !is_windows_reserved_model_id(value)
 }
 
+/// A model ID may not collide with a Windows reserved device name.
+///
+/// This is a platform-neutral data-format rule rather than a platform behavior:
+/// `CON`/`PRN`/`AUX`/`NUL` and `COM1..9`/`LPT1..9` are reserved by the Windows
+/// file system, and a model ID that equals one of them would not round-trip
+/// through a package stored or exchanged on Windows. The check is kept with the
+/// Windows support removal (ADR-0099) as part of the portable model-ID contract.
 pub(crate) fn is_windows_reserved_model_id(value: &str) -> bool {
     let stem = value.split('.').next().unwrap_or(value);
     if ["CON", "PRN", "AUX", "NUL"]

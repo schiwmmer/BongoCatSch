@@ -566,8 +566,8 @@ mod tests {
             "zh-CN",
         );
         assert!(label.contains("慧心草"), "{label}");
-        // 慧心草 grows at tier six, and the grade is read on the 功法 ladder.
-        assert!(label.contains("6 阶"), "{label}");
+        // 慧心草 grows at tier eight, and the grade is read on the 功法 ladder.
+        assert!(label.contains("8 阶"), "{label}");
         assert!(label.contains("地阶"), "{label}");
     }
 }

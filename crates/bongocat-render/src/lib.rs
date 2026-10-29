@@ -2,7 +2,7 @@
 //! from the runtime to the overlay.
 //!
 //! This crate is deliberately platform-neutral. It owns the shapes, the identities
-//! and the validation; D3D11 and Metal own the drawing. That is what lets a
+//! and the validation; Metal owns the drawing. That is what lets a
 //! snapshot be asserted on in an ordinary test and a validation rule be proved
 //! once rather than per backend.
 

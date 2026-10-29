@@ -12,18 +12,10 @@ pub fn run_model_preview(
     model_root: &Path,
     duration: Duration,
 ) -> Result<PreviewReport, OverlayError> {
-    #[cfg(target_os = "macos")]
     {
         macos::run_model_preview(model_id, model_root, duration, false, None)
     }
 
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (model_id, model_root, duration);
-        Err(OverlayError::new(
-            "the first visible Live2D renderer is currently available on macOS",
-        ))
-    }
 }
 
 pub fn run_interactive_model_preview(
@@ -31,18 +23,10 @@ pub fn run_interactive_model_preview(
     model_root: &Path,
     duration: Duration,
 ) -> Result<PreviewReport, OverlayError> {
-    #[cfg(target_os = "macos")]
     {
         macos::run_model_preview(model_id, model_root, duration, true, None)
     }
 
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (model_id, model_root, duration);
-        Err(OverlayError::new(
-            "the first interactive Live2D preview is currently available on macOS",
-        ))
-    }
 }
 
 pub fn run_model_switch_preview(
@@ -50,7 +34,6 @@ pub fn run_model_switch_preview(
     model_root: &Path,
     switch_cycles: u32,
 ) -> Result<PreviewReport, OverlayError> {
-    #[cfg(target_os = "macos")]
     {
         macos::run_model_preview(
             model_id,
@@ -61,10 +44,6 @@ pub fn run_model_switch_preview(
         )
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        windows::run_model_switch_preview(model_id, model_root, switch_cycles)
-    }
 }
 
 pub(crate) fn validate_model_generation_advance(

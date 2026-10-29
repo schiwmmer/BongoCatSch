@@ -8,10 +8,10 @@
 //!    build-environment Cargo feature selected,
 //! 2. write the path-free build provenance record,
 //! 3. hand the resulting executable to `cargo-packager`, which owns the bundle
-//!    and installer layout: the macOS `.app` and the Windows NSIS `.exe`,
+//!    layout: the macOS `.app`,
 //! 4. wrap the finished `.app` in a `.dmg` with the macOS disk-image tooling,
 //! 5. when the release pipeline provisioned a signing key, build the updater payload
-//!    (the macOS bundle as a `.tar.gz`; the Windows installer as published), sign it
+//!    (the macOS bundle as a `.tar.gz`), sign it
 //!    with Minisign, and write this target's fragment of the release manifest.
 //!
 //! `--merge-manifests` is the second entry point. The updater reads **one** shared
@@ -36,8 +36,8 @@
 //!
 //! Only product-specific facts live here: which targets ship, where the runtime
 //! expects its bundled resources, and what the macOS bundle declares. Bundle
-//! contents, `Info.plist` generation and the NSIS installer are owned by
-//! `cargo-packager` and must not be re-implemented in this repository.
+//! contents and `Info.plist` generation are owned by `cargo-packager` and must
+//! not be re-implemented in this repository.
 //!
 //! # Why step 4 is not also delegated to `cargo-packager`
 //!
@@ -74,7 +74,6 @@
 
 // Only the macOS disk image has a Finder window to describe, so the encoder is
 // not compiled into any other platform's packaging run.
-#[cfg(target_os = "macos")]
 mod finder_store;
 
 use std::{
@@ -86,7 +85,7 @@ use std::{
 
 use cargo_packager::{
     Config, PackageFormat,
-    config::{Binary, MacOsConfig, NSISInstallerMode, NsisConfig, Resource},
+    config::{Binary, MacOsConfig, Resource},
     sign::SigningConfig,
 };
 use serde::{Deserialize, Serialize};
@@ -118,12 +117,6 @@ const MODEL_DIRECTORY: &str = "models";
 const SWIFT_RESOURCE_BUNDLE: &str = "PermissionFlow_PermissionFlow.bundle";
 /// Repository-relative directory holding the macOS `Info.plist` overlay.
 const MACOS_INFO_PLIST: &str = "macos/Info.plist";
-/// NSIS installer languages, one per application language and in the order the picker lists them.
-///
-/// The set is the application's own language list (`bongocat-i18n` catalogs). English comes
-/// first because NSIS falls back to the first language when the system language is not listed,
-/// and `tools/tests/test_packaging_contract.py` keeps this list equal to the catalog set.
-const INSTALLER_LANGUAGES: [&str; 2] = ["English", "SimpChinese"];
 /// Repository-relative build provenance generator.
 const PROVENANCE_GENERATOR: &str = "tools/record-provenance.py";
 /// Build provenance file name inside the packaged resources.
@@ -137,13 +130,10 @@ const STAGING_DIRECTORY: &str = "provenance";
 /// Only the macOS disk image builder reads it, so it is macOS-only: a build for
 /// any other platform would otherwise carry a constant no code path can reach,
 /// which the workspace's `-D warnings` gate rejects.
-#[cfg(target_os = "macos")]
 const DISK_IMAGE_STAGING_DIRECTORY: &str = "dmg-stage";
 /// The drop link the installer window offers as the install target.
-#[cfg(target_os = "macos")]
 const APPLICATIONS_LINK: &str = "Applications";
 /// The icon file Finder reads a volume's own icon from.
-#[cfg(target_os = "macos")]
 const VOLUME_ICON_FILE: &str = ".VolumeIcon.icns";
 /// The repair command the installer window offers next to the drop link.
 ///
@@ -156,10 +146,8 @@ const VOLUME_ICON_FILE: &str = ".VolumeIcon.icns";
 /// after the product: macOS tells them the app is damaged, and this is the item
 /// that answers that. The `App` is what keeps it apart from disk damage, which
 /// matters for an item that lives on a disk image.
-#[cfg(target_os = "macos")]
 const REPAIR_COMMAND: &str = "Fix Damaged App";
 /// Where a drag-to-install product lands, which is what the repair repairs.
-#[cfg(target_os = "macos")]
 const APPLICATIONS_DIRECTORY: &str = "/Applications";
 /// Staging directory for the cleaned preset models, relative to the output directory.
 ///
@@ -222,24 +210,22 @@ fn failure<T>(message: impl Into<String>) -> Result<T> {
 
 /// Every target BongoCat publishes artifacts for.
 ///
-/// `bongocat-update::UpdateTargetTriple` declares the same three combinations
+/// `bongocat-update::UpdateTargetTriple` declares the same two combinations
 /// for release-asset matching; `tools/tests/test_update_release_contract.py`
 /// fails the build if the two lists ever drift apart.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ReleaseTarget {
     MacosAarch64,
     MacosX86_64,
-    WindowsX86_64,
 }
 
 impl ReleaseTarget {
-    const ALL: [Self; 3] = [Self::WindowsX86_64, Self::MacosX86_64, Self::MacosAarch64];
+    const ALL: [Self; 2] = [Self::MacosX86_64, Self::MacosAarch64];
 
     const fn triple(self) -> &'static str {
         match self {
             Self::MacosAarch64 => "aarch64-apple-darwin",
             Self::MacosX86_64 => "x86_64-apple-darwin",
-            Self::WindowsX86_64 => "x86_64-pc-windows-msvc",
         }
     }
 
@@ -258,49 +244,22 @@ impl ReleaseTarget {
         match self {
             Self::MacosAarch64 => "aarch64",
             Self::MacosX86_64 => "x64",
-            Self::WindowsX86_64 => "x64",
-        }
-    }
-
-    /// The file name the release publishes this target's installer under.
-    ///
-    /// `None` for the Apple targets: their `.app` and `.dmg` are already named by
-    /// this crate. The Windows installer is named by `cargo-packager` instead,
-    /// which hard-codes `{main binary name}_{version}_{arch}-setup.exe` with no
-    /// option to configure it, so it is renamed to this name after packaging —
-    /// which is why the name itself is [`Self::download_asset`]'s to define.
-    ///
-    /// Version and architecture come from the same sources as every other
-    /// artifact, so neither is hard-coded here.
-    fn installer_file_name(self) -> Option<String> {
-        match self {
-            Self::WindowsX86_64 => Some(self.download_asset()),
-            Self::MacosAarch64 | Self::MacosX86_64 => None,
         }
     }
 
     /// The file name this target's hand-installed release asset is published under.
     ///
-    /// Every target publishes exactly one: the Windows installer for Windows, the
-    /// disk image for the Apple targets. The name is the same one
-    /// [`Self::installer_file_name`] renames the installer to and
-    /// [`build_disk_image`] creates the image under, which is the point — the
-    /// release notes link these files, so a second spelling here would produce a
-    /// download link to an asset the release never uploads, and nothing else in
-    /// the build would fail.
+    /// Every target publishes exactly one: the disk image for the Apple targets.
+    /// The name is the same one [`build_disk_image`] creates the image under,
+    /// which is the point — the release notes link these files, so a second
+    /// spelling here would produce a download link to an asset the release never
+    /// uploads, and nothing else in the build would fail.
     ///
     /// Deliberately *not* [`Self::update_payload_name`]: that is the signed archive
     /// the updater resolves out of the manifest, not something a person installs,
     /// and offering it as a download would point readers at the same bundle twice.
     fn download_asset(self) -> String {
-        match self {
-            Self::WindowsX86_64 => format!(
-                "{PRODUCT_NAME}_{}_{}.exe",
-                env!("CARGO_PKG_VERSION"),
-                self.architecture()
-            ),
-            Self::MacosAarch64 | Self::MacosX86_64 => self.disk_image_file_name(),
-        }
+        self.disk_image_file_name()
     }
 
     /// The file name this target's macOS disk image is published under.
@@ -327,16 +286,9 @@ impl ReleaseTarget {
             })
     }
 
-    const fn is_apple(self) -> bool {
-        matches!(self, Self::MacosAarch64 | Self::MacosX86_64)
-    }
-
     /// The release artifacts this target publishes.
     const fn release_formats(self) -> &'static [PackageFormat] {
-        match self {
-            Self::MacosAarch64 | Self::MacosX86_64 => &[PackageFormat::App, PackageFormat::Dmg],
-            Self::WindowsX86_64 => &[PackageFormat::Nsis],
-        }
+        &[PackageFormat::App, PackageFormat::Dmg]
     }
 
     /// The `<os>-<arch>` key this target is announced under in the release manifest.
@@ -348,41 +300,31 @@ impl ReleaseTarget {
         match self {
             Self::MacosAarch64 => "macos-aarch64",
             Self::MacosX86_64 => "macos-x86_64",
-            Self::WindowsX86_64 => "windows-x86_64",
         }
     }
 
     /// The payload format the release manifest announces for this target.
     ///
-    /// The updater installs an `app` payload by replacing the bundle and an `nsis`
-    /// payload by running the installer it downloaded.
+    /// The updater installs an `app` payload by replacing the bundle.
     const fn update_format(self) -> &'static str {
-        match self {
-            Self::MacosAarch64 | Self::MacosX86_64 => "app",
-            Self::WindowsX86_64 => "nsis",
-        }
+        "app"
     }
 
     /// The file name this target's update payload is published under.
     ///
     /// The updater takes the payload from the manifest rather than matching an asset
-    /// name, so these names only have to be stable and self-describing. Windows
-    /// reuses the installer it already publishes; macOS needs the bundle wrapped in
-    /// an archive, because the updater installs a directory.
+    /// name, so these names only have to be stable and self-describing. macOS needs
+    /// the bundle wrapped in an archive, because the updater installs a directory.
     ///
-    /// The macOS name carries [`Self::architecture`] and nothing else, which is the
-    /// same token its disk image is named with. The archive stays unambiguous even
-    /// without the platform: the extension is unique to the macOS payload, and
-    /// Windows publishes an `.exe` under the installer's own name.
+    /// The name carries [`Self::architecture`] and nothing else, which is the same
+    /// token its disk image is named with. The archive stays unambiguous: the
+    /// extension is unique to the macOS payload.
     fn update_payload_name(self) -> String {
-        match self.installer_file_name() {
-            Some(name) => name,
-            None => format!(
-                "{PRODUCT_NAME}-{}-{}.app.tar.gz",
-                env!("CARGO_PKG_VERSION"),
-                self.architecture()
-            ),
-        }
+        format!(
+            "{PRODUCT_NAME}-{}-{}.app.tar.gz",
+            env!("CARGO_PKG_VERSION"),
+            self.architecture()
+        )
     }
 
     /// The target this process runs on.
@@ -390,7 +332,6 @@ impl ReleaseTarget {
         match (env::consts::OS, env::consts::ARCH) {
             ("macos", "aarch64") => Ok(Self::MacosAarch64),
             ("macos", "x86_64") => Ok(Self::MacosX86_64),
-            ("windows", "x86_64") => Ok(Self::WindowsX86_64),
             (os, arch) => failure(format!(
                 "{os}/{arch} is not a BongoCat release host; packaging must run on one of {}",
                 Self::ALL.map(Self::triple).join(", ")
@@ -431,11 +372,11 @@ Builds the Production product and packages the host platform release artifacts.
 
 options:
   --target <triple>        one of aarch64-apple-darwin,
-                            x86_64-apple-darwin, x86_64-pc-windows-msvc;
+                            x86_64-apple-darwin;
                             defaults to the host target
   --environment <name>     development | production (default: production)
   --formats <list>         comma separated subset of the target's release
-                           artifacts (app,dmg for macOS; nsis for Windows)
+                           artifacts (app,dmg for macOS)
   --merge-manifests <dir>  merge the per-target fragments that follow into the
                            shared release manifest, written to <dir>/latest.json,
                            instead of packaging; takes no other option except
@@ -681,11 +622,7 @@ fn package(options: Options) -> Result<Vec<PathBuf>> {
     )?;
     let models = stage_model_resources(&workspace)?;
     // Resolved after `build_application`, which is what produces the Swift bundle.
-    let swift_bundle = if target.is_apple() {
-        Some(swift_resource_bundle(&workspace, target)?)
-    } else {
-        None
-    };
+    let swift_bundle = Some(swift_resource_bundle(&workspace, target)?);
 
     let config = packaging_config(
         &workspace,
@@ -701,7 +638,6 @@ fn package(options: Options) -> Result<Vec<PathBuf>> {
     // payload are built rather than being left in the output directory.
     discard_staged_resources(&workspace);
     let mut artifacts = collect_artifacts(&packages);
-    rename_windows_installer(target, &mut artifacts)?;
 
     if requested.contains(&PackageFormat::Dmg) {
         let bundle = artifacts
@@ -728,7 +664,7 @@ fn package(options: Options) -> Result<Vec<PathBuf>> {
         artifacts.extend(update_assets);
         artifacts.sort();
     }
-    verify_artifacts(target, &artifacts)?;
+    verify_artifacts(&artifacts)?;
     Ok(artifacts)
 }
 
@@ -829,7 +765,7 @@ fn write_provenance(
     }
 
     // `tools/` is committed Python that the Phase 0 fixture gates already require.
-    let python = if cfg!(windows) { "python" } else { "python3" };
+    let python = "python3";
     let mut command = Command::new(python);
     command
         .current_dir(workspace)
@@ -879,18 +815,13 @@ fn packaging_config(
         Some("A desktop pet that reacts to your keyboard, mouse and gamepad input.".to_owned());
     config.homepage = Some("https://github.com/ayangweb/BongoCat".to_owned());
     config.authors = Some(vec!["ayangweb".to_owned()]);
-    // No `license_file`: cargo-packager uses it only to add an end-user EULA page
-    // to the NSIS installer, which the product does not ask for. The Apache-2.0
-    // licence stays in the repository.
+    // No `license_file`: cargo-packager uses it only to add an end-user EULA page,
+    // which the product does not ask for. The Apache-2.0 licence stays in the
+    // repository.
     config.icons = Some(vec![
         workspace
             .join(RESOURCE_DIRECTORY)
             .join(MACOS_ICON)
-            .display()
-            .to_string(),
-        workspace
-            .join(RESOURCE_DIRECTORY)
-            .join("icons/logo-windows.ico")
             .display()
             .to_string(),
     ]);
@@ -904,60 +835,30 @@ fn packaging_config(
     config.out_dir = workspace.join(OUTPUT_DIRECTORY);
     config.target_triple = Some(target.triple().to_owned());
     config.formats = Some(formats.to_vec());
-    config.resources = Some(resources(target, models, provenance, swift_bundle));
+    config.resources = Some(resources(models, provenance, swift_bundle));
 
-    if target.is_apple() {
-        let mut macos = MacOsConfig::new();
-        macos.minimum_system_version = Some(MACOS_MINIMUM_SYSTEM_VERSION.to_owned());
-        // `cargo-packager` generates the bundle `Info.plist` from this configuration
-        // and then merges the repository overlay over it, so product-specific keys
-        // such as `LSMultipleInstancesProhibited` have exactly one source.
-        macos.info_plist_path = Some(workspace.join(MACOS_INFO_PLIST));
-        macos.signing_identity = Some(macos_signing_identity());
-        config.macos = Some(macos);
-    }
-
-    if target == ReleaseTarget::WindowsX86_64 {
-        config.nsis = Some(windows_installer());
-    }
+    let mut macos = MacOsConfig::new();
+    macos.minimum_system_version = Some(MACOS_MINIMUM_SYSTEM_VERSION.to_owned());
+    // `cargo-packager` generates the bundle `Info.plist` from this configuration
+    // and then merges the repository overlay over it, so product-specific keys
+    // such as `LSMultipleInstancesProhibited` have exactly one source.
+    macos.info_plist_path = Some(workspace.join(MACOS_INFO_PLIST));
+    macos.signing_identity = Some(macos_signing_identity());
+    config.macos = Some(macos);
 
     Ok(config)
 }
 
-/// NSIS installer settings: a per-user install with a wizard language picker.
-///
-/// The picker only changes the wizard's own text and the uninstaller reuses the stored choice;
-/// the application language still follows its own setting. NSIS preselects the system language
-/// and falls back to English. `cargo-packager` embeds the strings for both shipped languages.
-fn windows_installer() -> NsisConfig {
-    let mut nsis = NsisConfig::new()
-        .languages(INSTALLER_LANGUAGES)
-        .display_language_selector(true);
-    // Per-user install: no administrator prompt, no machine-level registry keys.
-    nsis.install_mode = NSISInstallerMode::CurrentUser;
-    nsis
-}
-
 /// Maps the bundled resources to the locations the application resolves at runtime.
 ///
-/// macOS reads them from `Contents/Resources`; Windows reads them from a
-/// `resources/` directory beside the executable. The prefixes differ because
-/// `cargo-packager` resolves resource targets relative to each platform's own
-/// resource root, which is exactly the layout `bongocat-app::preset_root` expects.
+/// macOS reads them from `Contents/Resources`; `cargo-packager` resolves
+/// resource targets relative to the platform's own resource root, which is
+/// exactly the layout `bongocat-app::preset_root` expects.
 ///
 /// `models` is the staged copy from [`stage_model_resources`], not the working
 /// tree's `resources/models`.
-fn resources(
-    target: ReleaseTarget,
-    models: &Path,
-    provenance: &Path,
-    swift_bundle: Option<&Path>,
-) -> Vec<Resource> {
-    let prefix = if target.is_apple() {
-        String::new()
-    } else {
-        format!("{RESOURCE_DIRECTORY}/")
-    };
+fn resources(models: &Path, provenance: &Path, swift_bundle: Option<&Path>) -> Vec<Resource> {
+    let prefix = "";
     let mut resources = vec![
         Resource::Mapped {
             src: models.display().to_string(),
@@ -1074,7 +975,7 @@ fn resource_staging_directory(workspace: &Path) -> PathBuf {
 /// Removes the resource staging area once the packager has copied from it.
 ///
 /// The staged models exist only as an input to `cargo-packager`, which copies
-/// them into the bundle or the installer, so keeping a second full copy of the
+/// them into the bundle, so keeping a second full copy of the
 /// models in the output directory has no purpose. A staging area that is
 /// already gone is the normal state of a run that cleaned up, so that is not an
 /// error, and neither is a removal that fails: the directory is rebuilt from the
@@ -1093,8 +994,8 @@ fn discard_staged_resources(workspace: &Path) {
 /// Copies the preset models into the staging area the packager maps from.
 ///
 /// The models are the one packaged tree that is also a working directory, so
-/// whatever a developer's Finder, Explorer or editor leaves inside it would
-/// otherwise be copied into every bundle, disk image and installer this crate
+/// whatever a developer's Finder or editor leaves inside it would
+/// otherwise be copied into every bundle and disk image this crate
 /// produces, and the shipped contents would depend on the state of the checkout
 /// rather than on the repository. Staging also makes the artifact reproducible:
 /// the same models always produce the same package.
@@ -1128,8 +1029,8 @@ fn stage_model_resources(workspace: &Path) -> Result<PathBuf> {
 /// so skipping them cannot drop a file the runtime reads — which is what makes
 /// this a safe filter rather than a guess. `._` and the other dot names are
 /// what macOS writes next to files it has copied, `.DS_Store` is what Finder
-/// leaves in every directory it visits, and the last two are what Windows
-/// Explorer leaves behind.
+/// leaves in every directory it visits, and the last two are stray files other
+/// systems' file managers leave behind.
 fn is_packaging_junk(name: &str) -> bool {
     name.starts_with('.') || matches!(name, "__MACOSX" | "Thumbs.db" | "desktop.ini")
 }
@@ -1169,7 +1070,7 @@ fn macos_signing_identity() -> String {
 
 /// Whether the release pipeline provisioned a key for signing update payloads.
 ///
-/// A local build has none, so it produces bundle and installer artifacts and no
+/// A local build has none, so it produces bundle artifacts and no
 /// update assets. Release jobs set the variable, and assert afterwards that the
 /// assets exist, so a release can never ship unsigned update material.
 fn update_signing_configured() -> bool {
@@ -1378,21 +1279,6 @@ struct ReleaseNoteAppendix {
     changelog_heading: &'static str,
     /// Heading of the download section.
     downloads_heading: &'static str,
-    /// Row label for the Windows installer, and for the macOS row.
-    windows_label: &'static str,
-    /// Link text for the Windows installer, naming the one architecture it is built for.
-    windows_architecture_label: &'static str,
-    /// Why there is one Windows download and not one per architecture.
-    ///
-    /// Windows on ARM has no separate build: the release ships x64 only, and the
-    /// product runs it there under emulation. A reader on ARM64 therefore has
-    /// nothing to choose between, so its cell is prose rather than a link —
-    /// otherwise a reader on ARM64 either looks for an ARM64 download that does not
-    /// exist or assumes the one offered is not for them.
-    ///
-    /// Both locales carry their own parentheses, so this is a self-contained cell
-    /// rather than an explanation a shared separator has to wrap.
-    windows_note: &'static str,
     macos_label: &'static str,
     /// The two macOS variants, which are separate downloads.
     apple_silicon_label: &'static str,
@@ -1407,9 +1293,6 @@ struct ReleaseNoteAppendix {
 const APPENDIX_ENGLISH: ReleaseNoteAppendix = ReleaseNoteAppendix {
     changelog_heading: "Changelog",
     downloads_heading: "Downloads",
-    windows_label: "Windows 10+",
-    windows_architecture_label: "x64",
-    windows_note: "ARM64 (runs the x64 build through emulation)",
     macos_label: "macOS 12+",
     apple_silicon_label: "Apple Silicon",
     intel_label: "Intel",
@@ -1429,9 +1312,6 @@ const APPENDIX_ENGLISH: ReleaseNoteAppendix = ReleaseNoteAppendix {
 const APPENDIX_CHINESE: ReleaseNoteAppendix = ReleaseNoteAppendix {
     changelog_heading: "更新日志",
     downloads_heading: "下载地址",
-    windows_label: "Windows 10+",
-    windows_architecture_label: "x64",
-    windows_note: "ARM64（通过仿真运行 x64 版本）",
     macos_label: "macOS 12+",
     apple_silicon_label: "Apple Silicon",
     intel_label: "Intel",
@@ -1541,16 +1421,14 @@ fn release_note_block(entry: &str, appendix: &ReleaseNoteAppendix) -> String {
 /// build names the artifact with, so a link here cannot point at a file the release
 /// does not upload.
 ///
-/// Both rows are one shape — `**<system> <oldest supported release>**: [<chip>](…)
+/// The single row is one shape — `**<system> <oldest supported release>**: [<chip>](…)
 /// | …` — and every cell names a chip rather than a file. Naming a chip is what lets a
 /// reader tell the two macOS downloads apart, and it is the same vocabulary the
-/// release's job names use; restating the artifact's own file name on one row but not
-/// the other made the two rows read as different kinds of list.
+/// release's job names use.
 ///
-/// Windows gets one cell and not one per architecture because the release ships no
-/// ARM64 build — see [`ReleaseNoteAppendix::windows_note`]. The separator is a plain
-/// vertical bar so each row stays a single line, which is the shape this Markdown is
-/// rendered in by the update window and the shape the release page lays out.
+/// The separator is a plain vertical bar so the row stays a single line, which is
+/// the shape this Markdown is rendered in by the update window and the shape the
+/// release page lays out.
 ///
 /// Only Markdown the update window can render safely: ordinary links and list items,
 /// no images and no raw HTML, both of which `bongocat-ui::update_markdown` deliberately
@@ -1559,14 +1437,6 @@ fn render_release_note_appendix(copy: &ReleaseNoteAppendix) -> String {
     let mut appendix = String::new();
 
     appendix.push_str(&format!("## {}\n\n", copy.downloads_heading));
-    let windows = ReleaseTarget::WindowsX86_64.download_asset();
-    appendix.push_str(&format!(
-        "- **{}**: [{}]({}) | {}\n",
-        copy.windows_label,
-        copy.windows_architecture_label,
-        release_asset_url(&windows),
-        copy.windows_note,
-    ));
     appendix.push_str(&format!(
         "- **{}**: [{}]({}) | [{}]({}) | [{HOMEBREW_TAP_NAME}]({HOMEBREW_TAP_URL})\n\n",
         copy.macos_label,
@@ -1687,8 +1557,7 @@ fn documented_versions(markdown: &str) -> Vec<&str> {
 fn entry_lines(markdown: &str) -> impl Iterator<Item = (&str, bool)> {
     let mut fence: Option<char> = None;
     markdown.lines().map(move |line| {
-        // A changelog checked out on Windows is CRLF, and a stray `\r` would end up
-        // inside the published notes.
+        // A stray carriage return would end up inside the published notes.
         let line = line.trim_end_matches('\r');
         let Some(marker) = fence_marker(line) else {
             return (line, fence.is_none() && level_two_heading(line).is_some());
@@ -1914,8 +1783,7 @@ fn generate_signing_key(path: &Path) -> Result<Vec<PathBuf>> {
 /// Restrict the private key to its owner.
 ///
 /// `cargo-packager` writes the key with the process umask, which on macOS leaves it
-/// world-readable. Windows has no equivalent mode, so there the file inherits the
-/// account's ACL.
+/// world-readable, so the mode is tightened here.
 #[cfg(unix)]
 fn restrict_private_key(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -1924,49 +1792,25 @@ fn restrict_private_key(path: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(unix))]
-fn restrict_private_key(_path: &Path) -> Result<()> {
-    Ok(())
-}
-
 /// The artifact the updater installs for this target.
 ///
 /// macOS installs a directory, so the finished bundle is wrapped in a `.tar.gz` whose
 /// single root entry is the bundle itself — the updater drops that root entry and
-/// installs the rest on the bundle path. Windows installs the installer it downloaded,
-/// so the published NSIS `.exe` is used unchanged.
+/// installs the rest on the bundle path.
 fn update_payload(
     target: ReleaseTarget,
     artifacts: &[PathBuf],
     output_directory: &Path,
 ) -> Result<PathBuf> {
-    if target.is_apple() {
-        let bundle = artifacts.iter().find(|path| path.is_dir()).ok_or_else(|| {
-            Box::new(Failure(format!(
-                "{} needs a packaged .app bundle to build its update payload",
-                target.triple()
-            ))) as Box<dyn std::error::Error>
-        })?;
-        let archive = output_directory.join(target.update_payload_name());
-        write_bundle_archive(bundle, &archive)?;
-        return Ok(archive);
-    }
-
-    artifacts
-        .iter()
-        .find(|path| {
-            path.is_file()
-                && path
-                    .extension()
-                    .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
-        })
-        .cloned()
-        .ok_or_else(|| {
-            Box::new(Failure(format!(
-                "{} must produce an installer to publish as its update payload",
-                target.triple()
-            ))) as Box<dyn std::error::Error>
-        })
+    let bundle = artifacts.iter().find(|path| path.is_dir()).ok_or_else(|| {
+        Box::new(Failure(format!(
+            "{} needs a packaged .app bundle to build its update payload",
+            target.triple()
+        ))) as Box<dyn std::error::Error>
+    })?;
+    let archive = output_directory.join(target.update_payload_name());
+    write_bundle_archive(bundle, &archive)?;
+    Ok(archive)
 }
 
 /// Write `bundle` into a gzipped tar archive rooted at the bundle's own name.
@@ -1995,44 +1839,6 @@ fn collect_artifacts(packages: &[cargo_packager::PackageOutput]) -> Vec<PathBuf>
         .collect()
 }
 
-/// Renames the packaged Windows installer to the name the release publishes.
-///
-/// `cargo-packager` owns the NSIS installer and names it after the main binary
-/// with a `-setup` suffix; the product publishes
-/// [`ReleaseTarget::installer_file_name`] instead. Only the finished file is
-/// renamed here, so installer contents and bundle layout stay owned by
-/// `cargo-packager`.
-fn rename_windows_installer(target: ReleaseTarget, artifacts: &mut [PathBuf]) -> Result<()> {
-    let Some(name) = target.installer_file_name() else {
-        return Ok(());
-    };
-    let installer = artifacts
-        .iter()
-        .position(|artifact| {
-            artifact.is_file()
-                && artifact
-                    .extension()
-                    .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
-        })
-        .ok_or_else(|| {
-            Box::new(Failure(format!(
-                "{} must produce an installer, but packaging produced none",
-                target.triple()
-            ))) as Box<dyn std::error::Error>
-        })?;
-
-    let renamed = artifacts[installer].with_file_name(&name);
-    if renamed == artifacts[installer] {
-        return Ok(());
-    }
-    if renamed.exists() {
-        fs::remove_file(&renamed)?;
-    }
-    fs::rename(&artifacts[installer], &renamed)?;
-    artifacts[installer] = renamed;
-    Ok(())
-}
-
 /// Runs a tool, mapping a missing executable and a non-zero exit onto a failure.
 fn run_command(program: &str, command: &mut Command) -> Result<()> {
     let status = command.status().map_err(|error| {
@@ -2045,16 +1851,12 @@ fn run_command(program: &str, command: &mut Command) -> Result<()> {
 }
 
 /// Builds the macOS installer disk image from a finished `.app` bundle.
-#[cfg(target_os = "macos")]
 fn build_disk_image(
     workspace: &Path,
     target: ReleaseTarget,
     bundle: &Path,
     identity: &str,
 ) -> Result<PathBuf> {
-    if !target.is_apple() {
-        return failure("disk images are a macOS artifact");
-    }
     let output_directory = workspace.join(OUTPUT_DIRECTORY);
     let image = output_directory.join(target.disk_image_file_name());
     let staging = output_directory.join(DISK_IMAGE_STAGING_DIRECTORY);
@@ -2179,7 +1981,6 @@ fn build_disk_image(
 /// The script also closes the Terminal window it ran in, because the window is
 /// the interface here and a prompt that promises to close it has to keep that
 /// promise; see `finish` in the script for the two conditions that make it safe.
-#[cfg(target_os = "macos")]
 fn repair_command(app_name: &str) -> String {
     format!(
         r##"#!/bin/bash
@@ -2288,13 +2089,11 @@ fn make_executable(path: &Path) -> Result<()> {
 /// mounted on the machine that ran it, and a build that fails after detaching
 /// must not detach something it no longer owns, so the guard tracks whether the
 /// volume is still attached.
-#[cfg(target_os = "macos")]
 struct MountedImage {
     mount_point: PathBuf,
     attached: bool,
 }
 
-#[cfg(target_os = "macos")]
 impl MountedImage {
     /// Attaches `image` to `mount_point`, which has to exist and be empty.
     fn attach(image: &Path, mount_point: &Path) -> Result<Self> {
@@ -2334,7 +2133,6 @@ impl MountedImage {
     }
 }
 
-#[cfg(target_os = "macos")]
 impl Drop for MountedImage {
     fn drop(&mut self) {
         if self.attached {
@@ -2349,7 +2147,6 @@ impl Drop for MountedImage {
 
 /// Gives a mounted volume the product icon, so Finder titles the installer
 /// window with it instead of a generic disk image icon.
-#[cfg(target_os = "macos")]
 fn set_volume_icon(mount: &Path) -> Result<()> {
     // `SetFile` ships with macOS in `/usr/bin`; it is what `create-dmg` uses for
     // this too, and nothing in the Command Line Tools is needed.
@@ -2360,29 +2157,19 @@ fn set_volume_icon(mount: &Path) -> Result<()> {
 
 /// Marks a file as an icon, so Finder reads it as the volume's icon rather than
 /// as an unknown file with an `.icns` name.
-#[cfg(target_os = "macos")]
 fn mark_icon_file(icon: &Path) -> Result<()> {
     let mut set = Command::new("SetFile");
     set.args(["-c", "icnC"]).arg(icon);
     run_command("SetFile", &mut set)
 }
 
-#[cfg(not(target_os = "macos"))]
-fn build_disk_image(
-    _workspace: &Path,
-    _target: ReleaseTarget,
-    _bundle: &Path,
-    _identity: &str,
-) -> Result<PathBuf> {
-    failure("a macOS disk image can only be built on macOS")
-}
 
 /// Rejects a package whose resources did not land where the product reads them.
 ///
 /// `cargo-packager` resolves resource targets differently per platform, so a
 /// configuration mistake silently ships a bundle without preset models. This
 /// check turns that into a failed build.
-fn verify_artifacts(target: ReleaseTarget, artifacts: &[PathBuf]) -> Result<()> {
+fn verify_artifacts(artifacts: &[PathBuf]) -> Result<()> {
     if artifacts.is_empty() {
         return failure("packaging produced no artifacts");
     }
@@ -2394,16 +2181,13 @@ fn verify_artifacts(target: ReleaseTarget, artifacts: &[PathBuf]) -> Result<()> 
             return failure(format!("empty artifact {}", artifact.display()));
         }
         if artifact.is_dir() {
-            verify_app_bundle(target, artifact)?;
+            verify_app_bundle(artifact)?;
         }
     }
     Ok(())
 }
 
-fn verify_app_bundle(target: ReleaseTarget, bundle: &Path) -> Result<()> {
-    if !target.is_apple() {
-        return Ok(());
-    }
+fn verify_app_bundle(bundle: &Path) -> Result<()> {
     let contents = bundle.join("Contents");
     let expected = [
         contents.join("Info.plist"),
@@ -2450,33 +2234,15 @@ fn report(summary: &str, artifacts: &[PathBuf]) {
 #[cfg(test)]
 mod tests {
     use super::{
-        INSTALLER_LANGUAGES, MODEL_DIRECTORY, OUTPUT_DIRECTORY, PRESET_MODELS, PRODUCT_NAME,
-        ReleaseTarget, is_packaging_junk,
+        MODEL_DIRECTORY, OUTPUT_DIRECTORY, PRESET_MODELS, PRODUCT_NAME, ReleaseTarget,
+        is_packaging_junk,
     };
-
-    /// The wizard has to offer the picker and keep English first as the fallback.
-    #[test]
-    fn the_windows_installer_offers_every_language_with_english_as_the_fallback() {
-        let nsis = super::windows_installer();
-
-        assert!(nsis.display_language_selector);
-        assert_eq!(nsis.install_mode, super::NSISInstallerMode::CurrentUser);
-        assert_eq!(INSTALLER_LANGUAGES.first(), Some(&"English"));
-        assert_eq!(
-            nsis.languages.as_deref(),
-            Some(INSTALLER_LANGUAGES.map(str::to_owned).as_slice())
-        );
-        // Both shipped languages are cargo-packager's own, so the build injects
-        // no translation files of its own.
-        assert!(nsis.custom_language_files.is_none());
-    }
 
     /// The repair command is shell, and nothing in the build runs it, so `bash -n`
     /// is the only check it gets from the test suite. A quoting mistake in the
     /// format string above would otherwise ship a file that fails only on the
     /// reader's machine, after they have already dragged the app across.
     #[test]
-    #[cfg(target_os = "macos")]
     fn the_shipped_repair_command_is_valid_shell() {
         let script = super::repair_command("BongoCat.app");
         let path = std::env::temp_dir().join(format!(
@@ -2534,9 +2300,9 @@ mod tests {
     }
 
     /// The preset models are the one packaged tree that is also a working
-    /// directory, so the filter has to catch what Finder, Explorer and the
-    /// macOS copy machinery leave behind — including the dot files macOS writes
-    /// *next to* the resources it copies.
+    /// directory, so the filter has to catch what Finder and the macOS copy
+    /// machinery leave behind — including the dot files macOS writes *next to*
+    /// the resources it copies.
     #[test]
     fn packaging_junk_is_recognised() {
         for junk in [
@@ -2587,27 +2353,6 @@ mod tests {
                 "a preset model name would be filtered as packaging junk: {model}"
             );
         }
-    }
-
-    /// The published name is product name, resolved version and architecture token,
-    /// with no packaging suffix. The updater takes its payload from the release
-    /// manifest rather than matching an asset name, so the installer name only has to
-    /// be stable and self-describing — but it is also the update payload name on
-    /// Windows, so it is what users see in both places.
-    #[test]
-    fn windows_installer_is_published_under_the_product_release_name() {
-        let name = ReleaseTarget::WindowsX86_64
-            .installer_file_name()
-            .expect("the Windows target publishes an installer name");
-
-        assert_eq!(
-            name,
-            format!("BongoCat_{}_x64.exe", env!("CARGO_PKG_VERSION"))
-        );
-        assert!(
-            !name.contains("-setup"),
-            "the published installer must not keep the packaging suffix: {name}"
-        );
     }
 
     /// Packaging fails outright when the Swift resource bundle is missing, so the
@@ -2678,12 +2423,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    #[test]
-    fn apple_targets_keep_the_names_this_crate_already_builds() {
-        assert!(ReleaseTarget::MacosAarch64.installer_file_name().is_none());
-        assert!(ReleaseTarget::MacosX86_64.installer_file_name().is_none());
-    }
-
     /// Every published file name carries its target's architecture token, and no other
     /// spelling of it.
     ///
@@ -2699,13 +2438,7 @@ mod tests {
     fn every_published_name_carries_the_targets_architecture_token() {
         let version = env!("CARGO_PKG_VERSION");
         for target in ReleaseTarget::ALL {
-            // The separator is per platform, not free: `cargo-packager` hard-codes
-            // `{binary}_{version}_{arch}-setup.exe` for the Windows installer, so the
-            // rename step that drops `-setup` keeps its `_`, while the Apple artifacts
-            // are built here and use `-`. Accepting either separator would let a
-            // rename quietly move a published asset to a name the release notes and
-            // the workflow no longer produce.
-            let separator = if target.is_apple() { "-" } else { "_" };
+            let separator = "-";
             let stem = format!(
                 "{PRODUCT_NAME}{separator}{version}{separator}{}",
                 target.architecture()
@@ -2727,19 +2460,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    /// The updater installs the installer it downloads, so the update payload and the
-    /// published installer are the same file under the same name.
-    #[test]
-    fn the_windows_update_payload_is_the_published_installer() {
-        let target = ReleaseTarget::WindowsX86_64;
-        assert_eq!(
-            target.update_payload_name(),
-            target
-                .installer_file_name()
-                .expect("the Windows target publishes an installer")
-        );
     }
 
     /// macOS installs a directory, so its payload is the bundle in an archive.
@@ -2788,12 +2508,7 @@ mod tests {
             ReleaseTarget::MacosX86_64.manifest_platform(),
             "macos-x86_64"
         );
-        assert_eq!(
-            ReleaseTarget::WindowsX86_64.manifest_platform(),
-            "windows-x86_64"
-        );
         assert_eq!(ReleaseTarget::MacosAarch64.update_format(), "app");
-        assert_eq!(ReleaseTarget::WindowsX86_64.update_format(), "nsis");
     }
 
     /// A fragment is named after the platform key, because the merge reads the key the
@@ -2807,10 +2522,6 @@ mod tests {
         assert_eq!(
             super::fragment_file_name(ReleaseTarget::MacosX86_64),
             "macos-x86_64.json"
-        );
-        assert_eq!(
-            super::fragment_file_name(ReleaseTarget::WindowsX86_64),
-            "windows-x86_64.json"
         );
     }
 
@@ -2841,7 +2552,6 @@ mod tests {
         for (key, format, extension) in [
             ("macos-aarch64", "app", "app.tar.gz"),
             ("macos-x86_64", "app", "app.tar.gz"),
-            ("windows-x86_64", "nsis", "exe"),
         ] {
             let path = root.join(format!("{key}.json"));
             std::fs::write(
@@ -2877,10 +2587,10 @@ mod tests {
         let platforms = merged["platforms"]
             .as_object()
             .expect("the manifest must carry a platform map");
-        assert_eq!(platforms.len(), 3, "every fragment must be announced");
+        assert_eq!(platforms.len(), 2, "every fragment must be announced");
 
         // The reader is what the application runs, so its view of the manifest is the
-        // contract: the version, the three keys, and a per-platform entry it can decode.
+        // contract: the version, the two keys, and a per-platform entry it can decode.
         assert!(
             merged.get("notes").is_none(),
             "a release published without notes must not announce an empty changelog"
@@ -2902,10 +2612,8 @@ mod tests {
             std::collections::BTreeSet::from([
                 "macos-aarch64".to_owned(),
                 "macos-x86_64".to_owned(),
-                "windows-x86_64".to_owned(),
             ])
         );
-        assert_eq!(platforms["windows-x86_64"].format.to_string(), "nsis");
         assert_eq!(platforms["macos-aarch64"].format.to_string(), "app");
     }
 
@@ -3009,7 +2717,7 @@ mod tests {
         let mut fragments = Vec::new();
         for (key, version) in [
             ("macos-aarch64", env!("CARGO_PKG_VERSION")),
-            ("windows-x86_64", "0.0.1"),
+            ("macos-x86_64", "0.0.1"),
         ] {
             let path = root.join(format!("{key}.json"));
             std::fs::write(
@@ -3237,12 +2945,10 @@ mod tests {
     #[test]
     fn the_release_notes_append_a_download_block_to_each_language() {
         let block = |copy: &super::ReleaseNoteAppendix| {
-            let windows = ReleaseTarget::WindowsX86_64.download_asset();
             let apple = ReleaseTarget::MacosAarch64.download_asset();
             let intel = ReleaseTarget::MacosX86_64.download_asset();
             format!(
                 "## {downloads}\n\n\
-                 - **{windows_label}**: [{windows_arch}]({windows_url}) | {windows_note}\n\
                  - **{macos_label}**: [{apple_silicon}]({apple_url}) | [{intel}]({intel_url}) | \
                  [Homebrew](https://github.com/ayangweb/Homebrew-BongoCat)\n\n\
                  ## {models}\n\n\
@@ -3251,10 +2957,6 @@ mod tests {
                  - [NexaRelay](https://api.nexarelay.com)\n\
                  - [ChooseC API](https://api.choosec.cn)",
                 downloads = copy.downloads_heading,
-                windows_label = copy.windows_label,
-                windows_arch = copy.windows_architecture_label,
-                windows_url = super::release_asset_url(&windows),
-                windows_note = copy.windows_note,
                 macos_label = copy.macos_label,
                 apple_silicon = copy.apple_silicon_label,
                 apple_url = super::release_asset_url(&apple),
@@ -3333,9 +3035,8 @@ mod tests {
                  plain text",
             );
         }
-        // Per language: one installer, two disk images, the tap, the gallery and both
-        // sponsors.
-        assert_eq!(links, 14, "unexpected link count in {notes}");
+        // Per language: two disk images, the tap, the gallery and both sponsors.
+        assert_eq!(links, 12, "unexpected link count in {notes}");
     }
 
     /// The two sources sit at the same level and in a fixed order: the changelog's own

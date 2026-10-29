@@ -196,10 +196,10 @@ fn shipped_key_images(id: &str) -> KeyImageInventory {
 /// press is still honoured; each adapter's own tests pin what it can really
 /// report (`bongocat-platform`'s
 /// `this_adapter_reports_exactly_the_keycodes_the_platform_defines` for
-/// macOS, the scan-code matrix for Windows). Do not read a usage being listed
-/// here as proof that the key is reachable — `Apps` (`0x65`) sat in this list
-/// for as long as the vocabulary existed while no adapter mapped it, which is
-/// why `Apps.png` could never be drawn.
+/// macOS). Do not read a usage being listed here as proof that the key is
+/// reachable — `Apps` (`0x65`) sat in this list for as long as the vocabulary
+/// existed while no adapter mapped it, which is why `Apps.png` could never be
+/// drawn.
 ///
 /// The modifier block is written out instead of relying on the ranges the
 /// implementation uses: it sits above `0x04..=0x65` and below nothing else,

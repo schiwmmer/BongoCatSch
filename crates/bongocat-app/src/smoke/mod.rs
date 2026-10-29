@@ -31,6 +31,5 @@ pub(crate) use panic::{run_panic_diagnostics_smoke, run_panic_diagnostics_smoke_
 pub(crate) use settings_window::run_settings_window_state_smoke;
 #[cfg(feature = "storage-test-injection")]
 pub(super) use startup_item::SmokeRoot;
-#[cfg(target_os = "macos")]
 pub(crate) use startup_item::run_startup_item_smoke;
 pub(crate) use startup_item::run_startup_permission_smoke;

@@ -108,11 +108,6 @@ impl Render for SettingsView {
         let editing_blocked = self.editing_blocked(snapshot.as_ref());
         let pet_controls_disabled =
             editing_blocked || window_mode_active(snapshot.as_ref().map(|s| s.overlay));
-        #[cfg(target_os = "windows")]
-        let background_color_gate = SettingGate::new(
-            editing_blocked,
-            snapshot.as_ref().is_some_and(|s| s.overlay.window_mode),
-        );
         let hover_hide_delay_available = snapshot
             .as_ref()
             .is_some_and(|snapshot| hover_hide_delay_applies(snapshot.overlay));
@@ -363,8 +358,6 @@ impl Render for SettingsView {
                     ))
                     .items(with_search_keywords(
                         vec![
-                    #[cfg(target_os = "windows")]
-                    window_mode::window_mode_row(&view_entity, language),
                     SettingItem::new(
                         bongocat_i18n::text(
                             language.catalog_locale(),
@@ -617,12 +610,6 @@ impl Render for SettingsView {
                     ))
                     .items(with_search_keywords(
                         vec![
-                            #[cfg(target_os = "windows")]
-                            window_mode::background_color_row(
-                                &self.window_background_color,
-                                language,
-                                background_color_gate,
-                            ),
                             SettingItem::new(
                                 bongocat_i18n::text(
                                     language.catalog_locale(),
@@ -1389,37 +1376,9 @@ impl Render for SettingsView {
                             },
                         ),
                     ));
-                    #[cfg(target_os = "windows")]
-                    items.push(SettingItem::new(
-                        bongocat_i18n::text(
-                            language.catalog_locale(),
-                            "settings.app_system.taskbar_icon.label",
-                        ),
-                        SettingField::switch(
-                            {
-                                let view = view_entity.clone();
-                                move |app| {
-                                    view.read(app)
-                                        .snapshot
-                                        .as_ref()
-                                        .is_some_and(|s| s.taskbar_icon_visible || s.overlay.window_mode)
-                                }
-                            },
-                            {
-                                let view = view_entity.clone();
-                                move |value, app| {
-                                    view.update(app, |view, cx| {
-                                        view.set_taskbar_icon_visible(value, cx)
-                                    });
-                                }
-                            },
-                        ),
-                    ).disabled(window_mode_active(snapshot.as_ref().map(|s| s.overlay))));
-                    // The macOS counterpart of the Windows taskbar button. It is its
-                    // own row and its own field rather than a second meaning of
-                    // `show_taskbar_icon`, which the contract explicitly refuses to
-                    // read as a Dock icon.
-                    #[cfg(target_os = "macos")]
+                    // The macOS Dock icon. It is its own row and its own field
+                    // rather than a second meaning of `show_taskbar_icon`, which
+                    // the contract explicitly refuses to read as a Dock icon.
                     items.push(SettingItem::new(
                         bongocat_i18n::text(
                             language.catalog_locale(),

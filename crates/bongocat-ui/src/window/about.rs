@@ -71,18 +71,15 @@ pub(super) struct SoftwareInformation {
     /// field in the document for a model that renders black or not at all.
     runtime_error_code: Option<&'static str>,
     input_service_status: &'static str,
-    /// What this platform gates global input behind, by the platform's own name:
-    /// `input_monitoring` on macOS and `administrator` on Windows.
+    /// What macOS gates global input behind, by its own name:
+    /// `input_monitoring`.
     ///
-    /// Naming it rather than assuming one shape is what lets a Windows report
-    /// answer the question that matters there — is the process elevated — and a
-    /// macOS one answer whether the TCC grant was given. A single
-    /// granted/denied/unsupported field could only ever describe the second
-    /// (ADR-0032).
+    /// Naming it rather than assuming one shape is what lets a macOS report
+    /// answer whether the TCC grant was given. A single granted/denied/unsupported
+    /// field could only ever describe that one answer (ADR-0032).
     input_capability: &'static str,
-    /// Whether this process has that capability right now. On Windows this is
-    /// the elevation state, which is what decides whether raw input keeps
-    /// arriving while a higher-integrity window has focus.
+    /// Whether this process has that capability right now: whether macOS has
+    /// granted the Input Monitoring TCC grant.
     input_capability_available: bool,
     connected_gamepad_count: usize,
     /// How many times the input service has had to clear a pressed key or button
@@ -460,14 +457,10 @@ impl SettingsView {
     /// Hand an external link to the operating system, and tell the user when it
     /// could not be opened.
     ///
-    /// The launch is scheduled, not made here, and that is the whole fix. This
-    /// callback is running inside GPUI's mutable borrow of its `App`, and
-    /// `ShellExecuteW` pumps this process's message queue on the way out. The
-    /// pump re-enters GPUI's foreground tasks, which ask the same `RefCell` for
-    /// another mutable borrow; `RefCell` grants one, so the second one panicked
-    /// and killed the process. Doing it on a background thread means no pump
-    /// happens under the borrow, and the window also keeps painting while the
-    /// browser starts. `external_link` documents the mechanism.
+    /// The launch is scheduled, not made here, and that is the whole fix: the
+    /// `open` call blocks until the browser takes the URL, so doing it on a
+    /// background thread keeps the window painting while the browser starts.
+    /// `external_link` documents the mechanism.
     fn open_external_link(&mut self, url: &'static str, cx: &mut Context<Self>) {
         self.open_external_link_with(url, bongocat_platform::open_external_url, cx);
     }

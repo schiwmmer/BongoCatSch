@@ -1,5 +1,5 @@
 //! The product's windows: opening the settings and update windows, and reading
-//! back what the overlay and the taskbar icon are actually showing.
+//! back what the overlay and the Dock icon are actually showing.
 //!
 //! Each helper answers one question the run loop asks. A failure is reported
 //! through the shared failure list rather than by unwinding, because a product
@@ -71,10 +71,8 @@ fn open_product_window<T>(
     cx: &mut App,
     open: impl FnOnce(&mut App) -> Result<T, String>,
 ) -> Result<T, String> {
-    #[cfg(target_os = "macos")]
     bongocat_platform::set_dock_icon_visible(true).map_err(|error| error.to_string())?;
     let result = open(cx);
-    #[cfg(target_os = "macos")]
     if result.is_err()
         && let Err(error) = sync_product_dock_icon(cx)
     {
@@ -201,9 +199,7 @@ pub(crate) fn ensure_update_window(
 /// context menu both route through here, so a second request focuses the open
 /// window instead of stacking another one.
 ///
-/// macOS only. The menu row that opens it is compiled out on Windows, and a
-/// window nothing can reach would be a window nothing could close.
-#[cfg(target_os = "macos")]
+/// macOS only. A window nothing can reach would be a window nothing could close.
 pub(crate) fn ensure_pomodoro_window(
     cx: &mut App,
 ) -> Result<bongocat_ui::PomodoroWindowHandle, String> {
@@ -324,13 +320,11 @@ pub(crate) fn take_update_restart_request(cx: &mut App) -> bool {
 /// The install already succeeded at this point and the running build is executing the
 /// previous release's files, so the delay exists only to let the window show what
 /// happened before it disappears.
-#[cfg(target_os = "macos")]
 pub(crate) const UPDATE_RESTART_DELAY: Duration = Duration::from_millis(1200);
 
 /// Whether a completed install has been on screen long enough to restart into it.
 ///
 /// Split out from the poll so the boundary is testable without a running product.
-#[cfg(target_os = "macos")]
 pub(crate) fn restart_delay_elapsed(observed_at: Instant, now: Instant) -> bool {
     now.saturating_duration_since(observed_at) >= UPDATE_RESTART_DELAY
 }
@@ -342,7 +336,6 @@ pub(crate) fn restart_delay_elapsed(observed_at: Instant, now: Instant) -> bool 
 /// leave the process running the previous release's deleted files. Watching the
 /// published phase here means the restart happens whether or not anyone is looking.
 /// Returns whether the restart was started, which ends the calling loop.
-#[cfg(target_os = "macos")]
 pub(crate) fn poll_update_restart(cx: &mut App) -> bool {
     if !cx.has_global::<ProductCoordinator>() {
         return false;
@@ -388,7 +381,6 @@ pub(crate) fn poll_update_restart(cx: &mut App) -> bool {
 /// spawns it and this process exits. That is what keeps the tray icon working across
 /// an update — see `restart_current_process` for why replacing the image would drop
 /// it.
-#[cfg(target_os = "macos")]
 pub(crate) fn restart_after_update(cx: &mut App) {
     if !cx.has_global::<ProductCoordinator>() {
         return;
@@ -423,69 +415,7 @@ pub(crate) fn restart_after_update(cx: &mut App) {
     .detach();
 }
 
-#[cfg(target_os = "windows")]
-pub(crate) fn apply_taskbar_icon_visibility(
-    cx: &mut App,
-    visible: bool,
-) -> Result<(), SettingsError> {
-    if !cx.has_global::<ProductCoordinator>() {
-        return Err(SettingsError::new(
-            SettingsErrorCode::TaskbarIconUpdateFailed,
-        ));
-    }
-    // The model window is a session-lifetime resource, so there is normally one
-    // to apply to. Between startup and the first frame, and during shutdown,
-    // there is none; the desired value is kept for the next window instead.
-    let mut borrowed = cx
-        .try_global::<ProductCoordinator>()
-        .map(|coordinator| coordinator.overlay.borrow_mut());
-    if let Some(overlay) = borrowed.as_mut()
-        && let Some(session) = overlay.as_mut()
-        && session.set_taskbar_icon_visible(visible).is_err()
-    {
-        return Err(SettingsError::new(
-            SettingsErrorCode::TaskbarIconUpdateFailed,
-        ));
-    }
-    drop(borrowed);
-    cx.global_mut::<ProductCoordinator>().taskbar_icon_visible = visible;
-    Ok(())
-}
 
-/// What both product windows currently show for the `show_taskbar_icon`
-/// preference: the model window's own taskbar button, and the settings
-/// window's, which must stay whatever the preference says.
-///
-/// The settings window is created with the button GPUI gives it and the product
-/// never changes it, so a read that disagrees is the regression this pair
-/// exists to catch: hiding that button with `WS_EX_TOOLWINDOW` also replaces
-/// the title bar with the tool window's short caption.
-#[cfg(target_os = "windows")]
-pub(crate) fn product_taskbar_icon_state(cx: &mut App) -> Result<(bool, bool, bool), String> {
-    let (model_taskbar_icon, model_visible) = {
-        let coordinator = cx
-            .try_global::<ProductCoordinator>()
-            .ok_or_else(|| "product coordinator is unavailable".to_owned())?;
-        let overlay = coordinator.overlay.borrow();
-        let overlay = overlay
-            .as_ref()
-            .ok_or_else(|| "product overlay is unavailable".to_owned())?;
-        (overlay.taskbar_icon_is_visible(), overlay.is_visible())
-    };
-    let window_handle = cx
-        .try_global::<ProductCoordinator>()
-        .and_then(|coordinator| coordinator.settings_window.clone())
-        .ok_or_else(|| "settings window is unavailable".to_owned())?;
-    let settings_taskbar_icon = window_handle
-        .update(cx, |_, window, _| {
-            bongocat_platform::taskbar_icon_is_visible(window)
-        })
-        .map_err(|error| error.to_string())?
-        .map_err(|error| error.to_string())?;
-    Ok((model_taskbar_icon, settings_taskbar_icon, model_visible))
-}
-
-#[cfg(target_os = "macos")]
 pub(crate) fn apply_dock_icon_visibility(cx: &mut App, visible: bool) -> Result<(), SettingsError> {
     if !cx.has_global::<ProductCoordinator>() {
         return Err(SettingsError::new(SettingsErrorCode::DockIconUpdateFailed));
@@ -499,7 +429,6 @@ pub(crate) fn apply_dock_icon_visibility(cx: &mut App, visible: bool) -> Result<
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
 pub(crate) fn sync_product_dock_icon(cx: &mut App) -> Result<(), SettingsError> {
     let visible = cx
         .try_global::<ProductCoordinator>()
@@ -510,7 +439,6 @@ pub(crate) fn sync_product_dock_icon(cx: &mut App) -> Result<(), SettingsError> 
 
 /// The native Dock visibility and the visibility required by the background
 /// preference and the currently open product windows.
-#[cfg(target_os = "macos")]
 pub(crate) fn product_dock_icon_state(cx: &mut App) -> Result<(bool, bool), String> {
     let applied = cx
         .try_global::<ProductCoordinator>()
@@ -525,15 +453,8 @@ pub(crate) fn product_overlay_state(cx: &mut App) -> Result<(u64, bool), String>
     let coordinator = cx
         .try_global::<ProductCoordinator>()
         .ok_or_else(|| "product coordinator is unavailable".to_owned())?;
-    #[cfg(target_os = "macos")]
     let overlay = coordinator
         .overlay
-        .as_ref()
-        .ok_or_else(|| "product overlay is unavailable".to_owned())?;
-    #[cfg(target_os = "windows")]
-    let overlay = coordinator.overlay.borrow();
-    #[cfg(target_os = "windows")]
-    let overlay = overlay
         .as_ref()
         .ok_or_else(|| "product overlay is unavailable".to_owned())?;
     Ok((overlay.model_generation(), overlay.is_visible()))

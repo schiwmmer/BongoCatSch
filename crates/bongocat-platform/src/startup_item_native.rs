@@ -1,5 +1,5 @@
 use crate::{StartupItemEnvironment, StartupItemError, StartupItemState};
-use auto_launch::{AutoLaunch, AutoLaunchBuilder, MacOSLaunchMode, WindowsEnableMode};
+use auto_launch::{AutoLaunch, AutoLaunchBuilder, MacOSLaunchMode};
 
 const PRODUCT_ARGUMENTS: [&str; 2] = ["--run-seconds", "0"];
 const PRODUCT_BUNDLE_IDENTIFIER: &str = "com.ayangweb.bongo-cat";
@@ -54,16 +54,15 @@ fn backend(environment: StartupItemEnvironment) -> Result<AutoLaunch, StartupIte
     let executable = executable
         .to_str()
         .ok_or(StartupItemError::InvalidExecutablePath)?;
-    // The macOS-only and Windows-only setters are cross-platform no-ops in auto-launch, so a
-    // single constructor keeps both backends on the same explicitly selected modes.
+    // The macOS-only setter is a cross-platform no-op in auto-launch, so a single
+    // constructor keeps the backend on the explicitly selected mode.
     let mut builder = AutoLaunchBuilder::new();
     builder
         .set_app_name(app_name(environment))
         .set_app_path(executable)
         .set_args(&PRODUCT_ARGUMENTS)
         .set_macos_launch_mode(MacOSLaunchMode::LaunchAgent)
-        .set_bundle_identifiers(&[PRODUCT_BUNDLE_IDENTIFIER])
-        .set_windows_enable_mode(WindowsEnableMode::CurrentUser);
+        .set_bundle_identifiers(&[PRODUCT_BUNDLE_IDENTIFIER]);
     builder
         .build()
         .map_err(|_| StartupItemError::BackendUnavailable)
@@ -117,14 +116,12 @@ mod tests {
             Ok(StartupItemState::Enabled)
         );
         assert_eq!(state(environment), Ok(StartupItemState::Enabled));
-        #[cfg(target_os = "macos")]
         assert!(launch_agent_plist_path(app_name(environment)).exists());
 
         assert_eq!(
             set_enabled(environment, false),
             Ok(StartupItemState::Disabled)
         );
-        #[cfg(target_os = "macos")]
         assert!(!launch_agent_plist_path(app_name(environment)).exists());
 
         if matches!(original, StartupItemState::Enabled) {
@@ -137,7 +134,6 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "macos")]
     fn launch_agent_plist_path(app_name: &str) -> std::path::PathBuf {
         let home = std::env::var("HOME").expect("HOME environment variable");
         std::path::Path::new(&home)

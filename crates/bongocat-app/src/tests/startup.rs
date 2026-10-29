@@ -475,7 +475,6 @@ fn failed_installed_model_preparation_preserves_the_active_model() {
     application.shutdown().expect("clean shutdown");
 }
 
-#[cfg(target_os = "macos")]
 #[test]
 fn application_owns_the_rendering_runtime_and_issues_one_consumer() {
     let base = tempdir().expect("temp directory");

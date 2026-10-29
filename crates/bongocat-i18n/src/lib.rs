@@ -168,13 +168,8 @@ pub fn group_thousands(value: u32) -> String {
 /// as `settings.app_system.status_icon.label.macos`. Add a new value when a
 /// newly supported platform needs its own copy of an otherwise-shared string.
 pub const fn current_platform_id() -> &'static str {
-    #[cfg(target_os = "macos")]
     {
         "macos"
-    }
-    #[cfg(target_os = "windows")]
-    {
-        "windows"
     }
 }
 

@@ -9,10 +9,6 @@ fn run_options_default_to_an_unbounded_product_lifetime() {
         options,
         RunOptions {
             run_seconds: 0,
-            #[cfg(target_os = "windows")]
-            single_instance_ready_file: None,
-            #[cfg(target_os = "windows")]
-            single_instance_result_file: None,
             settings_window_smoke: false,
             settings_window_open_smoke: false,
             models_page_smoke: false,
@@ -30,12 +26,8 @@ fn run_options_default_to_an_unbounded_product_lifetime() {
             diagnostics_export_failure_smoke: false,
             system_menu_smoke: false,
             startup_permission_smoke: false,
-            #[cfg(target_os = "macos")]
             application_reopen_smoke: false,
-            #[cfg(target_os = "macos")]
             startup_item_smoke: false,
-            #[cfg(target_os = "windows")]
-            single_instance_smoke: false,
         }
     );
     assert_eq!(options.run_duration(), Duration::ZERO);
@@ -112,16 +104,8 @@ fn only_the_bounded_run_duration_keeps_a_start_interactive() {
         "--diagnostics-export-smoke",
         #[cfg(feature = "storage-test-injection")]
         "--diagnostics-export-failure-smoke",
-        #[cfg(target_os = "macos")]
         "--application-reopen-smoke",
-        #[cfg(target_os = "macos")]
         "--startup-item-smoke",
-        #[cfg(target_os = "windows")]
-        "--single-instance-smoke",
-        #[cfg(target_os = "windows")]
-        "--single-instance-ready-file",
-        #[cfg(target_os = "windows")]
-        "--single-instance-result-file",
     ]
     .into_iter()
     .collect();

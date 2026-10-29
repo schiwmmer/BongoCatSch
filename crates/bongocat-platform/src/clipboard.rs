@@ -1,5 +1,4 @@
 use arboard::Clipboard;
-#[cfg(target_os = "macos")]
 use objc2::{MainThreadMarker, rc::autoreleasepool};
 
 pub(crate) const MAX_CLIPBOARD_TEXT_BYTES: usize = 1024 * 1024;
@@ -19,31 +18,21 @@ pub enum ClipboardError {
 }
 
 pub fn read_clipboard_text() -> Result<Option<String>, ClipboardError> {
-    #[cfg(target_os = "macos")]
     {
         let _marker = MainThreadMarker::new().ok_or(ClipboardError::WrongThread)?;
         autoreleasepool(|_| read_text())
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        read_text()
-    }
 }
 
 pub fn write_clipboard_text(value: &str) -> Result<(), ClipboardError> {
     validate_text(value)?;
 
-    #[cfg(target_os = "macos")]
     {
         let _marker = MainThreadMarker::new().ok_or(ClipboardError::WrongThread)?;
         autoreleasepool(|_| write_text(value))
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        write_text(value)
-    }
 }
 
 fn read_text() -> Result<Option<String>, ClipboardError> {
@@ -115,7 +104,6 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn clipboard_rejects_background_threads_before_touching_appkit() {
         let read_error = std::thread::spawn(read_clipboard_text)

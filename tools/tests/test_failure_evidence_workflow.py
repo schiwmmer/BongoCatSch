@@ -38,30 +38,21 @@ class FailureEvidenceWorkflowTests(unittest.TestCase):
                 self.assertIn("Collect redacted failure evidence", job)
                 self.assertIn("Upload redacted failure evidence", job)
 
-    def test_storage_smoke_exports_preview_on_both_supported_platforms(self):
+    def test_storage_smoke_exports_preview_on_macos(self):
         source = WORKFLOW.read_text(encoding="utf-8")
-        self.assertEqual(source.count("--diagnostics-export-smoke"), 2)
+        self.assertEqual(source.count("--diagnostics-export-smoke"), 1)
         self.assertIn("Smoke macOS diagnostics preview export", source)
-        self.assertIn("Smoke Windows diagnostics preview export", source)
         self.assertEqual(
             source.count("diagnostics export completed with a private preview bundle"),
-            2,
+            1,
         )
 
     def test_macos_spike_evidence_collection_runs_after_all_smokes(self):
         source = WORKFLOW.read_text(encoding="utf-8")
-        macos_job = source[source.index("  macos-spikes:") : source.index("  windows-input-spike:")]
+        macos_job = source[source.index("  macos-spikes:") :]
         self.assertGreater(
             macos_job.rfind("Collect redacted failure evidence"),
             macos_job.rfind("Smoke independent AppKit and Metal overlay"),
-        )
-
-    def test_windows_gpui_evidence_collection_runs_after_overlay_smokes(self):
-        source = WORKFLOW.read_text(encoding="utf-8")
-        windows_job = source[source.index("  windows-gpui-spikes:") :]
-        self.assertGreater(
-            windows_job.rfind("Collect redacted failure evidence"),
-            windows_job.rfind("Smoke independent Win32 and D3D11 overlay"),
         )
 
 
