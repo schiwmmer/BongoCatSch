@@ -107,7 +107,6 @@ pub(crate) const fn native_theme_for_startup(
     }
 }
 
-
 pub(crate) fn finish_product_quit(cx: &mut App) {
     {
         // The application-owned quit must own its exit boundary: AppKit can terminate
@@ -127,7 +126,6 @@ pub(crate) fn finish_product_quit(cx: &mut App) {
         }
         cx.quit();
     }
-
 }
 
 pub(crate) fn request_product_quit(cx: &mut App) {
@@ -141,7 +139,6 @@ pub(crate) fn request_product_quit(cx: &mut App) {
     }
     finish_product_quit(cx);
 }
-
 
 pub(crate) struct ProductShutdown {
     pub(crate) coordinator: ProductCoordinator,
@@ -251,4 +248,3 @@ pub(crate) fn exit_after_automated_smoke(failures: &Arc<Mutex<Vec<String>>>) {
     // it: they do not set `automated_verification` (TODO P7-MACOS-SMOKE-EXIT-CODE).
     std::process::exit(1);
 }
-

@@ -931,7 +931,6 @@ mod tests {
         runtime.shutdown(TIMEOUT).expect("runtime stop");
     }
 
-
     #[test]
     fn runtime_stop_is_not_misreported_as_a_capacity_rejection() {
         const TIMEOUT: Duration = Duration::from_secs(2);

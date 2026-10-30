@@ -138,4 +138,3 @@ impl PressEdges {
 pub(crate) fn wait_and_pump(interval: Duration) {
     std::thread::sleep(interval);
 }
-

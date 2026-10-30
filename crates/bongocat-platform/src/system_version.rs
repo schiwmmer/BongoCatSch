@@ -125,7 +125,6 @@ mod platform {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::operating_system_version;
@@ -137,8 +136,8 @@ mod tests {
     /// answer — and this module only compiles where there is one.
     #[test]
     fn the_running_system_reports_a_complete_version() {
-        let version = operating_system_version()
-            .expect("macOS reports a version, and this build is macOS");
+        let version =
+            operating_system_version().expect("macOS reports a version, and this build is macOS");
         assert!(!version.version.is_empty());
         assert!(!version.build.is_empty());
         for value in [&version.version, &version.build] {

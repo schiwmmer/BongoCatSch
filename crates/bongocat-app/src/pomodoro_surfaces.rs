@@ -117,7 +117,6 @@ pub(crate) fn play_pomodoro_complete_sound(_cx: &mut App, sequence: u64) {
     bongocat_platform::play_pomodoro_complete_sound();
 }
 
-
 /// Where the cultivator stood the last time the frame loop looked.
 ///
 /// `0` is "not looked yet" — a freshly started app must not greet its user with

@@ -22,7 +22,6 @@ pub fn read_clipboard_text() -> Result<Option<String>, ClipboardError> {
         let _marker = MainThreadMarker::new().ok_or(ClipboardError::WrongThread)?;
         autoreleasepool(|_| read_text())
     }
-
 }
 
 pub fn write_clipboard_text(value: &str) -> Result<(), ClipboardError> {
@@ -32,7 +31,6 @@ pub fn write_clipboard_text(value: &str) -> Result<(), ClipboardError> {
         let _marker = MainThreadMarker::new().ok_or(ClipboardError::WrongThread)?;
         autoreleasepool(|_| write_text(value))
     }
-
 }
 
 fn read_text() -> Result<Option<String>, ClipboardError> {

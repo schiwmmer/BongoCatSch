@@ -12,10 +12,7 @@ pub fn run_model_preview(
     model_root: &Path,
     duration: Duration,
 ) -> Result<PreviewReport, OverlayError> {
-    {
-        macos::run_model_preview(model_id, model_root, duration, false, None)
-    }
-
+    { macos::run_model_preview(model_id, model_root, duration, false, None) }
 }
 
 pub fn run_interactive_model_preview(
@@ -23,10 +20,7 @@ pub fn run_interactive_model_preview(
     model_root: &Path,
     duration: Duration,
 ) -> Result<PreviewReport, OverlayError> {
-    {
-        macos::run_model_preview(model_id, model_root, duration, true, None)
-    }
-
+    { macos::run_model_preview(model_id, model_root, duration, true, None) }
 }
 
 pub fn run_model_switch_preview(
@@ -43,7 +37,6 @@ pub fn run_model_switch_preview(
             Some(switch_cycles),
         )
     }
-
 }
 
 pub(crate) fn validate_model_generation_advance(

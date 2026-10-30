@@ -591,8 +591,12 @@ mod tests {
         );
         // The rarer herb's floor sits above the common one's ceiling, so a
         // player never weighs a 慧心草 黄阶 against a 悟心草 神阶.
-        let wisdom_floor = AptitudeHerb::Wisdom.gain_tenths_for(SeedGrade::Yellow).unwrap();
-        let insight_ceiling = AptitudeHerb::Insight.gain_tenths_for(SeedGrade::Divine).unwrap();
+        let wisdom_floor = AptitudeHerb::Wisdom
+            .gain_tenths_for(SeedGrade::Yellow)
+            .unwrap();
+        let insight_ceiling = AptitudeHerb::Insight
+            .gain_tenths_for(SeedGrade::Divine)
+            .unwrap();
         assert!(
             wisdom_floor > insight_ceiling,
             "慧心草 黄阶 {wisdom_floor} must beat 悟心草 神阶 {insight_ceiling}"

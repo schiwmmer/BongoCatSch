@@ -28,9 +28,6 @@ impl bongocat_app::StatusIconCapability for ProductStatusIcon {
     }
 }
 
-
-
-
 pub(crate) struct DockIconRequest {
     pub(crate) visible: bool,
     pub(crate) reply: std::sync::mpsc::SyncSender<Result<(), SettingsError>>,

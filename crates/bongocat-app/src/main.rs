@@ -109,7 +109,6 @@ fn gpui_application() -> GpuiApplication {
     GpuiApplication::new_inaccessible(current_platform(false)).with_quit_mode(QuitMode::Explicit)
 }
 
-
 struct ProductCoordinator {
     _core_log: CoreLogHandle,
     overlay: Option<ProductOverlaySession>,
@@ -240,7 +239,6 @@ fn apply_pomodoro_focus_face(coordinator: &mut ProductCoordinator, counting_down
         }
     }
 }
-
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let run_options = match RunOptions::parse(env::args().skip(1)) {
@@ -425,11 +423,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if cx.has_global::<ProductCoordinator>() {
             match ensure_settings_window(cx) {
                 Ok(_) => {
-                    {
-                        let coordinator = cx.global_mut::<ProductCoordinator>();
-                        coordinator.application_reopens =
-                            coordinator.application_reopens.saturating_add(1);
-                    }
+                    let coordinator = cx.global_mut::<ProductCoordinator>();
+                    coordinator.application_reopens =
+                        coordinator.application_reopens.saturating_add(1);
                 }
                 Err(error) => record_failure(&reopen_failures, error),
             }

@@ -331,7 +331,6 @@ impl SystemMenu {
             }
         }
 
-
         self.receiver.try_recv().ok()
     }
 

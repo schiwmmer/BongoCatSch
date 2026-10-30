@@ -40,9 +40,9 @@ use super::{
         WalkRecord, breakthrough_ready, roll_stones, roll_victory, roll_walk,
     },
     garden::{
-        CropRecord, MAX_GARDEN_RANK, PlotRecord, SeedGrade,
-        harvest_points, plant_permille, plot_price, rank_cost, rank_xp_total, roll_seed_grade,
-        seed_name, seed_return, wither_points,
+        CropRecord, MAX_GARDEN_RANK, PlotRecord, SeedGrade, harvest_points, plant_permille,
+        plot_price, rank_cost, rank_xp_total, roll_seed_grade, seed_name, seed_return,
+        wither_points,
     },
     growth_permille,
     items::{gear_set_bonus, gear_set_views, roll_equipment},

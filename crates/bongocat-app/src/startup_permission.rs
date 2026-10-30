@@ -23,7 +23,6 @@ mod keys {
     pub(super) const TITLE: &str = "startup_permission.input_monitoring.title";
     pub(super) const DESCRIPTION: &str = "startup_permission.input_monitoring.description";
     pub(super) const PRIMARY: &str = "startup_permission.input_monitoring.open_settings";
-
 }
 
 /// Runs the startup permission check for this platform.

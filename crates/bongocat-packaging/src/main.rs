@@ -2163,7 +2163,6 @@ fn mark_icon_file(icon: &Path) -> Result<()> {
     run_command("SetFile", &mut set)
 }
 
-
 /// Rejects a package whose resources did not land where the product reads them.
 ///
 /// `cargo-packager` resolves resource targets differently per platform, so a

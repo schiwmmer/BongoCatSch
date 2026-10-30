@@ -434,7 +434,6 @@ mod platform {
     }
 }
 
-
 /// Maps an `rfd` result back to "the user asked for the platform permission flow".
 ///
 /// macOS returns the custom label, because the parentless dialog is a `CFUserNotification` whose

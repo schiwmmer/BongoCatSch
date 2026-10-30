@@ -202,7 +202,6 @@ mod platform {
     }
 }
 
-
 pub use platform::system_appearance;
 
 #[cfg(test)]

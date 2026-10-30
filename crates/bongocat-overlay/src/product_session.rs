@@ -178,28 +178,18 @@ impl ProductOverlaySession {
             )
             .map(|inner| Self { inner })
         }
-
     }
 
     pub fn run_for(&mut self, duration: Duration) -> Result<(), OverlayError> {
-        {
-            self.inner.run_for(duration)
-        }
-
+        { self.inner.run_for(duration) }
     }
 
     pub fn tick(&mut self) -> Result<OverlayTickOutcome, OverlayError> {
-        {
-            self.inner.tick()
-        }
-
+        { self.inner.tick() }
     }
 
     pub fn window_bounds(&self) -> Result<OverlayWindowBounds, OverlayError> {
-        {
-            self.inner.window_bounds()
-        }
-
+        { self.inner.window_bounds() }
     }
 
     pub fn is_visible(&self) -> bool {
@@ -209,7 +199,6 @@ impl ProductOverlaySession {
     pub fn model_generation(&self) -> u64 {
         self.inner.model_generation()
     }
-
 
     /// Publish what the pomodoro worker last reported.
     ///
@@ -241,18 +230,11 @@ impl ProductOverlaySession {
         self.inner.take_pomodoro_menu_request()
     }
 
-
     pub fn stop_input(&mut self) -> Result<(), OverlayError> {
-        {
-            self.inner.stop_input()
-        }
-
+        { self.inner.stop_input() }
     }
 
     pub fn finish_after_runtime_shutdown(self) -> Result<ProductOverlayReport, OverlayError> {
-        {
-            self.inner.finish_after_runtime_shutdown()
-        }
-
+        { self.inner.finish_after_runtime_shutdown() }
     }
 }

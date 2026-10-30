@@ -112,4 +112,3 @@ pub fn platform_layout(
         .join(BUNDLE_ID);
     Ok(StorageLayout::under_application_root(root, environment))
 }
-

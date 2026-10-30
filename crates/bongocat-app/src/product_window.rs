@@ -419,7 +419,6 @@ pub(crate) fn restart_after_update(cx: &mut App) {
     .detach();
 }
 
-
 pub(crate) fn apply_dock_icon_visibility(cx: &mut App, visible: bool) -> Result<(), SettingsError> {
     if !cx.has_global::<ProductCoordinator>() {
         return Err(SettingsError::new(SettingsErrorCode::DockIconUpdateFailed));

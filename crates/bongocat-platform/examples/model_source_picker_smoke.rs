@@ -18,8 +18,6 @@ use std::{
     sync::{Arc, atomic::AtomicBool, mpsc},
 };
 
-
-
 struct NativeApplication {
     _window: objc2::rc::Retained<objc2_app_kit::NSWindow>,
 }
@@ -85,7 +83,6 @@ fn start_native_picker(
     });
 }
 
-
 fn run_native_application(_application: &NativeApplication) {
     use objc2::MainThreadMarker;
     use objc2_app_kit::NSApplication;
@@ -134,12 +131,6 @@ fn smoke_options() -> Result<SmokeOptions, io::Error> {
         automated,
     })
 }
-
-
-
-
-
-
 
 fn start_automation(
     _expected: &ExpectedOutcome,

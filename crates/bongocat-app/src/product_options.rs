@@ -105,11 +105,7 @@ pub(crate) struct RunOptions {
     /// Report the login item state and leave it as it was found.
     #[arg(long)]
     pub(crate) startup_item_smoke: bool,
-
-
-
 }
-
 
 impl RunOptions {
     pub(crate) fn parse(
@@ -153,7 +149,6 @@ impl RunOptions {
             || self.storage_test_injection_arguments_present()
     }
 
-
     pub(crate) fn single_instance_arguments_present(&self) -> bool {
         false
     }
@@ -165,7 +160,6 @@ impl RunOptions {
     pub(crate) fn macos_smoke_arguments_present(&self) -> bool {
         self.application_reopen_smoke || self.startup_item_smoke
     }
-
 
     /// Whether a storage-test-injection harness was named.
     #[cfg(feature = "storage-test-injection")]

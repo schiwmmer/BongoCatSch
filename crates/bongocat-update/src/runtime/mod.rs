@@ -21,9 +21,7 @@
 
 use cargo_packager_updater::semver::Version;
 use cargo_packager_updater::url::Url;
-use cargo_packager_updater::{
-    Config, Updater, UpdaterBuilder,
-};
+use cargo_packager_updater::{Config, Updater, UpdaterBuilder};
 
 use crate::{
     UpdateErrorCode,

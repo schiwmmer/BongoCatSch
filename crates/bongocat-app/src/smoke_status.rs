@@ -18,4 +18,3 @@ pub(crate) fn write_smoke_status(status: &str) -> io::Result<()> {
     writeln!(stdout, "bongocat-app: {status}")?;
     stdout.flush()
 }
-

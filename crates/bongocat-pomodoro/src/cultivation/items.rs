@@ -951,11 +951,7 @@ const fn set_chance_permille(rarity: Rarity) -> u32 {
     // constant and the cast cannot overflow it.
     let steps = (index - SET_RARITY_INDEX) as u32;
     let chance = 500 + 100 * steps;
-    if chance > 1_000 {
-        1_000
-    } else {
-        chance
-    }
+    if chance > 1_000 { 1_000 } else { chance }
 }
 
 /// Whether a piece of this quality can belong to a set at all.

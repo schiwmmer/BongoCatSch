@@ -191,8 +191,7 @@ mod tests {
     fn host_target_is_one_of_the_shipped_combinations() {
         assert!(matches!(
             HOST_TARGET_TRIPLE,
-            UpdateTargetTriple::Aarch64AppleDarwin
-                | UpdateTargetTriple::X86_64AppleDarwin
+            UpdateTargetTriple::Aarch64AppleDarwin | UpdateTargetTriple::X86_64AppleDarwin
         ));
     }
 }

@@ -6,7 +6,6 @@ mod product_icon_contract;
 use product_icon_contract::{validate_icns, validate_png};
 use std::path::{Path, PathBuf};
 
-
 fn main() {
     println!("cargo::rerun-if-changed=src/product_icon_contract.rs");
     link_swift_runtime();
@@ -25,7 +24,6 @@ fn main() {
         "macOS status icon",
         validate_png,
     );
-
 }
 
 /// Puts the Swift runtime on the loader path of this package's binaries.

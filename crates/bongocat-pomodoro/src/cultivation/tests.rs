@@ -1156,13 +1156,13 @@ fn document_herb_seed(cultivation: &mut Cultivation, herb: AptitudeHerb, grade: 
 }
 
 #[test]
-    fn the_herb_tiers_are_fixed_by_the_herb() {
-        // Rarity sets the tier: the rarer 慧心草 grows at tier eight, the common
-        // 悟心草 at tier six — a higher tier is the longer bed, so the rarer
-        // herb is the slower one to mature.
-        assert_eq!(herb_tier(AptitudeHerb::Wisdom), 8);
-        assert_eq!(herb_tier(AptitudeHerb::Insight), 6);
-    }
+fn the_herb_tiers_are_fixed_by_the_herb() {
+    // Rarity sets the tier: the rarer 慧心草 grows at tier eight, the common
+    // 悟心草 at tier six — a higher tier is the longer bed, so the rarer
+    // herb is the slower one to mature.
+    assert_eq!(herb_tier(AptitudeHerb::Wisdom), 8);
+    assert_eq!(herb_tier(AptitudeHerb::Insight), 6);
+}
 
 /// A save from an older build could hold a herb seed at the wrong tier — a
 /// 悟心草 written as eight, 慧心草 as six, the reverse of the ladder now. The
@@ -1186,7 +1186,11 @@ fn an_old_herb_seed_is_read_at_its_herb_tier() {
         .iter()
         .find(|seed| seed.herb == Some(AptitudeHerb::Insight))
         .expect("the 悟心草 is still held");
-    assert_eq!(seed.tier, herb_tier(AptitudeHerb::Insight), "six, not eight");
+    assert_eq!(
+        seed.tier,
+        herb_tier(AptitudeHerb::Insight),
+        "six, not eight"
+    );
     // And the corrected seed plants.
     assert!(
         cultivation
