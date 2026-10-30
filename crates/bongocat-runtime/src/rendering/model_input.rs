@@ -80,6 +80,12 @@ pub(crate) fn apply_model_input(
             && model
                 .parameter_range(ProductParameter::StickShowRightHand)
                 .is_some());
+    // When the pointer is at rest (no mouse displacement), do not overwrite
+    // the angle / pointer / eyeball parameters the motion and expression
+    // passes set earlier in the same frame. A nod or a tilt then survives the
+    // neutral input instead of being reset to the centre on every frame, which
+    // is what made the preset motions look like they did nothing.
+    let pointer_at_rest = pointer_x == 0.0 && pointer_y == 0.0 && pointer_z == 0.0;
     for (parameter, value) in [
         (ProductParameter::MouseX, pointer_x),
         (ProductParameter::MouseY, pointer_y),
@@ -119,6 +125,19 @@ pub(crate) fn apply_model_input(
         (ProductParameter::StickRightX, input.stick_right_x),
         (ProductParameter::StickRightY, input.stick_right_y),
     ] {
+        let is_pointer_parameter = matches!(
+            parameter,
+            ProductParameter::MouseX
+                | ProductParameter::MouseY
+                | ProductParameter::AngleX
+                | ProductParameter::AngleY
+                | ProductParameter::AngleZ
+                | ProductParameter::EyeBallX
+                | ProductParameter::EyeBallY
+        );
+        if pointer_at_rest && is_pointer_parameter {
+            continue;
+        }
         match model.set_normalized_parameter(parameter, value) {
             Ok(ParameterUpdate::Applied { .. } | ParameterUpdate::Unsupported) => {}
             Err(error) => {

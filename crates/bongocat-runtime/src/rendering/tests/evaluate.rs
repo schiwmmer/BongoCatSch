@@ -66,8 +66,13 @@ fn frame_evaluation_order_is_motion_expression_input_effects_then_core_update() 
         .expect("evaluate frame");
     let model = &renderer.active.as_ref().expect("active model").model;
     for (id, expected) in [
+        // ParamEyeLOpen is driven by the MOTION curve only, so the automatic
+        // blink still owns it (the blink overwrites non-expression eye params).
         ("ParamEyeLOpen", 0.0),
-        ("ParamEyeROpen", 0.0),
+        // ParamEyeROpen is driven by the EXPRESSION (Overwrite 0.7). The
+        // expression must survive the blink that follows it in the frame, or a
+        // squint/short-eye expression would never be visible (the report).
+        ("ParamEyeROpen", 0.7),
         ("ParamMouthOpenY", 0.8),
         ("ParamAngleX", -15.0),
     ] {
