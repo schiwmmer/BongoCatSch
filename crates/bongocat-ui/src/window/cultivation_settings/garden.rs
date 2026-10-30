@@ -363,17 +363,18 @@ pub(super) fn seed_panel(
         );
     }
     let plots_full = cultivation.plots.iter().all(|plot| plot.crop.is_some());
-    // Lowest grade first, then the cheapest bed: the domain hands the satchel
+    // Lowest tier first, then the cheapest bed: the domain hands the satchel
     // over highest-first because that is how the shelf prices it, and this panel
-    // is asking a different question — what can be planted today.
+    // is asking a different question — what can be planted today. A seed's tier
+    // names the realm it fell from, so grouping by tier is grouping by the bed a
+    // garden is ready for; the grade only settles a tie inside the same tier.
     let mut stacks: Vec<&SeedView> = cultivation.seeds.iter().collect();
     stacks.sort_by(|left, right| {
-        left.grade.cmp(&right.grade).then_with(|| {
-            left.tier
-                .cmp(&right.tier)
-                .then_with(|| left.herb.is_some().cmp(&right.herb.is_some()))
-                .then_with(|| left.attribute.index().cmp(&right.attribute.index()))
-        })
+        left.tier
+            .cmp(&right.tier)
+            .then_with(|| left.herb.is_some().cmp(&right.herb.is_some()))
+            .then_with(|| left.attribute.index().cmp(&right.attribute.index()))
+            .then_with(|| left.grade.cmp(&right.grade))
     });
     let stacks_total = stacks.len();
     let shown = if open {

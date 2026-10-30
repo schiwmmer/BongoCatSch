@@ -1348,13 +1348,18 @@ fn a_withered_plot_says_so_and_offers_the_dig(cx: &mut TestAppContext) {
     );
 }
 
-/// The satchel counts what it holds, lists four stacks lowest grade first two to
+/// The satchel counts what it holds, lists four stacks lowest tier first two to
 /// a row, and keeps the rest one click away.
 ///
 /// A satchel of twenty stacks is a wall on a page that is already a ladder, and
 /// the cheap end is the end a young garden can actually bring up — so that is
 /// the end it shows. The count beside the title is every seed in every stack,
 /// which is the number the rows cannot be counted to.
+///
+/// The tiers run one to six while the grades are deliberately out of step with
+/// them (a first-tier 神阶 seed sits next to a second-tier 黄阶 one), so a panel
+/// that sorted by grade instead of by tier would push the 神阶 first-tier seed to
+/// the last row — the assertions below would catch it.
 #[gpui_kit::test]
 fn the_seed_panel_counts_its_stacks_and_unfolds(cx: &mut TestAppContext) {
     let seed = |tier: u8, grade: SeedGrade| SeedStack {
@@ -1367,12 +1372,12 @@ fn the_seed_panel_counts_its_stacks_and_unfolds(cx: &mut TestAppContext) {
     };
     let cultivation = Cultivation::new(CultivationDocument {
         seeds: vec![
-            seed(1, SeedGrade::Yellow),
+            seed(1, SeedGrade::Divine),
             seed(2, SeedGrade::Yellow),
             seed(3, SeedGrade::Profound),
             seed(4, SeedGrade::Earth),
             seed(5, SeedGrade::Heaven),
-            seed(6, SeedGrade::Divine),
+            seed(6, SeedGrade::Yellow),
         ],
         ..CultivationDocument::default()
     })
@@ -1384,7 +1389,7 @@ fn the_seed_panel_counts_its_stacks_and_unfolds(cx: &mut TestAppContext) {
         "cultivation-seeds-total",
         "cultivation-seed-row-0",
         "cultivation-seed-row-1",
-        "cultivation-seed-name-0-1-0",
+        "cultivation-seed-name-0-1-4",
         "cultivation-seed-name-0-2-0",
         "cultivation-seed-name-0-3-1",
         "cultivation-seed-name-0-4-2",
@@ -1398,7 +1403,7 @@ fn the_seed_panel_counts_its_stacks_and_unfolds(cx: &mut TestAppContext) {
         "the fifth stack waits behind the fold"
     );
     assert!(
-        !painted(visual, "cultivation-seed-name-0-6-4"),
+        !painted(visual, "cultivation-seed-name-0-6-0"),
         "the dearest stack waits behind the fold"
     );
     visual.update(|window, cx| {
@@ -1407,7 +1412,7 @@ fn the_seed_panel_counts_its_stacks_and_unfolds(cx: &mut TestAppContext) {
     });
     visual.update(|window, cx| window.render_frame(cx));
     assert!(
-        painted(visual, "cultivation-seed-name-0-6-4"),
+        painted(visual, "cultivation-seed-name-0-6-0"),
         "unfolding must draw the stack it was hiding"
     );
 }
@@ -1443,7 +1448,7 @@ fn the_seed_keys_line_up_across_rows(cx: &mut TestAppContext) {
     let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
     let (_view, visual) = cultivation_page_with(cx, pomodoro);
     visual.update(|window, cx| window.render_frame(cx));
-    // Lowest grade first, two to a row: the first and third stacks are the same
+    // Lowest tier first, two to a row: the first and third stacks are the same
     // column, and their keys are the pair a price difference would scatter.
     let plant_first = rendered_bounds(visual, ElementId::from("cultivation-plant-0-1-0"));
     let plant_third = rendered_bounds(visual, ElementId::from("cultivation-plant-0-9-4"));
