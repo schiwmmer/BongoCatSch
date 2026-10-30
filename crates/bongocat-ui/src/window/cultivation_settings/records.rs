@@ -594,10 +594,28 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
                     ("name", name.clone()),
                     ("star", star.to_string()),
                     ("stars", stars),
-                    ("stones", cost.to_string()),
+                    ("stones", cost.stones.to_string()),
+                    ("tribute", resource_bag_text(locale, &cost.resources)),
                 ],
             )
         }
+        // A building raised a rank: the line names the building, the rank it
+        // stands at now, and what the rank cost — the same price the button
+        // showed, so the log never disagrees with the purse.
+        EventDetail::BuildingUpgrade {
+            building,
+            level,
+            cost,
+        } => format_text(
+            locale,
+            "cultivation.event.building_upgrade",
+            &[
+                ("building", text(locale, building.key()).to_string()),
+                ("level", level.to_string()),
+                ("stones", cost.stones.to_string()),
+                ("tribute", resource_bag_text(locale, &cost.resources)),
+            ],
+        ),
         // A crop pulled by a save from before the log knew which herb it was:
         // the bare line is what those events said, so that is what they keep
         // saying rather than a line with a blank where the name would go.

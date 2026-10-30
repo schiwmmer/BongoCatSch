@@ -307,9 +307,22 @@ pub enum EventDetail {
         star: u8,
         /// Whether the attempt came off.
         success: bool,
-        /// What the attempt cost, in 灵石.
+        /// What the attempt cost: the 灵石 wager and the resources the forge
+        /// burned. A star is the same event whatever it cost, but a line that
+        /// says a star was won and not what it cost would let the purse disagree
+        /// with its own history.
         #[serde(default)]
-        cost: u32,
+        cost: super::Cost,
+    },
+    /// A building was raised a rank.
+    BuildingUpgrade {
+        /// The building raised.
+        building: super::Building,
+        /// The rank it stands at now.
+        level: u8,
+        /// What the rank cost.
+        #[serde(default)]
+        cost: super::Cost,
     },
     /// 潜质 moved: a herb was fed and a gate was paid.
     ///

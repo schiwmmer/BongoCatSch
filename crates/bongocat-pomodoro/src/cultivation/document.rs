@@ -332,6 +332,34 @@ pub struct CultivationDocument {
     /// stays a count — it pays no 潜质, so it has nothing to grade.
     #[serde(default)]
     pub herb_stacks: Vec<super::HerbStack>,
+    /// The gathered resources in the purse. A save from before resources
+    /// existed holds an empty bag, which is the fresh purse.
+    #[serde(default)]
+    pub resources: super::ResourceBag,
+    /// 伐木: the forest trade, and the one that learns to find 煤.
+    #[serde(default)]
+    pub woodcut_level: u8,
+    /// 伐木's banked xp toward the next level.
+    #[serde(default)]
+    pub woodcut_xp: u32,
+    /// 采石: the mountain trade, and the one that learns to find 铁.
+    #[serde(default)]
+    pub stonecut_level: u8,
+    /// 采石's banked xp toward the next level.
+    #[serde(default)]
+    pub stonecut_xp: u32,
+    /// 工坊: every gathering yields ten percent more per level.
+    #[serde(default)]
+    pub workshop_level: u8,
+    /// 仓库: the purse holds a quarter more per level.
+    #[serde(default)]
+    pub warehouse_level: u8,
+    /// 铁匠铺: a star costs ten percent less per level.
+    #[serde(default)]
+    pub smithy_level: u8,
+    /// 道场: gathering pays ten percent more skill xp per level.
+    #[serde(default)]
+    pub dojo_level: u8,
 }
 
 impl CultivationDocument {
@@ -539,6 +567,14 @@ impl CultivationDocument {
             walk.ends_unix = walk.ends_unix.clamp(walk.started_unix, latest);
             self.last_exploration_hours = walk.hours;
         }
+        // A hand-edited save cannot carry a trade or a building past its ceiling
+        // — a level above ten is an edit, and a level below zero cannot exist.
+        self.woodcut_level = self.woodcut_level.min(super::MAX_TRADE_LEVEL);
+        self.stonecut_level = self.stonecut_level.min(super::MAX_TRADE_LEVEL);
+        self.workshop_level = self.workshop_level.min(super::MAX_BUILDING_LEVEL);
+        self.warehouse_level = self.warehouse_level.min(super::MAX_BUILDING_LEVEL);
+        self.smithy_level = self.smithy_level.min(super::MAX_BUILDING_LEVEL);
+        self.dojo_level = self.dojo_level.min(super::MAX_BUILDING_LEVEL);
         self
     }
 }

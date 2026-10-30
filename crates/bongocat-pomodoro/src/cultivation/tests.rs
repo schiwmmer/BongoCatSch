@@ -2922,9 +2922,18 @@ fn attempt_until(cultivation: &mut Cultivation, item_id: u64, want_success: bool
 }
 
 /// A save owning one piece of gear, worn, with a purse that can star it.
+///
+/// The resources are stocked high so a 升星's tribute never refuses the attempt:
+/// a test asking about a star is asking about the star, not about the ore.
 fn owning_one(item: EquipmentRecord, stones: u32) -> Cultivation {
     let mut document = CultivationDocument {
         stones,
+        resources: ResourceBag {
+            wood: 100,
+            stone: 100,
+            iron: 100,
+            coal: 100,
+        },
         ..CultivationDocument::default()
     };
     document.equipment.push(item.clone());
@@ -2990,13 +2999,25 @@ fn a_star_costs_a_third_of_what_the_piece_sells_for() {
         set: None,
     };
     let sell = shop::ShopOffer::Equipment(item.clone()).sell_price();
-    let cost = star_up_cost(&item);
-    assert_eq!(cost, sell / 3, "the wager is a third of the sell price");
-    // The price does not climb with the stars already bought: every attempt is
-    // the same bet.
+    let cost = star_up_cost(&item, 0);
+    assert_eq!(
+        cost.stones,
+        sell / 3,
+        "the wager is a third of the sell price"
+    );
+    // The 灵石 wager does not climb with the stars already bought: every
+    // attempt is the same bet. The tribute is the same wood and stone too —
+    // until the star being reached is a high one, which is where the iron
+    // begins.
     let mut deep = item.clone();
     deep.star = 7;
-    assert_eq!(star_up_cost(&deep), cost);
+    let deep_cost = star_up_cost(&deep, 0);
+    assert_eq!(deep_cost.stones, cost.stones, "the wager is the same bet");
+    assert_eq!(cost.resources.iron, 0, "a low star burns no iron");
+    assert!(
+        deep_cost.resources.iron > 0,
+        "a high star is where the 采石 trade's find is spent"
+    );
 
     let purse = 1_000;
     let mut cultivation = owning_one(item.clone(), purse);
@@ -3005,7 +3026,7 @@ fn a_star_costs_a_third_of_what_the_piece_sells_for() {
     assert_eq!(outcome.from, 0);
     assert_eq!(
         cultivation.document().stones,
-        purse - cost,
+        purse - cost.stones,
         "the purse paid the wager"
     );
     // A failed wager is still a wager: walk the clock until the roll comes to
@@ -3024,7 +3045,7 @@ fn a_star_costs_a_third_of_what_the_piece_sells_for() {
     let failed = failed.expect("a failure came up");
     assert_eq!(
         cultivation.document().stones,
-        before - cost * attempts,
+        before - cost.stones * attempts,
         "a failed wager is still a wager"
     );
     assert_eq!(
@@ -3087,14 +3108,18 @@ fn a_star_the_purse_cannot_cover_is_refused() {
         name: None,
         set: None,
     };
-    let cost = star_up_cost(&item);
-    let mut cultivation = owning_one(item.clone(), cost - 1);
+    let cost = star_up_cost(&item, 0);
+    let mut cultivation = owning_one(item.clone(), cost.stones - 1);
     assert_eq!(
         cultivation.star_item(item.id, 500),
         Err(TradeRefusal::NotEnoughStones),
         "one stone short is one stone short"
     );
-    assert_eq!(cultivation.document().stones, cost - 1, "and nothing moved");
+    assert_eq!(
+        cultivation.document().stones,
+        cost.stones - 1,
+        "and nothing moved"
+    );
     assert_eq!(
         cultivation.star_item(999, 500),
         Err(TradeRefusal::NotOwned),
@@ -3127,6 +3152,94 @@ fn a_full_piece_refuses_the_wager() {
         cultivation.document().stones,
         5_000,
         "and nothing was spent"
+    );
+}
+
+/// One gathering at the forest fills the purse with wood and banks 伐木 xp; a
+/// run of them climbs the trade, and the 仓库's ceiling clips a full purse
+/// rather than overflowing it.
+#[test]
+fn a_forest_gathering_fills_the_purse_and_trains_the_trade() {
+    let mut cultivation = Cultivation::new(CultivationDocument::default());
+    let first = cultivation
+        .collect_resources(GatherSite::Forest, 0)
+        .expect("the gathering");
+    assert!(first.gained.wood > 0, "the forest pays wood");
+    assert_eq!(first.woodcut_xp, 100, "one gathering is a hundred xp");
+    assert_eq!(first.stonecut_xp, 0, "the forest does not train 采石");
+    let bag = &cultivation.document().resources;
+    assert_eq!(bag.wood, first.gained.wood, "the purse holds the find");
+    // A full purse takes only what it has room for: no overflow, no loss of a
+    // kind that still has room.
+    let mut full = Cultivation::new(CultivationDocument {
+        resources: ResourceBag {
+            wood: BASE_RESOURCE_CAP,
+            stone: 0,
+            iron: 0,
+            coal: 0,
+        },
+        ..CultivationDocument::default()
+    });
+    let capped = full
+        .collect_resources(GatherSite::Forest, 0)
+        .expect("the gathering");
+    assert_eq!(capped.gained.wood, 0, "a full purse takes no wood");
+    assert_eq!(
+        full.document().resources.wood,
+        BASE_RESOURCE_CAP,
+        "the purse stays at its ceiling"
+    );
+}
+
+/// One round at the mine trains both trades at once, because the mine is where
+/// the two trained hands are worth more together.
+#[test]
+fn a_mine_gathering_trains_both_trades() {
+    let mut cultivation = Cultivation::new(CultivationDocument::default());
+    let outcome = cultivation
+        .collect_resources(GatherSite::Mine, 0)
+        .expect("the gathering");
+    assert_eq!(outcome.woodcut_xp, 100);
+    assert_eq!(outcome.stonecut_xp, 100);
+}
+
+/// A building rank is paid in 灵石 and the gathered tribute, atomically: a
+/// purse with the money but not the ore is told it is short of the ore, and a
+/// rank at the top of the ladder is refused outright.
+#[test]
+fn a_building_rank_costs_stones_and_resources() {
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        stones: 1_000,
+        resources: ResourceBag {
+            wood: 100,
+            stone: 100,
+            iron: 100,
+            coal: 100,
+        },
+        ..CultivationDocument::default()
+    });
+    let cost = building_upgrade_cost(0);
+    let outcome = cultivation
+        .upgrade_building(Building::Workshop, 0)
+        .expect("the rank");
+    assert_eq!(outcome.from, 0);
+    assert_eq!(outcome.to, 1);
+    assert_eq!(cultivation.document().workshop_level, 1);
+    assert_eq!(cultivation.document().stones, 1_000 - cost.stones);
+    assert_eq!(
+        cultivation.document().resources.wood,
+        100 - cost.resources.wood,
+        "the tribute was paid"
+    );
+    // A purse with the money but not the ore is refused for the ore.
+    let mut poor = Cultivation::new(CultivationDocument {
+        stones: 1_000,
+        ..CultivationDocument::default()
+    });
+    assert_eq!(
+        poor.upgrade_building(Building::Workshop, 0),
+        Err(TradeRefusal::NotEnoughResources),
+        "the money is there, the ore is not"
     );
 }
 

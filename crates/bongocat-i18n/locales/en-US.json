@@ -749,7 +749,7 @@
       "label_named": "%{name} · tier %{tier} · %{quality}",
       "quality": "%{quality} %{stars}",
       "star_line": "%{stars} · all attributes ×%{percent}%",
-      "star_button": "Star up %{stones}",
+      "star_button": "Star up %{stones} stones %{tribute}",
       "effect_line": "Effect %{effect}: %{detail}",
       "set_line": "Set: %{set}",
       "details": "Constitution %{root} · Strength %{strength} · Mana %{mana} · Agility %{agility}",
@@ -792,6 +792,28 @@
       "plant_odds": "%{percent}% to take",
       "withered": "Did not take",
       "dig": "Dig out"
+    },
+    "resources": {
+      "title": "Resources & Gathering",
+      "bag_entry": "%{resource} %{count}/%{cap}",
+      "trade": "Lv %{level} · %{xp}/%{next} xp",
+      "building": "%{building} Lv %{level}",
+      "cost": "%{stones} stones %{tribute}"
+    },
+    "site": {
+      "forest": "Forest·Woodcut",
+      "mountain": "Mountain·Stonecut",
+      "mine": "Mine·Both"
+    },
+    "skill": {
+      "woodcut": "Woodcut",
+      "stonecut": "Stonecut"
+    },
+    "building": {
+      "workshop": "Workshop",
+      "warehouse": "Warehouse",
+      "smithy": "Smithy",
+      "dojo": "Dojo"
     },
     "breakthrough": {
       "title": "Breakthrough",
@@ -933,7 +955,9 @@
       "star_failed": "Star up failed: %{name} fell to %{star} stars",
       "drop_art": "One in a thousand: an art, %{item}",
       "drop_herb": "One in a thousand: %{item}",
-      "drop_stones": "One in a thousand: %{item} stones"
+      "drop_stones": "One in a thousand: %{item} stones",
+      "collect": "%{site}: got %{gained}, +%{xp} gathering xp",
+      "building_upgrade": "%{building} rose to level %{level}"
     },
     "record": {
       "title": "Recent events",
@@ -979,8 +1003,9 @@
       "withered": "%{seed} did not take (%{percent}%) — mastery +%{xp}",
       "rank_up": "The garden rose to rank %{rank} (%{stones} stones)",
       "bought_bare": "Bought %{what}",
-      "star_success": "%{name} rose a star — %{stars} (%{stones} stones)",
-      "star_failed": "%{name} fell back to %{star} stars (%{stones} stones)",
+      "star_success": "%{name} rose a star — %{stars} (%{stones} stones, %{tribute})",
+      "star_failed": "%{name} fell back to %{star} stars (%{stones} stones, %{tribute})",
+      "building_upgrade": "%{building} rose to level %{level} (%{stones} stones, %{tribute})",
       "aptitude": "%{herb} · aptitude +%{gain} → %{value}",
       "aptitude_gate": "%{line} (Marrow Pill ×%{pills})",
       "marrow_found": "Found a Marrow Pill (%{source})",
@@ -1014,6 +1039,8 @@
       "sold": "Sold",
       "refuse_sold": "This tome has been sold already",
       "refuse_star_capped": "This piece already holds all ten stars",
+      "refuse_resources": "Not enough resources to star up (needs %{tribute})",
+      "refuse_building_capped": "This building already holds all ten ranks",
       "detail_sell": "Sells back for %{stones} stones",
       "special": "On sale · %{value}/10 of the listed %{list}",
       "seed_tier": "a tier %{tier} %{grade} herb",
@@ -1071,6 +1098,12 @@
       "lost": "The trial was too much; nothing came of it.",
       "refuse_empty": "No trial chance banked: finish a pomodoro to earn one",
       "refuse_out": "Still out on a walk — a trial waits until you are home"
+    },
+    "resource": {
+      "wood": "wood",
+      "stone": "stone",
+      "iron": "iron",
+      "coal": "coal"
     }
   }
 }

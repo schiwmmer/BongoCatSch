@@ -16,12 +16,14 @@ use super::*;
 use bongocat_i18n::{compact_number, format_text, group_thousands, text};
 use bongocat_pomodoro::{
     AptitudeHerb, ArtGrade, ArtKind, ArtOutcome, ArtOwnership, ArtView, Attribute, Attributes,
-    BonusFind, CultivationView, DailyKind, Derived, DropView, EquipSlot, EventDetail, EventRecord,
-    ExplorationHours, ExplorationOutcome, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR,
-    MarrowSource, MasteredArtView, PlotView, PomodoroCommand, Rarity, Realm, SaleKind, SeedGrade,
-    SeedView, ShopOffer, ShopOfferView, StrikeEffect, TRIAL_ATTEMPTS_PER_DAY, TrialBlocked,
-    art_bonus_at, art_payout_at, blueprint, grow_seconds_at, harvest_points, herb_tier,
-    mastered_art_bonus_payout, mastered_art_payout, plant_permille, star_multiplier_permille,
+    BonusFind, Building, BuildingView, Cost, CultivationView, DailyKind, Derived, DropView,
+    EquipSlot, EventDetail, EventRecord, ExplorationHours, ExplorationOutcome, GatherSite,
+    GatherSkill, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR, MarrowSource, MasteredArtView,
+    PlotView, PomodoroCommand, Rarity, Realm, Resource, ResourceBag, ResourcesView, SaleKind,
+    SeedGrade, SeedView, ShopOffer, ShopOfferView, StrikeEffect, TRIAL_ATTEMPTS_PER_DAY, TradeView,
+    TrialBlocked, art_bonus_at, art_payout_at, blueprint, grow_seconds_at, harvest_points,
+    herb_tier, mastered_art_bonus_payout, mastered_art_payout, plant_permille,
+    star_multiplier_permille,
 };
 
 use gpui_kit::component::Sizable as _;
@@ -39,6 +41,7 @@ mod gear;
 mod jobs;
 mod proving;
 mod records;
+mod resources;
 mod shop;
 mod trial;
 
@@ -162,6 +165,12 @@ pub(super) fn content(
             tokens,
         ))
         .child(garden_panel(&view, &cultivation, open_plot, locale, tokens))
+        .child(resources::resources_panel(
+            &view,
+            &cultivation,
+            locale,
+            tokens,
+        ))
         .children(breakthrough_panel(&view, &cultivation, locale, tokens))
         .child(exploration_panel(
             &view,
@@ -497,6 +506,47 @@ fn notices(
             .into_any_element(),
         );
     }
+    // What the last gathering turned up: the site, the find and the trade's xp,
+    // one line, so a click that yielded nothing the purse had room for says so.
+    if let Some(collect) = &cultivation.last_collect {
+        notices.push(
+            notice(
+                "cultivation-notice-collect",
+                format_text(
+                    locale,
+                    "cultivation.notice.collect",
+                    &[
+                        ("site", text(locale, collect.site.key()).to_string()),
+                        ("gained", resource_bag_text(locale, &collect.gained)),
+                        ("xp", (collect.woodcut_xp + collect.stonecut_xp).to_string()),
+                    ],
+                ),
+                tokens.accent,
+            )
+            .into_any_element(),
+        );
+    }
+    // What the last building rank came to.
+    if let Some(building) = &cultivation.last_building {
+        notices.push(
+            notice(
+                "cultivation-notice-building",
+                format_text(
+                    locale,
+                    "cultivation.notice.building_upgrade",
+                    &[
+                        (
+                            "building",
+                            text(locale, building.building.key()).to_string(),
+                        ),
+                        ("level", building.to.to_string()),
+                    ],
+                ),
+                tokens.accent,
+            )
+            .into_any_element(),
+        );
+    }
     // What a walk turned up, and what a trial floor paid, are not repeated
     // here: the event log below the notices records every walk and every floor
     // in order, and a find printed twice — once as a sticky line and once as
@@ -521,29 +571,52 @@ fn sell_label(locale: &str, stones: u32) -> String {
     )
 }
 
+/// The tribute one 升星 burns, spelled out: "木×3 · 石×2" or, for a high star,
+/// "木×3 · 石×2 · 铁×2". The names are the catalog's own, and a find the purse
+/// is not asked for is not listed — an attempt at a low star never names iron.
+fn resource_bag_text(locale: &str, bag: &ResourceBag) -> String {
+    let mut parts = Vec::new();
+    for resource in Resource::ALL {
+        let count = bag.get(resource);
+        if count > 0 {
+            parts.push(format!("{}×{count}", text(locale, resource.key())));
+        }
+    }
+    parts.join(" · ")
+}
+
+/// What one 升星 button says: the 灵石 wager and the forge's tribute, so the
+/// number the user weighs is the whole price and not a half of it.
+fn star_cost_text(locale: &str, cost: &Cost) -> String {
+    format_text(
+        locale,
+        "cultivation.item.star_button",
+        &[
+            ("stones", cost.stones.to_string()),
+            ("tribute", resource_bag_text(locale, &cost.resources)),
+        ],
+    )
+}
+
 /// The 升星 button: what the wager costs, spelled out, and nothing at all once
 /// the piece holds every star it can.
 ///
-/// The price is the domain's own — half of what the piece sells for — so the
-/// number on the button is the number the purse pays. A capped piece offers no
-/// button rather than a disabled one: a button that cannot be pressed is a
+/// The price is the domain's own — the 灵石 wager and the forge's tribute — so
+/// the number on the button is the number the purse pays. A capped piece offers
+/// no button rather than a disabled one: a button that cannot be pressed is a
 /// button the user has to wonder about.
 fn star_button(
     view: &Entity<SettingsView>,
     item: &ItemView,
     locale: &str,
 ) -> Option<gpui_kit::AnyElement> {
-    let cost = item.star_cost?;
+    let cost = item.star_cost.as_ref()?;
     let item_id = item.id;
     Some(
         Button::new(format!("cultivation-star-{item_id}"))
             .ghost()
             .small()
-            .label(format_text(
-                locale,
-                "cultivation.item.star_button",
-                &[("stones", cost.to_string())],
-            ))
+            .label(star_cost_text(locale, cost))
             .on_click({
                 let view = view.clone();
                 move |_, _, cx| {

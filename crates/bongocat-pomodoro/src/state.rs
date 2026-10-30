@@ -308,6 +308,11 @@ pub enum PomodoroCommand {
     /// that falls as the stars climb, and one star back on a failure — never
     /// past the first.
     StarEquipment { item_id: u64 },
+    /// Gather one round at a site: the resources it yields and the trade's xp,
+    /// all in one click.
+    CollectResources { site: crate::GatherSite },
+    /// Raise one building a rank for 灵石 and the gathered tribute.
+    UpgradeBuilding { building: crate::Building },
     /// Feed one 潜质 herb to the body: 悟心草 or 慧心草.
     ///
     /// The page feeds a herb the moment it is found, so this command only ever
@@ -372,6 +377,8 @@ impl PomodoroCommand {
             | Self::SellSeed { .. }
             | Self::SellHerbSeed { .. }
             | Self::StarEquipment { .. }
+            | Self::CollectResources { .. }
+            | Self::UpgradeBuilding { .. }
             | Self::UseAptitudeHerb { .. }
             | Self::UseMarrowPill
             | Self::AcknowledgeDailyEvent { .. } => true,
@@ -647,6 +654,16 @@ impl PomodoroState {
             }
             PomodoroCommand::StarEquipment { item_id } => {
                 if let Err(refusal) = self.cultivation.star_item(item_id, now_unix) {
+                    self.cultivation.note_refusal(Refusal::Trade(refusal));
+                }
+            }
+            PomodoroCommand::CollectResources { site } => {
+                if let Err(refusal) = self.cultivation.collect_resources(site, now_unix) {
+                    self.cultivation.note_refusal(Refusal::Trade(refusal));
+                }
+            }
+            PomodoroCommand::UpgradeBuilding { building } => {
+                if let Err(refusal) = self.cultivation.upgrade_building(building, now_unix) {
                     self.cultivation.note_refusal(Refusal::Trade(refusal));
                 }
             }

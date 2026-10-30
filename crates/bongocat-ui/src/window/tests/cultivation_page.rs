@@ -14,12 +14,12 @@ use super::*;
 use crate::window::cultivation_duel;
 use crate::window::cultivation_settings;
 use bongocat_pomodoro::{
-    ArtGrade, ArtOutcome, ArtOwnership, Attribute, Attributes, CropRecord, Cultivation,
+    ArtGrade, ArtOutcome, ArtOwnership, Attribute, Attributes, Cost, CropRecord, Cultivation,
     CultivationDocument, DailyKind, DailyOutcome, Derived, DerivedSlot, DuelReport, DuelRound,
     EventDetail, EventRecord, ExplorationFindView, ExplorationOutcome, Fighter, ItemView, JobKind,
     JobRun, LAYERS_PER_STAGE, OwnedArt, PLAYER_NAME, PlotRecord, PomodoroCommand, PomodoroSnapshot,
-    PomodoroState, ProvingBlocked, Rarity, Realm, SeedGrade, SeedStack, ShopOffer, TrainingView,
-    TrialBlocked, TrialOutcome, WANDERER_NAME, threshold_for,
+    PomodoroState, ProvingBlocked, Rarity, Realm, ResourceBag, SeedGrade, SeedStack, ShopOffer,
+    TrainingView, TrialBlocked, TrialOutcome, WANDERER_NAME, threshold_for,
 };
 use gpui_kit::{ScrollDelta, point, px};
 
@@ -101,12 +101,36 @@ fn cultivation_page_with(
 /// row it wants into view first — exactly the way the real settings frame
 /// scrolls. Scrolling in small steps and asking after each keeps the tests free
 /// of the page's pixel height.
+///
+/// The scroll is asked for in both directions: the hints a page test walks
+/// through are not in page order (the derived numbers sit at the top and the
+/// shop at the bottom), so a frame that only ever scrolled down could not come
+/// back to a rule it had already passed.
 fn scroll_until_visible(visual: &mut VisualTestContext, id: &'static str) {
-    for _ in 0..24 {
-        let visible = visual.update(|window, _| {
-            window
-                .try_find(ElementId::from(id))
-                .is_some_and(|snapshot| snapshot.visible())
+    for _ in 0..48 {
+        // Which way to walk, on this step: the target's own bounds against the
+        // viewport's, read through the same element snapshot the visibility
+        // check reads. `visible` is the fast path — a row on screen needs no
+        // travel — and the sign of `travel` is the direction a hidden row sits
+        // in. `-1` is above (scrolling up), `1` is below (scrolling down).
+        let (visible, travel) = visual.update(|window, _| {
+            let Some(snapshot) = window.try_find(ElementId::from(id)) else {
+                return (false, 0);
+            };
+            if snapshot.visible() {
+                return (true, 0);
+            }
+            let bounds = snapshot.bounds();
+            let viewport = window
+                .try_find(ElementId::from("cultivation-page-harness"))
+                .map(|frame| frame.bounds())
+                .unwrap_or(bounds);
+            let travel = if bounds.origin.y + bounds.size.height < viewport.origin.y {
+                -1
+            } else {
+                1
+            };
+            (false, travel)
         });
         if visible {
             // One more line: a row that has only just come into view sits
@@ -123,10 +147,14 @@ fn scroll_until_visible(visual: &mut VisualTestContext, id: &'static str) {
             });
             return;
         }
+        // A row above the viewport is scrolled up to (a positive delta), a row
+        // below it down (a negative one); either way the scroll clamps at the
+        // page's ends rather than walking past them.
+        let delta = if travel < 0 { 6.0 } else { -6.0 };
         visual.update(|window, cx| {
             window.scroll(
                 ElementId::from("cultivation-page-harness"),
-                ScrollDelta::Lines(point(0.0, -6.0)),
+                ScrollDelta::Lines(point(0.0, delta)),
                 cx,
             );
             window.render_frame(cx);
@@ -700,7 +728,15 @@ fn clicking_a_star_asks_the_worker_for_the_wager(cx: &mut TestAppContext) {
         equipped: false,
         star: 3,
         effect: Some(bongocat_pomodoro::GearEffect::Frost),
-        star_cost: Some(350),
+        star_cost: Some(Cost {
+            stones: 350,
+            resources: ResourceBag {
+                wood: 3,
+                stone: 2,
+                iron: 0,
+                coal: 0,
+            },
+        }),
         name: Some("玄霜剑【寒霜】".to_owned()),
         set: None,
         sell_price: 700,

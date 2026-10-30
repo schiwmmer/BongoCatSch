@@ -179,20 +179,37 @@ pub fn seed_price(tier: u8, grade: SeedGrade) -> u32 {
         .max(1)
 }
 
-/// What one attempt at the next star costs: a third of what the piece sells for.
+/// What one attempt at the next star costs: the 灵石 wager and the raw tribute
+/// the forge burns.
 ///
-/// Read off the sell price rather than the asking price, so the number on the
-/// button is the number the user can check against the 卖 button on the same
-/// row. It does not climb with the star the piece already holds: every attempt
-/// is the same wager, which is what makes a run of failures readable as a run
-/// of the same bet rather than as an escalating one.
+/// The wager is a third of what the piece sells for, read off the sell price
+/// rather than the asking price, so the number on the button is the number the
+/// user can check against the 卖 button on the same row. It does not climb with
+/// the star the piece already holds: every attempt is the same wager, which is
+/// what makes a run of failures readable as a run of the same bet rather than
+/// as an escalating one.
+///
+/// The tribute is wood and stone at every star, and iron once the star being
+/// reached is a high one — the rare find a trained 采石 hand brings home. The
+/// 铁匠铺 discounts the 灵石 wager ([`smithy_multiplier_permille`]) but never
+/// the ore: what the smithy's craft saves is the money, not the material it has
+/// to have.
 ///
 /// Stars are a sink and never an investment: the sell price is the piece's
 /// tier and quality alone, so a ten-star piece sells for exactly what an
 /// unstarred one does. Buying stars back at a profit would make the 灵石 purse
 /// a slot machine.
-pub fn star_up_cost(item: &EquipmentRecord) -> u32 {
-    ShopOffer::Equipment(item.clone()).sell_price() / 3
+pub fn star_up_cost(item: &EquipmentRecord, smithy_level: u8) -> super::Cost {
+    let mut resources = super::ResourceBag::default();
+    resources.add(super::Resource::Wood, super::STAR_WOOD_PER_STAR);
+    resources.add(super::Resource::Stone, super::STAR_STONE_PER_STAR);
+    if item.star.saturating_add(1) >= super::STAR_IRON_FROM_STAR {
+        resources.add(super::Resource::Iron, super::STAR_IRON_HIGH_STAR);
+    }
+    let stones = ShopOffer::Equipment(item.clone()).sell_price() / 3
+        * super::smithy_multiplier_permille(smithy_level)
+        / 1_000;
+    super::Cost { stones, resources }
 }
 
 /// How much dearer than its own tier of gear a 功法 is, in halves.

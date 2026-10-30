@@ -17,10 +17,11 @@ use super::{
     ART_COUNT, ArtGrade, ArtKind, ArtOutcome, ArtSetView, ArtStrike, ArtView, Attribute,
     Attributes, BONUS_GEAR_PERMILLE, BONUS_INSIGHT_PERMILLE, BONUS_SEED_PERMILLE,
     BONUS_STONES_PERMILLE, BONUS_WISDOM_PERMILLE, BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport,
-    CultivationDocument, DailyKind, Derived, DerivedBreakdown, DuelReport, EQUIPMENT_DROP_PERMILLE,
-    EquipSlot, EquipmentRecord, ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, GearEffect,
-    GearSetView, Guardian, MAX_LEVEL, MAX_STAR, MasteredArtView, OwnedArt, PLAYER_NAME,
-    RECENT_ARTS_CAP, Rarity, Realm, Refusal, Rng, SEED_DROP_PERMILLE, SESSION_BONUS_PERMILLE,
+    Building, Cost, CultivationDocument, DailyKind, Derived, DerivedBreakdown, DuelReport,
+    EQUIPMENT_DROP_PERMILLE, EquipSlot, EquipmentRecord, ExplorationOutcome, FREE_POINTS_PER_LEVEL,
+    Fighter, GatherSite, GearEffect, GearSetView, Guardian, MAX_BUILDING_LEVEL, MAX_LEVEL,
+    MAX_STAR, MAX_TRADE_LEVEL, MasteredArtView, OwnedArt, PLAYER_NAME, RECENT_ARTS_CAP, Rarity,
+    Realm, Refusal, Resource, ResourceBag, Rng, SEED_DROP_PERMILLE, SESSION_BONUS_PERMILLE,
     SLOT_COUNT, SeedStack, VICTORY_SEED_PERMILLE, absence_penalty, art_attributes, art_view,
     arts::{
         art_bonus, art_set_bonus, art_set_views, blueprint, mastered_art_attributes,
@@ -28,6 +29,7 @@ use super::{
     },
     base_attributes,
     battle::{guardian_for, resolve},
+    building_upgrade_cost, collect,
     curve::{layer_growth, layer_rank, level_for_growth, stage_floor, threshold_for},
     daily::{
         DAILY_AMBUSH_STONES, DAILY_GIFT_STONES, DAILY_TRINKET_STONES, GiftKind, roll_gift,
@@ -49,9 +51,9 @@ use super::{
     mastery_permille,
     opponent::{self, Opponent},
     proving::{ProvingOutcome, TRIAL_CHANCES_CAP},
-    scaled_growth,
+    resource_cap, scaled_growth,
     shop::{self, ShopOffer, ShopOfferView, star_up_cost},
-    star_success_permille,
+    skill_ready, skill_xp_total, star_success_permille,
     trade::{TradeRefusal, session_earnings},
     trial::{
         TRIAL_ATTEMPTS_PER_DAY, TRIAL_MAX_FLOOR, TrialReward, floor_realm, roll_reward,
@@ -309,8 +311,86 @@ pub struct StarOutcome {
     pub to: u8,
     /// Whether the attempt came off.
     pub success: bool,
-    /// What the attempt cost, in 灵石.
-    pub cost: u32,
+    /// What the attempt cost: the 灵石 wager and the resources the forge burned.
+    pub cost: super::Cost,
+}
+
+/// What one gathering at a site turned up.
+///
+/// Carried rather than left to the event log because the popup that says "伐木
+/// +12 木材，+100 伐木经验" has to know the move, and a gathering is too routine
+/// to be a line in the history.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CollectOutcome {
+    /// Where the gathering was done.
+    pub site: GatherSite,
+    /// What the purse actually gained, after the 仓库's ceiling.
+    pub gained: ResourceBag,
+    /// The 伐木 xp banked by this gathering.
+    pub woodcut_xp: u32,
+    /// The 采石 xp banked by this gathering.
+    pub stonecut_xp: u32,
+    /// The 伐木 level after the gathering, if it trained 伐木.
+    pub woodcut_level: u8,
+    /// The 采石 level after the gathering, if it trained 采石.
+    pub stonecut_level: u8,
+}
+
+/// What one building rank came to.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BuildingOutcome {
+    /// The building raised.
+    pub building: Building,
+    /// The rank it stood at before.
+    pub from: u8,
+    /// The rank it stands at now.
+    pub to: u8,
+    /// What the rank cost.
+    pub cost: Cost,
+}
+
+/// One gathering trade, as the page reads it: the level, the xp banked toward
+/// the next, and what that next costs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TradeView {
+    /// The trade's level.
+    pub level: u8,
+    /// The xp banked toward the next level.
+    pub xp: u32,
+    /// What the next level costs, in xp.
+    pub xp_to_next: u32,
+}
+
+/// One building, as the page reads it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BuildingView {
+    /// The rank the building stands at.
+    pub level: u8,
+    /// Whether it is as tall as it can be.
+    pub capped: bool,
+    /// What the next rank costs, and nothing at the top of the ladder.
+    pub upgrade_cost: Option<Cost>,
+}
+
+/// The resource economy as the settings page reads it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResourcesView {
+    /// The purse.
+    pub bag: ResourceBag,
+    /// What the purse holds at most, of one resource.
+    pub cap: u32,
+    /// 伐木, the forest trade.
+    pub woodcut: TradeView,
+    /// 采石, the mountain trade.
+    pub stonecut: TradeView,
+    /// 工坊: the yield's multiplier.
+    pub workshop: BuildingView,
+    /// 仓库: the purse's width.
+    pub warehouse: BuildingView,
+    /// 铁匠铺: the wager's discount.
+    pub smithy: BuildingView,
+    /// 道场: the xp's multiplier.
+    pub dojo: BuildingView,
 }
 
 /// What one 潜质 herb did.
@@ -399,9 +479,9 @@ pub struct ItemView {
     pub star: u8,
     /// The effect a 神装 carries, for the name, the icon and the detail.
     pub effect: Option<GearEffect>,
-    /// What one more star costs, in 灵石: half of what the piece sells for.
-    /// `None` once the piece holds every star it can.
-    pub star_cost: Option<u32>,
+    /// What one more star costs: the 灵石 wager and the resources the forge
+    /// burns. `None` once the piece holds every star it can.
+    pub star_cost: Option<super::Cost>,
     /// The xianxia-given name the drop carried, if any.
     pub name: Option<String>,
     /// The set this piece belongs to, when it is a set piece. A set's pieces all
@@ -789,6 +869,13 @@ pub struct CultivationView {
     pub star_attempts: u32,
     /// What the last star attempt came to, kept for the line that says it.
     pub last_star: Option<StarOutcome>,
+    /// What the last gathering turned up, kept for the line that says it.
+    pub last_collect: Option<CollectOutcome>,
+    /// What the last building rank came to, kept for the line that says it.
+    pub last_building: Option<BuildingOutcome>,
+    /// The resource economy as the page reads it: the purse, the two trades and
+    /// the four buildings, each with what the page says about it.
+    pub resources: ResourcesView,
     /// How many floors have been attempted, so a surface can tell a new report
     /// from one it has already shown.
     pub trial_attempts: u32,
@@ -945,6 +1032,10 @@ pub struct Cultivation {
     star_attempts: u32,
     /// What the last star attempt came to.
     last_star: Option<StarOutcome>,
+    /// What the last gathering turned up.
+    last_collect: Option<CollectOutcome>,
+    /// What the last building rank came to.
+    last_building: Option<BuildingOutcome>,
     /// How many floors have been attempted this session. A surface watches this
     /// rather than the report, for the same reason it watches
     /// [`Self::breakthrough_attempts`]: a running pomodoro bumps the revision
@@ -1025,6 +1116,8 @@ impl Cultivation {
             daily_events: 0,
             star_attempts: 0,
             last_star: None,
+            last_collect: None,
+            last_building: None,
             breakthrough_attempts: 0,
             last_refusal: None,
             refusal_count: 0,
@@ -2542,14 +2635,15 @@ impl Cultivation {
         entry.take().is_some()
     }
 
-    /// Spend 灵石 on one attempt at a piece's next star.
+    /// Spend 灵石 and the forge's tribute on one attempt at a piece's next star.
     ///
-    /// The wager is the same shape whatever the piece: the stones are spent
-    /// first, the star turns over at [`star_success_permille`] of the star the
-    /// piece stands at, and a failure drops one star back — never past the
-    /// first, so a run of bad luck costs progress and never the piece's
-    /// footing. Refused with the reason when the purse cannot cover it, the
-    /// piece is not owned, or the piece already holds every star.
+    /// The wager is the same shape whatever the piece: the stones and the
+    /// resources are spent first, the star turns over at
+    /// [`star_success_permille`] of the star the piece stands at, and a failure
+    /// drops one star back — never past the first, so a run of bad luck costs
+    /// progress and never the piece's footing. Refused with the reason when the
+    /// purse cannot cover it, the piece is not owned, or the piece already
+    /// holds every star.
     pub fn star_item(&mut self, item_id: u64, now_unix: i64) -> Result<StarOutcome, TradeRefusal> {
         let Some(item) = self.item(item_id).map(|mut item| {
             item.star = item.star.min(MAX_STAR);
@@ -2560,11 +2654,15 @@ impl Cultivation {
         if item.star >= MAX_STAR {
             return Err(TradeRefusal::StarCapped);
         }
-        let cost = star_up_cost(&item);
-        if self.document.stones < cost {
+        let cost = star_up_cost(&item, self.document.smithy_level);
+        if self.document.stones < cost.stones {
             return Err(TradeRefusal::NotEnoughStones);
         }
-        self.document.stones = self.document.stones.saturating_sub(cost);
+        if !self.document.resources.can_spend_bag(&cost.resources) {
+            return Err(TradeRefusal::NotEnoughResources);
+        }
+        self.document.stones = self.document.stones.saturating_sub(cost.stones);
+        self.document.resources.spend_bag(&cost.resources);
         let mut rng = self.rng(now_unix);
         let success = rng.below(1_000) < u64::from(star_success_permille(item.star));
         let from = item.star;
@@ -2591,7 +2689,7 @@ impl Cultivation {
             from,
             to,
             success,
-            cost,
+            cost: cost.clone(),
         };
         self.star_attempts = self.star_attempts.saturating_add(1);
         self.last_star = Some(outcome.clone());
@@ -2605,6 +2703,145 @@ impl Cultivation {
             },
         );
         Ok(outcome)
+    }
+
+    /// Gather one round at a site: the resources it yields and the trade's xp.
+    ///
+    /// The purse takes what it has room for, up to the 仓库's ceiling, and the
+    /// trade banks xp toward its next level — one level per click at most is
+    /// not enforced, but the while-loop is what lets a deep pocket of xp climb
+    /// two ranks at once when the 道场 has been raising it. Never refused: a
+    /// gathering is always something to do, at a site that is always open.
+    pub fn collect_resources(
+        &mut self,
+        site: GatherSite,
+        _now_unix: i64,
+    ) -> Result<CollectOutcome, TradeRefusal> {
+        let yield_ = collect(
+            site,
+            self.document.woodcut_level,
+            self.document.stonecut_level,
+            self.document.workshop_level,
+            self.document.dojo_level,
+        );
+        // The 仓库's ceiling is per resource: a purse at the top of one kind
+        // keeps the find of the other, so a full purse is never a lost day.
+        let cap = resource_cap(self.document.warehouse_level);
+        let mut gained = ResourceBag::default();
+        for resource in Resource::ALL {
+            let room = cap.saturating_sub(self.document.resources.get(resource));
+            gained.add(resource, yield_.gained.get(resource).min(room));
+        }
+        self.document.resources.add_bag(&gained);
+        // The trades bank xp; the while-loop lets a big 道场 climb two ranks.
+        self.document.woodcut_xp = self.document.woodcut_xp.saturating_add(yield_.woodcut_xp);
+        self.document.stonecut_xp = self.document.stonecut_xp.saturating_add(yield_.stonecut_xp);
+        while self.document.woodcut_level < MAX_TRADE_LEVEL
+            && skill_ready(self.document.woodcut_level, self.document.woodcut_xp)
+        {
+            self.document.woodcut_level += 1;
+        }
+        while self.document.stonecut_level < MAX_TRADE_LEVEL
+            && skill_ready(self.document.stonecut_level, self.document.stonecut_xp)
+        {
+            self.document.stonecut_level += 1;
+        }
+        let outcome = CollectOutcome {
+            site,
+            gained,
+            woodcut_xp: yield_.woodcut_xp,
+            stonecut_xp: yield_.stonecut_xp,
+            woodcut_level: self.document.woodcut_level,
+            stonecut_level: self.document.stonecut_level,
+        };
+        self.last_collect = Some(outcome.clone());
+        Ok(outcome)
+    }
+
+    /// Raise one building a rank for 灵石 and the gathered tribute.
+    ///
+    /// Refused at the top of a building's ladder, or when the purse cannot
+    /// cover the rank's whole price — a rank is atomic, so a purse with the
+    /// money but not the ore is told it is short of the ore.
+    pub fn upgrade_building(
+        &mut self,
+        building: Building,
+        now_unix: i64,
+    ) -> Result<BuildingOutcome, TradeRefusal> {
+        let level = self.building_level(building);
+        if level >= MAX_BUILDING_LEVEL {
+            return Err(TradeRefusal::BuildingCapped);
+        }
+        let cost = building_upgrade_cost(level);
+        if self.document.stones < cost.stones {
+            return Err(TradeRefusal::NotEnoughStones);
+        }
+        if !self.document.resources.can_spend_bag(&cost.resources) {
+            return Err(TradeRefusal::NotEnoughResources);
+        }
+        self.document.stones = self.document.stones.saturating_sub(cost.stones);
+        self.document.resources.spend_bag(&cost.resources);
+        *self.building_level_mut(building) = level.saturating_add(1);
+        let outcome = BuildingOutcome {
+            building,
+            from: level,
+            to: level.saturating_add(1),
+            cost,
+        };
+        self.last_building = Some(outcome.clone());
+        self.push_event(
+            now_unix,
+            EventDetail::BuildingUpgrade {
+                building,
+                level: outcome.to,
+                cost: outcome.cost.clone(),
+            },
+        );
+        Ok(outcome)
+    }
+
+    /// The rank one building stands at.
+    pub(crate) fn building_level(&self, building: Building) -> u8 {
+        match building {
+            Building::Workshop => self.document.workshop_level,
+            Building::Warehouse => self.document.warehouse_level,
+            Building::Smithy => self.document.smithy_level,
+            Building::Dojo => self.document.dojo_level,
+        }
+    }
+
+    /// The rank one building stands at, writable.
+    fn building_level_mut(&mut self, building: Building) -> &mut u8 {
+        match building {
+            Building::Workshop => &mut self.document.workshop_level,
+            Building::Warehouse => &mut self.document.warehouse_level,
+            Building::Smithy => &mut self.document.smithy_level,
+            Building::Dojo => &mut self.document.dojo_level,
+        }
+    }
+
+    /// The resource economy as the settings page reads it.
+    fn resources_view(&self) -> ResourcesView {
+        let trade = |level: u8, xp: u32| TradeView {
+            level,
+            xp,
+            xp_to_next: skill_xp_total(level.saturating_add(1)),
+        };
+        let building = |level: u8| BuildingView {
+            level,
+            capped: level >= MAX_BUILDING_LEVEL,
+            upgrade_cost: (level < MAX_BUILDING_LEVEL).then(|| building_upgrade_cost(level)),
+        };
+        ResourcesView {
+            bag: self.document.resources.clone(),
+            cap: resource_cap(self.document.warehouse_level),
+            woodcut: trade(self.document.woodcut_level, self.document.woodcut_xp),
+            stonecut: trade(self.document.stonecut_level, self.document.stonecut_xp),
+            workshop: building(self.document.workshop_level),
+            warehouse: building(self.document.warehouse_level),
+            smithy: building(self.document.smithy_level),
+            dojo: building(self.document.dojo_level),
+        }
     }
 
     /// Mark the day's morning event as seen, so the window does not replay it.
@@ -4098,7 +4335,8 @@ impl Cultivation {
                     equipped: false,
                     star: item.star(),
                     effect: item.effect,
-                    star_cost: (!item.star_capped()).then(|| star_up_cost(&item)),
+                    star_cost: (!item.star_capped())
+                        .then(|| star_up_cost(&item, self.document.smithy_level)),
                     name: item.name.clone(),
                     set: item.set,
                     sell_price: shop::ShopOffer::Equipment(item.clone()).sell_price(),
@@ -4173,6 +4411,9 @@ impl Cultivation {
             daily_event_seen_day: self.document.daily_event_seen_day,
             star_attempts: self.star_attempts,
             last_star: self.last_star.clone(),
+            last_collect: self.last_collect.clone(),
+            last_building: self.last_building.clone(),
+            resources: self.resources_view(),
             next_session_growth: self.next_session_growth(day),
             derived_breakdowns: attribute_derived.breakdowns(attributes, bonus, level),
             duel_record: self.document.duel_record.clone(),
@@ -4244,7 +4485,8 @@ impl Cultivation {
             // What one more star costs, and nothing once the piece holds every
             // star it can: a button that asked for a star that cannot be had
             // would be a button that lies.
-            star_cost: (!item.star_capped()).then(|| star_up_cost(item)),
+            star_cost: (!item.star_capped())
+                .then(|| star_up_cost(item, self.document.smithy_level)),
             name: item.name.clone(),
             set: item.set,
             sell_price: shop::ShopOffer::Equipment(item.clone()).sell_price(),

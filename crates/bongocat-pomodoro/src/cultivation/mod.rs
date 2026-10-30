@@ -51,6 +51,7 @@ mod items;
 mod jobs;
 mod opponent;
 mod proving;
+mod resources;
 mod shop;
 mod state;
 mod trade;
@@ -111,6 +112,13 @@ pub use jobs::{
     refresh_cost,
 };
 pub use proving::{ProvingOutcome, TRIAL_CHANCES_CAP};
+pub use resources::{
+    BASE_COMMON_YIELD, BASE_RARE_YIELD, BASE_RESOURCE_CAP, BASE_SKILL_XP, BUILDING_STONES_PER_RANK,
+    Building, COAL_UNLOCK_LEVEL, CollectionYield, Cost, GatherSite, GatherSkill, IRON_UNLOCK_LEVEL,
+    MAX_BUILDING_LEVEL, MAX_TRADE_LEVEL, Resource, ResourceBag, STAR_IRON_FROM_STAR,
+    STAR_IRON_HIGH_STAR, STAR_STONE_PER_STAR, STAR_WOOD_PER_STAR, building_upgrade_cost, collect,
+    resource_cap, skill_ready, skill_xp_total, smithy_multiplier_permille,
+};
 pub use shop::SESSION_EARNINGS;
 pub use shop::{
     ArtOwnership, SEED_STONES_PER_POINT, SHOP_MAX_OFFERS, SHOP_MIN_OFFERS, ShopOffer,
@@ -118,10 +126,11 @@ pub use shop::{
     star_up_cost,
 };
 pub use state::{
-    AbsenceCharge, AptitudeUse, BreakthroughOutcome, CropView, Cultivation, CultivationView,
-    DailyOutcome, Drop, DropView, ExplorationFindView, GuardianView, HarvestOutcome, ItemView,
-    JobView, PlantOutcome, PlotView, PowerBreakdown, ProvingBlocked, SeedView, SessionReward,
-    StarOutcome, TrainingView, TrialBlocked, TrialOutcome, TrialSweepOutcome, WorkPaid,
+    AbsenceCharge, AptitudeUse, BreakthroughOutcome, BuildingOutcome, BuildingView, CollectOutcome,
+    CropView, Cultivation, CultivationView, DailyOutcome, Drop, DropView, ExplorationFindView,
+    GuardianView, HarvestOutcome, ItemView, JobView, PlantOutcome, PlotView, PowerBreakdown,
+    ProvingBlocked, ResourcesView, SeedView, SessionReward, StarOutcome, TradeView, TrainingView,
+    TrialBlocked, TrialOutcome, TrialSweepOutcome, WorkPaid,
 };
 pub use trade::{TradeRefusal, session_earnings};
 pub use trial::{

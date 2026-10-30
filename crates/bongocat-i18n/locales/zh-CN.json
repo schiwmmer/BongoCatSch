@@ -749,7 +749,7 @@
       "label_named": "%{name} · %{tier} 阶 · %{quality}",
       "quality": "%{quality} %{stars}",
       "star_line": "%{stars} · 全属性 ×%{percent}%",
-      "star_button": "升星 %{stones}",
+      "star_button": "升星 %{stones} 灵石 %{tribute}",
       "effect_line": "特效 %{effect}：%{detail}",
       "set_line": "套装：%{set}",
       "details": "根骨 %{root} · 力量 %{strength} · 法力 %{mana} · 身法 %{agility}",
@@ -792,6 +792,28 @@
       "plant_odds": "成活率 %{percent}%",
       "withered": "未能成活",
       "dig": "铲除"
+    },
+    "resources": {
+      "title": "资源与采集",
+      "bag_entry": "%{resource} %{count}/%{cap}",
+      "trade": "Lv %{level} · 经验 %{xp}/%{next}",
+      "building": "%{building} Lv %{level}",
+      "cost": "%{stones} 灵石 %{tribute}"
+    },
+    "site": {
+      "forest": "森林·伐木",
+      "mountain": "山·采石",
+      "mine": "矿洞·双技能"
+    },
+    "skill": {
+      "woodcut": "伐木",
+      "stonecut": "采石"
+    },
+    "building": {
+      "workshop": "工坊",
+      "warehouse": "仓库",
+      "smithy": "铁匠铺",
+      "dojo": "道场"
     },
     "breakthrough": {
       "title": "破境",
@@ -933,7 +955,9 @@
       "star_failed": "升星失败：%{name} 降至 %{star} 星",
       "drop_art": "千分之一：获得功法《%{item}》",
       "drop_herb": "千分之一：获得 %{item}",
-      "drop_stones": "千分之一：获得 %{item} 灵石"
+      "drop_stones": "千分之一：获得 %{item} 灵石",
+      "collect": "%{site}：获得 %{gained}，采集经验 +%{xp}",
+      "building_upgrade": "%{building} 升至 %{level} 级"
     },
     "record": {
       "title": "最近事件",
@@ -979,8 +1003,9 @@
       "withered": "%{seed} 未能成活（%{percent}%）· 造化 +%{xp}",
       "rank_up": "仙草园晋至 %{rank} 阶（花 %{stones} 灵石）",
       "bought_bare": "购入 %{what}",
-      "star_success": "%{name} 升星成功，%{stars}（花 %{stones} 灵石）",
-      "star_failed": "%{name} 升星失败，降至 %{star} 星（花 %{stones} 灵石）",
+      "star_success": "%{name} 升星成功，%{stars}（花 %{stones} 灵石、%{tribute}）",
+      "star_failed": "%{name} 升星失败，降至 %{star} 星（花 %{stones} 灵石、%{tribute}）",
+      "building_upgrade": "%{building} 升至 %{level} 级（花 %{stones} 灵石、%{tribute}）",
       "aptitude": "%{herb} · 潜质 +%{gain} → %{value}",
       "aptitude_gate": "%{line}（耗洗髓丹 %{pills}）",
       "marrow_found": "得洗髓丹 ×1（%{source}）",
@@ -1014,6 +1039,8 @@
       "sold": "已售",
       "refuse_sold": "这本功法之书已售过，不可再卖",
       "refuse_star_capped": "这件装备已满 10 星，无法再升",
+      "refuse_resources": "资源不足，无法升星（需要 %{tribute}）",
+      "refuse_building_capped": "这座建筑已满 10 级，无法再升",
       "detail_sell": "卖出可得 %{stones} 灵石",
       "special": "特价 %{value} 折 · 原价 %{list}",
       "seed_tier": "%{tier} 阶%{grade}仙草",
@@ -1071,6 +1098,12 @@
       "lost": "试炼落败，未有所获。",
       "refuse_empty": "暂无试炼机会：完成一个番茄钟可得一次",
       "refuse_out": "尚在外游历，回山门后方可试炼"
+    },
+    "resource": {
+      "wood": "木",
+      "stone": "石",
+      "iron": "铁",
+      "coal": "煤"
     }
   }
 }

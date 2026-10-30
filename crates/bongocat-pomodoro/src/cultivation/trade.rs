@@ -49,6 +49,13 @@ pub enum TradeRefusal {
     NotEnoughRankXp,
     /// The piece already holds every star it can: ten is the whole sky.
     StarCapped,
+    /// The purse does not hold the resources the forge's tribute asks for: a
+    /// star wants wood and stone (and iron, once it is a high star), and a
+    /// purse holding 灵石 but no ore has the money and not the material.
+    NotEnoughResources,
+    /// The building is already as tall as a building can be: ten is the whole
+    /// estate.
+    BuildingCapped,
     /// The 潜质 herb asked for is not in the bag.
     HerbNotHeld,
     /// 潜质 has reached the top of its band: 1000 is the whole body.
@@ -77,6 +84,8 @@ impl TradeRefusal {
             Self::GardenCapped => "cultivation.garden.refuse_capped",
             Self::NotEnoughRankXp => "cultivation.garden.refuse_xp",
             Self::StarCapped => "cultivation.shop.refuse_star_capped",
+            Self::NotEnoughResources => "cultivation.shop.refuse_resources",
+            Self::BuildingCapped => "cultivation.shop.refuse_building_capped",
             Self::HerbNotHeld => "cultivation.aptitude_refuse_herb",
             Self::AptitudeCapped => "cultivation.aptitude_refuse_capped",
             Self::NotEnoughMarrow => "cultivation.aptitude_refuse_marrow",
