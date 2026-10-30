@@ -420,6 +420,18 @@ impl CultivationDocument {
         }
         self.insight_herbs = 0;
         self.wisdom_herbs = 0;
+        // A herb seed carries its herb's fixed tier, and the tier a save from an
+        // older build wrote is not the one the herb is fixed at — a 悟心草 once
+        // carried eight and 慧心草 six, the reverse of the ladder now. Planting
+        // matches on that tier, so a seed written with the wrong one would be
+        // unplantable and would read the wrong 阶 on the page. The only tier a
+        // herb seed is ever read at is the herb's own, so an old seed is
+        // corrected here rather than trusted.
+        for stack in &mut self.seeds {
+            if let Some(herb) = stack.herb {
+                stack.tier = super::herb_tier(herb);
+            }
+        }
         self.equipped.resize(SLOT_COUNT, None);
         // The garden holds between the four free plots and the nine a save can
         // buy: a hand-edited document with fewer is topped up, one with more

@@ -1164,6 +1164,38 @@ fn document_herb_seed(cultivation: &mut Cultivation, herb: AptitudeHerb, grade: 
         assert_eq!(herb_tier(AptitudeHerb::Insight), 6);
     }
 
+/// A save from an older build could hold a herb seed at the wrong tier — a
+/// 悟心草 written as eight, 慧心草 as six, the reverse of the ladder now. The
+/// read corrects it to the herb's fixed tier, so the seed reads the right 阶
+/// and plants rather than being silently refused.
+#[test]
+fn an_old_herb_seed_is_read_at_its_herb_tier() {
+    let mut document = CultivationDocument {
+        garden_rank: 4,
+        ..CultivationDocument::default()
+    };
+    // A 悟心草 seed the old build wrote at tier eight.
+    let mut old = SeedStack::herb_single(AptitudeHerb::Insight, SeedGrade::Yellow);
+    old.tier = 8;
+    document.seeds.push(old);
+    let mut cultivation = Cultivation::new(document);
+    // Read onto the herb's own tier, not the number the old save wrote.
+    let seed = cultivation
+        .document()
+        .seeds
+        .iter()
+        .find(|seed| seed.herb == Some(AptitudeHerb::Insight))
+        .expect("the 悟心草 is still held");
+    assert_eq!(seed.tier, herb_tier(AptitudeHerb::Insight), "six, not eight");
+    // And the corrected seed plants.
+    assert!(
+        cultivation
+            .plant_herb_seed(AptitudeHerb::Insight, SeedGrade::Yellow, 1_000)
+            .is_some(),
+        "a seed read at its own tier plants"
+    );
+}
+
 #[test]
 fn a_herb_seed_planted_and_picked_feeds_the_body() {
     let mut cultivation = tended(Cultivation::default());
