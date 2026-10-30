@@ -41,5 +41,11 @@
 - 种植保底（PITY）已移除（2026-10-30）：种植完全按 `plant_permille` 真实成功率判定，无「必定成功」。原全局 `plant_fail_streak` 曾让低等级花园对高品阶/高阶级种子错误显示并触发「必定成功」。
 - 旧存档 herb seed tier 曾反置（悟心草写 8、慧心草写 6，`herb_tier` 现为悟 6/慧 8），致 UI 显错阶数 + `plant_one` 匹配失败静默无响应；`document.rs normalized()` 已自愈校正 `tier = herb_tier(herb)`（2026-10-30，ea1cfd5b）。
 
+## 预置模型行为绑定（2026-10-30 实测，三模型一致）
+- standard/gamepad/keyboard 三份不同 moc3，绑定完全相同：`ParamEyeLOpen/R` 各 1 drawable；`ParamAngleX` 10、`ParamAngleY` 10；**`ParamAngleZ`、`ParamMouthForm/MouthOpenY/Cheek/Brow*` 全 0 绑定**。
+- 结论：tilt/smile/surprised/angry 在这些模型上物理不可呈现（非代码 bug），已从三个 `cat.model3.json` 移除并删资源。换脸靠 `Param4`/`Param5`（位移/opacity 换图），不是面部形变。
+- 不变量测试 `every_preset_model_declares_only_behaviours_it_can_draw`：从各模型 model3.json 推导参数逐项实测，全惰性即判死；空参数表表情（`live2d_expression0`）是中性重置，跳过。
+- 帧顺序铁律：motion 声明的参数归 motion，其余归指针（`MotionClip::parameter_ids()` + `apply_model_input` 跳过集合）。用「指针是否精确为 0」做守卫等于没写。
+
 ## ARCHIVE 索引
 - 2026-10: 修仙体系全量数值口径、UI 要点坑清单、构建与磁盘细节 → archive/2026-10.md
