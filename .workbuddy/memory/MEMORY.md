@@ -21,6 +21,7 @@
 - i18n：cultivation.attributes 是叶子字符串不能有子键；JSON 重写须 indent=2。
 - rm 被 shim 成 safe-bin 对 ~/.Trash 静默不删，删个人目录用 /bin/rm。
 - 本仓库无 commit-msg hook：Agent: trailer 须手写进 message 末尾（AGENT_NAME=CatPaw）；git log -1 --format='%(trailers:key=Agent,valueonly=true)' 核对。
+- push 遇 `SSL_ERROR_SYSCALL`：先看 /tmp/mihomo.out.log 是否**整个机场出口节点挂**（所有 PROXY 出站 dial 同一 IP i/o timeout，google/github 全超时，非 github 单线路）。`update_mihomo_sub.py` 须用 `/opt/homebrew/bin/python3` 调（默认 python3=WorkBuddy 自带 3.13.12 无 yaml），更新订阅后 google/github 均 200 即可 push（2026-10-30 实测）。
 
 ## 会话与战力构成
 - 会话落盘：Document.live 只 start/pause/resume/abandon/complete 镜像（tick 不写）；墙上时间语义，暂停冻结。
@@ -38,6 +39,7 @@
 - 详见 archive/2026-10.md（修仙体系全量数值口径：等级/成长/潜质/功法/守卫/战斗/破境/探索/打工/锁妖塔/品质/灵石集市/仙草园/灵草/事件日志；UI 坑清单；i18n 仅 zh-CN+en-US）。
 - 潜质草药乘数 `HERB_GRADE_MULTIPLIER_PERMILLE=[760,850,1000,1100,1250]`（仅潜质草药；garden 收获仍用 250/600/1000/1600/2500）。不变量：慧心草黄阶(+1.0) > 悟心草神阶(+0.9)。地阶锚点 0.7/1.3；仙草园 MAX_PLOT_COUNT=12，PLOT_PRICES 到 19200，UI 一行 4 格。
 - 种植保底（PITY）已移除（2026-10-30）：种植完全按 `plant_permille` 真实成功率判定，无「必定成功」。原全局 `plant_fail_streak` 曾让低等级花园对高品阶/高阶级种子错误显示并触发「必定成功」。
+- 旧存档 herb seed tier 曾反置（悟心草写 8、慧心草写 6，`herb_tier` 现为悟 6/慧 8），致 UI 显错阶数 + `plant_one` 匹配失败静默无响应；`document.rs normalized()` 已自愈校正 `tier = herb_tier(herb)`（2026-10-30，ea1cfd5b）。
 
 ## ARCHIVE 索引
 - 2026-10: 修仙体系全量数值口径、UI 要点坑清单、构建与磁盘细节 → archive/2026-10.md
