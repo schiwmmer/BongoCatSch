@@ -753,7 +753,7 @@ pub(super) fn garden_panel(
             .flex_row()
             .gap_2();
         for (offset, plot) in chunk.iter().enumerate() {
-            let index = row_index * 3 + offset;
+            let index = row_index * 4 + offset;
             row = row.child(plot_cell(
                 view,
                 index,

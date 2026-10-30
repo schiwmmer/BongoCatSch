@@ -1212,6 +1212,59 @@ fn the_garden_offers_the_next_plot_for_sale(cx: &mut TestAppContext) {
     );
 }
 
+/// A fifth plot sits alone on its own row, and must answer to its own index:
+/// the plots are four to a row, so the second row starts at index four, not at
+/// the index the first row ended on. A bed that reuses an earlier index draws
+/// its harvest button under the wrong id and the click harvests the wrong plot
+/// (or nothing, if the reused bed is not yet ripe) — the exact report of a
+/// ripe 凤花 on its own row that would not answer.
+#[gpui_kit::test]
+fn a_plot_on_its_own_row_keeps_its_own_index(cx: &mut TestAppContext) {
+    let mut plots: Vec<_> = (0..4)
+        .map(|i| PlotRecord {
+            crop: Some(CropRecord::planted(
+                Attribute::Mana,
+                2,
+                SeedGrade::Earth,
+                Some(format!("草{i}")),
+                0,
+            )),
+        })
+        .collect();
+    plots.push(PlotRecord {
+        crop: Some(CropRecord::planted(
+            Attribute::Mana,
+            2,
+            SeedGrade::Earth,
+            Some("凤花".to_owned()),
+            0,
+        )),
+    });
+    let cultivation = Cultivation::new(CultivationDocument {
+        plots,
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    // The bug drew the fifth bed as index 3: its cell and harvest button then
+    // carried ids `...-3` and the ripe crop answered to a bed that was not its
+    // own. Both ids must belong to the fifth bed itself.
+    assert!(
+        painted(visual, "cultivation-plot-4"),
+        "the fifth plot must draw its own cell, not reuse the fourth index"
+    );
+    assert!(
+        painted(visual, "cultivation-harvest-4"),
+        "the ripe fifth plot must offer its own harvest button"
+    );
+    assert!(
+        !painted(visual, "cultivation-harvest-5"),
+        "there is no sixth bed to harvest"
+    );
+}
+
 /// A seed says what it pays wherever it is looked at: in the satchel waiting to
 /// be planted, and in the ground already growing.
 ///
@@ -1379,9 +1432,9 @@ fn the_seed_keys_line_up_across_rows(cx: &mut TestAppContext) {
     };
     let cultivation = Cultivation::new(CultivationDocument {
         seeds: vec![
-            seed(1, SeedGrade::Yellow), // sells for 0
-            seed(2, SeedGrade::Yellow), // fills the row
-            seed(9, SeedGrade::Divine), // sells for 72
+            seed(1, SeedGrade::Yellow),  // sells for 0
+            seed(2, SeedGrade::Yellow),  // fills the row
+            seed(9, SeedGrade::Divine),  // sells for 72
             seed(10, SeedGrade::Divine), // sells for 120
         ],
         ..CultivationDocument::default()
@@ -1408,7 +1461,8 @@ fn the_seed_keys_line_up_across_rows(cx: &mut TestAppContext) {
         "a column's 卖 keys must end on the same line whatever the price"
     );
     assert_ne!(
-        plant_first.top(), plant_third.top(),
+        plant_first.top(),
+        plant_third.top(),
         "the two keys compared come from different rows"
     );
 }
