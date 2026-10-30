@@ -39,6 +39,8 @@
 - 详见 archive/2026-10.md（修仙体系全量数值口径：等级/成长/潜质/功法/守卫/战斗/破境/探索/打工/锁妖塔/品质/灵石集市/仙草园/灵草/事件日志；UI 坑清单；i18n 仅 zh-CN+en-US）。
 - 潜质草药乘数 `HERB_GRADE_MULTIPLIER_PERMILLE=[760,850,1000,1100,1250]`（仅潜质草药；garden 收获仍用 250/600/1000/1600/2500）。不变量：慧心草黄阶(+1.0) > 悟心草神阶(+0.9)。地阶锚点 0.7/1.3；仙草园 MAX_PLOT_COUNT=12，PLOT_PRICES 到 19200，UI 一行 4 格。
 - 种植保底（PITY）已移除（2026-10-30）：种植完全按 `plant_permille` 真实成功率判定，无「必定成功」。原全局 `plant_fail_streak` 曾让低等级花园对高品阶/高阶级种子错误显示并触发「必定成功」。
+- **仙草园种子排序（2026-10-30）**：种子面板主键=种子阶(tier)，不再按品质；同阶内按 herbs/属性、品质仅决胜。低阶先显示（面板"今天能种什么"口径）。测试用阶/品质去相关种子（1阶神阶挨2阶黄阶）验证。
+- **种植速度口径**：`grow_seconds(tier)`（garden.rs:82）仅依赖种子阶 1-10（8h/12h/18h/1d/36h/2d/3d/4d/6d/10d），**仙草园升阶不加速生长**；品质也不进生长（只乘收获）。升阶提升的是 `plant_permille`（成功率，公式 `10×(rank−tier)−grade_step`，≥0 时 800+4×tenths 封顶 1000，<0 时 800×0.984^|tenths| 保底 80）与 `seed_return_permille`（+1%/rank）。`growth_multiplier_permille` 是**修为**成长，与种子无关。MAX_GARDEN_RANK=15。
 - 旧存档 herb seed tier 曾反置（悟心草写 8、慧心草写 6，`herb_tier` 现为悟 6/慧 8），致 UI 显错阶数 + `plant_one` 匹配失败静默无响应；`document.rs normalized()` 已自愈校正 `tier = herb_tier(herb)`（2026-10-30，ea1cfd5b）。
 
 ## 预置模型行为绑定（2026-10-30 实测，三模型一致）
