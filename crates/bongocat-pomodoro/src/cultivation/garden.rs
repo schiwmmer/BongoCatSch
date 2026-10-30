@@ -574,16 +574,7 @@ pub fn plant_permille(rank: u8, tier: u8, grade: SeedGrade) -> u32 {
     odds.max(PLANT_FLOOR_PERMILLE) as u32
 }
 
-/// Only a planting with odds at least this good is counted towards the safety
-/// net: below even money the gardener is gambling, and a gamble is priced by
-/// what it pays, not comforted by what comes next.
-pub const PITY_MIN_PERMILLE: u32 = 500;
-
-/// How many counted failures in a row it takes before the next planting of that
-/// kind comes up whatever the odds say.
-pub const PITY_STREAK: u32 = 2;
-
-/// The 造化 the next rank needs, banked from every crop whether it came up or
+/// How many 造化 the next rank needs, banked from every crop whether it came up or
 /// not.
 ///
 /// Five times the rank squared: twenty to reach the third, eighty to reach the

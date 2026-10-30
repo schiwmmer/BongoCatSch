@@ -226,16 +226,12 @@ fn herb_row(
                 });
             }
         });
-    let odds_line = if cultivation.garden_pity_ready {
-        text(locale, "cultivation.garden.odds_certain").to_string()
-    } else {
-        let percent = (plant_permille(cultivation.garden_rank, seed.tier, seed.grade) + 5) / 10;
-        format_text(
-            locale,
-            "cultivation.garden.plant_odds",
-            &[("percent", percent.to_string())],
-        )
-    };
+    let percent = (plant_permille(cultivation.garden_rank, seed.tier, seed.grade) + 5) / 10;
+    let odds_line = format_text(
+        locale,
+        "cultivation.garden.plant_odds",
+        &[("percent", percent.to_string())],
+    );
     let named = div()
         .flex_1()
         .min_w_0()
@@ -493,17 +489,13 @@ pub(super) fn seed_panel(
                 // garden, this herb, right now. A success rate the user can read makes
                 // planting a decision rather than a purchase; the number is the domain's
                 // own, so the page cannot promise odds the planting will not get.
-                let odds_line = if cultivation.garden_pity_ready {
-                    text(locale, "cultivation.garden.odds_certain").to_string()
-                } else {
-                    let percent =
-                        (plant_permille(cultivation.garden_rank, seed.tier, seed.grade) + 5) / 10;
-                    format_text(
-                        locale,
-                        "cultivation.garden.plant_odds",
-                        &[("percent", percent.to_string())],
-                    )
-                };
+                let percent =
+                    (plant_permille(cultivation.garden_rank, seed.tier, seed.grade) + 5) / 10;
+                let odds_line = format_text(
+                    locale,
+                    "cultivation.garden.plant_odds",
+                    &[("percent", percent.to_string())],
+                );
                 let named = div()
                     .flex_1()
                     .min_w_0()

@@ -40,7 +40,7 @@ use super::{
         WalkRecord, breakthrough_ready, roll_stones, roll_victory, roll_walk,
     },
     garden::{
-        CropRecord, MAX_GARDEN_RANK, PITY_MIN_PERMILLE, PITY_STREAK, PlotRecord, SeedGrade,
+        CropRecord, MAX_GARDEN_RANK, PlotRecord, SeedGrade,
         harvest_points, plant_permille, plot_price, rank_cost, rank_xp_total, roll_seed_grade,
         seed_name, seed_return, wither_points,
     },
@@ -636,10 +636,6 @@ pub struct CultivationView {
     /// What the next rank costs in 灵石, and `None` once the garden is at the
     /// top of the ladder.
     pub garden_upgrade_cost: Option<u32>,
-    /// Whether the next planting is owed one: two counted failures in a row have
-    /// earned it whatever the seed asks for, and the surface says so rather than
-    /// letting the streak do its work invisibly.
-    pub garden_pity_ready: bool,
     /// The guardian offered right now: present only at a realm's last layer.
     pub guardian: Option<GuardianView>,
     pub last_breakthrough: Option<BreakthroughOutcome>,
@@ -2251,10 +2247,9 @@ impl Cultivation {
         // Decided before anything is taken, because the two reads below borrow
         // the document's own fields and cannot see past themselves.
         let permille = plant_permille(self.document.garden_rank, tier, grade);
-        let certain = self.planting_is_certain(tier, grade);
         let took = {
             let mut rng = self.rng(now_unix);
-            certain || rng.below(1_000) < u64::from(permille)
+            rng.below(1_000) < u64::from(permille)
         };
         let index = self.document.seeds.iter().position(|stack| match herb {
             Some(herb) => stack.herb == Some(herb) && stack.tier == tier && stack.grade == grade,
@@ -2299,9 +2294,6 @@ impl Cultivation {
                 crop
             }
         });
-        if took {
-            self.document.plant_fail_streak = 0;
-        }
         Some(PlantOutcome { permille })
     }
 
@@ -2327,10 +2319,6 @@ impl Cultivation {
                 let permille = plant_permille(self.document.garden_rank, crop.tier, crop.grade);
                 let xp = wither_points(crop.tier, crop.grade);
                 self.document.garden_xp = self.document.garden_xp.saturating_add(i64::from(xp));
-                if permille >= PITY_MIN_PERMILLE {
-                    self.document.plant_fail_streak =
-                        self.document.plant_fail_streak.saturating_add(1);
-                }
                 self.push_event(
                     now_unix,
                     EventDetail::Withered {
@@ -2378,18 +2366,6 @@ impl Cultivation {
         }
         self.document.plots.get_mut(plot)?.crop = None;
         Some(())
-    }
-
-    /// Whether the safety net has run out of patience: two counted failures in a
-    /// row at even money or better, and the next planting comes up whatever its
-    /// odds said.
-    ///
-    /// Below even money nothing is counted and nothing is owed — planting a
-    /// tenth-rank seed in a first-rank bed is a gamble the user chose, and part
-    /// of what a gamble pays is its own uncertainty.
-    pub fn planting_is_certain(&self, tier: u8, grade: SeedGrade) -> bool {
-        plant_permille(self.document.garden_rank, tier, grade) >= PITY_MIN_PERMILLE
-            && self.document.plant_fail_streak >= PITY_STREAK
     }
 
     /// Raise the garden one rank, paid in 灵石 and earned in harvests.
@@ -4042,7 +4018,6 @@ impl Cultivation {
             },
             garden_upgrade_cost: (self.document.garden_rank < MAX_GARDEN_RANK)
                 .then(|| rank_cost(self.document.garden_rank)),
-            garden_pity_ready: self.document.plant_fail_streak >= PITY_STREAK,
             guardian: self.guardian().map(|guardian| GuardianView {
                 target: guardian.target,
                 power: guardian.power,

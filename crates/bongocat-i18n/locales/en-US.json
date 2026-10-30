@@ -790,7 +790,6 @@
       "refuse_capped": "the garden is tended as well as it can be",
       "refuse_xp": "too little mastery banked for the next rank",
       "plant_odds": "%{percent}% to take",
-      "odds_certain": "certain to take",
       "withered": "Did not take",
       "dig": "Dig out"
     },

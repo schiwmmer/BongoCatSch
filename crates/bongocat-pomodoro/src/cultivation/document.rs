@@ -87,12 +87,6 @@ pub struct CultivationDocument {
     /// fifth of what the ones that withered would have.
     #[serde(default)]
     pub garden_xp: i64,
-    /// How many plantings at even money or better have failed in a row.
-    ///
-    /// Only those count towards [`PITY_STREAK`]: below even money the gardener
-    /// is gambling on purpose, and a gamble is priced by its odds alone.
-    #[serde(default)]
-    pub plant_fail_streak: u32,
     /// The attribute points the harvests have paid, permanently.
     #[serde(default)]
     pub crop_bonus: Attributes,

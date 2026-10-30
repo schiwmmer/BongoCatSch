@@ -831,39 +831,6 @@ fn the_learned_panel_ranks_by_progress_then_grade() {
     assert_eq!(first, divine, "a 神阶 book read to the end leads the panel");
 }
 
-/// The safety net, and the price of gambling below it.
-#[test]
-fn bad_luck_above_even_money_stops_at_two() {
-    let document = CultivationDocument {
-        garden_rank: 5,
-        plant_fail_streak: PITY_STREAK,
-        ..CultivationDocument::default()
-    };
-    let mut cultivation = Cultivation::new(document);
-    document_seed(&mut cultivation, Attribute::Root, 5, SeedGrade::Earth);
-    assert!(plant_permille(5, 5, SeedGrade::Earth) >= PITY_MIN_PERMILLE);
-    assert!(cultivation.planting_is_certain(5, SeedGrade::Earth));
-    assert!(
-        cultivation
-            .plant(Attribute::Root, 5, SeedGrade::Earth, 1_000)
-            .is_some(),
-        "two counted failures buy the third however the odds read"
-    );
-    assert!(
-        !cultivation.planting_is_certain(5, SeedGrade::Earth),
-        "and then nothing is owed until the luck turns again"
-    );
-    // Below even money nothing is counted either way: a gamble is priced by its
-    // own odds, and smoothing it would make the long shot the better bet.
-    let document = CultivationDocument {
-        plant_fail_streak: PITY_STREAK,
-        ..CultivationDocument::default()
-    };
-    let gambler = Cultivation::new(document);
-    assert!(plant_permille(1, MAX_SEED_TIER, SeedGrade::Divine) < PITY_MIN_PERMILLE);
-    assert!(!gambler.planting_is_certain(MAX_SEED_TIER, SeedGrade::Divine));
-}
-
 /// Two gates that cannot buy each other: the rank is earned in harvests and
 /// paid for in coins, and neither alone opens it.
 #[test]
