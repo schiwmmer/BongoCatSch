@@ -46,6 +46,10 @@
 - 结论：tilt/smile/surprised/angry 在这些模型上物理不可呈现（非代码 bug），已从三个 `cat.model3.json` 移除并删资源。换脸靠 `Param4`/`Param5`（位移/opacity 换图），不是面部形变。
 - 不变量测试 `every_preset_model_declares_only_behaviours_it_can_draw`：从各模型 model3.json 推导参数逐项实测，全惰性即判死；空参数表表情（`live2d_expression0`）是中性重置，跳过。
 - 帧顺序铁律：motion 声明的参数归 motion，其余归指针（`MotionClip::parameter_ids()` + `apply_model_input` 跳过集合）。用「指针是否精确为 0」做守卫等于没写。
+- **motion 文件未反（2026-10-30 复核）**：三模型 `nod.motion3.json`/`headshake.motion3.json` 逐字节相同。点头/摇头「看不见」的根因不是文件反了，而是帧顺序——指针跟踪在 motion 之后把 `ParamAngleX/Y` 重置回光标位置（evaluate.rs 注释明示）。`ProductParameter::AngleX.id()=="ParamAngleX"` 与 motion 声明一致，跳过判定成立。
+- **保留集确认（三模型一致）**：7 表达式（live2d_expression0/1/2、exp_1、exp_2、wink、focus）+ 每组 4 motion（live2d_motion1/2、nod、headshake）。
+- **自动眨眼守卫**：`expression_driven_parameter_ids`（apply_expression_layers 每帧重写，无表达式时清空）让自动眨眼跳过「本帧表达式驱动过的眼睛参数」（lib.rs L292）→ wink/exp_1/exp_2/focus 不被眨眼覆盖。守卫依赖每帧重写，非持久字段。
+- **瞬态表达式结论**：换脸唯一机制 = `Param4`(表情:thuglife)/`Param5`(表情:升天)，共 2 张备选脸。无 smile/surprised/angry 贴图 → 复活需新美术（新贴图+新参数+新表达式），超出资源改造范畴。
 
 ## ARCHIVE 索引
 - 2026-10: 修仙体系全量数值口径、UI 要点坑清单、构建与磁盘细节 → archive/2026-10.md
