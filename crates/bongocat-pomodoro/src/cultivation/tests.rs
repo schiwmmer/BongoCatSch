@@ -3203,6 +3203,98 @@ fn a_mine_gathering_trains_both_trades() {
     assert_eq!(outcome.stonecut_xp, 100);
 }
 
+/// A finished gathering session pays a whole realm-sized round of the site's
+/// yield and xp, and nothing of the 修习 ladder: no growth, no 功法 turn, no
+/// 灵石 cut, no 试炼 chance, no roll. The day is marked active so the absence
+/// clock does not charge it, and the log carries a line of its own.
+#[test]
+fn a_gathering_session_pays_a_realm_sized_yield_and_no_ladder() {
+    let mut cultivation = Cultivation::new(CultivationDocument::default());
+    // The base round for the same hands: what one manual click pays.
+    let base = cultivation
+        .collect_resources(GatherSite::Forest, 0)
+        .expect("the gathering");
+    let baseline_growth = cultivation.document().growth;
+    let baseline_stones = cultivation.document().stones;
+    // A 炼气 session is one hour: the same as a base round. The purse's ceiling
+    // is shared with the manual round that already banked its wood, so the xp —
+    // which is never clipped — is the fair comparison.
+    let outcome = cultivation.collect_session(GatherSite::Forest, 1_000, day(20_000));
+    assert_eq!(
+        outcome.woodcut_xp, base.woodcut_xp,
+        "炼气 is one hour of gathering"
+    );
+    assert_eq!(outcome.stonecut_xp, 0, "the forest does not train 采石");
+    assert_eq!(
+        cultivation.document().growth,
+        baseline_growth,
+        "a gathering session pays no growth"
+    );
+    assert_eq!(
+        cultivation.document().stones,
+        baseline_stones,
+        "a gathering session pays no 灵石"
+    );
+    assert_eq!(
+        cultivation.document().last_active_day,
+        Some(20_000),
+        "the day is marked active"
+    );
+    assert_eq!(
+        cultivation.document().missed_streak,
+        0,
+        "the absence clock is cleared"
+    );
+    let newest = cultivation.document().events.first().expect("the line");
+    assert!(
+        matches!(&newest.detail, EventDetail::SessionGather { site, .. } if *site == GatherSite::Forest),
+        "the log names the gathering session: {:?}",
+        newest.detail
+    );
+}
+
+/// A higher realm's gathering session is worth more: one quarter of an hour per
+/// realm, so a 大乘 session is 3.25 base rounds of the same trained hands.
+#[test]
+fn a_higher_realm_gathering_session_pays_more() {
+    let mut base = Cultivation::new(CultivationDocument::default());
+    let base_round = base
+        .collect_resources(GatherSite::Forest, 0)
+        .expect("the gathering");
+    let mut high = Cultivation::new(CultivationDocument {
+        realm: 9,
+        last_active_day: Some(20_000),
+        charged_through_day: Some(20_000),
+        ..CultivationDocument::default()
+    });
+    assert_eq!(high.realm(), Realm::Immortal, "the top realm for the test");
+    let session = high.collect_session(GatherSite::Forest, 2_000, day(20_001));
+    assert_eq!(
+        session.woodcut_xp,
+        base_round.woodcut_xp.saturating_mul(3_250) / 1_000,
+        "a 仙人 session is 3.25 hours of gathering"
+    );
+}
+
+/// The mode rides the document and the view: what is chosen before a session is
+/// what the completion reads, and a 修习 mode is the default a fresh save gets.
+#[test]
+fn the_session_mode_persists_and_rides_the_view() {
+    let mut cultivation = Cultivation::new(CultivationDocument::default());
+    assert_eq!(
+        cultivation.session_mode(),
+        SessionMode::Study,
+        "a fresh save 修习s"
+    );
+    cultivation.set_session_mode(SessionMode::Woodcut);
+    assert_eq!(cultivation.session_mode(), SessionMode::Woodcut);
+    assert_eq!(cultivation.view().session_mode, SessionMode::Woodcut);
+    // A gathering mode is a session mode, not a stored 修习 state: it names one
+    // site and no other.
+    assert_eq!(SessionMode::Woodcut.site(), Some(GatherSite::Forest));
+    assert_eq!(SessionMode::Study.site(), None);
+}
+
 /// A building rank is paid in 灵石 and the gathered tribute, atomically: a
 /// purse with the money but not the ore is told it is short of the ore, and a
 /// rank at the top of the ladder is refused outright.

@@ -360,6 +360,10 @@ pub struct CultivationDocument {
     /// 道场: gathering pays ten percent more skill xp per level.
     #[serde(default)]
     pub dojo_level: u8,
+    /// What a finished pomodoro pays: 修习, or one site's gathering. The mode
+    /// is one thing and one thing only, and a session picks it before it starts.
+    #[serde(default)]
+    pub session_mode: super::SessionMode,
 }
 
 impl CultivationDocument {

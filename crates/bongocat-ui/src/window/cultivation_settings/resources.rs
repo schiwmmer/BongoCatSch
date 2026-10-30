@@ -24,6 +24,7 @@ pub(super) fn resources_panel(
         .flex_col()
         .gap_1()
         .child(section_title(locale, "cultivation.resources.title", tokens))
+        .child(mode_row(view, cultivation.session_mode, locale))
         .child(bag_row(resources, locale))
         .child(gather_row(view, locale))
         .child(trade_row(resources.woodcut, GatherSkill::Woodcut, locale))
@@ -53,6 +54,39 @@ pub(super) fn resources_panel(
             locale,
         ))
         .test_support()
+}
+
+/// The three session modes, as three buttons: what the next finished pomodoro
+/// pays. The armed one is disabled, the way a selected 功法 is — a mode already
+/// chosen is not offered again.
+fn mode_row(view: &Entity<SettingsView>, current: SessionMode, locale: &str) -> impl IntoElement {
+    let mut row = div()
+        .id("cultivation-resources-modes")
+        .flex()
+        .flex_row()
+        .gap_2();
+    for mode in [SessionMode::Study, SessionMode::Woodcut, SessionMode::Mine] {
+        let armed = mode == current;
+        row = row.child(
+            Button::new(format!("cultivation-mode-{mode:?}"))
+                .ghost()
+                .small()
+                .label(text(locale, mode.key()))
+                .disabled(armed)
+                .on_click({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            let _ = view
+                                .pomodoro
+                                .try_publish(PomodoroCommand::SelectSessionMode { mode });
+                            view.poll_pomodoro(cx);
+                        });
+                    }
+                }),
+        );
+    }
+    row
 }
 
 /// The purse: one line, each resource's count against its ceiling.

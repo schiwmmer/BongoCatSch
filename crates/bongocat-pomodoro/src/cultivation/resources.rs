@@ -368,6 +368,88 @@ pub fn collect(
     }
 }
 
+/// How many thousandths of a base round each realm above the first adds to a
+/// gathering session's length.
+///
+/// The base is one hour; a 修习 session pays growth, but a session spent at a
+/// site is worth a whole session's worth of *gathering*, and a higher realm is
+/// worth more of it — one quarter of an hour per realm.
+pub const GATHER_HOURS_PER_REALM_PERMILLE: u32 = 250;
+
+/// The length of one gathering session, in thousandths of a base round, at a
+/// given realm.
+///
+/// The base is one hour, and each realm above the first adds a quarter of it,
+/// so 炼气 (index 0) is one hour and 仙人 (index 9) is three and a quarter.
+pub fn gather_duration_permille(realm_index: u32) -> u32 {
+    1_000 + realm_index.saturating_mul(GATHER_HOURS_PER_REALM_PERMILLE)
+}
+
+/// One gathering session of `duration_permille` thousandths of a base round:
+/// what [`collect`] pays for one round, scaled by the session's length. A
+/// session of 3.25 hours pays 3.25 rounds, so the same trained hands that
+/// would gather ten wood in an hour gather thirty-two in the session.
+pub fn collect_scaled(
+    site: GatherSite,
+    woodcut: u8,
+    stonecut: u8,
+    workshop: u8,
+    dojo: u8,
+    duration_permille: u32,
+) -> CollectionYield {
+    let base = collect(site, woodcut, stonecut, workshop, dojo);
+    let mut gained = ResourceBag::default();
+    for resource in Resource::ALL {
+        let count = base.gained.get(resource);
+        if count > 0 {
+            gained.add(resource, count.saturating_mul(duration_permille) / 1_000);
+        }
+    }
+    CollectionYield {
+        gained,
+        woodcut_xp: base.woodcut_xp.saturating_mul(duration_permille) / 1_000,
+        stonecut_xp: base.stonecut_xp.saturating_mul(duration_permille) / 1_000,
+    }
+}
+
+/// What a finished pomodoro pays.
+///
+/// The mode is one thing and one thing only: a session either cultivates, or
+/// gathers at one site, never both — a pomodoro is a unit of effort, and effort
+/// spent 伐木 is not effort spent 修习. This is what the user picks before the
+/// session starts; the completion reads it and pays the one thing it names.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub enum SessionMode {
+    /// The ordinary session: growth, the selected 功法's turn, the 灵石 cut, a
+    /// 试炼 chance and the one roll.
+    #[default]
+    Study,
+    /// The session is spent 伐木: it pays the forest's yield and 伐木 xp.
+    Woodcut,
+    /// The session is spent 采石: it pays the mountain's yield and 采石 xp.
+    Mine,
+}
+
+impl SessionMode {
+    /// The site a gathering session works, or `None` for a 修习 session.
+    pub const fn site(self) -> Option<GatherSite> {
+        match self {
+            Self::Study => None,
+            Self::Woodcut => Some(GatherSite::Forest),
+            Self::Mine => Some(GatherSite::Mountain),
+        }
+    }
+
+    /// The catalog key naming this mode.
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Study => "cultivation.mode.study",
+            Self::Woodcut => "cultivation.mode.woodcut",
+            Self::Mine => "cultivation.mode.mine",
+        }
+    }
+}
+
 /// The yield of one find at a given trade level and 工坊 level.
 fn scale_yield(base: u32, trade_level: u8, workshop: u8) -> u32 {
     let trade = 1_000 + u32::from(trade_level) * 50;
@@ -618,6 +700,58 @@ mod tests {
                 .iron
                 > 0,
             "a rank bought at the high star's level burns iron"
+        );
+    }
+
+    #[test]
+    fn a_gathering_session_is_the_realm_length_in_hours() {
+        assert_eq!(gather_duration_permille(0), 1_000, "炼气 is one hour");
+        assert_eq!(gather_duration_permille(9), 3_250, "仙人 is 3.25 hours");
+        for realm in 0..=9 {
+            let permille = gather_duration_permille(realm);
+            assert!(
+                (1_000..=3_250).contains(&permille),
+                "a session is an hour and a quarter per realm, not {permille}"
+            );
+            if realm > 0 {
+                assert_eq!(
+                    permille,
+                    gather_duration_permille(realm - 1) + 250,
+                    "each realm adds a quarter hour"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_scaled_session_pays_proportionally() {
+        let one = collect(GatherSite::Forest, 1, 1, 0, 0);
+        let three = collect_scaled(GatherSite::Forest, 1, 1, 0, 0, 3_000);
+        assert_eq!(three.gained.wood, one.gained.wood * 3);
+        assert_eq!(three.woodcut_xp, one.woodcut_xp * 3);
+        assert_eq!(
+            three.stonecut_xp,
+            one.stonecut_xp * 3,
+            "forest trains 伐木 alone"
+        );
+        // The rare find scales too, so a trained hand's deeper haul is not a
+        // flat number.
+        let trained = collect(GatherSite::Mountain, 1, IRON_UNLOCK_LEVEL, 0, 0);
+        let trained_session =
+            collect_scaled(GatherSite::Mountain, 1, IRON_UNLOCK_LEVEL, 0, 0, 2_500);
+        assert_eq!(trained_session.gained.iron, trained.gained.iron * 25 / 10);
+        assert_eq!(trained_session.gained.stone, trained.gained.stone * 25 / 10);
+    }
+
+    #[test]
+    fn the_mode_names_one_site_or_none() {
+        assert_eq!(SessionMode::Study.site(), None, "修习 pays no gathering");
+        assert_eq!(SessionMode::Woodcut.site(), Some(GatherSite::Forest));
+        assert_eq!(SessionMode::Mine.site(), Some(GatherSite::Mountain));
+        assert_ne!(
+            SessionMode::Woodcut.site(),
+            SessionMode::Mine.site(),
+            "伐木 and 采石 are different sites"
         );
     }
 }

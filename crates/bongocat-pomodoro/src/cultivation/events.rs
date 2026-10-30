@@ -45,6 +45,22 @@ pub enum EventDetail {
         /// What the session paid, in growth.
         growth: u32,
     },
+    /// A pomodoro finished as a gathering session and paid a site's yield.
+    ///
+    /// A gathering session is the other half of the mode fork: it pays the
+    /// site's resources and the trade's xp, and nothing of the 修习 ladder. The
+    /// line is separate from [`Self::Session`] because the two pay different
+    /// things, and the history has to be able to tell them apart.
+    SessionGather {
+        /// The site the session worked.
+        site: super::GatherSite,
+        /// What the purse gained, after the 仓库's ceiling.
+        gained: super::ResourceBag,
+        /// The 伐木 xp the session banked.
+        woodcut_xp: u32,
+        /// The 采石 xp the session banked.
+        stonecut_xp: u32,
+    },
     /// A finished pomodoro's ordinary find: the gear or the herb the drop roll
     /// paid beside the growth.
     ///

@@ -800,6 +800,11 @@
       "building": "%{building} Lv %{level}",
       "cost": "%{stones} stones %{tribute}"
     },
+    "mode": {
+      "study": "Study",
+      "woodcut": "Woodcut",
+      "mine": "Stonecut"
+    },
     "site": {
       "forest": "Forest·Woodcut",
       "mountain": "Mountain·Stonecut",
@@ -983,6 +988,8 @@
     },
     "event": {
       "session": "Session finished, +%{growth} growth",
+      "session_gather": "A gathering session: %{site} gave %{gained}",
+      "session_gather_xp": ", +%{xp} xp",
       "found": "Pomodoro find",
       "work": "Worked %{hours}h for %{stones} stones (%{rate}% success)",
       "absence": "%{days} days without practice — growth -%{charged}",

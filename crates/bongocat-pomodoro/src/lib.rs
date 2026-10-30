@@ -105,9 +105,10 @@ pub use cultivation::{
 // crate's public surface with the rest of the ladder.
 pub use cultivation::{
     BASE_COMMON_YIELD, BASE_RARE_YIELD, BASE_RESOURCE_CAP, BASE_SKILL_XP, BUILDING_STONES_PER_RANK,
-    Building, COAL_UNLOCK_LEVEL, CollectionYield, Cost, GatherSite, GatherSkill, IRON_UNLOCK_LEVEL,
-    MAX_BUILDING_LEVEL, MAX_TRADE_LEVEL, Resource, ResourceBag, STAR_IRON_FROM_STAR,
-    STAR_IRON_HIGH_STAR, STAR_STONE_PER_STAR, STAR_WOOD_PER_STAR, building_upgrade_cost, collect,
+    Building, COAL_UNLOCK_LEVEL, CollectionYield, Cost, GATHER_HOURS_PER_REALM_PERMILLE,
+    GatherSite, GatherSkill, IRON_UNLOCK_LEVEL, MAX_BUILDING_LEVEL, MAX_TRADE_LEVEL, Resource,
+    ResourceBag, STAR_IRON_FROM_STAR, STAR_IRON_HIGH_STAR, STAR_STONE_PER_STAR, STAR_WOOD_PER_STAR,
+    SessionMode, building_upgrade_cost, collect, collect_scaled, gather_duration_permille,
     resource_cap, skill_ready, skill_xp_total, smithy_multiplier_permille,
 };
 pub use document::{LiveSessionRecord, POMODORO_TASKS_SCHEMA_VERSION};

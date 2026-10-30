@@ -11,7 +11,7 @@ use std::{collections::BTreeMap, time::Duration};
 
 use crate::{
     CalendarDay, CalendarDayTotal, CalendarTaskActivity, Cultivation, CultivationView, EquipSlot,
-    MAX_FOCUS_MINUTES, MAX_TASK_NAME_CHARS, MIN_FOCUS_MINUTES, Refusal,
+    MAX_FOCUS_MINUTES, MAX_TASK_NAME_CHARS, MIN_FOCUS_MINUTES, Refusal, SessionMode,
     document::{Document, LiveSessionRecord, TaskRecord, TaskStatus, read_document},
 };
 
@@ -313,6 +313,12 @@ pub enum PomodoroCommand {
     CollectResources { site: crate::GatherSite },
     /// Raise one building a rank for 灵石 and the gathered tribute.
     UpgradeBuilding { building: crate::Building },
+    /// Choose what the next finished pomodoro pays: 修习, 伐木, or 采石.
+    ///
+    /// The mode is one thing and one thing only — a session either cultivates
+    /// or gathers at one site — so choosing one replaces the other. A running
+    /// session is not disturbed: the mode is read when it finishes.
+    SelectSessionMode { mode: crate::SessionMode },
     /// Feed one 潜质 herb to the body: 悟心草 or 慧心草.
     ///
     /// The page feeds a herb the moment it is found, so this command only ever
@@ -379,6 +385,7 @@ impl PomodoroCommand {
             | Self::StarEquipment { .. }
             | Self::CollectResources { .. }
             | Self::UpgradeBuilding { .. }
+            | Self::SelectSessionMode { .. }
             | Self::UseAptitudeHerb { .. }
             | Self::UseMarrowPill
             | Self::AcknowledgeDailyEvent { .. } => true,
@@ -666,6 +673,9 @@ impl PomodoroState {
                 if let Err(refusal) = self.cultivation.upgrade_building(building, now_unix) {
                     self.cultivation.note_refusal(Refusal::Trade(refusal));
                 }
+            }
+            PomodoroCommand::SelectSessionMode { mode } => {
+                self.cultivation.set_session_mode(mode);
             }
             PomodoroCommand::UseAptitudeHerb { herb } => {
                 if let Err(refusal) = self.cultivation.use_aptitude_herb(herb, now_unix) {
@@ -1028,12 +1038,23 @@ impl PomodoroState {
         completion
     }
 
-    /// Pay the ladder for one finished session: its growth, whatever absence was
-    /// owed before it, and the one roll a session makes.
+    /// Pay a finished session: one thing and one thing only, the thing the mode
+    /// names. A 修习 session pays the ladder's growth and its one roll; a
+    /// gathering session pays the site's yield and its trade xp instead, and
+    /// nothing of the ladder.
     fn record_cultivation_session(&mut self, now_unix: i64) {
         let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
-        self.cultivation
-            .on_session_completed(now_unix, today, self.document.focus_minutes);
+        match self.cultivation.session_mode() {
+            SessionMode::Study => {
+                self.cultivation
+                    .on_session_completed(now_unix, today, self.document.focus_minutes);
+            }
+            mode => {
+                if let Some(site) = mode.site() {
+                    self.cultivation.collect_session(site, now_unix, today);
+                }
+            }
+        }
         self.sync_cultivation();
     }
 
@@ -1290,6 +1311,7 @@ fn is_invisible(character: char) -> bool {
 mod tests {
     use super::*;
     use crate::DEFAULT_FOCUS_MINUTES;
+    use crate::{EventDetail, GatherSite};
 
     #[test]
     fn a_fresh_state_has_no_tasks_and_no_session() {
@@ -1465,6 +1487,55 @@ mod tests {
         assert_eq!(snapshot.tasks[0].completed_pomodoros, 1);
         assert_eq!(snapshot.timer, None);
         assert_eq!(snapshot.last_completion, Some(completion));
+    }
+
+    #[test]
+    fn a_gathering_mode_pays_the_site_instead_of_the_ladder() {
+        let mut state = PomodoroState::empty();
+        state.apply(
+            PomodoroCommand::CreateTask {
+                name: "chop".into(),
+                estimated_pomodoros: 1,
+            },
+            1_000,
+        );
+        // Arm 伐木 before the session starts: the completion must pay the
+        // forest, and nothing of the 修习 ladder.
+        state.apply(
+            PomodoroCommand::SelectSessionMode {
+                mode: SessionMode::Woodcut,
+            },
+            1_000,
+        );
+        state.apply(PomodoroCommand::StartTask { task_id: 1 }, 1_000);
+        let completion = state
+            .advance(Duration::from_secs(25 * 60), 1_500)
+            .expect("the session finished");
+        assert_eq!(completion.sequence, 1, "a gathering session still counts");
+        let snapshot = state.snapshot(2);
+        assert_eq!(
+            snapshot.cultivation.session_mode,
+            SessionMode::Woodcut,
+            "the armed mode is kept"
+        );
+        assert!(
+            snapshot.cultivation.resources.bag.wood > 0,
+            "the forest paid wood"
+        );
+        assert_eq!(
+            snapshot.cultivation.growth, 0,
+            "a gathering session pays no growth"
+        );
+        assert_eq!(
+            snapshot.cultivation.stones, 0,
+            "a gathering session pays no 灵石"
+        );
+        let newest = snapshot.cultivation.events.first().expect("the line");
+        assert!(
+            matches!(&newest.detail, EventDetail::SessionGather { site, .. } if *site == GatherSite::Forest),
+            "the completion routed to the forest: {:?}",
+            newest.detail
+        );
     }
 
     #[test]

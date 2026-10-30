@@ -800,6 +800,11 @@
       "building": "%{building} Lv %{level}",
       "cost": "%{stones} 灵石 %{tribute}"
     },
+    "mode": {
+      "study": "修习",
+      "woodcut": "伐木",
+      "mine": "采石"
+    },
     "site": {
       "forest": "森林·伐木",
       "mountain": "山·采石",
@@ -983,6 +988,8 @@
     },
     "event": {
       "session": "完成修炼，成长 +%{growth}",
+      "session_gather": "采集完一个番茄钟：%{site} 得 %{gained}",
+      "session_gather_xp": "，经验 +%{xp}",
       "found": "番茄钟掉落",
       "work": "打工 %{hours} 小时，得 %{stones} 灵石，达成率 %{rate}%",
       "absence": "%{days} 天未修炼，成长值 -%{charged}",

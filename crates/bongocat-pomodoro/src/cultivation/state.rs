@@ -17,19 +17,20 @@ use super::{
     ART_COUNT, ArtGrade, ArtKind, ArtOutcome, ArtSetView, ArtStrike, ArtView, Attribute,
     Attributes, BONUS_GEAR_PERMILLE, BONUS_INSIGHT_PERMILLE, BONUS_SEED_PERMILLE,
     BONUS_STONES_PERMILLE, BONUS_WISDOM_PERMILLE, BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport,
-    Building, Cost, CultivationDocument, DailyKind, Derived, DerivedBreakdown, DuelReport,
-    EQUIPMENT_DROP_PERMILLE, EquipSlot, EquipmentRecord, ExplorationOutcome, FREE_POINTS_PER_LEVEL,
-    Fighter, GatherSite, GearEffect, GearSetView, Guardian, MAX_BUILDING_LEVEL, MAX_LEVEL,
-    MAX_STAR, MAX_TRADE_LEVEL, MasteredArtView, OwnedArt, PLAYER_NAME, RECENT_ARTS_CAP, Rarity,
-    Realm, Refusal, Resource, ResourceBag, Rng, SEED_DROP_PERMILLE, SESSION_BONUS_PERMILLE,
-    SLOT_COUNT, SeedStack, VICTORY_SEED_PERMILLE, absence_penalty, art_attributes, art_view,
+    Building, CollectionYield, Cost, CultivationDocument, DailyKind, Derived, DerivedBreakdown,
+    DuelReport, EQUIPMENT_DROP_PERMILLE, EquipSlot, EquipmentRecord, ExplorationOutcome,
+    FREE_POINTS_PER_LEVEL, Fighter, GatherSite, GearEffect, GearSetView, Guardian,
+    MAX_BUILDING_LEVEL, MAX_LEVEL, MAX_STAR, MAX_TRADE_LEVEL, MasteredArtView, OwnedArt,
+    PLAYER_NAME, RECENT_ARTS_CAP, Rarity, Realm, Refusal, Resource, ResourceBag, Rng,
+    SEED_DROP_PERMILLE, SESSION_BONUS_PERMILLE, SLOT_COUNT, SeedStack, SessionMode,
+    VICTORY_SEED_PERMILLE, absence_penalty, art_attributes, art_view,
     arts::{
         art_bonus, art_set_bonus, art_set_views, blueprint, mastered_art_attributes,
         mastered_art_bonus, mastered_art_view, train,
     },
     base_attributes,
     battle::{guardian_for, resolve},
-    building_upgrade_cost, collect,
+    building_upgrade_cost, collect, collect_scaled,
     curve::{layer_growth, layer_rank, level_for_growth, stage_floor, threshold_for},
     daily::{
         DAILY_AMBUSH_STONES, DAILY_GIFT_STONES, DAILY_TRINKET_STONES, GiftKind, roll_gift,
@@ -46,7 +47,7 @@ use super::{
         plot_price, rank_cost, rank_xp_total, roll_seed_grade, seed_name, seed_return,
         wither_points,
     },
-    growth_permille,
+    gather_duration_permille, growth_permille,
     items::{gear_set_bonus, gear_set_views, roll_equipment},
     mastery_permille,
     opponent::{self, Opponent},
@@ -876,6 +877,11 @@ pub struct CultivationView {
     /// The resource economy as the page reads it: the purse, the two trades and
     /// the four buildings, each with what the page says about it.
     pub resources: ResourcesView,
+    /// What the next finished pomodoro pays: 修习, 伐木, or 采石.
+    ///
+    /// The mode is the fork the session completion reads, so the page has to be
+    /// able to show which arm is armed — and to arm the other one.
+    pub session_mode: SessionMode,
     /// How many floors have been attempted, so a surface can tell a new report
     /// from one it has already shown.
     pub trial_attempts: u32,
@@ -2724,6 +2730,55 @@ impl Cultivation {
             self.document.workshop_level,
             self.document.dojo_level,
         );
+        Ok(self.bank_collection(site, yield_))
+    }
+
+    /// One finished gathering session: what a pomodoro spent at `site` pays.
+    ///
+    /// The session is worth [`gather_duration_permille`] thousandths of a base
+    /// round at the cultivator's realm, so a higher realm's pomodoro gathers
+    /// more — the same trained hands that would gather ten wood in an hour
+    /// gather thirty-two at 仙人. The purse's ceiling applies per resource, and
+    /// the trades bank xp, the same way a manual gathering does.
+    pub fn collect_session(
+        &mut self,
+        site: GatherSite,
+        now_unix: i64,
+        today: CalendarDay,
+    ) -> CollectOutcome {
+        let duration = gather_duration_permille(self.realm().index() as u32);
+        let yield_ = collect_scaled(
+            site,
+            self.document.woodcut_level,
+            self.document.stonecut_level,
+            self.document.workshop_level,
+            self.document.dojo_level,
+            duration,
+        );
+        let outcome = self.bank_collection(site, yield_);
+        // A gathering session is a real session: it keeps the absence clock from
+        // charging the day, but it pays nothing of the 修习 ladder — no growth,
+        // no 功法 turn, no 灵石 cut, no 试炼 chance, no roll.
+        let today_number = today.day_number();
+        self.document.last_active_day = Some(today_number);
+        self.document.missed_streak = 0;
+        self.document.charged_through_day = Some(today_number);
+        self.push_event(
+            now_unix,
+            EventDetail::SessionGather {
+                site,
+                gained: outcome.gained.clone(),
+                woodcut_xp: outcome.woodcut_xp,
+                stonecut_xp: outcome.stonecut_xp,
+            },
+        );
+        outcome
+    }
+
+    /// Bank a collection into the purse and the trades: the 仓库's ceiling per
+    /// resource, the xp, and the levels the xp buys. Shared by a manual click
+    /// and a finished gathering session, so the two pay the same way.
+    fn bank_collection(&mut self, site: GatherSite, yield_: CollectionYield) -> CollectOutcome {
         // The 仓库's ceiling is per resource: a purse at the top of one kind
         // keeps the find of the other, so a full purse is never a lost day.
         let cap = resource_cap(self.document.warehouse_level);
@@ -2755,7 +2810,18 @@ impl Cultivation {
             stonecut_level: self.document.stonecut_level,
         };
         self.last_collect = Some(outcome.clone());
-        Ok(outcome)
+        outcome
+    }
+
+    /// What a finished pomodoro pays. One thing and one thing only: a session
+    /// either cultivates, or gathers at one site, never both.
+    pub fn session_mode(&self) -> SessionMode {
+        self.document.session_mode
+    }
+
+    /// Choose what the next finished pomodoro pays.
+    pub fn set_session_mode(&mut self, mode: SessionMode) {
+        self.document.session_mode = mode;
     }
 
     /// Raise one building a rank for 灵石 and the gathered tribute.
@@ -4414,6 +4480,7 @@ impl Cultivation {
             last_collect: self.last_collect.clone(),
             last_building: self.last_building.clone(),
             resources: self.resources_view(),
+            session_mode: self.session_mode(),
             next_session_growth: self.next_session_growth(day),
             derived_breakdowns: attribute_derived.breakdowns(attributes, bonus, level),
             duel_record: self.document.duel_record.clone(),

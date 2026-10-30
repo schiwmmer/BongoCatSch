@@ -265,6 +265,39 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             "cultivation.event.session",
             &[("growth", growth.to_string())],
         ),
+        // A gathering session pays the site's find and the trade's xp. The
+        // yield names the way every find names itself — "木×12 · 石×2" — so the
+        // history reads a session's pay the same way a manual click's does.
+        EventDetail::SessionGather {
+            site,
+            gained,
+            woodcut_xp,
+            stonecut_xp,
+        } => {
+            let mut line = format_text(
+                locale,
+                "cultivation.event.session_gather",
+                &[
+                    ("site", text(locale, site.key()).to_string()),
+                    ("gained", super::resource_bag_text(locale, gained)),
+                ],
+            );
+            if *woodcut_xp > 0 {
+                line.push_str(&format_text(
+                    locale,
+                    "cultivation.event.session_gather_xp",
+                    &[("xp", woodcut_xp.to_string())],
+                ));
+            }
+            if *stonecut_xp > 0 {
+                line.push_str(&format_text(
+                    locale,
+                    "cultivation.event.session_gather_xp",
+                    &[("xp", stonecut_xp.to_string())],
+                ));
+            }
+            line
+        }
         // The ordinary find of a finished pomodoro, named the way a walk names
         // its own: the same three keys, so "found a herb" cannot be worded two
         // different ways depending on where it was found.
