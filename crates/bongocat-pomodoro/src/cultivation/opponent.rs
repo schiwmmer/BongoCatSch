@@ -22,7 +22,7 @@
 use super::MAX_LEVEL;
 use super::arts::blueprint;
 use super::duel::{GUARDIAN_NAME, WANDERER_NAME};
-use super::trial::{TRIAL_OPPONENT_NAME, floor_level, floor_realm};
+use super::trial::{TRIAL_OPPONENT_NAME, TRIAL_OPPONENT_PERMILLE, floor_level, floor_realm};
 use super::{
     ArtGrade, ArtKind, ArtStrike, Attribute, Attributes, Derived, EquipmentRecord, Fighter, Realm,
     Rng, SLOT_COUNT, base_attributes, items::roll_equipment_solo,
@@ -177,20 +177,86 @@ pub(crate) fn guardian(current: Realm, target: Realm) -> Opponent {
 
 /// The warden of a 试炼 floor.
 ///
+/// The strength the tower draws a warden from against a cultivator, in parts
+/// per thousand.
+///
+/// Two draws averaged, so the middle is common and the ends are the rare, sharp
+/// fights: 800‰ (an easy floor), 1250‰ (a real wall), 1025‰ on average. Two
+/// uniforms are the cheapest way to a triangular spread that still has ends.
+pub(crate) fn challenge_band_permille(rng: &mut Rng) -> u32 {
+    (800 + (rng.below(451) + rng.below(451)) / 2) as u32
+}
+
+/// The floor's own rung: what a naked cultivator of that level is worth,
+/// softened to [`TRIAL_OPPONENT_PERMILLE`]. The floor every challenge bottoms
+/// out on, so the first floors stay an on-ramp rather than a coin toss.
+pub(crate) fn floor_rung_power(floor: u16) -> u32 {
+    base_attributes(floor_level(floor)).power() * TRIAL_OPPONENT_PERMILLE / 1_000
+}
+
+/// The strength a floor's warden is set to.
+///
+/// The warden is the floor's own softened rung, drawn through the band: the
+/// tower stays a benchmark — a floor reads the same against any save, which is
+/// what "the floor a save can hold is its power said as a rung" means — while
+/// the band makes the fight a draw rather than a formality. A floor well below
+/// the save is a comfortable win, a floor at the frontier is a real contest,
+/// and a floor a quarter past the save is a wall.
+pub(crate) fn challenge_power(floor: u16, rng: &mut Rng) -> u32 {
+    floor_rung_power(floor).saturating_mul(challenge_band_permille(rng)) / 1_000
+}
+
 /// Deterministic in the floor's *realm* rather than in the floor itself: a tower
 /// whose wardens re-rolled their gear every floor would climb up and down, and a
 /// floor softer than the one below it is not a ladder. Within a realm the body
 /// grows floor by floor and the gear stays the same, so the climb only ever goes
 /// one way.
-pub(crate) fn warden(floor: u16) -> Opponent {
+///
+/// The warden is levelled to [`challenge_power`]'s draw — the floor's own rung
+/// through the band — rather than to a fixed soften, so the fight is a fresh
+/// draw every attempt: the tower is a gamble at the frontier, not a formality.
+pub(crate) fn warden(floor: u16, rng: &mut Rng) -> Opponent {
     let realm = floor_realm(floor);
-    opponent(
-        Stance::Warden,
-        floor_level(floor),
-        realm.index() as u8 + 1,
-        TRIAL_OPPONENT_NAME.to_owned(),
-        fixed_seed(Stance::Warden, realm.index() as u32),
-    )
+    let tier = realm.index() as u8 + 1;
+    let name = TRIAL_OPPONENT_NAME.to_owned();
+    let seed = fixed_seed(Stance::Warden, realm.index() as u32);
+    let target = challenge_power(floor, rng);
+    let level = level_near(target, tier, name.clone(), seed);
+    opponent(Stance::Warden, level, tier, name, seed)
+}
+
+/// The level whose warden's power lands nearest `target`.
+///
+/// The warden's body is monotone in level, so a binary search finds the rung
+/// closest to the draw; the gear is tiered to the floor's realm either way, so
+/// the search reads the same ladder the floor stands on.
+fn level_near(target: u32, tier: u8, name: String, seed: u64) -> u16 {
+    let mut lo = 1u16;
+    let mut hi = MAX_LEVEL;
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        let power = opponent(Stance::Warden, mid, tier, name.clone(), seed)
+            .attributes
+            .power();
+        if power < target {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    // `lo` is the first rung at or above the target; the one below may be closer.
+    if lo > 1 {
+        let up = opponent(Stance::Warden, lo, tier, name.clone(), seed)
+            .attributes
+            .power();
+        let down = opponent(Stance::Warden, lo - 1, tier, name.clone(), seed)
+            .attributes
+            .power();
+        if target.saturating_sub(down) < up.saturating_sub(target) {
+            return lo - 1;
+        }
+    }
+    lo
 }
 
 /// Someone met on the road: rolled per meeting, because nobody promised who the

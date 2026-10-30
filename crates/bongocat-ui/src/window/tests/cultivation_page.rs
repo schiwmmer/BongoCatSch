@@ -1732,6 +1732,7 @@ fn the_trial_popup_names_the_floor_and_what_it_paid(cx: &mut TestAppContext) {
         CultivationDuelSource::Trial,
         cultivation_duel::CultivationDuelPayload::Trial(TrialOutcome {
             floor: 9,
+            warden_power: 12_345,
             duel: walk_report(),
             found: ExplorationFindView::default(),
         }),

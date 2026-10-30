@@ -168,6 +168,9 @@ pub struct BreakthroughOutcome {
 pub struct TrialOutcome {
     /// The floor that was climbed, one-based.
     pub floor: u16,
+    /// What a warden of this floor is worth, as the page reads it: the band's
+    /// middle around the cultivator, floored at the floor's own rung.
+    pub warden_power: u32,
     /// Every blow of the fight that settled it.
     pub duel: DuelReport,
     /// What clearing the floor turned up. A loss finds nothing but the floor.
@@ -3516,9 +3519,10 @@ impl Cultivation {
         self.trial_attempts = self.trial_attempts.saturating_add(1);
         let mut rng = self.rng(now_unix);
         let fighter = self.fighter(&mut rng);
-        // A floor's warden is the same opponent for that floor every day: the
-        // page prints its power next to the floor, so it cannot be a roll.
-        let rival = opponent::warden(floor);
+        // A floor's warden is drawn from a band around the floor's own rung each
+        // attempt: the page prints the band's middle, and the duel settles the
+        // draw — so the climb is a gamble at the frontier, not a formality.
+        let rival = opponent::warden(floor, &mut rng);
         let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
         self.record_duel(duel.won, FightKind::Trial, now_unix);
         let mut found = ExplorationFindView::default();
@@ -3571,7 +3575,12 @@ impl Cultivation {
                 stones: found.stones,
             },
         );
-        let outcome = TrialOutcome { floor, duel, found };
+        let outcome = TrialOutcome {
+            floor,
+            warden_power: warden_power(floor),
+            duel,
+            found,
+        };
         self.last_trial = Some(outcome.clone());
         Some(outcome)
     }
@@ -3584,8 +3593,11 @@ impl Cultivation {
         if floor > TRIAL_MAX_FLOOR {
             return false;
         }
-        let warden = warden_power(floor);
-        self.power() > warden.saturating_mul(3) / 2
+        // The sweep measures against the floor's own rung, not the scaled
+        // fight: a save far above the rung is offered the skip even though the
+        // band would have made the floor a contest — the rung is the ladder the
+        // tower is named for, and the skip is for a save that has outgrown it.
+        self.power() > opponent::floor_rung_power(floor).saturating_mul(3) / 2
     }
 
     /// Sweep the next stretch of the tower: one overwhelmingly strong
@@ -3624,7 +3636,7 @@ impl Cultivation {
         };
         for step in 0..floors {
             let floor = from_floor + step;
-            let rival = opponent::warden(floor);
+            let rival = opponent::warden(floor, &mut rng);
             let strength = Strength::of(rival.attributes.power());
             match roll_reward(&mut rng) {
                 TrialReward::Seed => {
@@ -5736,14 +5748,15 @@ mod tests {
                 "level {level} holds its own floor only {own}% of the time"
             );
         }
-        // The flat base numbers (攻击 ten, 生命 a hundred) dominate the first
-        // realm, so its floors are a notch softer than the ladder's arithmetic
-        // says — that is the on-ramp, and it is only the first realm's.
+        // A quarter past the save is a wall — a floor the save mostly cannot
+        // hold. The band's easy end lets a lucky draw through, so the wall is
+        // not absolute: a quarter past reads as "usually a loss", and the band
+        // is what the randomness is for.
         for level in [100_u16, 500, 800] {
             let past = (u32::from(level) * 125 / 100).min(u32::from(TRIAL_MAX_FLOOR)) as u16;
             let past_rate = win_rate(level, past);
             assert!(
-                past_rate <= 15,
+                past_rate <= 30,
                 "level {level} clears floor {past} a quarter past it {past_rate}% of the time"
             );
         }

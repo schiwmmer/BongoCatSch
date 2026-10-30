@@ -69,11 +69,13 @@ pub fn floor_realm(floor: u16) -> Realm {
 
 /// What a floor's warden is worth, as the page prints it beside the floor.
 ///
-/// Read off the opponent the floor will actually send — body, gear and all — so
-/// the number beside the floor and the fighter the duel settles against are one
-/// thing rather than two estimates of it.
+/// The fight draws a fresh strength from the band each attempt, so the page
+/// prints the band's *middle* — an honest estimate, not a promise: the number
+/// beside the floor and the fighter the duel settles against are the same
+/// spread, and the page reads its middle.
 pub fn warden_power(floor: u16) -> u32 {
-    super::opponent::warden(floor).attributes.power()
+    // The midpoint of the band the floor's own rung is drawn from.
+    super::opponent::floor_rung_power(floor).saturating_mul(1025) / 1_000
 }
 
 /// What clearing a floor turned up.
@@ -107,75 +109,117 @@ pub(crate) fn roll_reward(rng: &mut Rng) -> TrialReward {
 
 #[cfg(test)]
 mod tests {
+    use super::super::opponent::{challenge_band_permille, challenge_power, floor_rung_power};
     use super::*;
-    use crate::cultivation::base_attributes;
 
     /// The three findings share one roll, so together they cannot fill it: the
     /// rest of the thousand is a floor that paid nothing.
     const _: () = assert!(TRIAL_SEED_PERMILLE + TRIAL_GEAR_PERMILLE + TRIAL_ART_PERMILLE <= 1_000);
 
+    /// The band is drawn as two uniforms averaged, so the middle is common and
+    /// the ends are the rare, sharp fights — and it never leaves the chosen
+    /// window around the cultivator: a fifth below, a quarter above.
+    #[test]
+    fn the_challenge_band_keeps_its_edges_and_its_middle() {
+        let mut seen_min = u32::MAX;
+        let mut seen_max = 0;
+        let mut sum = 0u64;
+        let count = 20_000u64;
+        for seed in 0..count {
+            let band = challenge_band_permille(&mut Rng::seeded(seed));
+            assert!(
+                (800..=1250).contains(&band),
+                "seed {seed}: the band {band} left the chosen window"
+            );
+            seen_min = seen_min.min(band);
+            seen_max = seen_max.max(band);
+            sum += u64::from(band);
+        }
+        // The ends are the rare draws: approached across a long run.
+        assert!(
+            seen_min <= 810,
+            "the easy end was never reached: {seen_min}"
+        );
+        assert!(
+            seen_max >= 1240,
+            "the hard end was never reached: {seen_max}"
+        );
+        // Two uniforms averaged centre on 1025: the middle is the common draw.
+        let mean = sum / count;
+        assert!((1_000..=1_050).contains(&mean), "mean {mean} not centred");
+    }
+
+    /// A floor reads the same against any save: the warden is the floor's own
+    /// softened rung, drawn through the band, so the tower stays a benchmark —
+    /// the fight is a draw, not a formality, but the floor does not move with
+    /// who is climbing it.
+    #[test]
+    fn the_warden_is_drawn_around_the_floors_own_rung() {
+        for floor in [1_u16, 50, 100, 500, TRIAL_MAX_FLOOR] {
+            let rung = floor_rung_power(floor);
+            for seed in 0..300u64 {
+                let draw = challenge_power(floor, &mut Rng::seeded(seed));
+                // The draw never leaves the band around the floor's own rung.
+                assert!(
+                    (rung * 800 / 1_000..=rung * 1250 / 1_000).contains(&draw),
+                    "floor {floor} seed {seed}: draw {draw} left [0.8, 1.25] of the rung {rung}"
+                );
+                // The warden the duel settles against is levelled to that draw,
+                // within a rung's own width — the ladder is the coarsest step
+                // the draw can be read on, and the first floor is its edge.
+                let warden = super::super::opponent::warden(floor, &mut Rng::seeded(seed));
+                let slack = rung / 5;
+                let w = warden.attributes.power();
+                assert!(
+                    w >= rung.saturating_mul(800) / 1_000 - slack
+                        && w <= rung.saturating_mul(1250) / 1_000 + slack,
+                    "floor {floor} seed {seed}: warden {w} left the band around the rung {rung}"
+                );
+                assert!(warden.fighter.health > 0);
+            }
+        }
+    }
+
+    /// The tower is a ladder: a deeper floor is a harder rung, so the climb only
+    /// ever reads one direction.
+    #[test]
+    fn a_deeper_floor_is_a_harder_rung() {
+        let mut previous = 0;
+        for floor in 1..=TRIAL_MAX_FLOOR {
+            let rung = floor_rung_power(floor);
+            assert!(
+                rung >= previous,
+                "floor {floor}: rung {rung} below {previous}"
+            );
+            previous = rung;
+        }
+        // A realm crossing is felt in the rung itself.
+        assert!(floor_rung_power(101) > floor_rung_power(100));
+        // The printed estimate is the rung through the band's middle, so it
+        // climbs the same ladder and never goes down either.
+        let mut prev = 0;
+        for floor in 1..=TRIAL_MAX_FLOOR {
+            let p = warden_power(floor);
+            assert!(p >= prev, "floor {floor}: printed {p} below {prev}");
+            prev = p;
+        }
+    }
+
     #[test]
     fn floor_one_is_the_first_rung_of_the_ladder() {
         assert_eq!(floor_level(1), 1);
         assert_eq!(floor_realm(1), Realm::QiRefining);
-        // The first floor's warden is the first level's cultivator, softened —
-        // and whatever it managed to put on top of that body.
-        let softened = base_attributes(1).power() * TRIAL_OPPONENT_PERMILLE / 1_000;
-        let warden = super::super::opponent::warden(1);
-        assert_eq!(warden_power(1), warden.attributes.power());
+        // The first floor is a fresh save's first contest, not a wall: the
+        // band's hard end over the rung is the ceiling.
+        let rung = floor_rung_power(1);
+        let warden = super::super::opponent::warden(1, &mut Rng::seeded(0));
+        let ceiling = rung * 1250 / 1_000 + rung / 10;
         assert!(
-            warden.attributes.power() + 5 >= softened,
-            "the warden of the first floor is softer than the softened rung"
+            warden.attributes.power() <= ceiling,
+            "floor one is a wall rather than an on-ramp: {}",
+            warden.attributes.power()
         );
-        assert!(
-            warden.attributes.power() < base_attributes(1).power() * 2,
-            "the first floor is a wall rather than an on-ramp"
-        );
-    }
-
-    #[test]
-    fn a_deeper_floor_is_a_deeper_level_and_a_harder_warden() {
-        let mut previous = 0;
-        for floor in 1..=TRIAL_MAX_FLOOR {
-            let power = warden_power(floor);
-            // The warden's gear is rolled per realm, so crossing into a new realm
-            // re-dresses it: the body jumps up and the gear may jump down a hair.
-            // A hundredth of a floor is not a rung, and the climb has to read as
-            // one direction.
-            assert!(
-                power + previous / 100 >= previous,
-                "floor {floor} is softer than the one below it: {previous} to {power}"
-            );
-            previous = power;
-        }
-        // Crossing a realm boundary is felt: the last layer of 炼气 is worth
-        // less than the first of 筑基, because the realm jump is in the ladder.
-        assert!(warden_power(101) > warden_power(100));
-    }
-
-    #[test]
-    fn the_warden_stays_on_the_ladder_below_a_naked_save_of_the_same_level() {
-        for floor in [1_u16, 50, 100, 500, TRIAL_MAX_FLOOR] {
-            let naked = base_attributes(floor_level(floor));
-            let warden = super::super::opponent::warden(floor);
-            // What the page prints beside the floor is the fighter the duel
-            // settles against, gear and all.
-            assert_eq!(
-                warden_power(floor),
-                warden.attributes.power(),
-                "floor {floor}: the printed power is not the warden's own"
-            );
-            // The body is the softened rung and the gear is a bonus on top of it,
-            // capped so a floor never turns into a wall.
-            let ceiling = naked.power() * 125 / 100;
-            assert!(
-                warden.attributes.power() <= ceiling,
-                "floor {floor}: the warden walks in at {} against a bare {}",
-                warden.attributes.power(),
-                naked.power()
-            );
-            assert!(warden.fighter.health > 0);
-        }
+        assert!(warden.fighter.health > 0);
     }
 
     #[test]

@@ -411,9 +411,7 @@ fn title_line(duel: &CultivationDuel, locale: &str) -> String {
                     ("floor", outcome.floor.to_string()),
                     (
                         "power",
-                        bongocat_i18n::compact_number(u64::from(bongocat_pomodoro::warden_power(
-                            outcome.floor
-                        )))
+                        bongocat_i18n::compact_number(u64::from(outcome.warden_power)),
                     ),
                 ],
             )
