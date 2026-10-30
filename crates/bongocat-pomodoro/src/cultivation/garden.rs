@@ -83,6 +83,27 @@ pub fn grow_seconds(tier: u8) -> i64 {
     GROW_SECONDS[usize::from(tier.clamp(1, MAX_SEED_TIER) - 1)]
 }
 
+/// How long a seed of this tier takes to mature in a garden of this rank.
+///
+/// Every 阶 of the 仙草园 above the first shortens the growing time by five
+/// percent, compounding: a rank-one garden grows at the base rate, a rank-two
+/// at 95%, and a full garden (the top 阶) in about half the wait. [`harvest_points`]
+/// keeps charging on [`grow_seconds`] — the base rate — so raising the garden
+/// buys speed and never cheapens a harvest: the rank pays in time, not in
+/// points. A rank at or below the first, or past the top, is read at the ladder's
+/// own ends, and no shortening can take a crop below one second.
+pub fn grow_seconds_at(garden_rank: u8, tier: u8) -> i64 {
+    let base = grow_seconds(tier);
+    let ranks_above_first = garden_rank
+        .saturating_sub(1)
+        .min(MAX_GARDEN_RANK.saturating_sub(1));
+    if ranks_above_first == 0 {
+        return base;
+    }
+    let shortened = (base as f64 * 0.95f64.powi(ranks_above_first as i32)).round();
+    shortened.max(1.0) as i64
+}
+
 /// The five rungs a seed is graded on: 黄、玄、地、天、神.
 ///
 /// The same five, in the same order and the same colours, as a 功法 — a 地阶
@@ -414,12 +435,14 @@ pub struct CropRecord {
 }
 
 impl CropRecord {
-    /// A crop planted now, maturing after its tier's growing time.
+    /// A crop planted now, maturing after its tier's growing time at the
+    /// garden's rank.
     pub fn planted(
         attribute: Attribute,
         tier: u8,
         grade: SeedGrade,
         name: Option<String>,
+        garden_rank: u8,
         now_unix: i64,
     ) -> Self {
         let tier = tier.clamp(1, MAX_SEED_TIER);
@@ -430,10 +453,10 @@ impl CropRecord {
             grade,
             name,
             withered: false,
-            revealed_at_unix: reveal_at_unix(now_unix, tier),
+            revealed_at_unix: reveal_at_unix(now_unix, garden_rank, tier),
             settled: false,
             planted_at_unix: now_unix,
-            ready_at_unix: now_unix.saturating_add(grow_seconds(tier)),
+            ready_at_unix: now_unix.saturating_add(grow_seconds_at(garden_rank, tier)),
         }
     }
 
@@ -442,6 +465,7 @@ impl CropRecord {
         herb: super::AptitudeHerb,
         grade: SeedGrade,
         name: Option<String>,
+        garden_rank: u8,
         now_unix: i64,
     ) -> Self {
         let tier = herb_tier(herb).clamp(1, MAX_SEED_TIER);
@@ -452,10 +476,10 @@ impl CropRecord {
             grade,
             name,
             withered: false,
-            revealed_at_unix: reveal_at_unix(now_unix, tier),
+            revealed_at_unix: reveal_at_unix(now_unix, garden_rank, tier),
             settled: false,
             planted_at_unix: now_unix,
-            ready_at_unix: now_unix.saturating_add(grow_seconds(tier)),
+            ready_at_unix: now_unix.saturating_add(grow_seconds_at(garden_rank, tier)),
         }
     }
 
@@ -481,14 +505,15 @@ impl CropRecord {
     }
 }
 
-/// When a bed says how it is doing: half the crop's growing time.
+/// When a bed says how it is doing: half the crop's growing time at the
+/// garden's rank.
 ///
 /// The seed's roll happens at planting and the result is hidden until here, so
 /// the halfway mark is the first moment the gardener may know. Half rather than
 /// the end because the second half of a failed crop is time the bed could be
 /// spending on the next seed.
-pub fn reveal_at_unix(planted_at_unix: i64, tier: u8) -> i64 {
-    planted_at_unix.saturating_add(grow_seconds(tier) / 2)
+pub fn reveal_at_unix(planted_at_unix: i64, garden_rank: u8, tier: u8) -> i64 {
+    planted_at_unix.saturating_add(grow_seconds_at(garden_rank, tier) / 2)
 }
 
 /// One plot: empty, growing, or ready.
@@ -655,7 +680,7 @@ mod tests {
     #[test]
     fn a_crop_is_ready_only_after_its_growing_time() {
         let ready = 1_000 + grow_seconds(2);
-        let crop = CropRecord::planted(Attribute::Root, 2, SeedGrade::Earth, None, 1_000);
+        let crop = CropRecord::planted(Attribute::Root, 2, SeedGrade::Earth, None, 1, 1_000);
         assert_eq!(crop.ready_at_unix, ready);
         assert!(!crop.is_ready(1_000));
         assert!(!crop.is_ready(ready - 1));
@@ -665,6 +690,42 @@ mod tests {
             u32::try_from(grow_seconds(2)).unwrap()
         );
         assert_eq!(crop.remaining_seconds(ready + 1), 0);
+    }
+
+    /// Raising the 仙草园 speeds the bed up: every 阶 above the first shaves
+    /// five percent off the wait, compounding, and the harvest value never
+    /// moves with it. A full garden grows a crop in about half the base time.
+    #[test]
+    fn growing_time_shortens_with_garden_rank() {
+        let base = grow_seconds(4);
+        // The first 阶 is the base rate: no 阶 above the first, no shortening.
+        assert_eq!(grow_seconds_at(1, 4), base, "a rank-one garden is the base");
+        // A rank at or below the first reads the same way.
+        assert_eq!(
+            grow_seconds_at(0, 4),
+            base,
+            "a rank-zero bed is the base too"
+        );
+        // Each 阶 above the first compounds a five-percent cut.
+        assert_eq!(
+            grow_seconds_at(2, 4),
+            (base as f64 * 0.95).round() as i64,
+            "the second 阶 is 95% of the base"
+        );
+        // Higher ranks never grow slower, and a full garden is well under half.
+        for rank in 2..=MAX_GARDEN_RANK {
+            assert!(
+                grow_seconds_at(rank, 4) <= grow_seconds_at(rank - 1, 4),
+                "rank {rank} must not grow slower than rank {}",
+                rank - 1
+            );
+        }
+        assert!(
+            grow_seconds_at(MAX_GARDEN_RANK, 4) * 2 < base,
+            "a full garden grows a seed in under half the base wait"
+        );
+        // A rank past the cap cannot drive a crop below one second.
+        assert!(grow_seconds_at(MAX_GARDEN_RANK + 50, 1) >= 1);
     }
 
     #[test]

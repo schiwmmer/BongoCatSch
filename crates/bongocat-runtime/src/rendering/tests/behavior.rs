@@ -72,16 +72,16 @@ fn expression_survives_automatic_blink_in_both_windows() {
 
 #[test]
 fn preset_motion_survives_neutral_input() {
-    // The nod motion drives ParamAngleX. With a neutral (centre) input the
-    // model input must NOT reset it to 0; the motion's value plus the breath
-    // contribution is what survives.
-    let angle_x = evaluate_nod(None, Duration::from_millis(500));
-    // The nod curve is 7.0 at 0.5s; the breath adds ~3.47 at the same time.
+    // The nod motion drives ParamAngleY (the vertical axis). With a neutral
+    // (centre) input the model input must NOT reset it to 0; the motion's value
+    // plus the breath contribution is what survives.
+    let angle_y = evaluate_nod(None, Duration::from_millis(500));
+    // The nod curve is 15.0 at 0.5s; the breath adds ~3.11 at the same time.
     // The key assertion: the motion contribution is retained (not reset to the
     // neutral 0 the input used to force).
     assert!(
-        (angle_x - 10.468).abs() < 0.1,
-        "nod motion must retain its angle under a neutral input, got {angle_x}"
+        (angle_y - 18.105).abs() < 0.1,
+        "nod motion must retain its angle under a neutral input, got {angle_y}"
     );
 }
 
@@ -93,15 +93,15 @@ fn preset_motion_survives_neutral_input() {
 #[test]
 fn preset_motion_survives_a_moving_pointer() {
     for (pointer_x, pointer_y) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.63, -0.41)] {
-        let angle_x = evaluate_nod(Some((pointer_x, pointer_y)), Duration::from_millis(500));
+        let angle_y = evaluate_nod(Some((pointer_x, pointer_y)), Duration::from_millis(500));
         assert!(
-            (angle_x - 10.468).abs() < 0.1,
-            "nod must keep its angle at pointer ({pointer_x}, {pointer_y}), got {angle_x}"
+            (angle_y - 18.105).abs() < 0.1,
+            "nod must keep its angle at pointer ({pointer_x}, {pointer_y}), got {angle_y}"
         );
     }
 }
 
-/// Plays the shipped `nod` clip and returns `ParamAngleX` after one frame.
+/// Plays the shipped `nod` clip and returns `ParamAngleY` after one frame.
 fn evaluate_nod(pointer: Option<(f32, f32)>, now: Duration) -> f32 {
     let json = resource("nod.motion3.json");
     let clip = MotionClip::from_slice(json.as_bytes(), 0.0, 0.0).expect("nod");
@@ -136,7 +136,7 @@ fn evaluate_nod(pointer: Option<(f32, f32)>, now: Duration) -> f32 {
         .as_ref()
         .expect("active")
         .model
-        .parameter_value_by_id("ParamAngleX")
+        .parameter_value_by_id("ParamAngleY")
         .expect("value")
         .expect("supported")
 }

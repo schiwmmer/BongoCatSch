@@ -53,14 +53,18 @@ pub(super) fn shop_panel(
         );
         return panel;
     }
-    panel = panel.child(
-        div().flex().flex_col().gap_1().children(
-            cultivation
-                .shop_offers
-                .iter()
-                .map(|entry| shop_row(view, entry, open_offer, locale, tokens)),
-        ),
-    );
+    panel = panel.child(div().flex().flex_col().gap_1().children(
+        cultivation.shop_offers.iter().map(|entry| {
+            shop_row(
+                view,
+                entry,
+                open_offer,
+                locale,
+                cultivation.garden_rank,
+                tokens,
+            )
+        }),
+    ));
     panel
 }
 
@@ -77,6 +81,7 @@ fn shop_row(
     entry: &ShopOfferView,
     open_offer: Option<usize>,
     locale: &str,
+    garden_rank: u8,
     tokens: Tokens,
 ) -> impl IntoElement {
     let label = shop_offer_label(&entry.offer, locale);
@@ -231,6 +236,7 @@ fn shop_row(
             &entry.offer,
             entry.sell_price,
             locale,
+            garden_rank,
             tokens,
         ));
     }
@@ -285,6 +291,7 @@ fn shop_offer_detail(
     offer: &ShopOffer,
     sell_price: u32,
     locale: &str,
+    garden_rank: u8,
     tokens: Tokens,
 ) -> gpui_kit::AnyElement {
     let resale = format_text(
@@ -329,7 +336,7 @@ fn shop_offer_detail(
             // What the seed pays when it comes up, then what a sale would bring:
             // the two numbers a buyer is choosing between when they look at the
             // price on the button.
-            .child(seed_facts(locale, *attribute, *tier, *grade))
+            .child(seed_facts(locale, *attribute, *tier, *grade, garden_rank))
             .child(format!(
                 "{} · {}",
                 seed_label(locale, *attribute, *tier, *grade, name.as_deref()),

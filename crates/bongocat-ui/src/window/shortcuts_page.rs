@@ -265,8 +265,8 @@ pub(super) fn content(
 /// The three built-in packages declare the same two motion groups holding the
 /// same five clips in the same order. That is where the duplicate chips came
 /// from: `CAT_motion` and `CAT_motion_lock` are different groups but the same
-/// acts. Names are asserted only where the curve proves the act — `ParamAngleX`,
-/// `ParamAngleY` and `ParamAngleZ` for nod, head-shake and tilt, and
+/// acts. Names are asserted only where the curve proves the act — `ParamAngleY`,
+/// `ParamAngleX` and `ParamAngleZ` for nod, head-shake and tilt, and
 /// `CatParamLeftHandDown` for the hand motion. The generic `Param`/`Param2`
 /// curves say nothing about intent, so those keep a neutral label rather than
 /// an invented action.

@@ -2284,12 +2284,25 @@ impl Cultivation {
         let plot = &mut self.document.plots[plot_index];
         plot.crop = Some(match herb {
             Some(herb) => {
-                let mut crop = CropRecord::herb_planted(herb, grade, name, now_unix);
+                let mut crop = CropRecord::herb_planted(
+                    herb,
+                    grade,
+                    name,
+                    self.document.garden_rank,
+                    now_unix,
+                );
                 crop.withered = !took;
                 crop
             }
             None => {
-                let mut crop = CropRecord::planted(attribute, tier, grade, name, now_unix);
+                let mut crop = CropRecord::planted(
+                    attribute,
+                    tier,
+                    grade,
+                    name,
+                    self.document.garden_rank,
+                    now_unix,
+                );
                 crop.withered = !took;
                 crop
             }

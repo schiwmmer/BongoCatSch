@@ -20,7 +20,7 @@ use bongocat_pomodoro::{
     ExplorationHours, ExplorationOutcome, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR,
     MarrowSource, MasteredArtView, PlotView, PomodoroCommand, Rarity, Realm, SaleKind, SeedGrade,
     SeedView, ShopOffer, ShopOfferView, StrikeEffect, TRIAL_ATTEMPTS_PER_DAY, TrialBlocked,
-    art_bonus_at, art_payout_at, blueprint, grow_seconds, harvest_points, herb_tier,
+    art_bonus_at, art_payout_at, blueprint, grow_seconds_at, harvest_points, herb_tier,
     mastered_art_bonus_payout, mastered_art_payout, plant_permille, star_multiplier_permille,
 };
 

@@ -2,7 +2,7 @@
 //! instant and every local day, so a hundred days of absence take microseconds.
 
 use super::explore::WALK_STONES;
-use super::garden::{grow_seconds, harvest_points};
+use super::garden::{grow_seconds, grow_seconds_at, harvest_points};
 use super::*;
 use crate::CalendarDay;
 
@@ -537,7 +537,11 @@ fn a_planted_seed_ripens_on_the_clock_and_pays_an_attribute() {
         .crop
         .clone()
         .expect("a crop in the first plot");
-    assert_eq!(planted.ready_at_unix, 1_000 + grow_seconds(1));
+    assert_eq!(
+        planted.ready_at_unix,
+        1_000 + grow_seconds_at(MAX_GARDEN_RANK, 1),
+        "a top-rank garden grows a first-tier seed at its shortened rate"
+    );
     assert!(
         cultivation.harvest(0, 1_000).is_none(),
         "an unripe crop is not pickable"

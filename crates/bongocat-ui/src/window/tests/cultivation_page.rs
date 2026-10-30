@@ -1227,6 +1227,7 @@ fn a_plot_on_its_own_row_keeps_its_own_index(cx: &mut TestAppContext) {
                 2,
                 SeedGrade::Earth,
                 Some(format!("草{i}")),
+                1,
                 0,
             )),
         })
@@ -1237,6 +1238,7 @@ fn a_plot_on_its_own_row_keeps_its_own_index(cx: &mut TestAppContext) {
             2,
             SeedGrade::Earth,
             Some("凤花".to_owned()),
+            1,
             0,
         )),
     });
@@ -1289,6 +1291,7 @@ fn a_seed_says_what_it_pays_at_every_stage(cx: &mut TestAppContext) {
                 2,
                 SeedGrade::Heaven,
                 Some("玄莲".to_owned()),
+                1,
                 0,
             )),
         }],
@@ -1319,7 +1322,7 @@ fn a_seed_says_what_it_pays_at_every_stage(cx: &mut TestAppContext) {
 fn a_withered_plot_says_so_and_offers_the_dig(cx: &mut TestAppContext) {
     let dead = CropRecord {
         withered: true,
-        ..CropRecord::planted(Attribute::Mana, 2, SeedGrade::Heaven, None, 0)
+        ..CropRecord::planted(Attribute::Mana, 2, SeedGrade::Heaven, None, 1, 0)
     };
     // Read well past the halfway mark: `view()` asks the domain at instant zero,
     // where no bed has been allowed to speak yet.

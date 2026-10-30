@@ -32,15 +32,21 @@ fn harvest_line(locale: &str, attribute: Attribute, tier: u8, grade: SeedGrade) 
 }
 
 /// Everything a seed is worth knowing before it is planted: what it pays when
-/// it comes up, and how long that takes.
+/// it comes up, and how long that takes at the garden's current rank.
 ///
 /// One string shared by the shelf and the satchel, so the herb cannot be
 /// described two ways depending on where the user happened to look at it.
-pub(super) fn seed_facts(locale: &str, attribute: Attribute, tier: u8, grade: SeedGrade) -> String {
+pub(super) fn seed_facts(
+    locale: &str,
+    attribute: Attribute,
+    tier: u8,
+    grade: SeedGrade,
+    garden_rank: u8,
+) -> String {
     format!(
         "{} · {}",
         harvest_line(locale, attribute, tier, grade),
-        growing_line(locale, grow_seconds(tier)),
+        growing_line(locale, grow_seconds_at(garden_rank, tier)),
     )
 }
 
@@ -75,6 +81,7 @@ fn seed_odds_line(
     odds_line: String,
     locale: &str,
     tier: u8,
+    garden_rank: u8,
     tokens: Tokens,
 ) -> gpui_kit::AnyElement {
     // The growing time keeps its own id so a render test can prove it is drawn
@@ -93,7 +100,7 @@ fn seed_odds_line(
             div()
                 .id(growing_id)
                 .test_support()
-                .child(growing_line(locale, grow_seconds(tier))),
+                .child(growing_line(locale, grow_seconds_at(garden_rank, tier))),
         )
         .test_support()
         .into_any_element()
@@ -247,6 +254,7 @@ fn herb_row(
             odds_line,
             locale,
             seed.tier,
+            cultivation.garden_rank,
             tokens,
         ));
     let mut row = div()
@@ -513,6 +521,7 @@ pub(super) fn seed_panel(
                         odds_line,
                         locale,
                         seed.tier,
+                        cultivation.garden_rank,
                         tokens,
                     ));
                 let mut row = div()
@@ -574,7 +583,13 @@ pub(super) fn seed_panel(
                         key,
                         format!(
                             "{} · {}",
-                            seed_facts(locale, seed.attribute, seed.tier, seed.grade),
+                            seed_facts(
+                                locale,
+                                seed.attribute,
+                                seed.tier,
+                                seed.grade,
+                                cultivation.garden_rank,
+                            ),
                             format_text(
                                 locale,
                                 "cultivation.shop.detail_sell",
