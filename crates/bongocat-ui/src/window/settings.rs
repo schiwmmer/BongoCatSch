@@ -184,7 +184,6 @@ impl SettingsView {
         );
     }
 
-
     pub(super) fn set_dock_icon_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
         let Some(expected_config_revision) = self
             .snapshot

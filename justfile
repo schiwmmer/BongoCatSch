@@ -18,6 +18,69 @@ dev:
 dev-smoke:
     cargo run --locked -p bongocat-app --release -- --run-seconds 4 --settings-window-smoke
 
+# Launch the packaged product for a bounded settings-window run and archive the log.
+#
+# A GUI process has no console, so the log is the only evidence it started at
+# all. A stale instance is killed first: LaunchServices drops the flags for an
+# already-running copy, and `open --args` is not used here for the same reason.
+# The watchdog catches the case where the run guard never fires, which is what a
+# silently ignored `--run-seconds` looks like.
+gui-smoke seconds="6" app="/Applications/BongoCat.app":
+    #!/usr/bin/env sh
+    set -eu
+    binary="{{app}}/Contents/MacOS/bongocat-app"
+    if [ ! -x "$binary" ]; then
+        echo "gui-smoke: no executable at $binary (run 'just verify-app' and sync first)" >&2
+        exit 1
+    fi
+    mkdir -p target/smoke
+    log="target/smoke/gui-smoke-$(date +%Y%m%d-%H%M%S)-{{seconds}}s.log"
+    pkill -f 'Contents/MacOS/bongocat-app' >/dev/null 2>&1 || true
+    sleep 1
+    "$binary" --run-seconds "{{seconds}}" --settings-window-smoke >"$log" 2>&1 &
+    pid=$!
+    # The watchdog polls a sentinel instead of being killed, so the recipe never
+    # prints a job-termination message for it. It only fires when the run guard
+    # silently did not apply, which is the failure mode this recipe exists for.
+    done_file="target/smoke/.done.$$"
+    timed_out="target/smoke/.timed-out.$$"
+    (
+        elapsed=0
+        while [ ! -f "$done_file" ]; do
+            if [ "$elapsed" -ge $(({{seconds}} + 20)) ]; then
+                : >"$timed_out"
+                kill "$pid" >/dev/null 2>&1 || true
+                break
+            fi
+            sleep 1
+            elapsed=$((elapsed + 1))
+        done
+    ) &
+    watchdog=$!
+    status=0
+    wait "$pid" || status=$?
+    : >"$done_file"
+    wait "$watchdog" 2>/dev/null || true
+    /bin/rm -f "$done_file"
+    if [ -f "$timed_out" ]; then
+        /bin/rm -f "$timed_out"
+        echo "gui-smoke: the run guard never fired; killed after $(({{seconds}} + 20))s" >&2
+        echo "gui-smoke: log at $log" >&2
+        exit 1
+    fi
+    if [ "$status" -ne 0 ]; then
+        echo "gui-smoke: the product exited $status" >&2
+        echo "gui-smoke: log at $log" >&2
+        exit "$status"
+    fi
+    if ! grep -q 'Live2D Cubism SDK Core' "$log"; then
+        echo "gui-smoke: the model never loaded" >&2
+        echo "gui-smoke: log at $log" >&2
+        exit 1
+    fi
+    echo "gui-smoke: ok ({{seconds}}s)  log: $log"
+
+
 # Run a deterministic Live2D diagnostic preview.
 preview model="standard" seconds="30":
     cargo run --locked -p bongocat-overlay --release -- "{{model}}" "{{seconds}}"

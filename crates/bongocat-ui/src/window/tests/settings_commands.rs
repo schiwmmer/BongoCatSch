@@ -2,7 +2,6 @@
 
 use super::*;
 
-
 #[test]
 fn settings_error_display_matches_the_english_catalog_copy() {
     for code in SettingsErrorCode::ALL {

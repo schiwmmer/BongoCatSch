@@ -45,16 +45,17 @@ fn activating_a_model_fills_in_the_legacy_default_behavior_shortcuts() {
         .wait_for_command(token.command_sequence, RUNTIME_TIMEOUT)
         .expect("standard model activation");
 
-    // `standard` declares five motions in each of two groups and ten
-    // expressions. The legacy ordering walks motions before expressions,
-    // so the twenty behaviours land on the digit tiers first and the
-    // Shift tier second.
+    // `standard` declares four motions in each of two groups and seven
+    // expressions. The legacy rule assigns chords by flat position, walking
+    // motions before expressions, so dropping one motion and three expressions
+    // moves every later behaviour up the same table rather than keeping a
+    // per-kind tier.
     let bindings = application
         .config()
         .shortcuts
         .model_behavior_bindings
         .clone();
-    assert_eq!(bindings.len(), 20);
+    assert_eq!(bindings.len(), 15);
     assert!(
         bindings
             .iter()
@@ -64,19 +65,21 @@ fn activating_a_model_fills_in_the_legacy_default_behavior_shortcuts() {
     for (behavior_id, expected) in [
         ("motion:CAT_motion:0", format!("{primary}+1")),
         ("motion:CAT_motion:1", format!("{primary}+2")),
-        ("motion:CAT_motion_lock:0", format!("{primary}+6")),
-        ("motion:CAT_motion_lock:1", format!("{primary}+7")),
+        ("motion:CAT_motion_lock:0", format!("{primary}+5")),
+        ("motion:CAT_motion_lock:1", format!("{primary}+6")),
+        // Position 8 and 9 are still in the digit tier, so the last two
+        // motions of the second group are followed by two expressions there.
         (
             "expression:live2d_expression0.exp3.json",
-            format!("Shift+{primary}+1"),
+            format!("{primary}+9"),
         ),
         (
             "expression:live2d_expression1.exp3.json",
-            format!("Shift+{primary}+2"),
+            format!("{primary}+0"),
         ),
         (
             "expression:live2d_expression2.exp3.json",
-            format!("Shift+{primary}+3"),
+            format!("Shift+{primary}+1"),
         ),
     ] {
         let binding = bindings
@@ -213,7 +216,7 @@ fn selecting_a_model_keeps_the_behavior_bindings_the_user_recorded() {
         .shortcuts
         .model_behavior_bindings
         .clone();
-    assert_eq!(bindings.len(), 20);
+    assert_eq!(bindings.len(), 15);
     let chord = |behavior_id: &str| {
         bindings
             .iter()
@@ -233,11 +236,13 @@ fn selecting_a_model_keeps_the_behavior_bindings_the_user_recorded() {
     );
     assert_eq!(
         chord("motion:CAT_motion_lock:0"),
-        Some(format!("{primary}+5"))
+        Some(format!("{primary}+4"))
     );
     assert_eq!(
         chord("expression:live2d_expression2.exp3.json"),
-        Some(format!("Shift+{primary}+2"))
+        // The recorded binding freed one slot, so the fifteenth behaviour is the
+        // last chord of the digit tier rather than the third of the Shift tier.
+        Some(format!("{primary}+0"))
     );
     assert_eq!(
         application.config().shortcuts.command_bindings.len(),
@@ -273,7 +278,7 @@ fn clearing_all_shortcuts_does_not_survive_the_next_activation() {
         .expect("select standard model");
     assert_eq!(
         application.config().shortcuts.model_behavior_bindings.len(),
-        20
+        15
     );
 
     // What the page's "Clear all shortcuts" button sends.
@@ -296,7 +301,7 @@ fn clearing_all_shortcuts_does_not_survive_the_next_activation() {
     assert!(application.config().shortcuts.command_bindings.is_empty());
     assert_eq!(
         application.config().shortcuts.model_behavior_bindings.len(),
-        20,
+        15,
         "the model behaviour defaults are re-assigned by activation"
     );
     application.shutdown().expect("clean shutdown");

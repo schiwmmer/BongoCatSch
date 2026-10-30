@@ -237,9 +237,7 @@ fn placement_from_window(window: &Window, cx: &App) -> Option<SettingsWindowPlac
 }
 
 fn settings_window_content_top_inset() -> f32 {
-    {
-        bongocat_platform::window_content_top_inset()
-    }
+    bongocat_platform::window_content_top_inset()
 }
 
 fn rounded_f32_i32(value: f32) -> Option<i32> {

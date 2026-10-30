@@ -476,9 +476,7 @@ fn shop_offer_label(offer: &ShopOffer, locale: &str) -> String {
             name,
         } => seed_label(locale, *attribute, *tier, *grade, name.as_deref()),
         ShopOffer::Art { art_id } => blueprint(*art_id).name.clone(),
-        ShopOffer::Herb { herb, grade } => {
-            herb_seed_label(locale, *herb, herb_tier(*herb), *grade)
-        }
+        ShopOffer::Herb { herb, grade } => herb_seed_label(locale, *herb, herb_tier(*herb), *grade),
     }
 }
 

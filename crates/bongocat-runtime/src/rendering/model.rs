@@ -31,7 +31,14 @@ impl RuntimeRenderer {
         let mut model = Live2dModel::load(committed)
             .map_err(|error| map_live2d_error(error, RuntimeRenderErrorCode::ModelLoadFailed))?;
         let resources = model.render_resources();
-        apply_model_input(&mut model, input, self.model_settings)?;
+        // A freshly loaded model has no motion to protect, so nothing is
+        // reserved and the commit frame is the input alone.
+        apply_model_input(
+            &mut model,
+            input,
+            self.model_settings,
+            &std::collections::BTreeSet::new(),
+        )?;
         let mut snapshot = model.update_and_snapshot().map_err(|error| {
             map_live2d_error(error, RuntimeRenderErrorCode::ModelEvaluationFailed)
         })?;

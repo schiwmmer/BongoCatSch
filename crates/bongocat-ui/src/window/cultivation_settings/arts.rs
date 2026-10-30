@@ -362,14 +362,8 @@ fn strike_line(
                 locale,
                 "cultivation.art.total_band",
                 &[
-                    (
-                        "min",
-                        percent(per_min.saturating_mul(u32::from(hits))),
-                    ),
-                    (
-                        "max",
-                        percent(per_max.saturating_mul(u32::from(hits))),
-                    ),
+                    ("min", percent(per_min.saturating_mul(u32::from(hits)))),
+                    ("max", percent(per_max.saturating_mul(u32::from(hits)))),
                 ],
             ));
         }

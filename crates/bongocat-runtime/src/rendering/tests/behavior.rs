@@ -5,8 +5,10 @@
 //!
 //! 1. The automatic eye blink used to `set_normalized_parameter` the eye-open
 //!    parameters on every frame, cancelling a squint / short-eye expression.
-//! 2. The neutral model input used to `set_normalized` the angle parameters to
-//!    the centre (0) on every frame, cancelling a nod / tilt motion.
+//! 2. The model input overwrote the angle parameters with the pointer position
+//!    on every frame, cancelling a nod / headshake motion. A guard that only
+//!    fired when the pointer was exactly at zero never fired in practice, so the
+//!    motion has to be protected by what it declares, not by where the cursor is.
 
 use super::*;
 use std::path::PathBuf;
@@ -73,6 +75,34 @@ fn preset_motion_survives_neutral_input() {
     // The nod motion drives ParamAngleX. With a neutral (centre) input the
     // model input must NOT reset it to 0; the motion's value plus the breath
     // contribution is what survives.
+    let angle_x = evaluate_nod(None, Duration::from_millis(500));
+    // The nod curve is 7.0 at 0.5s; the breath adds ~3.47 at the same time.
+    // The key assertion: the motion contribution is retained (not reset to the
+    // neutral 0 the input used to force).
+    assert!(
+        (angle_x - 10.468).abs() < 0.1,
+        "nod motion must retain its angle under a neutral input, got {angle_x}"
+    );
+}
+
+/// The regression that actually reaches a user.
+///
+/// The pointer is only exactly zero at the centre of the screen, so a guard
+/// keyed on "pointer is at rest" never fires in practice and the cursor reset
+/// the angle on every frame. The motion has to win over any pointer position.
+#[test]
+fn preset_motion_survives_a_moving_pointer() {
+    for (pointer_x, pointer_y) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.63, -0.41)] {
+        let angle_x = evaluate_nod(Some((pointer_x, pointer_y)), Duration::from_millis(500));
+        assert!(
+            (angle_x - 10.468).abs() < 0.1,
+            "nod must keep its angle at pointer ({pointer_x}, {pointer_y}), got {angle_x}"
+        );
+    }
+}
+
+/// Plays the shipped `nod` clip and returns `ParamAngleX` after one frame.
+fn evaluate_nod(pointer: Option<(f32, f32)>, now: Duration) -> f32 {
     let json = resource("nod.motion3.json");
     let clip = MotionClip::from_slice(json.as_bytes(), 0.0, 0.0).expect("nod");
     let (bootstrap, _consumer) = RuntimeRenderer::channel();
@@ -95,22 +125,18 @@ fn preset_motion_survives_neutral_input() {
             fade_out_started_at: None,
             last_event_elapsed: None,
         });
+    let input = ModelInputSnapshot {
+        pointer_x: pointer.map_or(0.0, |(x, _)| x),
+        pointer_y: pointer.map_or(0.0, |(_, y)| y),
+        ..ModelInputSnapshot::default()
+    };
+    renderer.evaluate(input, now).expect("motion frame");
     renderer
-        .evaluate(ModelInputSnapshot::default(), Duration::from_millis(500))
-        .expect("motion frame");
-    let angle_x = renderer
         .active
         .as_ref()
         .expect("active")
         .model
         .parameter_value_by_id("ParamAngleX")
         .expect("value")
-        .expect("supported");
-    // The nod curve is 7.0 at 0.5s; the breath adds ~3.47 at the same time.
-    // The key assertion: the motion contribution is retained (not reset to the
-    // neutral 0 the input used to force).
-    assert!(
-        (angle_x - 10.468).abs() < 0.1,
-        "nod motion must retain its angle under a neutral input, got {angle_x}"
-    );
+        .expect("supported")
 }

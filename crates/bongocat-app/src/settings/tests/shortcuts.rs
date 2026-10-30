@@ -340,10 +340,11 @@ fn snapshot_carries_the_auto_assigned_behavior_shortcuts() {
         )
         .expect("select standard model");
 
-    // Twenty behaviours, one chord each, in the legacy order: the digit
-    // tiers first, then the Shift tier for the expressions that follow the
-    // ten motions.
-    assert_eq!(selected.shortcuts.model_behaviors.len(), 20);
+    // Fifteen behaviours, one chord each, assigned by flat position: eight
+    // motions (four in each of two groups) then seven expressions. Position 8
+    // and 9 are still in the digit tier, so the third expression starts the
+    // Shift tier rather than the eleventh behaviour starting it.
+    assert_eq!(selected.shortcuts.model_behaviors.len(), 15);
     let primary = if cfg!(target_os = "macos") {
         "Meta"
     } else {
@@ -351,10 +352,10 @@ fn snapshot_carries_the_auto_assigned_behavior_shortcuts() {
     };
     for (behavior_id, expected) in [
         ("motion:CAT_motion:0", format!("{primary}+1")),
-        ("motion:CAT_motion_lock:1", format!("{primary}+7")),
+        ("motion:CAT_motion_lock:1", format!("{primary}+6")),
         (
             "expression:live2d_expression2.exp3.json",
-            format!("Shift+{primary}+3"),
+            format!("Shift+{primary}+1"),
         ),
     ] {
         let binding = selected
@@ -377,7 +378,7 @@ fn snapshot_carries_the_auto_assigned_behavior_shortcuts() {
         .expect("standard model entry");
     match &entry.availability {
         SettingsModelAvailability::Ready { behaviors, .. } => {
-            assert_eq!(behaviors.len(), 20);
+            assert_eq!(behaviors.len(), 15);
         }
         SettingsModelAvailability::Invalid { .. } => {
             panic!("the bundled standard model must stay valid")

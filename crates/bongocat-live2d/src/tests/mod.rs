@@ -41,6 +41,7 @@ fn adapter_keyboard_usages() -> Vec<u16> {
 
 mod automatic;
 mod error;
+mod geometry_binding;
 mod model;
 mod parameter;
 mod version;

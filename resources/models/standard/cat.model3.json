@@ -30,18 +30,6 @@
         "File": "exp_2.exp3.json"
       },
       {
-        "Name": "smile.exp3.json",
-        "File": "smile.exp3.json"
-      },
-      {
-        "Name": "surprised.exp3.json",
-        "File": "surprised.exp3.json"
-      },
-      {
-        "Name": "angry.exp3.json",
-        "File": "angry.exp3.json"
-      },
-      {
         "Name": "wink.exp3.json",
         "File": "wink.exp3.json"
       },
@@ -72,11 +60,6 @@
           "File": "headshake.motion3.json",
           "FadeInTime": 0.1,
           "FadeOutTime": 0.2
-        },
-        {
-          "File": "tilt.motion3.json",
-          "FadeInTime": 0.1,
-          "FadeOutTime": 0.2
         }
       ],
       "CAT_motion_lock": [
@@ -98,11 +81,6 @@
         },
         {
           "File": "headshake.motion3.json",
-          "FadeInTime": 0.1,
-          "FadeOutTime": 0.2
-        },
-        {
-          "File": "tilt.motion3.json",
           "FadeInTime": 0.1,
           "FadeOutTime": 0.2
         }

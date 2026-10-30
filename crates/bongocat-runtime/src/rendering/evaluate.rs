@@ -28,6 +28,12 @@ impl RuntimeRenderer {
         let mut motion_user_data = Vec::new();
         let mut skipped_motion_user_data = 0;
         let mut finished_motions = Vec::new();
+        // The parameters a motion writes are owned by that motion for the rest
+        // of the frame: pointer tracking runs after this pass and would reset
+        // every angle back to the cursor position, which is what made a nod or a
+        // headshake land on nothing. Collected here rather than read back off
+        // the model because only the clip knows what it declares.
+        let mut motion_parameters = std::collections::BTreeSet::<String>::new();
         // Starts append their layer, including replays of an existing identity.
         // Apply newer layers last so older terminal poses cannot hide them.
         for playback in &mut active.motions {
@@ -64,6 +70,7 @@ impl RuntimeRenderer {
                 }
             }));
             skipped_motion_user_data += user_data.skipped_occurrences;
+            motion_parameters.extend(playback.clip.parameter_ids().map(str::to_owned));
             let weight =
                 fade_out_elapsed.map_or(1.0, |elapsed| playback.clip.fade_out_weight(elapsed));
             let status = if playback.looping {
@@ -132,7 +139,12 @@ impl RuntimeRenderer {
             }
             None => Duration::ZERO,
         };
-        apply_model_input(&mut active.model, input, self.model_settings)?;
+        apply_model_input(
+            &mut active.model,
+            input,
+            self.model_settings,
+            &motion_parameters,
+        )?;
         apply_automatic_effects(&mut active.model, now)?;
         active.model.apply_physics(physics_delta).map_err(|error| {
             map_live2d_error(error, RuntimeRenderErrorCode::ModelEvaluationFailed)
