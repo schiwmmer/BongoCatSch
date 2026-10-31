@@ -486,6 +486,35 @@ fn the_door_reads_where_the_cultivator_is(cx: &mut TestAppContext) {
         painted(visual, "cultivation-return-early"),
         "an outing can always be called home"
     );
+    // The longest status line the door can carry is a job's, and the control has
+    // to stay beside it and inside the page: a button pushed off the right edge
+    // is a button nobody can press.
+    let mut working = Cultivation::default().view();
+    working.at_home = false;
+    working.work = Some(JobRun {
+        started_unix: 0,
+        ends_unix: 8 * 3_600,
+        tier: 3,
+        hours: 8,
+        grade: ArtGrade::Profound,
+        kind: JobKind::default(),
+        early: false,
+    });
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(working));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    scroll_until_visible(visual, "cultivation-at-home");
+    let page = visual.update(|window, _| window.find("cultivation-page-harness").bounds());
+    let door = visual.update(|window, _| window.find("cultivation-at-home").bounds());
+    let button = visual.update(|window, _| window.find("cultivation-return-early").bounds());
+    assert!(
+        (button.center().y - door.center().y).abs() <= px(1.0),
+        "the control sits on the door's own line: {button:?} against {door:?}"
+    );
+    assert!(
+        button.origin.x + button.size.width <= page.origin.x + page.size.width,
+        "the control stays inside the page: {button:?} against {page:?}"
+    );
 }
 
 /// Every rule on the page is read beside its title, not filed behind a hover.
