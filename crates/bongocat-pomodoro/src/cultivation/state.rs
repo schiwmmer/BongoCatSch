@@ -18,9 +18,9 @@ use super::{
     Attributes, BONUS_GEAR_PERMILLE, BONUS_INSIGHT_PERMILLE, BONUS_SEED_PERMILLE,
     BONUS_STONES_PERMILLE, BONUS_WISDOM_PERMILLE, BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport,
     Building, CollectionYield, Cost, CultivationDocument, DailyKind, Derived, DerivedBreakdown,
-    DuelReport, EQUIPMENT_DROP_PERMILLE, EquipSlot, EquipmentRecord, ExplorationOutcome,
-    FREE_POINTS_PER_LEVEL, Fighter, GatherSite, GearEffect, GearSetView, Guardian,
-    MAX_BUILDING_LEVEL, MAX_LEVEL, MAX_STAR, MAX_TRADE_LEVEL, MasteredArtView, OwnedArt,
+    DuelReport, EQUIPMENT_DROP_PERMILLE, EquipSlot, EquipmentRecord, ExpeditionInProgress,
+    ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, GatherSite, GearEffect, GearSetView,
+    Guardian, MAX_BUILDING_LEVEL, MAX_LEVEL, MAX_STAR, MAX_TRADE_LEVEL, MasteredArtView, OwnedArt,
     PLAYER_NAME, RECENT_ARTS_CAP, Rarity, Realm, Refusal, Resource, ResourceBag, Rng,
     SEED_DROP_PERMILLE, SESSION_BONUS_PERMILLE, SLOT_COUNT, SeedStack, SessionMode,
     VICTORY_SEED_PERMILLE, absence_penalty, art_attributes, art_view,
@@ -30,7 +30,7 @@ use super::{
     },
     base_attributes,
     battle::{guardian_for, resolve},
-    building_upgrade_cost, collect, collect_scaled,
+    building_upgrade_cost, collect_scaled,
     curve::{layer_growth, layer_rank, level_for_growth, stage_floor, threshold_for},
     daily::{
         DAILY_AMBUSH_STONES, DAILY_GIFT_STONES, DAILY_TRINKET_STONES, GiftKind, roll_gift,
@@ -38,6 +38,7 @@ use super::{
     },
     duel::{DUEL_RECORD_CAP, DuelRecord, FightKind, duel},
     events::{BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind},
+    expedition_yield,
     explore::{
         BONUS_STONES, GUARDIAN_STONES, PROVING_STONES, TRIAL_STONES, WALK_STONES, WANDERER_STONES,
         WalkRecord, breakthrough_ready, roll_stones, roll_victory, roll_walk,
@@ -373,6 +374,24 @@ pub struct BuildingView {
     pub upgrade_cost: Option<Cost>,
 }
 
+/// One gathering expedition under way, as the page reads it.
+///
+/// Carried beside the sites so the page can say "you are out gathering" and
+/// offer the same early return the walk and the job offer — and so a surface
+/// that knows the expedition is out can close the sites rather than let a
+/// click be refused.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExpeditionView {
+    /// The site the expedition works.
+    pub site: GatherSite,
+    /// The length it was out for, in hours.
+    pub hours: u8,
+    /// When it comes home.
+    pub ends_unix: i64,
+    /// Whether it has been called home already.
+    pub early: bool,
+}
+
 /// The resource economy as the settings page reads it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResourcesView {
@@ -392,6 +411,8 @@ pub struct ResourcesView {
     pub smithy: BuildingView,
     /// 道场: the xp's multiplier.
     pub dojo: BuildingView,
+    /// The gathering expedition under way, if the cultivator is out gathering.
+    pub expedition: Option<ExpeditionView>,
 }
 
 /// What one 潜质 herb did.
@@ -1802,7 +1823,7 @@ impl Cultivation {
         else {
             return;
         };
-        let outcome = train(art, aptitude_tenths, &mut rng);
+        let outcome = train(art, aptitude_tenths, self.document.dojo_level, &mut rng);
         let rank = art.rank;
         // Read before the book leaves the shelf: the copies beyond the one just
         // finished are unread books, and finishing one must not burn them.
@@ -1958,6 +1979,7 @@ impl Cultivation {
                 &self.document.arts[index],
                 aptitude_tenths,
                 selected,
+                self.document.dojo_level,
             ));
         }
         if self.document.mastered_arts.contains(&art_id) {
@@ -1981,6 +2003,7 @@ impl Cultivation {
             self.document.arts.last()?,
             aptitude_tenths,
             selected,
+            self.document.dojo_level,
         ))
     }
 
@@ -2723,26 +2746,85 @@ impl Cultivation {
         Ok(outcome)
     }
 
-    /// Gather one round at a site: the resources it yields and the trade's xp.
+    /// Send the cultivator out on a gathering expedition of `hours` at `site`.
     ///
-    /// The purse takes what it has room for, up to the 仓库's ceiling, and the
-    /// trade banks xp toward its next level — one level per click at most is
-    /// not enforced, but the while-loop is what lets a deep pocket of xp climb
-    /// two ranks at once when the 道场 has been raising it. Never refused: a
-    /// gathering is always something to do, at a site that is always open.
-    pub fn collect_resources(
+    /// One outing at a time: an expedition is refused while another is under
+    /// way, or while a walk or a job holds the cultivator — the same walls a
+    /// walk climbs, because an expedition is hours of the same day. The yield
+    /// is settled on the clock by [`Self::settle_expedition`], never on the
+    /// click that set off.
+    pub fn start_expedition(
         &mut self,
         site: GatherSite,
-        _now_unix: i64,
-    ) -> Result<CollectOutcome, TradeRefusal> {
-        let yield_ = collect(
-            site,
+        hours: super::ExplorationHours,
+        now_unix: i64,
+    ) -> Option<ExpeditionInProgress> {
+        // An expedition whose time is up is settled before a new one is judged,
+        // so an old expedition already home cannot block a fresh one.
+        self.settle_expedition(now_unix);
+        if self.document.expedition.is_some() {
+            self.note_refusal(Refusal::ExpeditionOut);
+            return None;
+        }
+        if self.document.walk.is_some() {
+            self.note_refusal(Refusal::ExpeditionOut);
+            return None;
+        }
+        if self.document.work.is_some() {
+            self.note_refusal(Refusal::ExpeditionOut);
+            return None;
+        }
+        let expedition = ExpeditionInProgress::started(now_unix, site, hours);
+        self.document.expedition = Some(expedition);
+        Some(expedition)
+    }
+
+    /// The expedition under way, if the cultivator is out gathering.
+    pub fn expedition(&self) -> Option<ExpeditionInProgress> {
+        self.document.expedition
+    }
+
+    /// Settle the expedition that is home: pay what the realm's hourly rate made
+    /// over the hours chosen, and let the cultivator be at home again.
+    ///
+    /// Returns whether anything was settled. An expedition still out answers
+    /// `false` and nothing moves; an expedition called home comes back empty,
+    /// because a called expedition is one that was not worked.
+    pub fn settle_expedition(&mut self, now_unix: i64) -> bool {
+        let Some(expedition) = self.document.expedition else {
+            return false;
+        };
+        if !expedition.is_home(now_unix) {
+            return false;
+        }
+        self.document.expedition = None;
+        if expedition.early {
+            // Called home: no yield, no record. The site was not worked, which
+            // is exactly what it pays for having been called.
+            return true;
+        }
+        let hours = expedition.length();
+        let yield_ = expedition_yield(
+            expedition.site,
             self.document.woodcut_level,
             self.document.stonecut_level,
             self.document.workshop_level,
             self.document.dojo_level,
+            self.realm().index() as u32,
+            hours,
         );
-        Ok(self.bank_collection(site, yield_))
+        let outcome = self.bank_collection(expedition.site, yield_);
+        self.push_event(
+            now_unix,
+            EventDetail::Expedition {
+                site: expedition.site,
+                hours: hours.hours(),
+                gained: outcome.gained.clone(),
+                woodcut_xp: outcome.woodcut_xp,
+                stonecut_xp: outcome.stonecut_xp,
+            },
+        );
+        true
     }
 
     /// One finished gathering session: what a pomodoro spent at `site` pays.
@@ -2919,6 +3001,12 @@ impl Cultivation {
             warehouse: building(self.document.warehouse_level),
             smithy: building(self.document.smithy_level),
             dojo: building(self.document.dojo_level),
+            expedition: self.document.expedition.map(|expedition| ExpeditionView {
+                site: expedition.site,
+                hours: expedition.hours,
+                ends_unix: expedition.ends_unix,
+                early: expedition.early,
+            }),
         }
     }
 
@@ -3383,6 +3471,12 @@ impl Cultivation {
             self.note_refusal(Refusal::ExploreCooldown);
             return None;
         }
+        // An expedition is hours of the same day, so the road is closed while
+        // the cultivator is out gathering.
+        if self.document.expedition.is_some() {
+            self.note_refusal(Refusal::ExpeditionOut);
+            return None;
+        }
         // A job holds the cultivator the way a walk does — it is hours of the
         // same day — so the road is closed while one is being worked.
         if self.document.work.is_some() {
@@ -3408,6 +3502,13 @@ impl Cultivation {
     /// page can offer the same button whether the cultivator is on the road or
     /// at a job.
     pub fn return_early(&mut self, now_unix: i64) -> bool {
+        if let Some(expedition) = self.document.expedition {
+            if expedition.early {
+                return false;
+            }
+            self.document.expedition = Some(expedition.called_home(now_unix));
+            return true;
+        }
         if let Some(walk) = self.document.walk {
             if walk.early {
                 return false;
@@ -3630,6 +3731,11 @@ impl Cultivation {
         if self.document.walk.is_some() {
             return Err(Refusal::TrialOut);
         }
+        // An expedition is hours of the same day, so the board is closed while
+        // the cultivator is out gathering.
+        if self.document.expedition.is_some() {
+            return Err(Refusal::ExpeditionOut);
+        }
         if self.document.work.is_some() {
             return Err(Refusal::Working);
         }
@@ -3723,19 +3829,26 @@ impl Cultivation {
         Some(paid)
     }
 
-    /// Whether the cultivator is at home right now: no walk is under way.
+    /// Whether the cultivator is at home right now: no walk and no expedition
+    /// is under way.
     ///
-    /// The walk is its own cooldown — the road pays when it comes home — so
-    /// being home is the whole gate. A walk whose time has passed is settled by
-    /// the worker's tick, and by [`Self::explore`] on the way in, so this never
-    /// says "out" about a walk that is already back.
+    /// The walk and the expedition are their own cooldowns — the road pays when
+    /// it comes home, the site pays when the expedition ends — so being home is
+    /// the whole gate. An outing whose time has passed is settled by the
+    /// worker's tick, and by [`Self::explore`] and [`Self::start_expedition`]
+    /// on the way in, so this never says "out" about one that is already back.
     pub fn exploration_ready(&self, now_unix: i64) -> bool {
         match self.document.walk {
-            None => true,
             // A walk whose time is up is home whether or not the tick has come
             // round to settle it yet: a page that said "still out" about a walk
             // that is back would be reading the clock wrong, not the walk.
             Some(walk) => walk.is_home(now_unix),
+            None => match self.document.expedition {
+                // The same reading for an expedition: a page that said "still
+                // out" about one already back would be lying the same way.
+                Some(expedition) => expedition.is_home(now_unix),
+                None => true,
+            },
         }
     }
 
@@ -3785,6 +3898,15 @@ impl Cultivation {
     /// third of the time already spent. Zero while at home, so a caller can read
     /// it without asking whether anyone is out first.
     fn return_trip_now(&self, now_unix: i64) -> i64 {
+        if let Some(expedition) = self
+            .document
+            .expedition
+            .filter(|expedition| !expedition.is_home(now_unix))
+        {
+            return super::explore::return_trip_seconds(
+                now_unix.saturating_sub(expedition.started_unix),
+            );
+        }
         if let Some(walk) = self.document.walk.filter(|walk| !walk.is_home(now_unix)) {
             return super::explore::return_trip_seconds(now_unix.saturating_sub(walk.started_unix));
         }
@@ -4265,6 +4387,7 @@ impl Cultivation {
                     art,
                     aptitude_tenths,
                     self.document.selected_art == Some(art.art_id),
+                    self.document.dojo_level,
                 )
             })
             .collect();

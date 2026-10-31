@@ -385,6 +385,40 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             }
             line
         }
+        // An expedition pays the site's find and the trade's xp on its way
+        // home, the way a session's does; the hours tell the two apart.
+        EventDetail::Expedition {
+            site,
+            hours,
+            gained,
+            woodcut_xp,
+            stonecut_xp,
+        } => {
+            let mut line = format_text(
+                locale,
+                "cultivation.event.expedition",
+                &[
+                    ("site", text(locale, site.key()).to_string()),
+                    ("hours", hours.to_string()),
+                    ("gained", super::resource_bag_text(locale, gained)),
+                ],
+            );
+            if *woodcut_xp > 0 {
+                line.push_str(&format_text(
+                    locale,
+                    "cultivation.event.expedition_xp",
+                    &[("xp", woodcut_xp.to_string())],
+                ));
+            }
+            if *stonecut_xp > 0 {
+                line.push_str(&format_text(
+                    locale,
+                    "cultivation.event.expedition_xp",
+                    &[("xp", stonecut_xp.to_string())],
+                ));
+            }
+            line
+        }
         // The ordinary find of a finished pomodoro, named the way a walk names
         // its own: the same three keys, so "found a herb" cannot be worded two
         // different ways depending on where it was found.

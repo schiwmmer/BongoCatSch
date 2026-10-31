@@ -8,6 +8,7 @@
 //! buttons. Nothing here owns state — a gathering is one click whose result is
 //! already in the snapshot.
 
+use super::explore::cooldown_line;
 use super::*;
 
 /// The panel: the purse, the sites to gather at, and the buildings to raise.
@@ -26,7 +27,8 @@ pub(super) fn resources_panel(
         .child(section_title(locale, "cultivation.resources.title", tokens))
         .child(mode_row(view, cultivation.session_mode, locale))
         .child(bag_row(resources, locale))
-        .child(gather_row(view, locale))
+        .child(expedition_status(resources, locale))
+        .child(expedition_rows(view, resources, locale))
         .child(trade_row(resources.woodcut, GatherSkill::Woodcut, locale))
         .child(trade_row(resources.stonecut, GatherSkill::Stonecut, locale))
         .child(building_row(
@@ -34,24 +36,28 @@ pub(super) fn resources_panel(
             resources.workshop.clone(),
             Building::Workshop,
             locale,
+            tokens,
         ))
         .child(building_row(
             view,
             resources.warehouse.clone(),
             Building::Warehouse,
             locale,
+            tokens,
         ))
         .child(building_row(
             view,
             resources.smithy.clone(),
             Building::Smithy,
             locale,
+            tokens,
         ))
         .child(building_row(
             view,
             resources.dojo.clone(),
             Building::Dojo,
             locale,
+            tokens,
         ))
         .test_support()
 }
@@ -110,33 +116,87 @@ fn bag_row(resources: &ResourcesView, locale: &str) -> impl IntoElement {
         .child(parts.join(" · "))
 }
 
-/// The three sites, as three buttons: each one publishes its gathering.
-fn gather_row(view: &Entity<SettingsView>, locale: &str) -> impl IntoElement {
-    let mut row = div()
+/// The gathering expedition under way, as one line: the site, the length and
+/// the time left. Nothing while the cultivator is home.
+fn expedition_status(resources: &ResourcesView, locale: &str) -> impl IntoElement {
+    let Some(out) = resources.expedition.as_ref() else {
+        return div().id("cultivation-expedition-status").test_support();
+    };
+    let key = if out.early {
+        "cultivation.expedition.returning_in"
+    } else {
+        "cultivation.expedition.eta"
+    };
+    let eta = cooldown_line(Some(out.ends_unix), key, locale);
+    div()
+        .id("cultivation-expedition-status")
+        .text_xs()
+        .child(format_text(
+            locale,
+            "cultivation.expedition.status",
+            &[
+                ("site", text(locale, out.site.key()).to_string()),
+                ("hours", out.hours.to_string()),
+                ("eta", eta),
+            ],
+        ))
+        .test_support()
+}
+
+/// The three sites, each with its three lengths: one expedition is one outing,
+/// so clicking a length sets the cultivator out for that many hours and the
+/// yield is settled on the clock. The lengths are closed while an expedition is
+/// under way — one at a time — and a surface that knows the cultivator is out
+/// says so above the rows.
+fn expedition_rows(
+    view: &Entity<SettingsView>,
+    resources: &ResourcesView,
+    locale: &str,
+) -> impl IntoElement {
+    let out = resources.expedition.is_some();
+    let mut column = div()
         .id("cultivation-resources-sites")
         .flex()
-        .flex_row()
-        .gap_2();
+        .flex_col()
+        .gap_1();
     for site in [GatherSite::Forest, GatherSite::Mountain, GatherSite::Mine] {
-        row = row.child(
-            Button::new(format!("cultivation-gather-{site:?}"))
-                .ghost()
-                .small()
-                .label(text(locale, site.key()))
-                .on_click({
-                    let view = view.clone();
-                    move |_, _, cx| {
-                        view.update(cx, |view, cx| {
-                            let _ = view
-                                .pomodoro
-                                .try_publish(PomodoroCommand::CollectResources { site });
-                            view.poll_pomodoro(cx);
-                        });
-                    }
-                }),
-        );
+        let mut row = div()
+            .id(format!("cultivation-expedition-{site:?}"))
+            .flex()
+            .flex_row()
+            .items_center()
+            .justify_between()
+            .gap_2()
+            .child(div().text_sm().child(text(locale, site.key())));
+        let mut chips = div().flex().flex_row().gap_1();
+        for hours in ExplorationHours::ALL {
+            chips = chips.child(
+                Button::new(format!("cultivation-expedition-{site:?}-{}", hours.hours()))
+                    .ghost()
+                    .small()
+                    .label(format_text(
+                        locale,
+                        "cultivation.expedition.hours",
+                        &[("hours", hours.hours().to_string())],
+                    ))
+                    .disabled(out)
+                    .on_click({
+                        let view = view.clone();
+                        move |_, _, cx| {
+                            view.update(cx, |view, cx| {
+                                let _ = view
+                                    .pomodoro
+                                    .try_publish(PomodoroCommand::StartExpedition { site, hours });
+                                view.poll_pomodoro(cx);
+                            });
+                        }
+                    }),
+            );
+        }
+        row = row.child(chips);
+        column = column.child(row);
     }
-    row
+    column
 }
 
 /// One trade: its level, and the xp banked toward the next one.
@@ -161,13 +221,29 @@ fn trade_row(trade: TradeView, skill: GatherSkill, locale: &str) -> impl IntoEle
 }
 
 /// One building: its name and level, and the upgrade button while it has a
-/// rank left to buy.
+/// rank left to buy. The name is a hover: a building that does something a
+/// surface cannot see would read as a label, so the hint says what each one is
+/// worth per level.
 fn building_row(
     view: &Entity<SettingsView>,
     building: BuildingView,
     kind: Building,
     locale: &str,
+    tokens: Tokens,
 ) -> impl IntoElement {
+    let name = text(locale, kind.key()).to_string();
+    let level = building.level.to_string();
+    let tip_key = match kind {
+        Building::Workshop => "cultivation.building_tip.workshop",
+        Building::Warehouse => "cultivation.building_tip.warehouse",
+        Building::Smithy => "cultivation.building_tip.smithy",
+        Building::Dojo => "cultivation.building_tip.dojo",
+    };
+    // The hover's name and body are both static strings (a translation-table
+    // lookup), so the content closure owns them as `&'static str` — nothing
+    // borrowed from this call's `locale` escapes the function.
+    let hint_name = text(locale, kind.key());
+    let hint_body = text(locale, tip_key);
     let mut row = div()
         .id(format!("cultivation-building-{kind:?}"))
         .flex()
@@ -175,14 +251,22 @@ fn building_row(
         .items_center()
         .justify_between()
         .gap_2()
-        .child(div().text_sm().child(format_text(
-            locale,
-            "cultivation.resources.building",
-            &[
-                ("building", text(locale, kind.key()).to_string()),
-                ("level", building.level.to_string()),
-            ],
-        )));
+        .child(
+            HoverCard::new(format!("cultivation-building-hint-{kind:?}"))
+                .trigger(
+                    div()
+                        .id(format!("cultivation-building-name-{kind:?}"))
+                        .text_sm()
+                        .child(format_text(
+                            locale,
+                            "cultivation.resources.building",
+                            &[("building", name), ("level", level)],
+                        ))
+                        .test_support(),
+                )
+                .open_delay(Duration::from_millis(120))
+                .content(move |_, _, _| building_hint(kind, hint_name, hint_body, tokens)),
+        );
     if let Some(cost) = building.upgrade_cost.as_ref() {
         row = row.child(
             Button::new(format!("cultivation-upgrade-{kind:?}"))
@@ -203,6 +287,31 @@ fn building_row(
         );
     }
     row
+}
+
+/// What one building is worth per level, as a hover's body: the name and the
+/// effect, the way an attribute's hint says its name and its explanation.
+fn building_hint(
+    kind: Building,
+    name: &'static str,
+    body: &'static str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    div()
+        .id(format!("cultivation-building-hint-body-{kind:?}"))
+        .flex()
+        .flex_col()
+        .gap_1()
+        .w(px(240.0))
+        .child(div().text_xs().text_color(tokens.text).child(name))
+        .child(
+            div()
+                .text_xs()
+                .text_color(tokens.muted)
+                .whitespace_normal()
+                .child(body),
+        )
+        .test_support()
 }
 
 /// A price, spelled out the way a 升星's is: the 灵石 wager and the tribute.

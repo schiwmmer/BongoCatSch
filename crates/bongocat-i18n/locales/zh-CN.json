@@ -820,6 +820,19 @@
       "smithy": "铁匠铺",
       "dojo": "道场"
     },
+    "building_tip": {
+      "workshop": "每级 +10% 采集产出。",
+      "warehouse": "每级 +25% 资源储量上限。",
+      "smithy": "每级 -10% 升星灵石成本。",
+      "dojo": "每级 +10% 采集经验；修习功法成功率 +1‰。"
+    },
+    "expedition": {
+      "status": "正在%{site}外出 · %{hours} 小时 · %{eta}",
+      "hours": "%{hours} 小时",
+      "eta": "%{hours} 小时 %{minutes} 分后归来",
+      "returning_in": "归返途中 · 尚需 %{hours} 小时 %{minutes} 分",
+      "refuse_out": "正在采集，归来后方可行动。"
+    },
     "breakthrough": {
       "title": "破境",
       "guardian": "镇守%{stage} · 战力 %{power}",
@@ -931,7 +944,8 @@
       "title": "探索",
       "victory": "遭遇战胜利，小有斩获。",
       "hours": "%{hours} 小时 · ×%{mult}",
-      "hint": "走满时长归来才有收获，提前回返一无所获"
+      "hint": "走满时长归来才有收获，提前回返一无所获",
+      "busy_gathering": "正在采集，归来后方可探索。"
     },
     "trial": {
       "title": "锁妖塔",
@@ -995,6 +1009,8 @@
       "session": "完成修炼，成长 +%{growth}",
       "session_gather": "采集完一个番茄钟：%{site} 得 %{gained}",
       "session_gather_xp": "，经验 +%{xp}",
+      "expedition": "外出采集归来：%{site} %{hours} 小时，得 %{gained}",
+      "expedition_xp": "，经验 +%{xp}",
       "found": "番茄钟掉落",
       "work": "打工 %{hours} 小时，得 %{stones} 灵石，达成率 %{rate}%",
       "absence": "%{days} 天未修炼，成长值 -%{charged}",

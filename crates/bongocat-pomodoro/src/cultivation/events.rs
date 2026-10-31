@@ -61,6 +61,25 @@ pub enum EventDetail {
         /// The 采石 xp the session banked.
         stonecut_xp: u32,
     },
+    /// An expedition came home and paid the site's yield.
+    ///
+    /// The passive half of gathering: the cultivator was *out* for the hours
+    /// chosen, and the settle pays what the realm's hourly rate made over that
+    /// time. Separate from [`Self::SessionGather`] because a session is a
+    /// pomodoro and an expedition is a real outing — the history has to tell
+    /// the two apart.
+    Expedition {
+        /// The site the expedition worked.
+        site: super::GatherSite,
+        /// The length it was out for, in hours.
+        hours: u8,
+        /// What the purse gained, after the 仓库's ceiling.
+        gained: super::ResourceBag,
+        /// The 伐木 xp the expedition banked.
+        woodcut_xp: u32,
+        /// The 采石 xp the expedition banked.
+        stonecut_xp: u32,
+    },
     /// A finished pomodoro's ordinary find: the gear or the herb the drop roll
     /// paid beside the growth.
     ///

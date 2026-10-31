@@ -94,8 +94,8 @@ pub use duel::{
 };
 pub use events::{BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind};
 pub use explore::{
-    BREAKTHROUGH_COOLDOWN_SECONDS, ENCOUNTER_PERMILLE, ExplorationHours, ExplorationOutcome,
-    VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkInProgress, WalkRecord,
+    BREAKTHROUGH_COOLDOWN_SECONDS, ENCOUNTER_PERMILLE, ExpeditionInProgress, ExplorationHours,
+    ExplorationOutcome, VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkInProgress, WalkRecord,
 };
 pub use garden::{
     CropRecord, FREE_PLOT_COUNT, MAX_GARDEN_RANK, MAX_PLOT_COUNT, MAX_SEED_TIER, PlotRecord,
@@ -117,8 +117,9 @@ pub use resources::{
     Building, COAL_UNLOCK_LEVEL, CollectionYield, Cost, GATHER_HOURS_PER_REALM_PERMILLE,
     GatherSite, GatherSkill, IRON_UNLOCK_LEVEL, MAX_BUILDING_LEVEL, MAX_TRADE_LEVEL, Resource,
     ResourceBag, STAR_IRON_FROM_STAR, STAR_IRON_HIGH_STAR, STAR_STONE_PER_STAR, STAR_WOOD_PER_STAR,
-    SessionMode, building_upgrade_cost, collect, collect_scaled, gather_duration_permille,
-    resource_cap, skill_ready, skill_xp_total, smithy_multiplier_permille,
+    SessionMode, building_upgrade_cost, collect, collect_scaled, expedition_yield,
+    gather_duration_permille, resource_cap, skill_ready, skill_xp_total,
+    smithy_multiplier_permille,
 };
 pub use shop::SESSION_EARNINGS;
 pub use shop::{
@@ -128,10 +129,10 @@ pub use shop::{
 };
 pub use state::{
     AbsenceCharge, AptitudeUse, BreakthroughOutcome, BuildingOutcome, BuildingView, CollectOutcome,
-    CropView, Cultivation, CultivationView, DailyOutcome, Drop, DropView, ExplorationFindView,
-    GuardianView, HarvestOutcome, ItemView, JobView, PlantOutcome, PlotView, PowerBreakdown,
-    ProvingBlocked, ResourcesView, SeedView, SessionReward, StarOutcome, TradeView, TrainingView,
-    TrialBlocked, TrialOutcome, TrialSweepOutcome, WorkPaid,
+    CropView, Cultivation, CultivationView, DailyOutcome, Drop, DropView, ExpeditionView,
+    ExplorationFindView, GuardianView, HarvestOutcome, ItemView, JobView, PlantOutcome, PlotView,
+    PowerBreakdown, ProvingBlocked, ResourcesView, SeedView, SessionReward, StarOutcome, TradeView,
+    TrainingView, TrialBlocked, TrialOutcome, TrialSweepOutcome, WorkPaid,
 };
 pub use trade::{TradeRefusal, session_earnings};
 pub use trial::{
@@ -160,6 +161,10 @@ pub enum Refusal {
     /// no road back from nowhere, and a button that only shows while out cannot
     /// reach this — it is the refusal a hand-made call would get.
     NotOut,
+    /// An expedition was asked for while the cultivator is already out on one,
+    /// or a walk or a job was started while one is under way: an expedition is
+    /// hours of the same day, and the cultivator is only in one place at a time.
+    ExpeditionOut,
     /// A trial was asked for while the cultivator is still out on a walk: the
     /// tower is climbed at home, so an unreturned walk closes it.
     TrialOut,
@@ -192,6 +197,7 @@ impl Refusal {
             Self::Trade(trade) => trade.key(),
             Self::ExploreCooldown => "cultivation.explore.refuse_cooldown",
             Self::NotOut => "cultivation.record.refuse_not_out",
+            Self::ExpeditionOut => "cultivation.expedition.refuse_out",
             Self::TrialOut => "cultivation.trial.refuse_out",
             Self::TrialDrained => "cultivation.trial.refuse_drained",
             Self::TrialTop => "cultivation.trial.refuse_top",

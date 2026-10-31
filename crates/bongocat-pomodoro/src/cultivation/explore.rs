@@ -13,6 +13,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::Rng;
+use super::resources::GatherSite;
 
 /// How long a failed breakthrough locks the attempt for, in seconds.
 ///
@@ -414,6 +415,74 @@ impl WalkInProgress {
     }
 
     /// How long is left before the walk is home; zero once it is.
+    pub fn remaining_seconds(&self, now_unix: i64) -> i64 {
+        self.ends_unix.saturating_sub(now_unix).max(0)
+    }
+
+    /// The length as its own enum.
+    pub fn length(&self) -> ExplorationHours {
+        ExplorationHours::from_hours(self.hours)
+    }
+}
+
+/// An expedition under way: a stretch of gathering hours at one site.
+///
+/// The same shape as a walk — the cultivator is *out*, and the find is only
+/// known when they are back — so the two share the gates: one outing at a time,
+/// and a return trip that is a third of the time already spent. What an
+/// expedition turns up is the site's yield, not a road's find, so the settle
+/// pays [`super::resources::expedition_yield`] rather than a roll.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ExpeditionInProgress {
+    /// When the expedition set off.
+    pub started_unix: i64,
+    /// When it comes home — the instant its yield is settled.
+    pub ends_unix: i64,
+    /// The site the expedition worked.
+    pub site: GatherSite,
+    /// The length that was chosen, as hours.
+    pub hours: u8,
+    /// Whether the user called the expedition home early.
+    ///
+    /// A called expedition pays nothing: the site is not worked, so there is
+    /// nothing to bring home. What it costs is the return trip, the same third
+    /// of the time already spent a walk owes.
+    #[serde(default)]
+    pub early: bool,
+}
+
+impl ExpeditionInProgress {
+    /// An expedition that set off just now, at the site and length chosen.
+    pub fn started(started_unix: i64, site: GatherSite, hours: ExplorationHours) -> Self {
+        Self {
+            started_unix,
+            ends_unix: started_unix.saturating_add(hours.seconds()),
+            site,
+            hours: hours.hours(),
+            early: false,
+        }
+    }
+
+    /// The same expedition, called home at `now_unix`.
+    ///
+    /// The return trip is a third of the time already spent: the site is
+    /// abandoned, and the way home is not free. The same rule a walk owes, so
+    /// the two outings cannot drift into different prices for the same decision.
+    pub fn called_home(self, now_unix: i64) -> Self {
+        let spent = now_unix.saturating_sub(self.started_unix).max(0);
+        Self {
+            ends_unix: now_unix.saturating_add(return_trip_seconds(spent)),
+            early: true,
+            ..self
+        }
+    }
+
+    /// Whether the expedition is home at this instant.
+    pub fn is_home(&self, now_unix: i64) -> bool {
+        now_unix >= self.ends_unix
+    }
+
+    /// How long is left before the expedition is home; zero once it is.
     pub fn remaining_seconds(&self, now_unix: i64) -> i64 {
         self.ends_unix.saturating_sub(now_unix).max(0)
     }

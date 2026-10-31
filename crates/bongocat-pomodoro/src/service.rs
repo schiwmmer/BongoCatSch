@@ -661,6 +661,12 @@ fn tick(shared: &Arc<SharedState>, path: &Path, elapsed: Duration) -> bool {
         inner.publish();
         inner.write_document(path);
     }
+    // And so does an expedition: it is hours of the same day, worked at a site
+    // and paid when it comes home.
+    if inner.domain.apply_expedition_return(now) {
+        inner.publish();
+        inner.write_document(path);
+    }
     // A bed says how it is doing at its halfway mark rather than under the
     // seed: the same tick finds it late or finds it on time, and pays once.
     if inner.domain.apply_garden_reveal(now) {

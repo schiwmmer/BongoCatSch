@@ -311,9 +311,16 @@ pub enum PomodoroCommand {
     /// that falls as the stars climb, and one star back on a failure — never
     /// past the first.
     StarEquipment { item_id: u64 },
-    /// Gather one round at a site: the resources it yields and the trade's xp,
-    /// all in one click.
-    CollectResources { site: crate::GatherSite },
+    /// Send the cultivator out on a gathering expedition of `hours` at `site`.
+    ///
+    /// The expedition holds the cultivator until it comes home, and the yield
+    /// is settled on the clock — never on the click that set off. One outing
+    /// at a time: refused while a walk, a job or another expedition is under
+    /// way, and the same early return a walk offers applies.
+    StartExpedition {
+        site: crate::GatherSite,
+        hours: crate::ExplorationHours,
+    },
     /// Raise one building a rank for 灵石 and the gathered tribute.
     UpgradeBuilding { building: crate::Building },
     /// Choose what the next finished pomodoro pays: 修习, 伐木, or 采石.
@@ -386,7 +393,7 @@ impl PomodoroCommand {
             | Self::SellSeed { .. }
             | Self::SellHerbSeed { .. }
             | Self::StarEquipment { .. }
-            | Self::CollectResources { .. }
+            | Self::StartExpedition { .. }
             | Self::UpgradeBuilding { .. }
             | Self::SelectSessionMode { .. }
             | Self::UseAptitudeHerb { .. }
@@ -667,9 +674,14 @@ impl PomodoroState {
                     self.cultivation.note_refusal(Refusal::Trade(refusal));
                 }
             }
-            PomodoroCommand::CollectResources { site } => {
-                if let Err(refusal) = self.cultivation.collect_resources(site, now_unix) {
-                    self.cultivation.note_refusal(Refusal::Trade(refusal));
+            PomodoroCommand::StartExpedition { site, hours } => {
+                if self
+                    .cultivation
+                    .start_expedition(site, hours, now_unix)
+                    .is_none()
+                {
+                    // The refusal is noted inside; a click that set nothing off
+                    // needs no further bookkeeping here.
                 }
             }
             PomodoroCommand::UpgradeBuilding { building } => {
@@ -758,6 +770,21 @@ impl PomodoroState {
         // written back would bring the dead shift back on the next launch.
         let came_home = before.is_some() && self.cultivation.document().work.is_none();
         if paid.is_none() && !came_home {
+            return false;
+        }
+        self.sync_cultivation();
+        true
+    }
+
+    /// Settle an expedition that has come home, if one has. Returns whether
+    /// anything happened.
+    ///
+    /// The same tick that brings a walk or a job home brings an expedition
+    /// home: the site pays on the clock, not on a click, and a machine left
+    /// running — or launched after a day away — has to find the expedition
+    /// already back and pay what it worked.
+    pub fn apply_expedition_return(&mut self, now_unix: i64) -> bool {
+        if !self.cultivation.settle_expedition(now_unix) {
             return false;
         }
         self.sync_cultivation();

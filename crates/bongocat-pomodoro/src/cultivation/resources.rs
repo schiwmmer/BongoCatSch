@@ -412,6 +412,27 @@ pub fn collect_scaled(
     }
 }
 
+/// What an expedition of `hours` at `site` pays.
+///
+/// The realm sets the *per-hour* rate — the same [`gather_duration_permille`]
+/// a gathering session reads, so a 仙人 hand is worth 3.25 rounds an hour
+/// against 炼气's one — and the length is the fixed choice the user pulled.
+/// A four-hour expedition is four hours of the realm's rate; a twelve-hour one
+/// is twelve. The 仓库's ceiling still clips the purse, the way any collection
+/// does.
+pub fn expedition_yield(
+    site: GatherSite,
+    woodcut: u8,
+    stonecut: u8,
+    workshop: u8,
+    dojo: u8,
+    realm_index: u32,
+    hours: super::explore::ExplorationHours,
+) -> CollectionYield {
+    let permille = gather_duration_permille(realm_index).saturating_mul(u32::from(hours.hours()));
+    collect_scaled(site, woodcut, stonecut, workshop, dojo, permille)
+}
+
 /// What a finished pomodoro pays.
 ///
 /// The mode is one thing and one thing only: a session either cultivates, or

@@ -173,10 +173,20 @@ pub(super) fn exploration_panel(
     tokens: Tokens,
 ) -> impl IntoElement {
     let at_home = cultivation.exploration_ready;
+    // An expedition is not a walk, but it closes the road the same way: the
+    // page draws the walk as closed rather than offering to "return" a walk
+    // that was never taken. The gathering's own return lives on the status
+    // line, which is where every outing is called home.
+    let out_gathering = cultivation.resources.expedition.is_some();
     let mut button = if at_home {
         Button::new("cultivation-explore-attempt")
             .small()
             .label(text(locale, "cultivation.explore.attempt"))
+    } else if out_gathering {
+        Button::new("cultivation-explore-attempt")
+            .small()
+            .label(text(locale, "cultivation.explore.attempt"))
+            .disabled(true)
     } else {
         let label_key = if cultivation.walk_early {
             "cultivation.explore.returning"
@@ -202,7 +212,7 @@ pub(super) fn exploration_panel(
                 });
             }
         });
-    } else if !cultivation.walk_early {
+    } else if !out_gathering && !cultivation.walk_early {
         // A walk already on its way home is drawn, not offered: a second call
         // would only rewrite a return trip already under way, and a button that
         // looks live but does nothing reads as broken.
@@ -218,6 +228,8 @@ pub(super) fn exploration_panel(
     }
     let status = if at_home {
         text(locale, "cultivation.explore.ready").to_string()
+    } else if out_gathering {
+        text(locale, "cultivation.explore.busy_gathering").to_string()
     } else {
         let key = if cultivation.walk_early {
             "cultivation.explore.returning_in"

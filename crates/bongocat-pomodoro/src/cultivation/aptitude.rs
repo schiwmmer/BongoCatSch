@@ -115,6 +115,34 @@ pub fn success_permille(grade: ArtGrade, aptitude_tenths: i32, failures: u32) ->
     clamped as u32
 }
 
+/// What one level of 道场 adds to a 功法 training attempt's success rate, in
+/// parts per thousand.
+///
+/// A tenth of a percent per level: a level-ten 道场 is a whole percent on top
+/// of the rate the 潜质 and the failures already set. The 道场 raises the odds
+/// in one direction only — it never lowers them — so the term is added to the
+/// base formula and the result is still held to the cap.
+pub const DOJO_SUCCESS_PERMILLE_PER_LEVEL: u32 = 1;
+
+/// The success rate a 功法 training attempt carries with a 道场 standing.
+///
+/// The 道场's lift is a flat additive term beside the base formula — the same
+/// rate a surface prints is the rate a session rolls, and a 道场 that only
+/// helped one of the two would be a lie. Still held to the cap: a rate past a
+/// thousand is not a rate, and the five parts in a thousand of failure that
+/// keep 神阶 hard are the cap's own doing.
+pub fn training_success_permille(
+    grade: ArtGrade,
+    aptitude_tenths: i32,
+    failures: u32,
+    dojo_level: u8,
+) -> u32 {
+    let base = success_permille(grade, aptitude_tenths, failures);
+    let lift = u32::from(dojo_level) * DOJO_SUCCESS_PERMILLE_PER_LEVEL;
+    base.saturating_add(lift)
+        .clamp(SUCCESS_FLOOR_PERMILLE, SUCCESS_CAP_PERMILLE)
+}
+
 /// The success rate a body with no 潜质 at all carries, by grade.
 pub const fn base_success_permille(grade: ArtGrade) -> u32 {
     match grade {

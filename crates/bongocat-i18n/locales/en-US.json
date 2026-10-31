@@ -820,6 +820,19 @@
       "smithy": "Smithy",
       "dojo": "Dojo"
     },
+    "building_tip": {
+      "workshop": "+10% gathering yield per level.",
+      "warehouse": "+25% resource storage cap per level.",
+      "smithy": "-10% star-up stone cost per level.",
+      "dojo": "+10% gathering xp per level; +1‰ art training success."
+    },
+    "expedition": {
+      "status": "Out %{site} for %{hours}h · %{eta}",
+      "hours": "%{hours}h",
+      "eta": "Home in %{hours}h %{minutes}m",
+      "returning_in": "On the way back · %{hours}h %{minutes}m to go",
+      "refuse_out": "Out gathering — act once home."
+    },
     "breakthrough": {
       "title": "Breakthrough",
       "guardian": "Guardian of %{stage} · power %{power}",
@@ -931,7 +944,8 @@
       "title": "Exploration",
       "victory": "The wanderer was beaten, and paid for it.",
       "hours": "%{hours}h · ×%{mult}",
-      "hint": "Walk the hours out or come home with nothing."
+      "hint": "Walk the hours out or come home with nothing.",
+      "busy_gathering": "Out gathering — explore once home."
     },
     "trial": {
       "title": "Demon-Locking Tower",
@@ -995,6 +1009,8 @@
       "session": "Session finished, +%{growth} growth",
       "session_gather": "A gathering session: %{site} gave %{gained}",
       "session_gather_xp": ", +%{xp} xp",
+      "expedition": "Expedition home: %{site}, %{hours}h, gave %{gained}",
+      "expedition_xp": ", +%{xp} xp",
       "found": "Pomodoro find",
       "work": "Worked %{hours}h for %{stones} stones (%{rate}% success)",
       "absence": "%{days} days without practice — growth -%{charged}",

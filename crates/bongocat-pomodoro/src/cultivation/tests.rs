@@ -3213,20 +3213,37 @@ fn a_full_piece_refuses_the_wager() {
     );
 }
 
-/// One gathering at the forest fills the purse with wood and banks 伐木 xp; a
-/// run of them climbs the trade, and the 仓库's ceiling clips a full purse
-/// rather than overflowing it.
+/// One expedition at the forest fills the purse with wood and banks 伐木 xp; a
+/// 炼气 four-hour expedition is four base rounds, and the 仓库's ceiling clips
+/// a full purse rather than overflowing it.
 #[test]
-fn a_forest_gathering_fills_the_purse_and_trains_the_trade() {
+fn a_forest_expedition_fills_the_purse_and_trains_the_trade() {
     let mut cultivation = Cultivation::new(CultivationDocument::default());
-    let first = cultivation
-        .collect_resources(GatherSite::Forest, 0)
-        .expect("the gathering");
-    assert!(first.gained.wood > 0, "the forest pays wood");
-    assert_eq!(first.woodcut_xp, 100, "one gathering is a hundred xp");
-    assert_eq!(first.stonecut_xp, 0, "the forest does not train 采石");
+    let started = cultivation
+        .start_expedition(GatherSite::Forest, ExplorationHours::Four, 0)
+        .expect("the expedition");
+    assert_eq!(started.site, GatherSite::Forest, "it works the forest");
+    assert_eq!(started.hours, 4, "the length is the one chosen");
+    assert!(
+        !started.is_home(0),
+        "an expedition is not home the moment it sets off"
+    );
+    assert!(
+        cultivation.settle_expedition(started.ends_unix),
+        "it settles when home"
+    );
     let bag = &cultivation.document().resources;
-    assert_eq!(bag.wood, first.gained.wood, "the purse holds the find");
+    assert!(bag.wood > 0, "the forest pays wood");
+    assert_eq!(
+        cultivation.document().woodcut_xp,
+        400,
+        "four hours of a hundred xp"
+    );
+    assert_eq!(
+        cultivation.document().stonecut_xp,
+        0,
+        "the forest does not train 采石"
+    );
     // A full purse takes only what it has room for: no overflow, no loss of a
     // kind that still has room.
     let mut full = Cultivation::new(CultivationDocument {
@@ -3238,10 +3255,10 @@ fn a_forest_gathering_fills_the_purse_and_trains_the_trade() {
         },
         ..CultivationDocument::default()
     });
-    let capped = full
-        .collect_resources(GatherSite::Forest, 0)
-        .expect("the gathering");
-    assert_eq!(capped.gained.wood, 0, "a full purse takes no wood");
+    let started = full
+        .start_expedition(GatherSite::Forest, ExplorationHours::Four, 0)
+        .expect("the expedition");
+    full.settle_expedition(started.ends_unix);
     assert_eq!(
         full.document().resources.wood,
         BASE_RESOURCE_CAP,
@@ -3249,16 +3266,155 @@ fn a_forest_gathering_fills_the_purse_and_trains_the_trade() {
     );
 }
 
-/// One round at the mine trains both trades at once, because the mine is where
-/// the two trained hands are worth more together.
+/// One expedition at the mine trains both trades at once, because the mine is
+/// where the two trained hands are worth more together.
 #[test]
-fn a_mine_gathering_trains_both_trades() {
+fn a_mine_expedition_trains_both_trades() {
     let mut cultivation = Cultivation::new(CultivationDocument::default());
-    let outcome = cultivation
-        .collect_resources(GatherSite::Mine, 0)
-        .expect("the gathering");
-    assert_eq!(outcome.woodcut_xp, 100);
-    assert_eq!(outcome.stonecut_xp, 100);
+    let started = cultivation
+        .start_expedition(GatherSite::Mine, ExplorationHours::Four, 0)
+        .expect("the expedition");
+    cultivation.settle_expedition(started.ends_unix);
+    assert_eq!(
+        cultivation.document().woodcut_xp,
+        400,
+        "a four-hour mine expedition trains 伐木"
+    );
+    assert_eq!(
+        cultivation.document().stonecut_xp,
+        400,
+        "and 采石 alongside it"
+    );
+}
+
+/// An expedition is one outing at a time: while it holds the cultivator, a
+/// second expedition, a walk and a job are all refused, and the tower and the
+/// 试炼 are closed — the same walls a walk climbs.
+#[test]
+fn an_expedition_holds_the_cultivator_to_one_outing_at_a_time() {
+    let mut cultivation = Cultivation::new(CultivationDocument::default());
+    let started = cultivation
+        .start_expedition(GatherSite::Forest, ExplorationHours::Eight, 0)
+        .expect("the expedition");
+    assert!(
+        cultivation
+            .start_expedition(GatherSite::Mine, ExplorationHours::Four, 0)
+            .is_none(),
+        "one expedition at a time"
+    );
+    assert_eq!(
+        cultivation.view_on(0, 0).last_refusal,
+        Some(Refusal::ExpeditionOut),
+        "the refusal names the wall"
+    );
+    assert!(
+        cultivation.explore(0, ExplorationHours::Four).is_none(),
+        "no walk while out gathering"
+    );
+    assert!(
+        cultivation.accept_job(0, 0, 0).is_err(),
+        "no job while out gathering"
+    );
+    assert_eq!(
+        cultivation.trial_blocked(0, 0),
+        Some(TrialBlocked::Out),
+        "the tower is closed while out"
+    );
+    assert_eq!(
+        cultivation.proving_blocked(0),
+        Some(ProvingBlocked::Out),
+        "the 试炼 is closed while out"
+    );
+    assert!(
+        !cultivation.exploration_ready(0),
+        "the cultivator is not at home while out"
+    );
+    cultivation.settle_expedition(started.ends_unix);
+    assert!(
+        cultivation.exploration_ready(started.ends_unix),
+        "home again once the expedition is settled"
+    );
+}
+
+/// An expedition called home pays nothing: the site is not worked, so there is
+/// nothing to bring home — only the return trip, the same third of the time
+/// already spent a walk owes.
+#[test]
+fn a_called_expedition_pays_nothing() {
+    let mut cultivation = Cultivation::new(CultivationDocument::default());
+    let started = cultivation
+        .start_expedition(GatherSite::Forest, ExplorationHours::Eight, 0)
+        .expect("the expedition");
+    let wood_before = cultivation.document().resources.wood;
+    assert!(
+        cultivation.return_early(3_600),
+        "the expedition is called home"
+    );
+    let called = cultivation.expedition().expect("still out");
+    assert!(called.early, "it is on its way home");
+    assert!(
+        called.ends_unix > started.ends_unix - started.hours as i64 * 60 * 60,
+        "the trip home is not free"
+    );
+    cultivation.settle_expedition(called.ends_unix);
+    assert_eq!(
+        cultivation.document().resources.wood,
+        wood_before,
+        "a called expedition pays nothing"
+    );
+    assert!(
+        cultivation.document().events.is_empty(),
+        "no record for a called expedition"
+    );
+}
+
+/// A higher realm's expedition is worth more per hour: the same realm scaling a
+/// gathering session reads, so a 仙人 four-hour expedition is 3.25 times a
+/// 炼气 one.
+#[test]
+fn a_higher_realm_expedition_pays_more() {
+    let mut low = Cultivation::new(CultivationDocument::default());
+    let low_started = low
+        .start_expedition(GatherSite::Forest, ExplorationHours::Four, 0)
+        .expect("the expedition");
+    low.settle_expedition(low_started.ends_unix);
+    let low_xp = low.document().woodcut_xp;
+    let mut high = Cultivation::new(CultivationDocument {
+        realm: 9,
+        last_active_day: Some(20_000),
+        charged_through_day: Some(20_000),
+        ..CultivationDocument::default()
+    });
+    let high_started = high
+        .start_expedition(GatherSite::Forest, ExplorationHours::Four, 0)
+        .expect("the expedition");
+    high.settle_expedition(high_started.ends_unix);
+    assert_eq!(
+        high.document().woodcut_xp,
+        low_xp.saturating_mul(3_250) / 1_000,
+        "a 仙人 expedition is 3.25x a 炼气 one"
+    );
+}
+
+/// The 道场 adds a tenth of a percent per level to a 功法 training attempt, on
+/// top of the base rate and still held to the cap.
+#[test]
+fn a_dojo_raises_the_training_success_rate() {
+    let base = super::aptitude::success_permille(ArtGrade::Heaven, 0, 0);
+    let lifted = super::aptitude::training_success_permille(ArtGrade::Heaven, 0, 0, 10);
+    assert_eq!(
+        lifted,
+        base.saturating_add(10),
+        "ten 道场 levels add ten parts per thousand"
+    );
+    let at_cap = super::aptitude::training_success_permille(ArtGrade::Yellow, 10_000, 0, 10);
+    assert_eq!(
+        at_cap,
+        super::aptitude::SUCCESS_CAP_PERMILLE,
+        "the lift never breaks the cap"
+    );
+    let zero = super::aptitude::training_success_permille(ArtGrade::Heaven, 0, 0, 0);
+    assert_eq!(zero, base, "no 道场 changes nothing");
 }
 
 /// A finished gathering session pays a whole realm-sized round of the site's
@@ -3268,10 +3424,8 @@ fn a_mine_gathering_trains_both_trades() {
 #[test]
 fn a_gathering_session_pays_a_realm_sized_yield_and_no_ladder() {
     let mut cultivation = Cultivation::new(CultivationDocument::default());
-    // The base round for the same hands: what one manual click pays.
-    let base = cultivation
-        .collect_resources(GatherSite::Forest, 0)
-        .expect("the gathering");
+    // The base round for the same hands: what one hour of gathering pays.
+    let base = collect(GatherSite::Forest, 0, 0, 0, 0);
     let baseline_growth = cultivation.document().growth;
     let baseline_stones = cultivation.document().stones;
     // A 炼气 session is one hour: the same as a base round. The purse's ceiling
@@ -3315,10 +3469,7 @@ fn a_gathering_session_pays_a_realm_sized_yield_and_no_ladder() {
 /// realm, so a 大乘 session is 3.25 base rounds of the same trained hands.
 #[test]
 fn a_higher_realm_gathering_session_pays_more() {
-    let mut base = Cultivation::new(CultivationDocument::default());
-    let base_round = base
-        .collect_resources(GatherSite::Forest, 0)
-        .expect("the gathering");
+    let base_round = collect(GatherSite::Forest, 0, 0, 0, 0);
     let mut high = Cultivation::new(CultivationDocument {
         realm: 9,
         last_active_day: Some(20_000),

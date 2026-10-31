@@ -194,6 +194,14 @@ pub struct CultivationDocument {
     /// cultivator at home and free to set out again.
     #[serde(default)]
     pub walk: Option<WalkInProgress>,
+    /// The gathering expedition under way, if the cultivator is out gathering.
+    ///
+    /// An expedition holds the cultivator the way a walk or a job does — it is
+    /// hours of their day — so the three can never be done at once, and the one
+    /// in flight has to outlive the quit that would otherwise leave the yield
+    /// unpaid. It pays on the clock, like a walk, not on a click.
+    #[serde(default)]
+    pub expedition: Option<crate::ExpeditionInProgress>,
     /// How many walks have been taken — the 游历 dimension's own count, kept in
     /// the document because a dimension that forgot its training on every restart
     /// would never fill its bar.
@@ -570,6 +578,16 @@ impl CultivationDocument {
                 .saturating_add(super::ExplorationHours::from_hours(walk.hours).seconds());
             walk.ends_unix = walk.ends_unix.clamp(walk.started_unix, latest);
             self.last_exploration_hours = walk.hours;
+        }
+        // An expedition is the same shape and gets the same care: the length is
+        // a preference read as the middle one when it names nothing, and an end
+        // past the length's ceiling (or before its own start) is a hand edit.
+        if let Some(expedition) = self.expedition.as_mut() {
+            expedition.hours = super::ExplorationHours::from_hours(expedition.hours).hours();
+            let latest = expedition
+                .started_unix
+                .saturating_add(super::ExplorationHours::from_hours(expedition.hours).seconds());
+            expedition.ends_unix = expedition.ends_unix.clamp(expedition.started_unix, latest);
         }
         // A hand-edited save cannot carry a trade or a building past its ceiling
         // — a level above ten is an edit, and a level below zero cannot exist.

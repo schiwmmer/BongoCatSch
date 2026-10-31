@@ -912,7 +912,12 @@ pub enum ArtOutcome {
 /// A failure costs the session and nothing else: progress already banked is the
 /// user's, and a rule that took it back would turn a run of bad luck into a
 /// punishment for having tried.
-pub fn train(owned: &mut OwnedArt, aptitude_tenths: i32, rng: &mut Rng) -> ArtOutcome {
+pub fn train(
+    owned: &mut OwnedArt,
+    aptitude_tenths: i32,
+    dojo_level: u8,
+    rng: &mut Rng,
+) -> ArtOutcome {
     let art = blueprint(owned.art_id);
     let max_rank = art.grade.ranks();
     if owned.rank >= max_rank {
@@ -920,9 +925,14 @@ pub fn train(owned: &mut OwnedArt, aptitude_tenths: i32, rng: &mut Rng) -> ArtOu
         return ArtOutcome::Mastered;
     }
     // 潜质 and the failures this book has already cost set the chance the
-    // session lands: one roll against `base × 1.01^(潜质 + 失败)`. A failure
-    // costs the session and nothing else.
-    let success = super::aptitude::success_permille(art.grade, aptitude_tenths, owned.failures);
+    // session lands: one roll against `base × 1.01^(潜质 + 失败)`, with the
+    // 道场's lift folded in. A failure costs the session and nothing else.
+    let success = super::aptitude::training_success_permille(
+        art.grade,
+        aptitude_tenths,
+        owned.failures,
+        dojo_level,
+    );
     if rng.below(1_000) >= u64::from(success) {
         // The failure is banked against the 功法: the next attempt is one percent
         // likelier, and every attempt after that likelier again — at this 阶 and
@@ -1460,7 +1470,7 @@ pub struct MasteredArtView {
 }
 
 /// Fold an owned art and its blueprint into what a surface draws.
-pub fn art_view(owned: &OwnedArt, aptitude_tenths: i32, selected: bool) -> ArtView {
+pub fn art_view(owned: &OwnedArt, aptitude_tenths: i32, selected: bool, dojo_level: u8) -> ArtView {
     let art = blueprint(owned.art_id);
     ArtView {
         id: art.id,
@@ -1471,10 +1481,11 @@ pub fn art_view(owned: &OwnedArt, aptitude_tenths: i32, selected: bool) -> ArtVi
         max_rank: art.grade.ranks(),
         progress: owned.progress,
         required: required_pomodoros(owned.rank, aptitude_tenths),
-        success_permille: super::aptitude::success_permille(
+        success_permille: super::aptitude::training_success_permille(
             art.grade,
             aptitude_tenths,
             owned.failures,
+            dojo_level,
         ),
         failures: owned.failures,
         gain: art.gain,
@@ -1841,7 +1852,7 @@ mod tests {
                     failures: 0,
                     copies: 1,
                 };
-                match train(&mut probe, 0, &mut Rng::seeded(seed)) {
+                match train(&mut probe, 0, 0, &mut Rng::seeded(seed)) {
                     ArtOutcome::Failed => Some(probe),
                     _ => None,
                 }
@@ -1868,17 +1879,17 @@ mod tests {
             copies: 1,
             outcome: None,
         };
-        let base = art_view(&owned, 0, false).success_permille;
+        let base = art_view(&owned, 0, false, 0).success_permille;
         let mut rng = Rng::seeded(0xA17);
         // A 神阶 art at zero 潜质 lands one time in twenty, so a miss comes
         // quickly and the bank is one deep.
         let mut guard = 0;
         while owned.failures == 0 {
-            let _ = train(&mut owned, 0, &mut rng);
+            let _ = train(&mut owned, 0, 0, &mut rng);
             guard += 1;
             assert!(guard < 5_000, "a 神阶 art eventually misses");
         }
-        let banked = art_view(&owned, 0, false);
+        let banked = art_view(&owned, 0, false, 0);
         assert_eq!(banked.failures, owned.failures);
         assert!(
             banked.success_permille > base,
@@ -1889,7 +1900,7 @@ mod tests {
         // The count is not handed back when the 阶 turns over.
         let mut guard = 0;
         while owned.rank == 1 {
-            let _ = train(&mut owned, 0, &mut rng);
+            let _ = train(&mut owned, 0, 0, &mut rng);
             guard += 1;
             assert!(guard < 100_000, "the first 阶 is one session at most");
         }
@@ -1899,7 +1910,7 @@ mod tests {
             owned.failures
         );
         assert_eq!(
-            art_view(&owned, 0, false).success_permille,
+            art_view(&owned, 0, false, 0).success_permille,
             super::super::aptitude::success_permille(ArtGrade::Divine, 0, owned.failures),
             "the rate reads the whole book's count"
         );
@@ -1920,7 +1931,7 @@ mod tests {
         let mut rng = Rng::seeded(0xABCD);
         let mut ranked = false;
         for _ in 0..200 {
-            if train(&mut owned, 1_000, &mut rng) == ArtOutcome::RankedUp {
+            if train(&mut owned, 1_000, 0, &mut rng) == ArtOutcome::RankedUp {
                 ranked = true;
                 break;
             }
