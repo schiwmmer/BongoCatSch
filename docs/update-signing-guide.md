@@ -10,7 +10,7 @@
 > **状态更新（2026-09-14）：本文的结论已经落地。**
 >
 > §0.3 推荐的方案 B（detached minisign 签名）已被采纳并实现，规范记录见
-> **`docs/adr/02-build-update-delivery.md`**：更新库改为
+> **`docs/adr/README.md`**：更新库改为
 > `cargo-packager-updater 0.2.3`，签名端由 `crates/bongocat-packaging` 调用
 > `cargo_packager::sign`，macOS 载荷是 `.app.tar.gz`、Windows 载荷复用 NSIS 安装器，
 > 各附一个 `.sig`。检查地址是

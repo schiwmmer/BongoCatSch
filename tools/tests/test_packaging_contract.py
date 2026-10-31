@@ -1,7 +1,7 @@
 """Pin what the packaging pipeline guarantees and `cargo-packager` cannot vouch for.
 
 The build and packaging entry point is `crates/bongocat-packaging`, which drives
-`cargo-packager` (see `docs/adr/02-build-update-delivery.md`).
+`cargo-packager` (see `docs/adr/README.md`).
 `cargo-packager` owns bundle layout and `Info.plist` generation, so this file no
 longer asserts their internals. What it keeps is the set of decisions only this
 repository can make:

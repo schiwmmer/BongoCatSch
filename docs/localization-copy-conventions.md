@@ -3,7 +3,7 @@
 > **文档性质：规范性约定。** 本文只约束 `crates/bongocat-i18n/locales/*.json` 里的 UI 文案
 > 怎么写。目标架构仍以 `docs/technical-design.md` 和 `docs/adr/` 为准；
 > catalog 的结构、key 命名与占位符规则见
-> `docs/adr/01-architecture-platform-settings.md`.
+> `docs/adr/README.md`.
 
 适用范围：`crates/bongocat-i18n/locales/` 下的全部语言资源。**新增文案一律遵守**，
 不因语言而异。

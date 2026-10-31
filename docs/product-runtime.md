@@ -251,7 +251,7 @@ priority, stop/crossfade timing, and model-generation cleanup.
 The fixed-version Cubism Core, header, generated bindings, and preset model development baseline are
 committed under `vendor/cubism/5-r.5` and `resources/models`. Builds do not download SDK artifacts.
 Their provenance and release gates are documented in
-`docs/adr/01-architecture-platform-settings.md` and the Phase 0 Cubism records.
+`docs/adr/README.md` and the Phase 0 Cubism records.
 
 Model package parsing is also SDK-independent. `bongocat-model` prepares and validates package
 metadata before a typed command transfers an opaque committed model to the runtime. The runtime

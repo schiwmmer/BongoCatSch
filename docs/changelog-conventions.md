@@ -109,7 +109,7 @@ python3 -m unittest tools.tests.test_release_changelog_contract
 版本标题是 `## <version> - <date>`。`just release-notes` 按
 `[workspace.package].version`（即 `just version` 打印的值）去 changelog 里找对应条目，
 找不到就让发布失败。因此发版时必须把 `## Unreleased` 改成 `## <version> - <date>`。
-详见 `docs/adr/02-build-update-delivery.md`。
+详见 `docs/adr/README.md`。
 
 ## 3. 发布提交：标题固定为 `chore: release v<version>`
 
