@@ -295,16 +295,22 @@ pub fn roll_offers(day_number: i64, realm: Realm, seed: u64) -> Vec<ShopOffer> {
         };
         let offer = match kind {
             0 => {
-                // The seed row. One pool for the nine attributes and the two
-                // 潜质 herbs, so a 悟心草 turns up exactly as often as a 根骨
-                // seed does — the rare herb is a rarer *thing*, not a rarer
-                // row, and a herb that needed its own one-day-in-four gate
-                // would be a row the shelf is mostly not allowed to have.
-                let kinds = Attribute::ALL.len() as u64 + 2;
-                let pick = rng.below(kinds) as usize;
-                if pick < Attribute::ALL.len() {
+                // The seed row. One pool over the seeds themselves rather than
+                // over their attributes: four attributes across the ladder's
+                // ten tiers are forty shares, and the two 潜质 herbs are two
+                // more. A 悟心草 therefore turns up as often as one particular
+                // 根骨 seed of one particular tier does — a sighting in the
+                // shelf, not a third of the seed rows — which is what a herb
+                // being "just another seed" has to mean once tiers are counted
+                // as kinds. The tier itself is still rolled around the realm's
+                // own below: the pool decides *what* is on the row, not how far
+                // above the buyer it reaches.
+                let attribute_seeds =
+                    Attribute::ALL.len() * usize::from(super::garden::MAX_SEED_TIER);
+                let pick = rng.below((attribute_seeds + 2) as u64) as usize;
+                if pick < attribute_seeds {
                     ShopOffer::Seed {
-                        attribute: Attribute::from_index(pick),
+                        attribute: Attribute::from_index(pick % Attribute::ALL.len()),
                         // One tier either side of the realm's own: a herb a tier
                         // down is a reachable one for the garden, one a tier up
                         // is a goal.
@@ -320,7 +326,7 @@ pub fn roll_offers(day_number: i64, realm: Realm, seed: u64) -> Vec<ShopOffer> {
                     }
                 } else {
                     ShopOffer::Herb {
-                        herb: if pick == Attribute::ALL.len() {
+                        herb: if pick == attribute_seeds {
                             AptitudeHerb::Insight
                         } else {
                             AptitudeHerb::Wisdom
@@ -525,11 +531,13 @@ pub enum ArtOwnership {
 mod tests {
     use super::*;
 
-    /// The two 潜质 herbs are ordinary shelf stock: each of them turns up about
-    /// as often as one particular attribute seed does, and the pill — the one
-    /// 潜质 item still rolled on its own — stays a one-in-two-hundred day.
+    /// The two 潜质 herbs are ordinary shelf stock, counted as seeds: each of
+    /// them turns up about as often as one particular seed of one particular
+    /// tier does — one share of the forty-two the seed row is drawn from, not a
+    /// third of it — and the pill, the one 潜质 item still rolled on its own,
+    /// stays a one-in-two-hundred day.
     #[test]
-    fn the_two_herbs_share_the_seed_rows_and_the_pill_is_the_rarest_row() {
+    fn the_two_herbs_are_seeds_of_one_share_and_the_pill_is_the_rarest_row() {
         let days = 4_000_i64;
         let (mut insight, mut wisdom, mut marrow, mut seeds) = (0_u32, 0_u32, 0_u32, 0_u32);
         for day in 0..days {
@@ -545,15 +553,16 @@ mod tests {
                 }
             }
         }
-        // One attribute out of the four, so a herb with the same odds as "any
-        // other seed" lands on one quarter of the seed rows.
-        let per_attribute = f64::from(seeds) / Attribute::ALL.len() as f64;
+        // A seed row draws from forty attribute-seed shares and two herb shares,
+        // so one herb against the attribute seeds already drawn is one in forty.
+        let shares = Attribute::ALL.len() * usize::from(crate::cultivation::garden::MAX_SEED_TIER);
+        let per_share = f64::from(seeds) / shares as f64;
         for (label, count) in [("悟心草", insight), ("慧心草", wisdom)] {
-            let ratio = f64::from(count) / per_attribute;
+            let ratio = f64::from(count) / per_share;
             assert!(
-                (0.7..=1.4).contains(&ratio),
-                "{label} turns up {ratio:.2} times as often as one attribute seed: \
-                 {count} against {seeds} seeds"
+                (0.6..=1.6).contains(&ratio),
+                "{label} turns up {ratio:.2} times as often as one seed of one tier: \
+                 {count} against {seeds} attribute seeds"
             );
         }
         // The pill is still a sighting rather than a row: one day in two
