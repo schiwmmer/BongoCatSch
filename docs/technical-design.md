@@ -1532,7 +1532,7 @@ ADR-0026 由本 ADR 取代。本 ADR 的库选择（`self_update 1.3.0`）与签
 **该 ADR 已撤回（2026-09-22）**：压缩包来源、解压边界与 `SourceArchiveUnsupported` 稳定码连同
 实现一并移除，`bongocat-model` 不再依赖 `zip`/`flate2`，`ModelPackageLimits` 不再有
 `maximum_archive_bytes`。模型来源只有一种：由文件夹选择器或窗口拖放提供的文件夹。ADR 正文保留在
-`docs/adr/0036-model-archive-import-boundary.md` 作为恢复该功能时的设计输入——**恢复前先与维护者确认**
+`docs/adr/03-model-live2d-render.md` 作为恢复该功能时的设计输入——**恢复前先与维护者确认**
 （压缩包上传需要一组本次不做的新功能）。压缩包与第三方模型内容不进入仓库。
 
 ### ADR-0035：更新 worker、更新窗口与发布说明

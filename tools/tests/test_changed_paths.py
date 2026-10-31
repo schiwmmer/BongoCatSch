@@ -29,7 +29,7 @@ class DocumentationOnlyTests(unittest.TestCase):
             "AGENTS.md",
             "CHANGELOG.md",
             "CHANGELOG.zh-CN.md",
-            "docs/adr/0074-verification-pipeline-cache-and-job-split.md",
+            "docs/adr/02-build-update-delivery.md",
             "docs/benchmark/data/macos-overlay-frame-timing-90e0aa7.csv",
             ".github/ISSUE_TEMPLATE/01-bug-report.yml",
             ".github/ISSUE_TEMPLATE/config.yml",

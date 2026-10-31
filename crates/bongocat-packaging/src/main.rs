@@ -67,8 +67,8 @@
 //!
 //! Exit condition: restore `PackageFormat::Dmg` once `cargo-packager` ships a
 //! `create-dmg` revision that works on the current macOS. See
-//! `docs/adr/0033-build-packaging-and-release-toolchain.md` for the toolchain
-//! decision and `docs/adr/0075-dmg-finder-window-layout.md` for the window.
+//! `docs/adr/02-build-update-delivery.md` for the toolchain
+//! decision and window.
 
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
