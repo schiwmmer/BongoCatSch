@@ -9,7 +9,7 @@
 
 ## 项目身份
 - BongoCat fork，Rust workspace（入口 crates/bongocat-app），macOS 优先；远程 `https://github.com/schiwmmer/BongoCatSch.git`（HTTPS + 7890），分支 feat/pomodoro。
-- build script 缓存旧绝对路径致链接失败（CubismCore）→ `cargo clean` 重建；瘦身 `just prune`（仅 incremental+aarch64），孤儿变体/权限流须 `just clean-dev`。
+- build script 缓存旧绝对路径致链接失败（CubismCore）→ `cargo clean` 重建；**cross-target 目录 `target/aarch64-apple-darwin/release/build/bongocat-live2d-*` 用 `cargo clean -p` 清不掉（Removed 0 files），必须 `/bin/rm -rf` 该目录**，否则 verify-app 链接到旧沙箱路径 `/private/tmp/wt-bingocat/...`；沙箱内 codesign 报 No such file（文件其实在）→ verify-app 与 app 同步须非沙箱执行。瘦身 `just prune`（仅 incremental+aarch64），孤儿变体/权限流须 `just clean-dev`。
 
 ## 硬规则：本机 APP 同步（每次 commit + push 后必须做）
 - `export PATH="$HOME/bin/swift-nosandbox-shim:$PATH"` → `just verify-app` → `pkill -f bongocat-app` → 旧 app 改名 `.previous` → `cp -R target/package/BongoCat.app /Applications/` → `xattr -dr com.apple.quarantine` → `open`。
@@ -43,9 +43,10 @@
 - 锁妖塔：对手战力 = `floor_rung_power(floor) × challenge_band_permille`（band∈[800,1250]‰ 三角分布）；**floor 锚定**而非玩家锚定（玩家锚定会让 sweep 自相矛盾）。
 - 外出：`Cultivation::return_early` 覆盖走路+打工；返程 `(spent/3).max(6)`；`JobRun.early` 早退不动 `jobs_roll`；判「已回家」必须用 work 前后状态（早退 payout 也是 None）。
 - 集市（20000 天实测）：行数 5–10 均 7.5；装备 36%/功法 22%/种子行 41.7%；种子池 245 单位 = 4 属性×10 阶×6 + 悟心草 3 + 慧心草 2；阶以境界自身阶为中心 ±3 窗口，权重 8/4/2/1 裁剪不回绕。灵草：悟心 1.22% 种子行、慧心 0.82%；番茄钟另各 6%/3%。
-- 资源与采集（现行，待重设计）：四资源 木/石(常见)+铁/煤(稀有)；三采集点 森林(煤@伐木5)/山(铁@采石3)/矿洞(双稀有)；`BASE_COMMON_YIELD=10`、`BASE_RARE_YIELD=3`、`BASE_SKILL_XP=100`、`BASE_RESOURCE_CAP=200`、`MAX_BUILDING_LEVEL=MAX_TRADE_LEVEL=10`；技能每级 +5%、建筑 工坊+10%/仓+25%/铁匠-10%(0.9^lv)/道场+10%。**口径待改，见最新设计文档**。
+- 资源与采集（v2.2 落地，449a7c06）：四资源 木/石(常见)+铁/煤(稀有)；三采集点 森林(煤@伐木5)/山(铁@采石3)/矿洞(双稀有)；`BASE_COMMON_YIELD=4`、`BASE_RARE_YIELD=2`、`BASE_SKILL_XP=100`、`BASE_RESOURCE_CAP=400`、`MAX_BUILDING_LEVEL=10`、**`MAX_WAREHOUSE_LEVEL=50`**、`MAX_TRADE_LEVEL=10`；技能每级 +5%、建筑 工坊+90‰/仓+192 绝对值/铁匠-6%(0.94^lv)/道场+80‰。**关键不变量**：①番茄钟拆双量 `rounds_per_hour_permille`(+150/境界，外出用) vs `gather_duration_permille`(+250，番茄钟用) ②`normalized()` 必须用 `MAX_WAREHOUSE_LEVEL` clamp 仓库（曾误 clamp 回 10）③采集链**只除一次**（2026-10-31 修 6e794a1f）：`collect_scaled` 必须 `原始乘积×时长/1e9`，**禁止把 `collect` 已截断的单轮值再乘时长**——否则满配仙人 12h 只到 310（设计 321）、半数工坊等级不加产（169,169,197,197…）；per-round 整数仍可能持平，判「工坊有增益」须看 session 级而非单轮 ④探索 0.6:1：`ENCOUNTER≤112`（`roll_walk` 断言 `(SEED+GEAR+ART+ENCOUNTER)×3.2≤1000` 卡 140）、`WANDERER` 48-68、`GUARDIAN` 70-120（断言链随动）⑤技能经验总量 6,400（`l×200+l(l+1)×40`；45,121 是错值）。
 - **`Cost` 跨域共享**（升星/建筑升级），`can_spend_bag`/`spend_bag` 原子扣费；`Resource::key()` 返 `cultivation.resource.*`，i18n 键必须同命名空间（`catalog_keys_are_referenced_by_source` 覆盖测试）。
 - UI 坑：`scroll_until_visible` 只向下滚 → 新增面板推高后须双向滚动；`text()` 返 `&'static str`（静态翻译缓存），hover 闭包须传 `&'static str`（否则 E0521）。
+- UI 建筑：进度显示 `Lv x/max`（仓库显示 /50）+ `×5` 连升按钮（`PomodoroCommand::UpgradeBuildingMany`，state 早停在顶/缺钱处，买 0 拒、买部分成功）。
 - 造高阶测试须直接写 `realm: 9`（`realm` 是显式字段，不随 growth 推导）；测试函数名含 `'s` 会致 `unknown prefix` 并级联拖垮该模块导出。
 - 打包坑：`target/debug/bongocat-packaging` 若由沙箱 temp 挂载编译，`env!("CARGO_MANIFEST_DIR")` 烤入错误根路径 → verify-app 报「not workspace root」，touch 该 crate 源文件强制重建。
 
@@ -55,6 +56,9 @@
 - 帧顺序铁律：motion 声明的参数归 motion，其余归指针（`apply_model_input` 跳过集合）；用「指针精确为 0」做守卫等于没写。
 - motion 轴已修：nod→`ParamAngleY`、headshake→`ParamAngleX`（三模型 md5 一致；behavior.rs 期望 18.105）。
 - 自动眨眼守卫：`expression_driven_parameter_ids` 每帧重写，眨眼跳过本帧表达式驱动的眼睛参数（wink/exp_1/exp_2/focus 不被覆盖）。
+
+## 浏览器版（2026-11-01）
+- `crates/bongocat-pomodoro-web`（wasm 桥，无 wasm-bindgen）+ `web/`（原生 JS 页面）；`just web` 构建、`just web-serve` 预览。修仙逻辑零重写，直接复用 `bongocat-pomodoro`；`record_input` 不进站。细节见 daily log 2026-11-01。
 
 ## ARCHIVE 索引
 - 2026-10 → `archive/2026-10.md`：修仙全量数值口径、UI 要点坑清单、构建与磁盘细节。
