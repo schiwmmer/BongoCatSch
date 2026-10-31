@@ -146,3 +146,26 @@ fn an_unreadable_document_reads_as_a_fresh_one() {
     assert_eq!(snapshot.cultivation.level, 1);
     assert_eq!(snapshot.focus_minutes, 25);
 }
+
+#[test]
+fn the_browser_build_does_not_seed_weekday_stock_tasks() {
+    // The desktop app opens a weekday with two stock rows. The page is a
+    // pomodoro timer, so the same tick that opens the day must add nothing —
+    // checked against the desktop behaviour so the switch is proven, not assumed.
+    let now = 1_800_000_000;
+
+    let mut page = PomodoroState::empty_at_with_seed(8 * 3600, 7).with_daily_stock_tasks(false);
+    page.apply_daily_event(now);
+    assert!(
+        page.snapshot_at(0, now).tasks.is_empty(),
+        "the page must not seed stock tasks"
+    );
+
+    let mut desktop = PomodoroState::empty_at_with_seed(8 * 3600, 7);
+    desktop.apply_daily_event(now);
+    assert_eq!(
+        desktop.snapshot_at(0, now).tasks.len(),
+        2,
+        "the desktop still seeds 股票复盘 / 股票上课 on a weekday"
+    );
+}

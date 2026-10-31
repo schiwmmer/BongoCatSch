@@ -28,3 +28,6 @@ target
 # 浏览器构建产物：由 `just web` 生成，不入库
 target-web/
 web/bongocat_pomodoro_web.wasm
+
+# 应用卡标记文件（本地记录，不入库）
+.wbapp_*.genie

@@ -63,11 +63,38 @@ body {
 
 .topstats {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 18px;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.account-email {
+  color: var(--ink-3);
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync {
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 11px;
+  background: var(--jade-soft);
+  color: var(--jade);
+  white-space: nowrap;
+}
+.sync.saving { background: var(--gold-soft); color: var(--gold); }
+.sync.offline { background: var(--accent-soft); color: var(--accent); }
 
 .stat {
   display: flex;
@@ -568,3 +595,45 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 .right { text-align: right; }
 .wrap { display: flex; flex-wrap: wrap; gap: 8px; }
 .spacer { flex: 1; }
+
+/* ---------- login gate ---------- */
+
+.gate {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(244, 245, 247, 0.88);
+  backdrop-filter: blur(8px);
+}
+
+.gate[hidden] { display: none; }
+
+.gate-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(390px, 100%);
+  padding: 26px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 24px 70px -34px rgba(20, 25, 35, 0.45);
+}
+
+.gate-title { font-size: 18px; font-weight: 700; letter-spacing: 0.4px; }
+.gate-sub { margin: 0; font-size: 12.5px; line-height: 1.65; color: var(--ink-3); }
+
+.gate-row { display: flex; gap: 8px; }
+.gate-row input { flex: 1; min-width: 0; }
+
+.gate-submit { width: 100%; margin-top: 4px; padding: 10px; }
+
+.gate-error {
+  min-height: 17px;
+  font-size: 12px;
+  color: var(--accent);
+}

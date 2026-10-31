@@ -77,29 +77,3 @@ export class PomodoroWasm {
     return this.read();
   }
 }
-
-// The save lives in local storage: one document string, written after every
-// command that changed something.
-export const store = {
-  read() {
-    try {
-      return window.localStorage.getItem(SAVE_KEY) || '';
-    } catch {
-      return '';
-    }
-  },
-  write(text) {
-    try {
-      window.localStorage.setItem(SAVE_KEY, text);
-    } catch {
-      // A full or blocked store costs the save, not the session.
-    }
-  },
-  clear() {
-    try {
-      window.localStorage.removeItem(SAVE_KEY);
-    } catch {
-      // Nothing to do.
-    }
-  },
-};

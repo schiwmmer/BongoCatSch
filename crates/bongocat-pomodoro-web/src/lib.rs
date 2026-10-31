@@ -124,6 +124,9 @@ pub extern "C" fn web_boot(document_len: u32, utc_offset_seconds: i32, now: f64,
     } else {
         PomodoroState::from_document_json_with_seed(&document, utc_offset_seconds, seed)
     };
+    // The page is a pomodoro timer, not the desktop app: no weekday-morning
+    // stock rows appear in a list the user did not put them in.
+    state = state.with_daily_stock_tasks(false);
     state.resume_live_session(now_unix);
     APP.with(|cell| {
         *cell.borrow_mut() = Some(App { state, revision: 1 });

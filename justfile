@@ -116,6 +116,19 @@ web:
     cp target-web/wasm32-unknown-unknown/release/bongocat_pomodoro_web.wasm web/
     echo "web: web/bongocat_pomodoro_web.wasm ($(wc -c < web/bongocat_pomodoro_web.wasm) bytes)"
 
+# Refresh the vendored cloud SDK.
+#
+# The login page cannot use the jsdelivr CDN: it is unreachable from mainland
+# networks, and a login page that cannot load its SDK is a blank page. The
+# `@dev` channel is what the SDK intends during integration — do not pin a
+# version, re-run this to move forward.
+web-sdk:
+    mkdir -p web/vendor
+    curl -fsSL --proxy http://127.0.0.1:7890 \
+        "https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js" \
+        -o web/vendor/workbuddy-cloud-sdk.js
+    echo "web-sdk: $(wc -c < web/vendor/workbuddy-cloud-sdk.js) bytes"
+
 # Serve the browser build.
 #
 # A `file://` page cannot fetch the module, so the page has to come off http.

@@ -1,7 +1,17 @@
 // The page shell: the rail, the focus page, the month grid and the clock loop.
 // Everything the cultivation ladder draws lives in cultivate.js.
 
-import { PomodoroWasm, store } from './wasm.js';
+import { PomodoroWasm } from './wasm.js';
+import {
+  cache,
+  emailOf,
+  loadSave,
+  saveSave,
+  sendCode,
+  session,
+  signOut,
+  verifyCode,
+} from './cloud.js';
 import {
   railCounts,
   renderCultivation,
@@ -60,7 +70,14 @@ function clock(seconds) {
   return `${mm}:${ss}`;
 }
 
-export function toast(text, kind = '') {
+export function describeError(error) {
+  const raw = error?.message ?? error?.error_description ?? String(error ?? '未知错误');
+  if (/origin/i.test(raw)) return '来源域名未授权，请从正式发布的地址打开';
+  if (/network|fetch|Failed to fetch/i.test(raw)) return '网络不通，稍后自动重试';
+  return raw;
+}
+
+function toast(text, kind = '') {
   const node = document.createElement('div');
   node.className = `toast ${kind}`.trim();
   node.textContent = text;
@@ -74,9 +91,46 @@ export function toast(text, kind = '') {
 
 /* ---------- commands ---------- */
 
+// Every write goes to the server. The local copy is refreshed at the same time
+// so a cold start with no network can still open the timer, but it is never
+// treated as the save: a failed cloud write is reported, not swallowed.
+const sync = { pending: null, timer: null, retry: null, state: 'saved' };
+
+function setSyncState(state) {
+  sync.state = state;
+  const node = document.getElementById('sync');
+  if (!node) return;
+  node.textContent = { saved: '已同步', saving: '同步中', offline: '未同步' }[state] ?? '';
+  node.className = `sync ${state}`;
+}
+
 function persist() {
   if (!app.wasm) return;
-  store.write(app.wasm.export());
+  const text = app.wasm.export();
+  cache.write(text);
+  sync.pending = text;
+  setSyncState('saving');
+  clearTimeout(sync.timer);
+  sync.timer = setTimeout(flushSave, 700);
+}
+
+async function flushSave() {
+  const text = sync.pending;
+  if (!text) return;
+  sync.pending = null;
+  try {
+    await saveSave(text);
+    setSyncState('saved');
+    clearTimeout(sync.retry);
+  } catch (error) {
+    // Keep the text so the retry has something to send, and say so — the
+    // record is not on the server yet.
+    sync.pending = sync.pending ?? text;
+    setSyncState('offline');
+    clearTimeout(sync.retry);
+    sync.retry = setTimeout(flushSave, 15000);
+    toast(`云端保存失败：${describeError(error)}`, 'bad');
+  }
 }
 
 // Apply a command, then redraw and save. Every button on the page goes through
@@ -487,15 +541,145 @@ function handleAction(data, button) {
 
 /* ---------- boot ---------- */
 
-async function main() {
-  try {
-    app.wasm = await PomodoroWasm.load('./bongocat_pomodoro_web.wasm');
-  } catch (error) {
-    stage.innerHTML = `<div class="card"><div class="card-title">wasm 载入失败</div><p class="card-hint">${esc(error.message)}<br />请通过 http 服务打开这个页面，而不是 file:// 直接双击。</p></div>`;
+/* ---------- gate, account, boot ---------- */
+
+const gate = document.getElementById('gate');
+const gateForm = document.getElementById('gate-form');
+const gateEmail = document.getElementById('gate-email');
+const gateCode = document.getElementById('gate-code');
+const gateSend = document.getElementById('gate-send');
+const gateSubmit = document.getElementById('gate-submit');
+const gateError = document.getElementById('gate-error');
+const account = document.getElementById('account');
+const accountEmail = document.getElementById('account-email');
+
+// The code is issued once and reused for the submit: sending again would spend
+// another mail and invalidate the one the user is reading.
+let pendingOtp = null;
+let sendCooldown = 0;
+
+function setGateError(text) {
+  gateError.textContent = text;
+}
+
+function showGate() {
+  gate.hidden = false;
+  account.hidden = true;
+  stage.innerHTML = '<div class="boot">登录后开始专注</div>';
+  rail.innerHTML = '';
+  topstats.innerHTML = '';
+  window.setTimeout(() => gateEmail.focus(), 60);
+}
+
+function hideGate() {
+  gate.hidden = true;
+}
+
+function renderAccount(current) {
+  account.hidden = false;
+  accountEmail.textContent = emailOf(current);
+  setSyncState(sync.state);
+}
+
+gateSend.addEventListener('click', async () => {
+  const email = gateEmail.value.trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    setGateError('请填写正确的邮箱');
     return;
   }
-  app.wasm.boot(store.read());
+  if (Date.now() < sendCooldown) {
+    setGateError(`请 ${Math.ceil((sendCooldown - Date.now()) / 1000)} 秒后再获取`);
+    return;
+  }
+  gateSend.disabled = true;
+  setGateError('');
+  try {
+    const data = await sendCode(email);
+    pendingOtp = {
+      email,
+      verificationId: data.verificationId,
+      isExistingUser: data.isExistingUser,
+    };
+    gateCode.focus();
+    toast('验证码已发送，请查收邮件', 'good');
+    sendCooldown = Date.now() + 60_000;
+    const tick = window.setInterval(() => {
+      const left = Math.ceil((sendCooldown - Date.now()) / 1000);
+      gateSend.textContent = left > 0 ? `${left}s` : '重新获取';
+      if (left <= 0) {
+        window.clearInterval(tick);
+        gateSend.disabled = false;
+      }
+    }, 1000);
+  } catch (error) {
+    setGateError(describeError(error));
+    gateSend.disabled = false;
+  }
+});
+
+gateForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const email = gateEmail.value.trim();
+  const token = gateCode.value.trim();
+  if (!pendingOtp || pendingOtp.email !== email) {
+    setGateError('请先获取这个邮箱的验证码');
+    return;
+  }
+  if (!token) {
+    setGateError('请输入验证码');
+    return;
+  }
+  gateSubmit.disabled = true;
+  setGateError('');
+  try {
+    await verifyCode({ ...pendingOtp, token });
+    pendingOtp = null;
+    const current = await session();
+    if (!current) throw new Error('登录状态未建立，请重试');
+    await startSignedIn(current);
+  } catch (error) {
+    setGateError(describeError(error));
+  } finally {
+    gateSubmit.disabled = false;
+  }
+});
+
+document.getElementById('sign-out').addEventListener('click', async () => {
+  await flushSave();
+  await signOut();
+  // Drop the cache too: leaving another account's record on this machine would
+  // let the next sign-in open someone else's save.
+  cache.clear();
+  window.location.reload();
+});
+
+async function startSignedIn(current) {
+  hideGate();
+  renderAccount(current);
+  let documentText = '';
+  let seeded = false;
+  try {
+    const remote = await loadSave();
+    if (remote) {
+      documentText = remote.document;
+    } else {
+      // First sign-in for this account: carry over whatever this browser had
+      // before the save moved to the server, so nothing is lost in the move.
+      documentText = cache.read();
+      seeded = Boolean(documentText);
+    }
+  } catch (error) {
+    documentText = cache.read();
+    setSyncState('offline');
+    toast(`读取云端存档失败，先打开本地副本：${describeError(error)}`, 'bad');
+  }
+
+  app.wasm.boot(documentText);
   refresh();
+  if (seeded) {
+    persist();
+    toast('已把本机的记录上传到云端', 'good');
+  }
 
   let last = performance.now();
   window.setInterval(() => {
@@ -520,10 +704,32 @@ async function main() {
 
   window.setInterval(() => {
     if (app.tab === 'focus') {
-      const el = document.querySelector('.timer-meta .stat-value.jade');
-      if (el) el.textContent = `${todayCount()} 个`;
+      const node = document.querySelector('.timer-meta .stat-value.jade');
+      if (node) node.textContent = `${todayCount()} 个`;
     }
   }, 5000);
+}
+
+async function main() {
+  try {
+    app.wasm = await PomodoroWasm.load('./bongocat_pomodoro_web.wasm');
+  } catch (error) {
+    stage.innerHTML = `<div class="card"><div class="card-title">wasm 载入失败</div><p class="card-hint">${esc(error.message)}<br />请通过 http 服务打开这个页面，而不是 file:// 直接双击。</p></div>`;
+    return;
+  }
+
+  let current = null;
+  try {
+    current = await session();
+  } catch (error) {
+    stage.innerHTML = `<div class="card"><div class="card-title">无法连接云端</div><p class="card-hint">${esc(describeError(error))}</p></div>`;
+    return;
+  }
+  if (!current) {
+    showGate();
+    return;
+  }
+  await startSignedIn(current);
 }
 
 main();

@@ -433,6 +433,13 @@ pub struct PomodoroState {
     /// the caller's offset, because reading the machine's needs a platform call
     /// this crate does not make.
     utc_offset_seconds: i32,
+    /// Whether a weekday opens with the two recurring stock tasks.
+    ///
+    /// On by default, because the desktop app has always done it. A host whose
+    /// users are not the stock-reviewing kind — the browser page — turns it off
+    /// and gets an empty task list on a Monday rather than two rows it did not
+    /// ask for.
+    daily_stock_tasks: bool,
 }
 
 /// The two recurring tasks seeded at the open of every trading weekday.
@@ -570,7 +577,18 @@ impl PomodoroState {
             last_completion: None,
             cultivation,
             utc_offset_seconds,
+            daily_stock_tasks: true,
         }
+    }
+
+    /// Turn the recurring weekday stock tasks on or off.
+    ///
+    /// The two tasks are the desktop app's habit, not the ladder's: nothing in
+    /// 修仙 depends on them. A host that leaves it off simply never seeds them.
+    #[must_use]
+    pub fn with_daily_stock_tasks(mut self, enabled: bool) -> Self {
+        self.daily_stock_tasks = enabled;
+        self
     }
 
     /// The document as it would be written back.
@@ -920,6 +938,9 @@ impl PomodoroState {
     /// review, and a machine that never opens the app on a weekday simply gets
     /// nothing for that day.
     fn create_daily_stock_tasks(&mut self, day: CalendarDay, now_unix: i64) {
+        if !self.daily_stock_tasks {
+            return;
+        }
         if !is_weekday(day) {
             return;
         }
