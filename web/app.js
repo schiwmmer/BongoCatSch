@@ -290,6 +290,7 @@ function focusPage() {
   const focusMinutes = snapshot.focus_minutes;
   return `
     <div class="grid-2">
+      <div style="display:flex;flex-direction:column;gap:16px">
       <div class="card timer-card">
         ${dialMarkup()}
         <div class="timer-actions">${timerActions()}</div>
@@ -298,6 +299,8 @@ function focusPage() {
           <div class="stat"><span class="stat-label">今日</span><span class="stat-value jade">${todayCount()} 个</span></div>
           <div class="stat"><span class="stat-label">待完成</span><span class="stat-value">${snapshot.remaining_pomodoros} 个</span></div>
         </div>
+      </div>
+      ${calendarMarkup()}
       </div>
 
       <div style="display:flex;flex-direction:column;gap:16px">
@@ -332,8 +335,6 @@ function focusPage() {
             ${tasks.length ? tasks.map(taskRow).join('') : '<div class="empty">还没有任务，先添加一个。</div>'}
           </div>
         </div>
-
-        ${calendarMarkup()}
       </div>
     </div>
   `;
