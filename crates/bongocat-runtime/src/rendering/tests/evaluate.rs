@@ -52,6 +52,7 @@ fn frame_evaluation_order_is_motion_expression_input_effects_then_core_update() 
         clip: expression,
         started_at: Duration::ZERO,
         fade_in_completed: false,
+        auto_recover_at: None,
         fade_out_started_at: None,
     });
 
@@ -142,6 +143,7 @@ fn latest_expression_stays_full_weight_after_clock_rollback() {
             clip: expression,
             started_at: Duration::ZERO,
             fade_in_completed: false,
+            auto_recover_at: None,
             fade_out_started_at: None,
         });
 

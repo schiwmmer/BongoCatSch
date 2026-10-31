@@ -22,6 +22,11 @@ pub struct ExpressionParameter {
 pub struct ExpressionClip {
     fade_in_seconds: f32,
     fade_out_seconds: f32,
+    /// Seconds the expression holds full weight after its fade-in before it
+    /// recovers on its own. `None` means the expression is persistent: it stays
+    /// until it is replaced or cleared. A one-shot face (a wink, a squint) sets
+    /// this so the model returns to its own face instead of wearing the pose.
+    auto_recover_seconds: Option<f32>,
     parameters: BTreeMap<String, ExpressionParameter>,
 }
 
@@ -65,6 +70,13 @@ struct RawExpression {
     fade_in_seconds: Option<f32>,
     #[serde(rename = "FadeOutTime", default)]
     fade_out_seconds: Option<f32>,
+    /// This application's extension to the standard exp3 format. A value of
+    /// zero or a missing field keeps the expression persistent; a positive
+    /// value makes it a one-shot that recovers to the default face after
+    /// holding that many seconds. The field is optional so a standard Live2D
+    /// expression parses unchanged.
+    #[serde(rename = "AutoRecoverTime", default)]
+    auto_recover_seconds: Option<f32>,
     #[serde(rename = "Parameters")]
     parameters: Vec<RawParameter>,
 }
@@ -103,6 +115,15 @@ impl ExpressionClip {
         let fade_out_seconds = raw.fade_out_seconds.unwrap_or(DEFAULT_FADE_SECONDS);
         validate_fade(fade_in_seconds, "FadeInTime")?;
         validate_fade(fade_out_seconds, "FadeOutTime")?;
+        let auto_recover_seconds = match raw.auto_recover_seconds {
+            Some(seconds) if seconds > 0.0 => {
+                if !seconds.is_finite() {
+                    return invalid("AutoRecoverTime must be finite");
+                }
+                Some(seconds)
+            }
+            _ => None,
+        };
 
         let mut parameters = BTreeMap::new();
         for parameter in raw.parameters {
@@ -133,6 +154,7 @@ impl ExpressionClip {
         Ok(Self {
             fade_in_seconds,
             fade_out_seconds,
+            auto_recover_seconds,
             parameters,
         })
     }
@@ -159,6 +181,12 @@ impl ExpressionClip {
 
     pub fn fade_out_weight(&self, elapsed: Duration) -> f32 {
         1.0 - fade_weight(elapsed.as_secs_f32(), self.fade_out_seconds)
+    }
+
+    /// How long the expression holds full weight after its fade-in before it
+    /// recovers on its own. `None` means the expression is persistent.
+    pub fn auto_recover_duration(&self) -> Option<Duration> {
+        self.auto_recover_seconds.map(Duration::from_secs_f32)
     }
 }
 
@@ -253,6 +281,42 @@ mod tests {
         assert_eq!(clip.fade_out_weight(Duration::ZERO), 1.0);
         assert!((clip.fade_out_weight(Duration::from_secs(1)) - 0.5).abs() < 0.0001);
         assert_eq!(clip.fade_out_weight(Duration::from_secs(2)), 0.0);
+    }
+
+    #[test]
+    fn parses_auto_recover_time() {
+        let persistent = ExpressionClip::from_slice(
+            br#"{"Type":"Live2D Expression","Parameters":[]}"#,
+        )
+        .expect("persistent expression");
+        assert_eq!(persistent.auto_recover_duration(), None);
+
+        let one_shot = ExpressionClip::from_slice(
+            br#"{"Type":"Live2D Expression","AutoRecoverTime":1.5,"Parameters":[]}"#,
+        )
+        .expect("one-shot expression");
+        assert_eq!(
+            one_shot.auto_recover_duration(),
+            Some(Duration::from_millis(1500))
+        );
+
+        // Zero keeps the expression persistent rather than recovering instantly.
+        let zero = ExpressionClip::from_slice(
+            br#"{"Type":"Live2D Expression","AutoRecoverTime":0,"Parameters":[]}"#,
+        )
+        .expect("zero hold");
+        assert_eq!(zero.auto_recover_duration(), None);
+
+        // `null` and a negative value also mean "no auto recovery", matching
+        // how a missing field is treated, so a malformed hold never makes the
+        // model flicker back the instant an expression starts.
+        for raw in [
+            b"{\"Type\":\"Live2D Expression\",\"AutoRecoverTime\":null,\"Parameters\":[]}".as_slice(),
+            b"{\"Type\":\"Live2D Expression\",\"AutoRecoverTime\":-1,\"Parameters\":[]}".as_slice(),
+        ] {
+            let clip = ExpressionClip::from_slice(raw).expect("tolerated hold");
+            assert_eq!(clip.auto_recover_duration(), None);
+        }
     }
 
     #[test]

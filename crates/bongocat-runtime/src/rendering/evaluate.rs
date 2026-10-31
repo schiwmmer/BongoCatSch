@@ -95,6 +95,21 @@ impl RuntimeRenderer {
         active
             .motions
             .retain(|playback| !finished_motions.contains(&playback.motion));
+        // A one-shot expression starts fading out on its own the moment its
+        // hold elapses; a persistent expression waits for a replace or a clear.
+        // The fade is the same one every replacement starts with, so the model
+        // relaxes back to its own face rather than snapping.
+        for playback in &mut active.expressions {
+            if playback.fade_out_started_at.is_none()
+                && let Some(recover_at) = playback.auto_recover_at
+                && now >= recover_at
+            {
+                // The fade starts at the recovery point, not at the frame that
+                // noticed it, so a late tick does not add a whole frame of dead
+                // time to the recovery.
+                playback.fade_out_started_at = Some(recover_at);
+            }
+        }
         active.expressions.retain(|playback| {
             playback.fade_out_started_at.is_none_or(|started_at| {
                 now.saturating_sub(started_at) < playback.clip.fade_out_duration()

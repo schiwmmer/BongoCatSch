@@ -8,5 +8,6 @@
       "Value": -1.0,
       "Blend": "Add"
     }
-  ]
+  ],
+  "AutoRecoverTime": 1.5
 }

@@ -6,5 +6,6 @@
       "Value": -1,
       "Blend": "Add"
     }
-  ]
+  ],
+  "AutoRecoverTime": 1.5
 }

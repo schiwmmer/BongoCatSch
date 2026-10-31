@@ -50,6 +50,7 @@ fn expression_survives_automatic_blink_in_both_windows() {
                 clip: squint_clip(),
                 started_at: Duration::ZERO,
                 fade_in_completed: false,
+                auto_recover_at: None,
                 fade_out_started_at: None,
             });
         renderer

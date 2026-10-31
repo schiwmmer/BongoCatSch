@@ -659,34 +659,50 @@ pub(crate) fn run_worker(receiver: Receiver<CommandEnvelope>, bootstrap: Runtime
                             });
                         } else if let Some(renderer) = &mut renderer {
                             match renderer.set_expression(&expression, clock.now()) {
-                                Ok(()) => {
-                                    let active = ActiveExpressionSnapshot {
-                                        expression: expression.clone(),
-                                        command_sequence: sequence,
-                                    };
-                                    active_expression = Some(active.clone());
-                                    // A command is the user asking for a face, so
-                                    // this is the one path that records the choice
-                                    // for that model. The idle scheduler plays
-                                    // expressions through the renderer directly and
-                                    // never lands here, which is what keeps an
-                                    // automatic pick out of the remembered set.
-                                    let memory =
-                                        active_model.as_ref().map(|model| UserExpressionMemory {
-                                            model: model.id().clone(),
-                                            model_origin: model.origin(),
-                                            expression,
+                                Ok(outcome) => match outcome {
+                                    crate::rendering::ExpressionSetOutcome::Persistent => {
+                                        let active = ActiveExpressionSnapshot {
+                                            expression: expression.clone(),
                                             command_sequence: sequence,
+                                        };
+                                        active_expression = Some(active.clone());
+                                        // A command is the user asking for a face, so
+                                        // this is the one path that records the choice
+                                        // for that model. The idle scheduler plays
+                                        // expressions through the renderer directly and
+                                        // never lands here, which is what keeps an
+                                        // automatic pick out of the remembered set.
+                                        let memory = active_model.as_ref().map(|model| {
+                                            UserExpressionMemory {
+                                                model: model.id().clone(),
+                                                model_origin: model.origin(),
+                                                expression,
+                                                command_sequence: sequence,
+                                            }
                                         });
-                                    publish(&snapshot, |current| {
-                                        current.active_expression = Some(active);
-                                        if let Some(memory) = memory {
-                                            current.user_expression_memory = Some(memory);
-                                        }
-                                        current.last_command_failure = None;
-                                        current.last_command_sequence = Some(sequence);
-                                    });
-                                }
+                                        publish(&snapshot, |current| {
+                                            current.active_expression = Some(active);
+                                            if let Some(memory) = memory {
+                                                current.user_expression_memory = Some(memory);
+                                            }
+                                            current.last_command_failure = None;
+                                            current.last_command_sequence = Some(sequence);
+                                        });
+                                    }
+                                    crate::rendering::ExpressionSetOutcome::AutoRecover => {
+                                        // A one-shot face (a wink, a squint) is not a
+                                        // choice the user keeps: the renderer recovers
+                                        // to the model's own face once the hold runs
+                                        // out, so neither the active expression nor the
+                                        // remembered one is written. Keeping the
+                                        // snapshot free of the face is what stops a
+                                        // model activation from restoring a blink.
+                                        publish(&snapshot, |current| {
+                                            current.last_command_failure = None;
+                                            current.last_command_sequence = Some(sequence);
+                                        });
+                                    }
+                                },
                                 Err(code) => publish(&snapshot, |current| {
                                     current.last_command_failure =
                                         Some(RuntimeCommandFailure { sequence, code });
