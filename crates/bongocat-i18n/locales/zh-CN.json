@@ -797,8 +797,9 @@
       "title": "资源与采集",
       "bag_entry": "%{resource} %{count}/%{cap}",
       "trade": "Lv %{level} · 经验 %{xp}/%{next}",
-      "building": "%{building} Lv %{level}",
-      "cost": "%{stones} 灵石 %{tribute}"
+      "building": "%{building} Lv %{level}/%{max}",
+      "cost": "%{stones} 灵石 %{tribute}",
+      "upgrade_five": "×5"
     },
     "mode": {
       "study": "修习",

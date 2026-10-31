@@ -20,7 +20,7 @@ use super::{
     Building, CollectionYield, Cost, CultivationDocument, DailyKind, Derived, DerivedBreakdown,
     DuelReport, EQUIPMENT_DROP_PERMILLE, EquipSlot, EquipmentRecord, ExpeditionInProgress,
     ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, GatherSite, GearEffect, GearSetView,
-    Guardian, MAX_BUILDING_LEVEL, MAX_LEVEL, MAX_STAR, MAX_TRADE_LEVEL, MasteredArtView, OwnedArt,
+    Guardian, MAX_LEVEL, MAX_STAR, MAX_TRADE_LEVEL, MasteredArtView, OwnedArt,
     PLAYER_NAME, RECENT_ARTS_CAP, Rarity, Realm, Refusal, Resource, ResourceBag, Rng,
     SEED_DROP_PERMILLE, SESSION_BONUS_PERMILLE, SLOT_COUNT, SeedStack, SessionMode,
     VICTORY_SEED_PERMILLE, absence_penalty, art_attributes, art_view,
@@ -48,7 +48,7 @@ use super::{
         plot_price, rank_cost, rank_xp_total, roll_seed_grade, seed_name, seed_return,
         wither_points,
     },
-    gather_duration_permille, growth_permille,
+    gather_duration_permille, growth_permille, rounds_per_hour_permille,
     items::{gear_set_bonus, gear_set_views, roll_equipment},
     mastery_permille,
     opponent::{self, Opponent},
@@ -2840,7 +2840,14 @@ impl Cultivation {
         now_unix: i64,
         today: CalendarDay,
     ) -> CollectOutcome {
-        let duration = gather_duration_permille(self.realm().index() as u32);
+        // The session is the realm's length, run at the realm's own rate: the
+        // two are separate numbers — a 番茄钟 is 1.00 to 3.25 hours long, and
+        // every one of those hours runs at 1.00 to 2.35 rounds — so a 仙人
+        // session turns up 7.6 rounds against 炼气's one.
+        let realm = self.realm().index() as u32;
+        let duration = rounds_per_hour_permille(realm)
+            .saturating_mul(gather_duration_permille(realm))
+            / 1_000;
         let yield_ = collect_scaled(
             site,
             self.document.woodcut_level,
@@ -2929,10 +2936,10 @@ impl Cultivation {
         now_unix: i64,
     ) -> Result<BuildingOutcome, TradeRefusal> {
         let level = self.building_level(building);
-        if level >= MAX_BUILDING_LEVEL {
+        if level >= building.max_level() {
             return Err(TradeRefusal::BuildingCapped);
         }
-        let cost = building_upgrade_cost(level);
+        let cost = building_upgrade_cost(building, level);
         if self.document.stones < cost.stones {
             return Err(TradeRefusal::NotEnoughStones);
         }
@@ -2958,6 +2965,29 @@ impl Cultivation {
             },
         );
         Ok(outcome)
+    }
+
+    /// Raise a building up to `times` ranks in one command.
+    ///
+    /// Each rank is a full atomic upgrade — the same price and the same refusals
+    /// a single one meets — and the loop stops at the first the purse cannot
+    /// cover or at the top of the ladder. The ranks actually bought come back,
+    /// and the only refusal a surface hears is a click that bought nothing.
+    pub fn upgrade_building_many(
+        &mut self,
+        building: Building,
+        times: u8,
+        now_unix: i64,
+    ) -> Result<Vec<BuildingOutcome>, TradeRefusal> {
+        let mut bought = Vec::new();
+        for _ in 0..times {
+            match self.upgrade_building(building, now_unix) {
+                Ok(outcome) => bought.push(outcome),
+                Err(refusal) if bought.is_empty() => return Err(refusal),
+                Err(_) => break,
+            }
+        }
+        Ok(bought)
     }
 
     /// The rank one building stands at.
@@ -2987,20 +3017,21 @@ impl Cultivation {
             xp,
             xp_to_next: skill_xp_total(level.saturating_add(1)),
         };
-        let building = |level: u8| BuildingView {
+        let building = |building: Building, level: u8| BuildingView {
             level,
-            capped: level >= MAX_BUILDING_LEVEL,
-            upgrade_cost: (level < MAX_BUILDING_LEVEL).then(|| building_upgrade_cost(level)),
+            capped: level >= building.max_level(),
+            upgrade_cost: (level < building.max_level())
+                .then(|| building_upgrade_cost(building, level)),
         };
         ResourcesView {
             bag: self.document.resources.clone(),
             cap: resource_cap(self.document.warehouse_level),
             woodcut: trade(self.document.woodcut_level, self.document.woodcut_xp),
             stonecut: trade(self.document.stonecut_level, self.document.stonecut_xp),
-            workshop: building(self.document.workshop_level),
-            warehouse: building(self.document.warehouse_level),
-            smithy: building(self.document.smithy_level),
-            dojo: building(self.document.dojo_level),
+            workshop: building(Building::Workshop, self.document.workshop_level),
+            warehouse: building(Building::Warehouse, self.document.warehouse_level),
+            smithy: building(Building::Smithy, self.document.smithy_level),
+            dojo: building(Building::Dojo, self.document.dojo_level),
             expedition: self.document.expedition.map(|expedition| ExpeditionView {
                 site: expedition.site,
                 hours: expedition.hours,

@@ -703,14 +703,16 @@ pub fn star_multiplier_permille(id: u64, star: u8) -> u32 {
 }
 
 /// The chance one attempt at the next star comes off, by the star the piece
-/// stands at: ninety percent for the first, thirty-one for the last.
+/// stands at: ninety percent for the first, forty-six for the last.
 ///
 /// A table rather than a curve, because the shape is the design: the early
 /// stars are a formality, the last three are a decision. Failure drops one
 /// star back — one star is never lost, so the floor is the first star rather
-/// than nothing.
+/// than nothing. The 升星's cost is already two-axis (material and 灵石), so the
+/// last star is not given a second, punishing success chance on top: it is
+/// below half, and not a wall.
 pub const STAR_SUCCESS_PERMILLE: [u32; MAX_STAR as usize] =
-    [900, 850, 790, 730, 670, 610, 540, 470, 390, 310];
+    [900, 870, 840, 810, 770, 730, 680, 620, 550, 460];
 
 /// The chance one attempt at the star after `star` succeeds.
 pub const fn star_success_permille(star: u8) -> u32 {
@@ -773,6 +775,19 @@ pub(crate) const MASTERWORK_CEILING_PERMILLE: u32 = 1_060;
 pub(crate) fn base_points(tier: u8) -> u32 {
     let tier = u32::from(tier.clamp(1, 10));
     45 + 25 * (tier - 1)
+}
+
+/// What one 升星's tribute is multiplied by at a given tier, in parts per
+/// thousand.
+///
+/// The whole material cost of a star attempt is scaled by the piece's tier, so
+/// a tenth-tier piece costs 8.65 times as much to star as a first-tier one.
+/// Without this, the material a tier-ten piece asks for is a rounding error
+/// beside its own value — and the later realms' gathering, which is the only
+/// source of that material, would buy stars for nothing.
+pub(crate) fn tier_multiplier_permille(tier: u8) -> u32 {
+    let tier = u32::from(tier.clamp(1, 10));
+    1_000 + 850 * (tier - 1)
 }
 
 /// What one point of an attribute is worth in the power table, in tenths.
@@ -1228,7 +1243,7 @@ mod tests {
             star_success_permille(0) >= 850,
             "the first star is a coin toss"
         );
-        assert_eq!(star_success_permille(MAX_STAR - 1), 310);
+        assert_eq!(star_success_permille(MAX_STAR - 1), 460);
         for star in 0..MAX_STAR - 1 {
             assert!(
                 star_success_permille(star) > star_success_permille(star + 1),

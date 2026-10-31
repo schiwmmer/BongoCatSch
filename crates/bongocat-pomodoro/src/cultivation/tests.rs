@@ -2987,10 +2987,13 @@ fn owning_one(item: EquipmentRecord, stones: u32) -> Cultivation {
     let mut document = CultivationDocument {
         stones,
         resources: ResourceBag {
-            wood: 100,
-            stone: 100,
-            iron: 100,
-            coal: 100,
+            // A star's tribute climbs with the star and the tier, so a piece
+            // starred to the top costs well over a hundred of its primary —
+            // the purse has to hold a whole 升星 run, not one attempt.
+            wood: 10_000,
+            stone: 10_000,
+            iron: 10_000,
+            coal: 10_000,
         },
         ..CultivationDocument::default()
     };
@@ -3040,10 +3043,10 @@ fn a_star_is_worth_five_to_eight_percent_of_everything() {
     assert!(shining.power() > plain.power());
 }
 
-/// The wager's price is half of what the piece sells for, and the purse pays it
-/// whether the star turns over or not.
+/// The wager's price is a tenth of what the piece sells for, and the purse
+/// pays it whether the star turns over or not.
 #[test]
-fn a_star_costs_a_third_of_what_the_piece_sells_for() {
+fn a_star_costs_a_tenth_of_what_the_piece_sells_for() {
     let item = EquipmentRecord {
         id: 3,
         slot: EquipSlot::Clothes,
@@ -3060,13 +3063,12 @@ fn a_star_costs_a_third_of_what_the_piece_sells_for() {
     let cost = star_up_cost(&item, 0);
     assert_eq!(
         cost.stones,
-        sell / 3,
-        "the wager is a third of the sell price"
+        sell / 10,
+        "the wager is a tenth of the sell price"
     );
     // The 灵石 wager does not climb with the stars already bought: every
-    // attempt is the same bet. The tribute is the same wood and stone too —
-    // until the star being reached is a high one, which is where the iron
-    // begins.
+    // attempt is the same bet. The tribute does climb — wood and stone rise
+    // with the star, and the rare finds join in — but the wager is flat.
     let mut deep = item.clone();
     deep.star = 7;
     let deep_cost = star_up_cost(&deep, 0);
@@ -3391,8 +3393,8 @@ fn a_higher_realm_expedition_pays_more() {
     high.settle_expedition(high_started.ends_unix);
     assert_eq!(
         high.document().woodcut_xp,
-        low_xp.saturating_mul(3_250) / 1_000,
-        "a 仙人 expedition is 3.25x a 炼气 one"
+        low_xp.saturating_mul(2_350) / 1_000,
+        "a 仙人 expedition is 2.35x a 炼气 one"
     );
 }
 
@@ -3480,8 +3482,8 @@ fn a_higher_realm_gathering_session_pays_more() {
     let session = high.collect_session(GatherSite::Forest, 2_000, day(20_001));
     assert_eq!(
         session.woodcut_xp,
-        base_round.woodcut_xp.saturating_mul(3_250) / 1_000,
-        "a 仙人 session is 3.25 hours of gathering"
+        base_round.woodcut_xp.saturating_mul(7_637) / 1_000,
+        "a 仙人 session is 7.64 rounds: 2.35 an hour for 3.25 hours"
     );
 }
 
@@ -3519,7 +3521,7 @@ fn a_building_rank_costs_stones_and_resources() {
         },
         ..CultivationDocument::default()
     });
-    let cost = building_upgrade_cost(0);
+    let cost = building_upgrade_cost(Building::Workshop, 0);
     let outcome = cultivation
         .upgrade_building(Building::Workshop, 0)
         .expect("the rank");
@@ -3542,6 +3544,67 @@ fn a_building_rank_costs_stones_and_resources() {
         Err(TradeRefusal::NotEnoughResources),
         "the money is there, the ore is not"
     );
+}
+
+/// A bulk buy raises a building up to five ranks in one command, and stops
+/// early at the top of the ladder or when the purse runs out — a click that
+/// bought nothing is refused, one that bought some ranks is a partial buy.
+#[test]
+fn a_bulk_building_buy_stops_early_but_never_pays_more_than_it_can() {
+    let afford = |wood: u32, stone: u32, coal: u32| ResourceBag {
+        wood,
+        stone,
+        iron: u32::MAX,
+        coal,
+    };
+    // A 工坊 with plenty of everything buys five ranks in one command.
+    let mut rich = Cultivation::new(CultivationDocument {
+        stones: 1_000,
+        resources: afford(100_000, 100_000, 100_000),
+        ..CultivationDocument::default()
+    });
+    let bought = rich
+        .upgrade_building_many(Building::Workshop, 5, 0)
+        .expect("five ranks");
+    assert_eq!(bought.len(), 5);
+    assert_eq!(rich.document().workshop_level, 5);
+    assert_eq!(bought.first().expect("first").from, 0);
+    assert_eq!(bought.last().expect("last").to, 5);
+
+    // The 仓库 runs to fifty: a ×5 from near the top stops at the cap.
+    let mut at_top = Cultivation::new(CultivationDocument {
+        warehouse_level: MAX_WAREHOUSE_LEVEL - 2,
+        stones: 1_000,
+        resources: afford(100_000, 100_000, 100_000),
+        ..CultivationDocument::default()
+    });
+    let bought = at_top
+        .upgrade_building_many(Building::Warehouse, 5, 0)
+        .expect("two ranks to the cap");
+    assert_eq!(bought.len(), 2, "the last two ranks, not five");
+    assert_eq!(at_top.document().warehouse_level, MAX_WAREHOUSE_LEVEL);
+
+    // A purse with nothing to spend is refused outright, not a silent no-op.
+    let mut poor = Cultivation::new(CultivationDocument::default());
+    assert_eq!(
+        poor.upgrade_building_many(Building::Workshop, 5, 0),
+        Err(TradeRefusal::NotEnoughResources),
+        "nothing bought is a refusal"
+    );
+
+    // A purse that can pay two ranks but not the third buys exactly two: the
+    // 工坊's first two ranks cost 5/2 and 7/3 (wood/stone), the third 11/5/2.
+    let mut partial = Cultivation::new(CultivationDocument {
+        stones: 1_000,
+        resources: afford(12, 5, 0),
+        ..CultivationDocument::default()
+    });
+    let bought = partial
+        .upgrade_building_many(Building::Workshop, 5, 0)
+        .expect("two ranks, a partial buy");
+    assert_eq!(bought.len(), 2);
+    assert_eq!(partial.document().workshop_level, 2);
+    assert_eq!(partial.document().resources.wood, 0, "both ranks paid in wood");
 }
 
 /// A 神装's effect is a debuff the other side walks in with, read when the

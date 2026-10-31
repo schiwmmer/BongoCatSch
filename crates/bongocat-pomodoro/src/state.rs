@@ -323,6 +323,12 @@ pub enum PomodoroCommand {
     },
     /// Raise one building a rank for 灵石 and the gathered tribute.
     UpgradeBuilding { building: crate::Building },
+    /// Raise one building up to `times` ranks for 灵石 and the gathered tribute.
+    ///
+    /// The same price and the same refusals [`Self::UpgradeBuilding`] meets, but
+    /// one click buys the tail of a long ladder — the 仓库's fifty — in a go,
+    /// stopping early when the purse runs out or the building tops out.
+    UpgradeBuildingMany { building: crate::Building, times: u8 },
     /// Choose what the next finished pomodoro pays: 修习, 伐木, or 采石.
     ///
     /// The mode is one thing and one thing only — a session either cultivates
@@ -395,6 +401,7 @@ impl PomodoroCommand {
             | Self::StarEquipment { .. }
             | Self::StartExpedition { .. }
             | Self::UpgradeBuilding { .. }
+            | Self::UpgradeBuildingMany { .. }
             | Self::SelectSessionMode { .. }
             | Self::UseAptitudeHerb { .. }
             | Self::UseMarrowPill
@@ -686,6 +693,14 @@ impl PomodoroState {
             }
             PomodoroCommand::UpgradeBuilding { building } => {
                 if let Err(refusal) = self.cultivation.upgrade_building(building, now_unix) {
+                    self.cultivation.note_refusal(Refusal::Trade(refusal));
+                }
+            }
+            PomodoroCommand::UpgradeBuildingMany { building, times } => {
+                if let Err(refusal) = self
+                    .cultivation
+                    .upgrade_building_many(building, times, now_unix)
+                {
                     self.cultivation.note_refusal(Refusal::Trade(refusal));
                 }
             }

@@ -230,18 +230,42 @@ impl Building {
     }
 
     /// What one level of this building is worth, in parts per thousand of the
-    /// thing it multiplies. 工坊 and 道场 are ten percent, 仓库 a quarter,
-    /// 铁匠铺 ten percent (of a cost, so it *lightens*).
+    /// thing it multiplies. 工坊 and 道场 multiply, 仓库 widens the purse by an
+    /// absolute amount ([`WAREHOUSE_CAP_PER_LEVEL`]) rather than a ratio, and
+    /// 铁匠铺 lightens a cost by its own factor ([`smithy_multiplier_permille`])
+    /// — the two read `0` here because they are not a ratio of a yield.
     pub const fn permille(self) -> u32 {
         match self {
-            Self::Workshop | Self::Smithy | Self::Dojo => 100,
-            Self::Warehouse => 250,
+            Self::Workshop => 90,
+            Self::Dojo => 80,
+            Self::Smithy | Self::Warehouse => 0,
+        }
+    }
+
+    /// The most levels this building can hold.
+    ///
+    /// 仓库 is the one building that runs past the shared ceiling: fifty levels
+    /// of a linear purse against ten of a compounding yield, so a late save has
+    /// one long, cheap tail of storage to buy instead of nothing to spend on.
+    pub const fn max_level(self) -> u8 {
+        match self {
+            Self::Warehouse => MAX_WAREHOUSE_LEVEL,
+            _ => MAX_BUILDING_LEVEL,
         }
     }
 }
 
-/// The most levels any building can hold.
+/// The most levels any building can hold, except the 仓库.
 pub const MAX_BUILDING_LEVEL: u8 = 10;
+
+/// The most levels the 仓库 can hold.
+///
+/// Fifty: the purse widens linearly ([`WAREHOUSE_CAP_PER_LEVEL`]) and the cost
+/// climbs slowly ([`warehouse_upgrade_cost`]), so the tail is a long, shallow
+/// ramp a late save can buy without it being the whole economy. Ten levels of a
+/// linear purse is a thousand stones of headroom — too small for the gear a
+/// ten-realm save hoards — which is why the 仓库 alone runs this far.
+pub const MAX_WAREHOUSE_LEVEL: u8 = 50;
 
 /// The most levels a trade (伐木, 采石) can hold. Same ceiling as a building,
 /// but a separate name: the two are raised by different currencies.
@@ -249,12 +273,12 @@ pub const MAX_TRADE_LEVEL: u8 = 10;
 
 /// How many of the common find one collection turns up, before the skill and
 /// the 工坊.
-pub const BASE_COMMON_YIELD: u32 = 10;
+pub const BASE_COMMON_YIELD: u32 = 4;
 
 /// How many of a rare find one collection turns up, before the skill and the
 /// 工坊. Lower than the common find on purpose: a rare find is the point of
 /// gathering deeper, so it is *rarer*, not merely different.
-pub const BASE_RARE_YIELD: u32 = 3;
+pub const BASE_RARE_YIELD: u32 = 2;
 
 /// The 采石 level at which 铁 starts turning up.
 pub const IRON_UNLOCK_LEVEL: u8 = 3;
@@ -267,12 +291,15 @@ pub const BASE_SKILL_XP: u32 = 100;
 
 /// The skill xp a level costs, at the level it is being earned for.
 ///
-/// Flat per level: a level's price is the level's own number of a hundred, so
-/// the first level is the cheapest and each one is a step up — the same shape
-/// the garden's 造化 uses. Ten levels is a thousand and a hundred points.
+/// Linear with a rising step: the first level is a round two hundred and eighty
+/// and each one adds eighty more, so ten levels is a little over six thousand —
+/// about twice the old curve, which a 道场-free hand could clear in sixteen
+/// sessions. A gathering skill is a *multiplier*, not a gate, so it has to be
+/// reachable inside the gathering economy's life (roughly to 合体): sixty
+/// sessions at a bare 100 xp each, or thirty-six at a full 道场.
 pub fn skill_xp_total(level: u8) -> u32 {
     let level = u32::from(level.max(1));
-    level * 100 + level.saturating_mul(level - 1) * 25
+    level * 200 + level.saturating_mul(level + 1) * 40
 }
 
 /// What one gathering pays for one trade, given the two trade levels, the 工坊
@@ -376,6 +403,26 @@ pub fn collect(
 /// worth more of it — one quarter of an hour per realm.
 pub const GATHER_HOURS_PER_REALM_PERMILLE: u32 = 250;
 
+/// How many thousandths of a base round each realm above the first adds to the
+/// *per-hour* rate of a gathering expedition.
+///
+/// A walk and an expedition are priced per hour, and the realm raises the rate
+/// — fifteen hundredths of a round per realm — independently of how long a
+/// session a 番茄钟 is. The two were once one constant ([`GATHER_HOURS_PER_REALM_PERMILLE`])
+/// read twice; the split keeps an expedition's per-hour rate and a session's
+/// length from being silently the same number.
+pub const ROUNDS_PER_HOUR_PER_REALM_PERMILLE: u32 = 150;
+
+/// How many thousandths of a base round one hour of gathering pays at a realm.
+///
+/// The base is one round, and each realm above the first adds fifteen
+/// hundredths of one: 炼气 (index 0) is 1.00 round an hour, 仙人 (index 9) is
+/// 2.35. This is the *rate* an expedition runs at; a 番茄钟's length is
+/// [`gather_duration_permille`].
+pub fn rounds_per_hour_permille(realm_index: u32) -> u32 {
+    1_000 + realm_index.saturating_mul(ROUNDS_PER_HOUR_PER_REALM_PERMILLE)
+}
+
 /// The length of one gathering session, in thousandths of a base round, at a
 /// given realm.
 ///
@@ -414,12 +461,11 @@ pub fn collect_scaled(
 
 /// What an expedition of `hours` at `site` pays.
 ///
-/// The realm sets the *per-hour* rate — the same [`gather_duration_permille`]
-/// a gathering session reads, so a 仙人 hand is worth 3.25 rounds an hour
-/// against 炼气's one — and the length is the fixed choice the user pulled.
-/// A four-hour expedition is four hours of the realm's rate; a twelve-hour one
-/// is twelve. The 仓库's ceiling still clips the purse, the way any collection
-/// does.
+/// The realm sets the *per-hour* rate — [`rounds_per_hour_permille`], a 仙人
+/// hand being 2.35 rounds an hour against 炼气's one — and the length is the
+/// fixed choice the user pulled. A four-hour expedition is four hours of the
+/// realm's rate; a twelve-hour one is twelve. The 仓库's ceiling still clips
+/// the purse, the way any collection does.
 pub fn expedition_yield(
     site: GatherSite,
     woodcut: u8,
@@ -429,7 +475,7 @@ pub fn expedition_yield(
     realm_index: u32,
     hours: super::explore::ExplorationHours,
 ) -> CollectionYield {
-    let permille = gather_duration_permille(realm_index).saturating_mul(u32::from(hours.hours()));
+    let permille = rounds_per_hour_permille(realm_index).saturating_mul(u32::from(hours.hours()));
     collect_scaled(site, woodcut, stonecut, workshop, dojo, permille)
 }
 
@@ -472,10 +518,15 @@ impl SessionMode {
 }
 
 /// The yield of one find at a given trade level and 工坊 level.
+///
+/// A single division at the end, rather than one after each multiplier: two
+/// floors in a row quietly eat the low levels of a small yield — a 工坊 at five
+/// is five percent of a base of four, which a two-step truncation rounds to
+/// nothing. One truncation keeps every level's increment visible.
 fn scale_yield(base: u32, trade_level: u8, workshop: u8) -> u32 {
     let trade = 1_000 + u32::from(trade_level) * 50;
     let workshop_m = 1_000 + u32::from(workshop) * Building::Workshop.permille();
-    base.saturating_mul(trade).saturating_mul(workshop_m) / 1_000 / 1_000
+    base.saturating_mul(trade).saturating_mul(workshop_m) / 1_000_000
 }
 
 /// The skill xp one gathering pays at a given 道场 level.
@@ -503,15 +554,6 @@ pub struct Cost {
     pub resources: ResourceBag,
 }
 
-/// Wood each 升星 attempt burns.
-pub const STAR_WOOD_PER_STAR: u32 = 3;
-
-/// Stone each 升星 attempt burns.
-pub const STAR_STONE_PER_STAR: u32 = 2;
-
-/// Iron an attempt at a high star burns, on top of the wood and the stone.
-pub const STAR_IRON_HIGH_STAR: u32 = 2;
-
 /// The star at which an attempt starts burning iron: the star being reached.
 ///
 /// A piece at five stars reaching its sixth is the first attempt that does;
@@ -522,54 +564,80 @@ pub const STAR_IRON_FROM_STAR: u8 = 6;
 /// The 铁匠铺's discount on the 灵石 wager of one 升星 attempt, in parts per
 /// thousand.
 ///
-/// Multiplicative — 0.9^level — so a level-ten forge cuts the wager to about
-/// a third instead of to nothing: a discount that reached zero would make the
+/// Multiplicative — 0.94^level — so a level-ten forge cuts the wager to about
+/// half instead of to nothing: a discount that reached zero would make the
 /// last stars free, and a 升星 that costs nothing is not a 升星. The resource
 /// tribute is the forge's raw material and does not get cheaper: what the
 /// smithy's craft saves is the 灵石, not the ore it has to have.
 pub fn smithy_multiplier_permille(smithy_level: u8) -> u32 {
     let mut permille = 1_000u32;
     for _ in 0..smithy_level.min(MAX_BUILDING_LEVEL) {
-        permille = permille.saturating_mul(900) / 1_000;
+        permille = permille.saturating_mul(940) / 1_000;
     }
     permille
 }
 
 /// How much of one resource a purse with no 仓库 holds. Per kind, so the purse
-/// can hold two hundred of each of the four — a cap is a shape, not a total.
-pub const BASE_RESOURCE_CAP: u32 = 200;
+/// can hold four hundred of each of the four — a cap is a shape, not a total.
+pub const BASE_RESOURCE_CAP: u32 = 400;
 
-/// The purse's ceiling for one resource at a given 仓库 level: a quarter more
-/// per level, so a full 仓库 holds three and a half times a bare purse.
+/// What one 仓库 level adds to the purse's ceiling for one resource, outright.
+///
+/// Linear rather than a ratio, so the ceiling is easy to read (a level is a
+/// number of stones, not a percentage) and the tail stays purchasable: fifty
+/// levels at 192 apiece come to 10,000, a figure that can be held in mind.
+pub const WAREHOUSE_CAP_PER_LEVEL: u32 = 192;
+
+/// The purse's ceiling for one resource at a given 仓库 level: four hundred
+/// stones, and 192 more per level — fifty levels is 10,000.
 pub fn resource_cap(warehouse_level: u8) -> u32 {
-    BASE_RESOURCE_CAP
-        .saturating_mul(1_000 + u32::from(warehouse_level) * Building::Warehouse.permille())
-        / 1_000
+    let level = u32::from(warehouse_level.min(MAX_WAREHOUSE_LEVEL));
+    BASE_RESOURCE_CAP.saturating_add(level.saturating_mul(WAREHOUSE_CAP_PER_LEVEL))
 }
 
-/// The stone cost of one 工坊 rank, the way a rank is priced everywhere: the
-/// rank's own number of a forty, so the first rank is the cheapest and each
-/// one is a step up. (Kept beside the building so the price and the building
-/// cannot drift.)
-pub const BUILDING_STONES_PER_RANK: u32 = 40;
+/// The primary material one rank of a ten-level building costs: five, then a
+/// one-and-forty-five hundredths curve, so a 工坊's tenth rank is twenty-eight
+/// times its first. A building's cost is the raw tribute the forge burns, and
+/// nothing else — 灵石 belongs to the 升星 wager and the shop, not to the wall.
+fn building_upgrade_primary(rank: u32) -> u32 {
+    (5.0 * 1.45_f64.powi(rank.saturating_sub(1) as i32)).round() as u32
+}
+
+/// The primary material one rank of the 仓库 costs: ten, then a one-and-nine
+/// hundredths curve — far shallower than the other buildings, because fifty
+/// levels is a long tail and a steep one would stop being buyable around the
+/// twentieth. Twenty-five levels is a week of hoarding's worth of headroom.
+fn warehouse_upgrade_primary(rank: u32) -> u32 {
+    (10.0 * 1.09_f64.powi(rank.saturating_sub(1) as i32)).round() as u32
+}
 
 /// What one rank of a building costs at `current_level`, the rank being bought
 /// being the next one.
 ///
-/// A rank wants stones and wood and stone, and iron once the rank being bought
-/// is a high one — the same shape as a 升星, because a building is the same
-/// kind of spend: the forge's craft for the 灵石, the gathered tribute for the
-/// material.
-pub fn building_upgrade_cost(current_level: u8) -> Cost {
+/// The tribute is the building's own shape: a 工坊 burns wood with stone and 煤
+/// beside it, a 铁匠铺 burns stone with wood and 铁, and the 仓库 and the 道场
+/// are wood and stone alone. The secondary is half the primary, the rare a
+/// fifth, and the 仓库 runs its own shallower curve — the one thing that
+/// distinguishes the fifty-level purse from the ten-level yield buildings.
+pub fn building_upgrade_cost(building: Building, current_level: u8) -> Cost {
     let rank = u32::from(current_level) + 1;
+    let (primary, secondary, rare) = match building {
+        Building::Workshop => (Resource::Wood, Resource::Stone, Some((Resource::Coal, 3))),
+        Building::Smithy => (Resource::Stone, Resource::Wood, Some((Resource::Iron, 6))),
+        Building::Warehouse | Building::Dojo => (Resource::Wood, Resource::Stone, None),
+    };
+    let primary_amount = match building {
+        Building::Warehouse => warehouse_upgrade_primary(rank),
+        _ => building_upgrade_primary(rank),
+    };
     let mut resources = ResourceBag::default();
-    resources.add(Resource::Wood, 4 * rank);
-    resources.add(Resource::Stone, 4 * rank);
-    if rank >= u32::from(STAR_IRON_FROM_STAR) {
-        resources.add(Resource::Iron, 2 * rank);
+    resources.add(primary, primary_amount);
+    resources.add(secondary, primary_amount / 2);
+    if let Some((rare_resource, _)) = rare.filter(|(_, from_rank)| rank >= *from_rank) {
+        resources.add(rare_resource, primary_amount / 5);
     }
     Cost {
-        stones: BUILDING_STONES_PER_RANK * rank,
+        stones: 0,
         resources,
     }
 }
@@ -706,21 +774,35 @@ mod tests {
 
     #[test]
     fn a_building_rank_costs_more_than_the_one_before_it() {
+        // 工坊 is the shape the shared curve reads: its cost climbs, and the
+        // 仓库 runs its own shallower one that still climbs.
         let mut prev = 0;
         for level in 0..=8 {
-            let cost = building_upgrade_cost(level);
+            let cost = building_upgrade_cost(Building::Workshop, level);
             let total = cost.stones + cost.resources.total();
             assert!(total > prev, "rank {level} is not dearer than the last");
             prev = total;
         }
-        // The high ranks are where the iron begins, the same as a 升星.
-        assert_eq!(building_upgrade_cost(0).resources.iron, 0);
+        let mut prev_warehouse = 0;
+        for level in 0..=45 {
+            let cost = building_upgrade_cost(Building::Warehouse, level);
+            let total = cost.resources.total();
+            assert!(total > prev_warehouse, "仓库 rank {level} is not dearer");
+            prev_warehouse = total;
+        }
+        // The high ranks are where the rare finds begin: a 工坊 burns 煤 from
+        // its third rank, a 铁匠铺 铁 from its sixth.
+        assert_eq!(building_upgrade_cost(Building::Workshop, 0).resources.iron, 0);
         assert!(
-            building_upgrade_cost(STAR_IRON_FROM_STAR - 1)
+            building_upgrade_cost(Building::Workshop, 2).resources.coal > 0,
+            "a 工坊 rank bought past its second burns 煤"
+        );
+        assert!(
+            building_upgrade_cost(Building::Smithy, STAR_IRON_FROM_STAR - 1)
                 .resources
                 .iron
                 > 0,
-            "a rank bought at the high star's level burns iron"
+            "a 铁匠铺 rank bought at the high star's level burns iron"
         );
     }
 
@@ -773,6 +855,54 @@ mod tests {
             SessionMode::Woodcut.site(),
             SessionMode::Mine.site(),
             "伐木 and 采石 are different sites"
+        );
+    }
+
+    #[test]
+    fn the_pomodoro_and_the_expedition_scale_realm_at_different_rates() {
+        // 轮/时：一境界一小时，九境界 2.35 小时/轮 —— 外出走的圈数随境界增长。
+        assert_eq!(rounds_per_hour_permille(0), 1_000);
+        assert_eq!(rounds_per_hour_permille(9), 2_350);
+        // 番茄钟时长：一境界一小时，九境界 3.25 小时 —— 一次修习采集越长越久。
+        assert_eq!(gather_duration_permille(0), 1_000);
+        assert_eq!(gather_duration_permille(9), 3_250);
+        // 两个量是同一境界的两条曲线，不是同一个数。
+        assert_ne!(rounds_per_hour_permille(1), gather_duration_permille(1));
+    }
+
+    #[test]
+    fn the_workshop_never_lowers_yield_and_full_workshop_beats_none() {
+        // 一次截断保住全部增量：产量随工坊逐级不减，满级显著高于零级。
+        let mut prev = 0;
+        for workshop in 0..=10 {
+            let yield_ = collect(GatherSite::Forest, 10, 0, workshop, 0).gained.wood;
+            assert!(
+                yield_ >= prev,
+                "工坊 {workshop} 级反而拉低了产量: {yield_} < {prev}"
+            );
+            prev = yield_;
+        }
+        let none = collect(GatherSite::Forest, 10, 0, 0, 0).gained.wood;
+        let full = collect(GatherSite::Forest, 10, 0, 10, 0).gained.wood;
+        assert!(full > none, "满级工坊应显著高于无工坊: {full} vs {none}");
+    }
+
+    #[test]
+    fn a_max_star_tenth_tier_piece_still_fits_the_full_warehouse_and_burns_coal() {
+        // 十阶满星是单件最贵的升星：它必须仍装得进满级仓库，且必须烧煤——
+        // 煤不能只被伐木产出而没有去处，否则它是死库存。
+        let item = super::super::items::EquipmentRecord {
+            tier: 10,
+            star: super::super::items::MAX_STAR,
+            ..Default::default()
+        };
+        let cost = super::super::shop::star_up_cost(&item, 0);
+        assert!(cost.resources.coal > 0, "十阶满星不烧煤，煤没有 sink");
+        assert!(
+            cost.resources.wood <= resource_cap(MAX_WAREHOUSE_LEVEL),
+            "十阶满星单件 {} 装不进满级仓库 {}",
+            cost.resources.wood,
+            resource_cap(MAX_WAREHOUSE_LEVEL)
         );
     }
 }

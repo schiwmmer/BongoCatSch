@@ -233,6 +233,7 @@ fn building_row(
 ) -> impl IntoElement {
     let name = text(locale, kind.key()).to_string();
     let level = building.level.to_string();
+    let max = kind.max_level().to_string();
     let tip_key = match kind {
         Building::Workshop => "cultivation.building_tip.workshop",
         Building::Warehouse => "cultivation.building_tip.warehouse",
@@ -260,31 +261,57 @@ fn building_row(
                         .child(format_text(
                             locale,
                             "cultivation.resources.building",
-                            &[("building", name), ("level", level)],
+                            &[("building", name), ("level", level), ("max", max)],
                         ))
                         .test_support(),
                 )
                 .open_delay(Duration::from_millis(120))
                 .content(move |_, _, _| building_hint(kind, hint_name, hint_body, tokens)),
         );
-    if let Some(cost) = building.upgrade_cost.as_ref() {
-        row = row.child(
-            Button::new(format!("cultivation-upgrade-{kind:?}"))
+    if building.upgrade_cost.is_some() {
+        let mut buttons = div().flex().flex_row().gap_1();
+        if let Some(cost) = building.upgrade_cost.as_ref() {
+            buttons = buttons.child(
+                Button::new(format!("cultivation-upgrade-{kind:?}"))
+                    .ghost()
+                    .small()
+                    .label(cost_line(locale, cost))
+                    .on_click({
+                        let view = view.clone();
+                        move |_, _, cx| {
+                            view.update(cx, |view, cx| {
+                                let _ = view.pomodoro.try_publish(PomodoroCommand::UpgradeBuilding {
+                                    building: kind,
+                                });
+                                view.poll_pomodoro(cx);
+                            });
+                        }
+                    }),
+            );
+        }
+        // A long ladder — the 仓库's fifty — is a chore one rank at a time, so
+        // the same click can buy up to five ranks; the state stops early when
+        // the purse runs out or the building tops out.
+        buttons = buttons.child(
+            Button::new(format!("cultivation-upgrade-five-{kind:?}"))
                 .ghost()
                 .small()
-                .label(cost_line(locale, cost))
+                .label(text(locale, "cultivation.resources.upgrade_five"))
                 .on_click({
                     let view = view.clone();
                     move |_, _, cx| {
                         view.update(cx, |view, cx| {
-                            let _ = view
-                                .pomodoro
-                                .try_publish(PomodoroCommand::UpgradeBuilding { building: kind });
+                            let _ =
+                                view.pomodoro.try_publish(PomodoroCommand::UpgradeBuildingMany {
+                                    building: kind,
+                                    times: 5,
+                                });
                             view.poll_pomodoro(cx);
                         });
                     }
                 }),
         );
+        row = row.child(buttons);
     }
     row
 }

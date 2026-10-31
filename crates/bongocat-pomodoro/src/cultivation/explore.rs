@@ -89,12 +89,14 @@ impl ExplorationHours {
 /// The chance a walk meets someone, in parts per thousand, at four hours.
 ///
 /// Every chance below is the *four-hour* one: a longer walk multiplies it by
-/// [`ExplorationHours::multiplier_permille`]. They are a third of what they
-/// were when ten hours was the only length on offer, because a day now holds
-/// up to six walks instead of two and a half: six rolls of a third are the
-/// same day's worth of findings the old cadence paid, which is what keeps the
-/// road a trickle rather than a fountain.
-pub const ENCOUNTER_PERMILLE: u64 = 90;
+/// [`ExplorationHours::multiplier_permille`]. This is as high as the roll will
+/// carry: the quiet findings (a seed, gear, a 功法) are rolled first and take
+/// their share of the thousand, so at twelve hours a walk that meets nobody
+/// would leave nothing for the road itself. A four-hour walk meets someone one
+/// time in nine, a twelve-hour one about a third — the road is as much about
+/// the wanderers it meets as the things it finds, and the encounter is the
+/// walk's richest purse and its most gear-leaning roll.
+pub const ENCOUNTER_PERMILLE: u64 = 112;
 /// What a walk turns up when it is quiet: seeds most often, gear sometimes, a
 /// 功法 almost never.
 pub const SEED_FIND_PERMILLE: u64 = 150;
@@ -164,7 +166,7 @@ impl StonePurse {
 /// Read per walk and then widened by the length: a day holds six of these or two
 /// twelve-hour ones, and the two have to come to about the same purse or the
 /// shortest length is simply the better button.
-pub(crate) const WALK_STONES: StonePurse = StonePurse { min: 2, max: 4 };
+pub(crate) const WALK_STONES: StonePurse = StonePurse { min: 3, max: 5 };
 
 /// What clearing a trial floor pays. Above a walk because the tower is a fight,
 /// and below a wanderer because a floor is a level-matched opponent rather than
@@ -173,7 +175,12 @@ pub(crate) const TRIAL_STONES: StonePurse = StonePurse { min: 12, max: 18 };
 
 /// What beating a wanderer pays — the road's own purse, which is what an ambush
 /// is for. Its finding roll leans the same way: gear over herbs.
-pub(crate) const WANDERER_STONES: StonePurse = StonePurse { min: 20, max: 34 };
+///
+/// A wanderer is a walk's richest find, so its purse carries the road's money:
+/// the two are what make a twelve-hour walk worth three-fifths of a 黄阶 job of
+/// the same hours — below a job, because the walk also drops gear and seeds a
+/// job cannot, and the 灵石 is only the road's cash on top of them.
+pub(crate) const WANDERER_STONES: StonePurse = StonePurse { min: 48, max: 68 };
 
 /// What winning a 试炼 in the courtyard pays.
 ///
@@ -188,7 +195,11 @@ pub(crate) const PROVING_STONES: StonePurse = StonePurse { min: 6, max: 10 };
 /// What beating a realm's guardian pays. The richest purse, because a guardian
 /// guards a realm and its treasury both, and because it is the rarest fight on
 /// the ladder.
-pub(crate) const GUARDIAN_STONES: StonePurse = StonePurse { min: 38, max: 66 };
+///
+/// A guardian stands above a wanderer, so its purse has to widen as the
+/// wanderer's does: a breakthrough is the ladder's gate, and the guardian that
+/// guards it is worth more than the road it closes off.
+pub(crate) const GUARDIAN_STONES: StonePurse = StonePurse { min: 70, max: 120 };
 
 /// What one pomodoro's thousandth pays when the purse is the shape it took.
 ///
@@ -620,7 +631,11 @@ mod tests {
 
     /// A day's quiet walks pay about the same whatever their length: six short
     /// ones, three middling, two long. The purse follows the length for exactly
-    /// this reason — otherwise the shortest chip would be the money button.
+    /// this reason — otherwise the shortest chip would be the money button. The
+    /// equality is an approximation because the widening truncates: a 3.2×
+    /// purse of five is sixteen, not quite the 3.2 a four-hour walk's own five
+    /// would be, so a day's two long walks can end a stone either side of its
+    /// six short ones.
     #[test]
     fn a_days_walks_pay_about_the_same_whatever_their_length() {
         let per_day = |hours: ExplorationHours| {
@@ -629,9 +644,17 @@ mod tests {
             (walks * i64::from(purse.min), walks * i64::from(purse.max))
         };
         let four = per_day(ExplorationHours::Four);
-        assert_eq!(four, (12, 24), "six short walks");
-        assert_eq!(per_day(ExplorationHours::Eight), four, "three middling");
-        assert_eq!(per_day(ExplorationHours::Twelve), four, "two long");
+        let eight = per_day(ExplorationHours::Eight);
+        let twelve = per_day(ExplorationHours::Twelve);
+        let close = |a: (i64, i64), b: (i64, i64)| {
+            (a.0 as f64 / b.0 as f64 - 1.0).abs() < 0.1
+                && (a.1 as f64 / b.1 as f64 - 1.0).abs() < 0.1
+        };
+        assert!(
+            close(eight, four) && close(twelve, four) && close(twelve, eight),
+            "a day's walks pay about the same whatever their length: \
+             {four:?} {eight:?} {twelve:?}"
+        );
     }
 
     #[test]

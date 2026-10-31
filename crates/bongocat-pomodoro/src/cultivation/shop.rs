@@ -28,7 +28,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::items::base_points;
+use super::items::{base_points, tier_multiplier_permille};
 use super::{
     ART_COUNT, AptitudeHerb, ArtGrade, Attribute, EquipmentRecord, Rarity, Realm, SeedGrade,
 };
@@ -182,31 +182,40 @@ pub fn seed_price(tier: u8, grade: SeedGrade) -> u32 {
 /// What one attempt at the next star costs: the 灵石 wager and the raw tribute
 /// the forge burns.
 ///
-/// The wager is a third of what the piece sells for, read off the sell price
+/// The wager is a tenth of what the piece sells for, read off the sell price
 /// rather than the asking price, so the number on the button is the number the
 /// user can check against the 卖 button on the same row. It does not climb with
 /// the star the piece already holds: every attempt is the same wager, which is
 /// what makes a run of failures readable as a run of the same bet rather than
 /// as an escalating one.
 ///
-/// The tribute is wood and stone at every star, and iron once the star being
-/// reached is a high one — the rare find a trained 采石 hand brings home. The
-/// 铁匠铺 discounts the 灵石 wager ([`smithy_multiplier_permille`]) but never
-/// the ore: what the smithy's craft saves is the money, not the material it has
-/// to have.
+/// The tribute climbs with the star: wood and stone rise two and one a star,
+/// and the rare finds join in — 煤 from the fourth star, 铁 from the sixth —
+/// because a high star is a rare find's craft. The whole tribute is then
+/// scaled by the piece's tier ([`tier_multiplier_permille`]), so a tenth-tier
+/// piece costs 8.65 times a first-tier one's material. The 铁匠铺 discounts
+/// the 灵石 wager ([`smithy_multiplier_permille`]) but never the ore: what the
+/// smithy's craft saves is the money, not the material it has to have.
 ///
 /// Stars are a sink and never an investment: the sell price is the piece's
 /// tier and quality alone, so a ten-star piece sells for exactly what an
 /// unstarred one does. Buying stars back at a profit would make the 灵石 purse
 /// a slot machine.
 pub fn star_up_cost(item: &EquipmentRecord, smithy_level: u8) -> super::Cost {
+    let star = u32::from(item.star.min(super::MAX_STAR));
+    let target = star.saturating_add(1);
+    let tier_m = tier_multiplier_permille(item.tier);
+    let scale = |base: u32| base.saturating_mul(tier_m) / 1_000;
     let mut resources = super::ResourceBag::default();
-    resources.add(super::Resource::Wood, super::STAR_WOOD_PER_STAR);
-    resources.add(super::Resource::Stone, super::STAR_STONE_PER_STAR);
-    if item.star.saturating_add(1) >= super::STAR_IRON_FROM_STAR {
-        resources.add(super::Resource::Iron, super::STAR_IRON_HIGH_STAR);
+    resources.add(super::Resource::Wood, scale(2 + 2 * star));
+    resources.add(super::Resource::Stone, scale(1 + star));
+    if target >= u32::from(super::STAR_IRON_FROM_STAR) {
+        resources.add(super::Resource::Iron, scale(1 + target - u32::from(super::STAR_IRON_FROM_STAR)));
     }
-    let stones = ShopOffer::Equipment(item.clone()).sell_price() / 3
+    if target >= 4 {
+        resources.add(super::Resource::Coal, scale(1 + target - 4));
+    }
+    let stones = ShopOffer::Equipment(item.clone()).sell_price() / 10
         * super::smithy_multiplier_permille(smithy_level)
         / 1_000;
     super::Cost { stones, resources }

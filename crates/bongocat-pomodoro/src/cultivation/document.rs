@@ -590,11 +590,13 @@ impl CultivationDocument {
             expedition.ends_unix = expedition.ends_unix.clamp(expedition.started_unix, latest);
         }
         // A hand-edited save cannot carry a trade or a building past its ceiling
-        // — a level above ten is an edit, and a level below zero cannot exist.
+        // — a level above its own top is an edit, and a level below zero cannot
+        // exist. The 仓库's ceiling is its own ([`MAX_WAREHOUSE_LEVEL`]), the
+        // other three the shared ten.
         self.woodcut_level = self.woodcut_level.min(super::MAX_TRADE_LEVEL);
         self.stonecut_level = self.stonecut_level.min(super::MAX_TRADE_LEVEL);
         self.workshop_level = self.workshop_level.min(super::MAX_BUILDING_LEVEL);
-        self.warehouse_level = self.warehouse_level.min(super::MAX_BUILDING_LEVEL);
+        self.warehouse_level = self.warehouse_level.min(super::MAX_WAREHOUSE_LEVEL);
         self.smithy_level = self.smithy_level.min(super::MAX_BUILDING_LEVEL);
         self.dojo_level = self.dojo_level.min(super::MAX_BUILDING_LEVEL);
         self
@@ -662,6 +664,26 @@ mod tests {
         }
         .normalized();
         assert_eq!(usize::from(document.realm), STAGE_COUNT - 1);
+    }
+
+    #[test]
+    fn a_warehouse_built_past_ten_survives_normalization() {
+        use super::super::{MAX_BUILDING_LEVEL, MAX_WAREHOUSE_LEVEL};
+        // The 仓库 alone runs to fifty: a save that bought past the shared ten
+        // must keep its level, not be clamped back to the other buildings' top.
+        let document = CultivationDocument {
+            warehouse_level: MAX_WAREHOUSE_LEVEL,
+            ..CultivationDocument::default()
+        }
+        .normalized();
+        assert_eq!(document.warehouse_level, MAX_WAREHOUSE_LEVEL);
+        // The other three still stop at the shared ceiling.
+        let capped = CultivationDocument {
+            workshop_level: 99,
+            ..CultivationDocument::default()
+        }
+        .normalized();
+        assert_eq!(capped.workshop_level, MAX_BUILDING_LEVEL);
     }
 
     #[test]
