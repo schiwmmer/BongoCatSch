@@ -4,8 +4,6 @@
 // Every call is: encode the argument into that buffer, call, decode the output
 // buffer. Memory grows between calls, so the views are rebuilt every time.
 
-const SAVE_KEY = 'bongocat.pomodoro.web.v1';
-
 export class PomodoroWasm {
   constructor(exports) {
     this.ex = exports;
