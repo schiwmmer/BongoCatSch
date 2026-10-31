@@ -97,6 +97,31 @@ schema:
 test:
     cargo test --locked --workspace
 
+# Build the browser build of the pomodoro page.
+#
+# The page reuses the same state machine the desktop runs, compiled to
+# `wasm32-unknown-unknown` and driven through a small `extern "C"` bridge, so the
+# numbers on the web build and the numbers in the app cannot drift apart.
+#
+# `getrandom_backend=unsupported` is required by the way `atomic-write-file`
+# pulls in `rand`: the browser build never writes a file, so the backend only has
+# to exist, not to work. `--target-dir` keeps the wasm artifacts out of the
+# native `target/`, whose profile settings are tuned for the app.
+web:
+    #!/usr/bin/env sh
+    set -eu
+    RUSTFLAGS='--cfg getrandom_backend="unsupported"' \
+        cargo build --locked -p bongocat-pomodoro-web \
+        --target wasm32-unknown-unknown --release --target-dir target-web
+    cp target-web/wasm32-unknown-unknown/release/bongocat_pomodoro_web.wasm web/
+    echo "web: web/bongocat_pomodoro_web.wasm ($(wc -c < web/bongocat_pomodoro_web.wasm) bytes)"
+
+# Serve the browser build.
+#
+# A `file://` page cannot fetch the module, so the page has to come off http.
+web-serve: web
+    python3 -m http.server 8099 --bind 127.0.0.1 --directory web
+
 # Run all default workspace quality gates.
 check:
     # Windows support was removed in 77c92050; this gate keeps it gone. The

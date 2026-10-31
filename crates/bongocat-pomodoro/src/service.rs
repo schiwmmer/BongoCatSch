@@ -26,6 +26,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use serde::Serialize;
+
 use crate::{
     COMMAND_CAPACITY, CalendarDay, CalendarDayTotal, CalendarTaskActivity, PomodoroCommand,
     PomodoroSnapshot, PomodoroState, Timer, TimerState,
@@ -45,7 +47,7 @@ const IDLE_POLL: Duration = Duration::from_secs(1);
 /// A worker that failed to start reports [`PomodoroWorkerState::Stopped`]
 /// through its client, which is what lets a caller degrade to "no timer"
 /// without guessing whether the worker is busy.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum PomodoroWorkerState {
     Starting,
     Ready,
@@ -54,7 +56,7 @@ pub enum PomodoroWorkerState {
 }
 
 /// Why the worker could not do something.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum PomodoroErrorCode {
     /// The command queue is full, or the worker is gone.
     WorkerUnavailable,
@@ -64,7 +66,7 @@ pub enum PomodoroErrorCode {
 }
 
 /// A command that was not accepted, handed back so the caller can report it.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Serialize)]
 pub enum PomodoroPublishError {
     /// The queue is full. A pomodoro command is a click, not a per-frame
     /// signal, so this means the user is clicking faster than the worker folds
@@ -91,7 +93,7 @@ impl std::error::Error for PomodoroPublishError {}
 pub struct PomodoroStartError(pub(crate) io::Error);
 
 /// The worker did not stop inside the budget.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, thiserror::Error)]
 pub enum PomodoroShutdownError {
     #[error("pomodoro shutdown timed out")]
     TimedOut,
@@ -387,7 +389,7 @@ impl PomodoroClient {
 }
 
 /// The counts a caller reports about the worker.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct PomodoroDiagnostics {
     pub worker: PomodoroWorkerState,
     pub revision: u64,

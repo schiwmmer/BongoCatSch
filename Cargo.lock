@@ -989,6 +989,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bongocat-pomodoro-web"
+version = "2.3.1"
+dependencies = [
+ "bongocat-pomodoro",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "bongocat-render"
 version = "2.3.1"
 dependencies = [

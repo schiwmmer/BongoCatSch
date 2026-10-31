@@ -20,10 +20,10 @@ use super::{
     Building, CollectionYield, Cost, CultivationDocument, DailyKind, Derived, DerivedBreakdown,
     DuelReport, EQUIPMENT_DROP_PERMILLE, EquipSlot, EquipmentRecord, ExpeditionInProgress,
     ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, GatherSite, GearEffect, GearSetView,
-    Guardian, MAX_LEVEL, MAX_STAR, MAX_TRADE_LEVEL, MasteredArtView, OwnedArt,
-    PLAYER_NAME, RECENT_ARTS_CAP, Rarity, Realm, Refusal, Resource, ResourceBag, Rng,
-    SEED_DROP_PERMILLE, SESSION_BONUS_PERMILLE, SLOT_COUNT, SeedStack, SessionMode,
-    VICTORY_SEED_PERMILLE, absence_penalty, art_attributes, art_view,
+    Guardian, MAX_LEVEL, MAX_STAR, MAX_TRADE_LEVEL, MasteredArtView, OwnedArt, PLAYER_NAME,
+    RECENT_ARTS_CAP, Rarity, Realm, Refusal, Resource, ResourceBag, Rng, SEED_DROP_PERMILLE,
+    SESSION_BONUS_PERMILLE, SLOT_COUNT, SeedStack, SessionMode, VICTORY_SEED_PERMILLE,
+    absence_penalty, art_attributes, art_view,
     arts::{
         art_bonus, art_set_bonus, art_set_views, blueprint, mastered_art_attributes,
         mastered_art_bonus, mastered_art_view, train,
@@ -48,12 +48,12 @@ use super::{
         plot_price, rank_cost, rank_xp_total, roll_seed_grade, seed_name, seed_return,
         wither_points,
     },
-    gather_duration_permille, growth_permille, rounds_per_hour_permille,
+    gather_duration_permille, growth_permille,
     items::{gear_set_bonus, gear_set_views, roll_equipment},
     mastery_permille,
     opponent::{self, Opponent},
     proving::{ProvingOutcome, TRIAL_CHANCES_CAP},
-    resource_cap, scaled_growth,
+    resource_cap, rounds_per_hour_permille, scaled_growth,
     shop::{self, ShopOffer, ShopOfferView, star_up_cost},
     skill_ready, skill_xp_total, star_success_permille,
     trade::{TradeRefusal, session_earnings},
@@ -63,9 +63,10 @@ use super::{
     },
 };
 use crate::CalendarDay;
+use serde::Serialize;
 
 /// What the absence evaluation took, if anything.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct AbsenceCharge {
     /// How many whole days without a session were charged.
     pub days: u32,
@@ -80,7 +81,7 @@ pub struct AbsenceCharge {
 /// The first two are the ordinary drop — a piece of gear or a herb, at the
 /// session's own odds — and the rest are what the thousandth's luck pays: the
 /// ladder's one jackpot, in whatever shape it came.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum Drop {
     Equipment(EquipmentRecord),
     Seed {
@@ -133,7 +134,7 @@ impl Strength {
 }
 
 /// Everything one finished session changed.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct SessionReward {
     /// The growth the session itself paid.
     pub growth: u32,
@@ -143,7 +144,7 @@ pub struct SessionReward {
 }
 
 /// What a breakthrough attempt came to.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct BreakthroughOutcome {
     pub report: BattleReport,
     /// The realm a win opens, or the one that was defended on a loss.
@@ -168,7 +169,7 @@ pub struct BreakthroughOutcome {
 /// The duel travels whole, the way a breakthrough's does, because the tower is
 /// watched blow by blow like every other fight; what the win turned up travels
 /// as the same find a walk reports, since the three kinds are the same three.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct TrialOutcome {
     /// The floor that was climbed, one-based.
     pub floor: u16,
@@ -188,7 +189,7 @@ pub struct TrialOutcome {
 /// the outcome is the haul rather than a blow-by-blow. The counts are the haul,
 /// because ten floors can turn up several of a kind and a single named find
 /// would have to drop the others on the floor.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct TrialSweepOutcome {
     /// The first floor the sweep covered, one-based.
     pub from_floor: u16,
@@ -205,7 +206,7 @@ pub struct TrialSweepOutcome {
 /// The page needs a reason to print beside a dead button, and it is the same
 /// reason the domain refuses with — so the two cannot disagree about whether
 /// the tower is closed or the day is spent.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum TrialBlocked {
     /// The cultivator is still out on a walk: the tower is climbed at home.
     Out,
@@ -242,7 +243,7 @@ impl TrialBlocked {
 /// What each adds is its own ration, the day's floors here and a banked chance
 /// there, which is why the two keep separate enums and one shared pair of
 /// refusals.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum ProvingBlocked {
     /// The cultivator is still out on a walk: the courtyard is fought in.
     Out,
@@ -273,7 +274,7 @@ impl ProvingBlocked {
 ///
 /// The three kinds travel as one value because they are one event: whether it
 /// was a fight, what the fight came to, and what any of the three left behind.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct DailyOutcome {
     pub kind: DailyKind,
     /// Whether the ambush was beaten. True for the kinds that are not a fight.
@@ -285,7 +286,7 @@ pub struct DailyOutcome {
 }
 
 /// What a harvest took from a plot.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct HarvestOutcome {
     /// The crop that was picked.
     pub crop: CropRecord,
@@ -300,7 +301,7 @@ pub struct HarvestOutcome {
 /// — so the outcome carries the cost beside the result: a failure that cost
 /// nothing would read as a free reroll, and a run of them would be the whole
 /// ladder's economy in one button.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StarOutcome {
     /// The item the attempt was made on.
     pub item_id: u64,
@@ -322,7 +323,7 @@ pub struct StarOutcome {
 /// Carried rather than left to the event log because the popup that says "伐木
 /// +12 木材，+100 伐木经验" has to know the move, and a gathering is too routine
 /// to be a line in the history.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CollectOutcome {
     /// Where the gathering was done.
     pub site: GatherSite,
@@ -339,7 +340,7 @@ pub struct CollectOutcome {
 }
 
 /// What one building rank came to.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct BuildingOutcome {
     /// The building raised.
     pub building: Building,
@@ -353,7 +354,7 @@ pub struct BuildingOutcome {
 
 /// One gathering trade, as the page reads it: the level, the xp banked toward
 /// the next, and what that next costs.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct TradeView {
     /// The trade's level.
     pub level: u8,
@@ -364,7 +365,7 @@ pub struct TradeView {
 }
 
 /// One building, as the page reads it.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct BuildingView {
     /// The rank the building stands at.
     pub level: u8,
@@ -380,7 +381,7 @@ pub struct BuildingView {
 /// offer the same early return the walk and the job offer — and so a surface
 /// that knows the expedition is out can close the sites rather than let a
 /// click be refused.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct ExpeditionView {
     /// The site the expedition works.
     pub site: GatherSite,
@@ -393,7 +394,7 @@ pub struct ExpeditionView {
 }
 
 /// The resource economy as the settings page reads it.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ResourcesView {
     /// The purse.
     pub bag: ResourceBag,
@@ -420,7 +421,7 @@ pub struct ResourcesView {
 /// Carried rather than left to the event log because the popup that says "潜质
 /// 4.7 → 5.3" has to know the move, and a surface reading the log would have to
 /// match a line by timestamp to find it.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct AptitudeUse {
     /// Which herb was fed.
     pub herb: super::AptitudeHerb,
@@ -438,7 +439,7 @@ pub struct AptitudeUse {
 /// Kept beside the walk's record for the same reason: the popup is a moment and
 /// the quit forgets it, and a page that could not say what the last job paid is a
 /// page whose money has no history.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct WorkPaid {
     /// How many 灵石 the job paid. The wage is the wage: nothing about the work
     /// coming off changes what the wage was.
@@ -456,7 +457,7 @@ pub struct WorkPaid {
 }
 
 /// One job as a surface reads it: what it is, what it asks, and what it pays.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct JobView {
     /// Its position on the board, which is what taking it names.
     pub slot: usize,
@@ -486,7 +487,7 @@ pub struct JobView {
 }
 
 /// One owned item, as a surface reads it.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ItemView {
     pub id: u64,
     pub slot: EquipSlot,
@@ -518,7 +519,7 @@ pub struct ItemView {
 }
 
 /// One seed stack, as a surface reads it.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct SeedView {
     pub attribute: Attribute,
     /// The 潜质 herb this stack grows, when it is a herb seed rather than an
@@ -541,7 +542,7 @@ pub struct SeedView {
 }
 
 /// What the last finished session did to the 功法 being trained.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct TrainingView {
     pub art_id: u64,
     pub name: String,
@@ -551,7 +552,7 @@ pub struct TrainingView {
 }
 
 /// One crop in a plot.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CropView {
     pub attribute: Attribute,
     /// The 潜质 herb this crop grows, when it was a herb seed; a surface shows a
@@ -574,7 +575,7 @@ pub struct CropView {
 }
 
 /// One plot, as a surface reads it.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlotView {
     pub crop: Option<CropView>,
 }
@@ -589,14 +590,14 @@ impl PlotView {
 }
 
 /// The guardian a surface offers to fight.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct GuardianView {
     pub target: Realm,
     pub power: u32,
 }
 
 /// The drop a surface announces.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum DropView {
     Equipment(ItemView),
     Seed {
@@ -623,7 +624,7 @@ pub enum DropView {
 /// drawn beside the finding rather than in place of it, so a walk can come
 /// back with a herb and a handful of stones both, and a find that could only
 /// hold one would have to drop the other on the floor.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct ExplorationFindView {
     /// The herb it turned up, when it turned one up.
     pub seed: Option<SeedView>,
@@ -649,7 +650,7 @@ impl ExplorationFindView {
 /// worth in the sum. `external` is what the best 外功 adds to a blow and is
 /// deliberately outside that sum — a 外功 is not part of what the body is
 /// worth.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct PowerBreakdown {
     /// What the level alone carries.
     pub level: u32,
@@ -686,7 +687,7 @@ impl PowerBreakdown {
 }
 
 /// Everything a surface reads in one value.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CultivationView {
     pub level: u16,
     pub realm: Realm,
@@ -1029,7 +1030,7 @@ fn bonus_event(drop: &Drop) -> EventDetail {
 const LOST_GEAR_PERMILLE: u64 = 250;
 
 /// The cultivation ladder of one user.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Cultivation {
     document: CultivationDocument,
     /// The roll counter, so two sessions finishing in the same second still
@@ -1129,9 +1130,19 @@ impl Cultivation {
     /// immediately by the caller's next write, so every later read is the
     /// stored value and nothing is rerolled by a relaunch.
     pub fn new(document: CultivationDocument) -> Self {
+        Self::new_with_seed(document, birth_seed())
+    }
+
+    /// The same birth roll, with the seed supplied by the caller.
+    ///
+    /// [`Self::new`] reads the clock, which a browser cannot do: the wasm build
+    /// has no `SystemTime`, and the panic it raises is the platform's rather
+    /// than the module's. A host that can produce a random number itself hands
+    /// it in here instead, so a fresh save still gets its own 潜质.
+    pub fn new_with_seed(document: CultivationDocument, seed: u64) -> Self {
         let mut document = document.normalized();
         if document.aptitude_tenths.is_none() {
-            let mut rng = Rng::seeded(birth_seed());
+            let mut rng = Rng::seeded(seed);
             document.aptitude_tenths = Some(super::aptitude::birth_aptitude(&mut rng));
         }
         Self {
@@ -2316,7 +2327,7 @@ impl Cultivation {
 /// the reason planting is a decision — but the bed keeps the answer to itself
 /// until half the growing time is up. So planting always succeeds at the only
 /// thing a click can be told about: a crop is in the ground.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct PlantOutcome {
     /// The odds it went in at. Worth printing because a plant at ninety-five
     /// percent and a plant at thirty are two different wagers.
@@ -2845,9 +2856,8 @@ impl Cultivation {
         // every one of those hours runs at 1.00 to 2.35 rounds — so a 仙人
         // session turns up 7.6 rounds against 炼气's one.
         let realm = self.realm().index() as u32;
-        let duration = rounds_per_hour_permille(realm)
-            .saturating_mul(gather_duration_permille(realm))
-            / 1_000;
+        let duration =
+            rounds_per_hour_permille(realm).saturating_mul(gather_duration_permille(realm)) / 1_000;
         let yield_ = collect_scaled(
             site,
             self.document.woodcut_level,

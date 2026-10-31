@@ -113,12 +113,11 @@ pub use jobs::{
 };
 pub use proving::{ProvingOutcome, TRIAL_CHANCES_CAP};
 pub use resources::{
-    BASE_COMMON_YIELD, BASE_RARE_YIELD, BASE_RESOURCE_CAP, BASE_SKILL_XP,
-    Building, COAL_UNLOCK_LEVEL, CollectionYield, Cost, GATHER_HOURS_PER_REALM_PERMILLE,
-    GatherSite, GatherSkill, IRON_UNLOCK_LEVEL, MAX_BUILDING_LEVEL, MAX_TRADE_LEVEL,
-    MAX_WAREHOUSE_LEVEL, ROUNDS_PER_HOUR_PER_REALM_PERMILLE, Resource, ResourceBag,
-    STAR_IRON_FROM_STAR, SessionMode, WAREHOUSE_CAP_PER_LEVEL,
-    building_upgrade_cost, collect, collect_scaled, expedition_yield,
+    BASE_COMMON_YIELD, BASE_RARE_YIELD, BASE_RESOURCE_CAP, BASE_SKILL_XP, Building,
+    COAL_UNLOCK_LEVEL, CollectionYield, Cost, GATHER_HOURS_PER_REALM_PERMILLE, GatherSite,
+    GatherSkill, IRON_UNLOCK_LEVEL, MAX_BUILDING_LEVEL, MAX_TRADE_LEVEL, MAX_WAREHOUSE_LEVEL,
+    ROUNDS_PER_HOUR_PER_REALM_PERMILLE, Resource, ResourceBag, STAR_IRON_FROM_STAR, SessionMode,
+    WAREHOUSE_CAP_PER_LEVEL, building_upgrade_cost, collect, collect_scaled, expedition_yield,
     gather_duration_permille, resource_cap, rounds_per_hour_permille, skill_ready, skill_xp_total,
     smithy_multiplier_permille,
 };
@@ -152,7 +151,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// A reason is carried as a catalog key rather than as text, because the text
 /// has to be translated and the key is what the catalog is written in.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum Refusal {
     /// A purchase or a sale was refused; the trade layer says which.
     Trade(TradeRefusal),
@@ -346,7 +345,7 @@ pub const STAGE_COUNT: usize = 10;
 ///
 /// The index is the realm's position on the ladder and the value stored in the
 /// document, so a realm is never persisted by name.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum Realm {
     QiRefining,
     Foundation,
@@ -632,7 +631,7 @@ pub struct Derived {
 /// arithmetic that actually ran: there is no second table to drift from the
 /// first, and a number the page prints can be checked by hand against the
 /// numbers beside it.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct DerivedBreakdown {
     /// The catalog key naming the number.
     pub key: &'static str,
@@ -1062,7 +1061,7 @@ impl Attributes {
 /// crop — so the growth a session pays says which of those they have actually
 /// been doing. A user who only ever finishes pomodoros watches the 修炼 bar rise
 /// and the other three sit still, and the page can say so.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum Discipline {
     /// 修炼 — the 功法 being trained, which only finished sessions feed.
     Practice,

@@ -31,6 +31,8 @@ pub fn set_private_directory(path: &Path) -> io::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
     }
+    #[cfg(not(unix))]
+    let _ = path;
     Ok(())
 }
 
@@ -41,6 +43,8 @@ pub fn set_private_file(file: &File) -> io::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         file.set_permissions(fs::Permissions::from_mode(0o600))?;
     }
+    #[cfg(not(unix))]
+    let _ = file;
     Ok(())
 }
 
@@ -51,6 +55,8 @@ pub fn set_private_path(path: &Path) -> io::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     }
+    #[cfg(not(unix))]
+    let _ = path;
     Ok(())
 }
 
@@ -81,6 +87,10 @@ pub fn write_private_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
         use std::os::unix::fs::OpenOptionsExt as _;
         options.preserve_mode(false).mode(0o600);
     }
+    // Platforms without Unix modes (the wasm build of the pomodoro crate never
+    // writes) keep the plain options; there is no mode to preserve or request.
+    #[cfg(not(unix))]
+    let options = AtomicWriteFile::options();
     let mut file = options.open(path)?;
     file.write_all(bytes)?;
     file.commit()?;

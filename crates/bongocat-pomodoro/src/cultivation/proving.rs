@@ -12,6 +12,8 @@
 //! most often, gear sometimes, a 功法 almost never. The two differ in *when* they
 //! pay, not in what they pay, which is what keeps one economy behind both.
 
+use serde::Serialize;
+
 use super::{DuelReport, ExplorationFindView};
 
 /// How many 试炼 chances a save may bank.
@@ -27,7 +29,7 @@ pub const TRIAL_CHANCES_CAP: u32 = 10;
 /// The duel travels whole, the way every other fight does, because it is
 /// replayed blow by blow; what the win turned up travels as the same find a
 /// walk reports, since the three kinds are the same three.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ProvingOutcome {
     /// Every blow of the fight that settled it.
     pub duel: DuelReport,

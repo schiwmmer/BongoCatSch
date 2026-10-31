@@ -72,7 +72,7 @@ impl DailyKind {
 }
 
 /// What a gift event hands over.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum GiftKind {
     Stones,
     Seed,

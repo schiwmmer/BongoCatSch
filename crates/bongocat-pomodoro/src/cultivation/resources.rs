@@ -334,11 +334,7 @@ impl CollectionYield {
 /// that scales it. The forest pays 木材 and (once 伐木 has earned it) 煤; the
 /// mountain 石块 and (once 采石 has) 铁; the mine pays the two rares and no
 /// common find at all.
-fn site_finds(
-    site: GatherSite,
-    woodcut: u8,
-    stonecut: u8,
-) -> [Option<(Resource, u32, u8)>; 2] {
+fn site_finds(site: GatherSite, woodcut: u8, stonecut: u8) -> [Option<(Resource, u32, u8)>; 2] {
     match site {
         GatherSite::Forest => [
             Some((Resource::Wood, BASE_COMMON_YIELD, woodcut)),
@@ -375,10 +371,7 @@ pub fn collect(
     dojo: u8,
 ) -> CollectionYield {
     let mut gained = ResourceBag::default();
-    for (resource, base, trade) in site_finds(site, woodcut, stonecut)
-        .into_iter()
-        .flatten()
-    {
+    for (resource, base, trade) in site_finds(site, woodcut, stonecut).into_iter().flatten() {
         gained.add(resource, scale_yield(base, trade, workshop));
     }
     let (woodcut_xp, stonecut_xp) = site_xp(site, dojo);
@@ -444,10 +437,7 @@ pub fn collect_scaled(
     // is the doc's "只在最后截断一次" — `collect` truncates the same product
     // once at the round scale, and the two agree at every round boundary.
     let mut gained = ResourceBag::default();
-    for (resource, base, trade) in site_finds(site, woodcut, stonecut)
-        .into_iter()
-        .flatten()
-    {
+    for (resource, base, trade) in site_finds(site, woodcut, stonecut).into_iter().flatten() {
         gained.add(
             resource,
             scale_yield_session(base, trade, workshop, duration_permille),
@@ -805,7 +795,10 @@ mod tests {
         }
         // The high ranks are where the rare finds begin: a 工坊 burns 煤 from
         // its third rank, a 铁匠铺 铁 from its sixth.
-        assert_eq!(building_upgrade_cost(Building::Workshop, 0).resources.iron, 0);
+        assert_eq!(
+            building_upgrade_cost(Building::Workshop, 0).resources.iron,
+            0
+        );
         assert!(
             building_upgrade_cost(Building::Workshop, 2).resources.coal > 0,
             "a 工坊 rank bought past its second burns 煤"
@@ -868,7 +861,9 @@ mod tests {
         let trained = collect(GatherSite::Mountain, 1, IRON_UNLOCK_LEVEL, 0, 0);
         let trained_session =
             collect_scaled(GatherSite::Mountain, 1, IRON_UNLOCK_LEVEL, 0, 0, 2_500);
-        assert!(trained_session.gained.iron > 0 && trained_session.gained.iron >= trained.gained.iron);
+        assert!(
+            trained_session.gained.iron > 0 && trained_session.gained.iron >= trained.gained.iron
+        );
         assert!(trained_session.gained.stone > trained.gained.stone);
     }
 
@@ -881,7 +876,9 @@ mod tests {
         let duration = rounds_per_hour_permille(9) * 12; // 仙人, a 12h expedition
         let mut prev = 0;
         for workshop in 0..=10 {
-            let haul = collect_scaled(GatherSite::Forest, 10, 0, workshop, 0, duration).gained.wood;
+            let haul = collect_scaled(GatherSite::Forest, 10, 0, workshop, 0, duration)
+                .gained
+                .wood;
             assert!(
                 haul > prev,
                 "满配仙人 12h 工坊 {workshop} 级没有涨产量: {haul} <= {prev}"

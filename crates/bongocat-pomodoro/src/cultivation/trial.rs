@@ -14,6 +14,8 @@
 //! reward tier comes from the floor's own realm: climbing is how a save reaches
 //! the goods of a realm it has not entered yet.
 
+use serde::Serialize;
+
 use super::{MAX_LEVEL, Realm, Rng};
 
 /// How many floors one local day offers.
@@ -79,7 +81,7 @@ pub fn warden_power(floor: u16) -> u32 {
 }
 
 /// What clearing a floor turned up.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum TrialReward {
     Seed,
     Gear,

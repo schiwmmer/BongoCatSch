@@ -18,6 +18,7 @@
 use std::collections::BTreeMap;
 
 use crate::CalendarTotals;
+use serde::Serialize;
 
 /// Seconds in a day.
 /// Seconds in a local day, so nothing has to write 86_400 a second time.
@@ -28,7 +29,7 @@ pub(crate) const SECONDS_PER_DAY: i64 = 86_400;
 /// The number is already offset-adjusted: a value here names a day a user would
 /// write on a calendar, so no later call has to know which timezone produced
 /// it.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct CalendarDay(i64);
 
 impl CalendarDay {
@@ -65,7 +66,7 @@ impl CalendarDay {
 }
 
 /// A calendar date, in local terms.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct CivilDate {
     pub year: i32,
     pub month: u32,
@@ -80,7 +81,7 @@ impl CivilDate {
 }
 
 /// One rendered month: the cells to lay out, in whole Monday-first weeks.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct MonthGrid {
     /// Every cell in the grid, including the leading and trailing days of the
     /// neighbouring months, so a fixed-height grid can always be drawn.
@@ -131,7 +132,7 @@ pub fn month_grid(year: i32, month: u32) -> MonthGrid {
 }
 
 /// One day's contribution to a month.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct CalendarDayTotal {
     /// Focus sessions finished on this day.
     pub pomodoros: u32,
@@ -140,7 +141,7 @@ pub struct CalendarDayTotal {
 }
 
 /// One task's finished sessions on one day, as a calendar cell names it.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CalendarTaskActivity {
     /// The task's name at the time of the read.
     pub task_name: String,

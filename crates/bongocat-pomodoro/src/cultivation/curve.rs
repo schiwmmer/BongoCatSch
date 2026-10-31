@@ -10,6 +10,8 @@
 //! inverse exact: layer `k` of a realm opens at `floor + k * step`, so a growth
 //! total maps back onto one level with no rounding argument to have.
 
+use serde::Serialize;
+
 use super::STAGE_COUNT;
 
 /// How many layers each realm holds.
@@ -85,7 +87,7 @@ pub fn threshold_for(level: u16) -> u32 {
 
 /// A level read the way a cultivator says it: the layer inside its realm, and
 /// the rank inside that layer.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct LayerRank {
     /// The layer, zero-based: the first ten levels of a realm are layer 0.
     pub layer: u8,
@@ -115,7 +117,7 @@ pub fn layer_growth(realm: u8) -> u32 {
 }
 
 /// Where a growth total sits on the ladder.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct LevelProgress {
     /// The highest level this growth has paid for.
     pub level: u16,

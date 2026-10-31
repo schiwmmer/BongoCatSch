@@ -210,7 +210,10 @@ pub fn star_up_cost(item: &EquipmentRecord, smithy_level: u8) -> super::Cost {
     resources.add(super::Resource::Wood, scale(2 + 2 * star));
     resources.add(super::Resource::Stone, scale(1 + star));
     if target >= u32::from(super::STAR_IRON_FROM_STAR) {
-        resources.add(super::Resource::Iron, scale(1 + target - u32::from(super::STAR_IRON_FROM_STAR)));
+        resources.add(
+            super::Resource::Iron,
+            scale(1 + target - u32::from(super::STAR_IRON_FROM_STAR)),
+        );
     }
     if target >= 4 {
         resources.add(super::Resource::Coal, scale(1 + target - 4));
@@ -555,7 +558,7 @@ fn mix(mut value: u64) -> u64 {
 
 /// A day's shelf as a surface reads it: the offer, what it costs, and whether it
 /// is still on the shelf.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ShopOfferView {
     pub offer: ShopOffer,
     /// What the row asks for it — the list price, or the special's cut of it.
@@ -583,7 +586,7 @@ pub struct ShopOfferView {
 /// book still on the shelf is a spare — buyable, and worth the stones a sale
 /// brings — while a 功法 learned outright has no page left, so the shelf will
 /// not take stones for it at all.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum ArtOwnership {
     /// A book already on the shelf, still being read.
     Shelved,

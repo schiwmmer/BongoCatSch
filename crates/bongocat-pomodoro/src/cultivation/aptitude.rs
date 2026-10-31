@@ -248,7 +248,7 @@ pub const MARROW_FORTUNE_ONE_IN: u64 = 10_000;
 
 /// One 潜质 item as the page reads it: how many are held, what it costs, and
 /// what it does.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct HerbView {
     pub herb: AptitudeHerb,
     /// How many the cultivator holds.

@@ -8,6 +8,8 @@
 //! without touching a save: the reasons a refusal exists, and the one number that
 //! is not a price.
 
+use serde::Serialize;
+
 use super::Realm;
 use super::shop::SESSION_EARNINGS;
 
@@ -16,7 +18,7 @@ use super::shop::SESSION_EARNINGS;
 /// A refusal with a reason rather than a bare false, because the page has to say
 /// something: "不是灵石不够" and "这件已经卖掉了" are different sentences and the
 /// user needs to know which one happened.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum TradeRefusal {
     /// The purse does not hold the asking price.
     NotEnoughStones,

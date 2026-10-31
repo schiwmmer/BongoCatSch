@@ -17,6 +17,7 @@ members = [
     "crates/bongocat-packaging",
     "crates/bongocat-platform",
     "crates/bongocat-pomodoro",
+    "crates/bongocat-pomodoro-web",
     "crates/bongocat-render",
     "crates/bongocat-runtime",
     "crates/bongocat-storage",

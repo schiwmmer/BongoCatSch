@@ -154,7 +154,7 @@ impl ArtKind {
 }
 
 /// One of the five hundred, rebuilt from its id.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ArtBlueprint {
     pub id: u64,
     pub name: String,
@@ -1213,7 +1213,7 @@ pub fn art_set_bonus(owned: &[OwnedArt]) -> Derived {
 
 /// One active 功法 family, as a surface reads it: the 前缀, how many books the
 /// family holds, and what the holding pays.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ArtSetView {
     /// The 前缀 index — the set's name is [`ART_PREFIXES`]`[prefix]`.
     pub prefix: usize,
@@ -1370,7 +1370,7 @@ pub fn external_power_gain(attack: u32, multiplier_permille: u32) -> u32 {
 }
 
 /// One 功法 as a surface reads it, with the blueprint folded in.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ArtView {
     pub id: u64,
     pub name: String,
@@ -1427,7 +1427,7 @@ pub struct ArtView {
 /// A book still being trained shows here too once its first 阶 is in — it is
 /// learned as far as it has gone — and then `complete` is false and `rank` is
 /// where the training stands rather than the grade's last 阶.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct MasteredArtView {
     pub id: u64,
     pub name: String,

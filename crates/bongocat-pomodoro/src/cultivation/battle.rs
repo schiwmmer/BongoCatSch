@@ -10,6 +10,8 @@
 //! stronger than a cultivator standing at the realm's cap with nothing equipped,
 //! so the way through is gear and herbs.
 
+use serde::Serialize;
+
 use super::{Attributes, Realm, base_attributes};
 
 /// How much stronger a guardian is than a naked cultivator at the same cap, in
@@ -18,7 +20,7 @@ use super::{Attributes, Realm, base_attributes};
 const GUARDIAN_STRENGTH_PERCENT: u32 = 120;
 
 /// The thing standing at the end of a realm.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct Guardian {
     /// The realm a win opens.
     pub target: Realm,
@@ -48,7 +50,7 @@ pub fn guardian_for(current: Realm) -> Option<Guardian> {
 }
 
 /// What a breakthrough attempt came to.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct BattleReport {
     /// The power the cultivator brought: level, gear and herbs, exactly as the
     /// panel showed them.

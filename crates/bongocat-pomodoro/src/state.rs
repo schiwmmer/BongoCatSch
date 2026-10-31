@@ -14,12 +14,13 @@ use crate::{
     MAX_FOCUS_MINUTES, MAX_TASK_NAME_CHARS, MIN_FOCUS_MINUTES, Refusal, SessionMode,
     document::{Document, LiveSessionRecord, TaskRecord, TaskStatus, read_document},
 };
+use serde::Serialize;
 
 /// Whether a task is still being worked on or has been finished.
 pub use crate::document::TaskStatus as PomodoroTaskStatus;
 
 /// Everything a settings surface or a menu needs about one task.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PomodoroTaskView {
     pub id: u64,
     pub name: String,
@@ -38,7 +39,7 @@ pub struct PomodoroTaskView {
 /// `remaining_seconds` is meaningful in both the running and the paused case: a
 /// paused countdown still has time left, and hiding it would make a paused
 /// session indistinguishable from an abandoned one.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct TimerView {
     pub task_id: u64,
     pub state: TimerState,
@@ -47,14 +48,14 @@ pub struct TimerView {
 }
 
 /// The totals a month view shows next to the grid.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct CalendarTotals {
     pub pomodoros: u32,
     pub tasks: u32,
 }
 
 /// Whether there is a session, and whether it is counting down.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
 pub enum TimerState {
     /// No session at all.
     #[default]
@@ -73,7 +74,7 @@ impl TimerState {
 }
 
 /// The one live session.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum Timer {
     Idle,
     Running {
@@ -139,7 +140,7 @@ impl Timer {
 }
 
 /// Everything a surface reads.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PomodoroSnapshot {
     pub revision: u64,
     /// Whether the worker behind this snapshot is running.
@@ -164,7 +165,7 @@ pub struct PomodoroSnapshot {
 }
 
 /// One finished session, and the identity a surface uses to react once.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct PomodoroCompletion {
     pub sequence: u64,
     pub task_id: u64,
@@ -172,7 +173,7 @@ pub struct PomodoroCompletion {
 }
 
 /// What a caller asks the state machine to do.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum PomodoroCommand {
     /// Create a task with a display name and how many focus sessions the user
     /// expects it to take.
@@ -328,7 +329,10 @@ pub enum PomodoroCommand {
     /// The same price and the same refusals [`Self::UpgradeBuilding`] meets, but
     /// one click buys the tail of a long ladder — the 仓库's fifty — in a go,
     /// stopping early when the purse runs out or the building tops out.
-    UpgradeBuildingMany { building: crate::Building, times: u8 },
+    UpgradeBuildingMany {
+        building: crate::Building,
+        times: u8,
+    },
     /// Choose what the next finished pomodoro pays: 修习, 伐木, or 采石.
     ///
     /// The mode is one thing and one thing only — a session either cultivates
@@ -411,7 +415,7 @@ impl PomodoroCommand {
 }
 
 /// The whole domain state, and every transition over it.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct PomodoroState {
     document: Document,
     timer: Timer,
@@ -463,6 +467,14 @@ impl PomodoroState {
         Self::from_document(Document::default(), utc_offset_seconds)
     }
 
+    /// An empty state whose fresh-save 潜质 is rolled from `seed`.
+    ///
+    /// See [`Self::from_document_seeded`] for why a host would rather supply the
+    /// seed than let the clock do it.
+    pub fn empty_at_with_seed(utc_offset_seconds: i32, seed: u64) -> Self {
+        Self::from_document_seeded(Document::default(), utc_offset_seconds, Some(seed))
+    }
+
     /// The state a stored document produces, with the session it was holding.
     ///
     /// A session in flight comes back as it was left — running, or paused where
@@ -480,10 +492,53 @@ impl PomodoroState {
         Self::from_document(read_document(path), utc_offset_seconds)
     }
 
+    /// The state a stored JSON document produces.
+    ///
+    /// The file-system entry points above are the desktop's; a host with no file
+    /// system — the web build, which keeps the same document in browser storage —
+    /// hands the bytes back as a string instead. An unreadable or absent string
+    /// reads as a fresh document rather than an error, the same way a missing
+    /// file does.
+    pub fn from_document_json(json: &str, utc_offset_seconds: i32) -> Self {
+        let document = serde_json::from_str(json).unwrap_or_default();
+        Self::from_document(document, utc_offset_seconds)
+    }
+
+    /// The same read, with the birth roll's seed supplied by the caller.
+    pub fn from_document_json_with_seed(json: &str, utc_offset_seconds: i32, seed: u64) -> Self {
+        let document = serde_json::from_str(json).unwrap_or_default();
+        Self::from_document_seeded(document, utc_offset_seconds, Some(seed))
+    }
+
+    /// The document as the JSON a host stores.
+    ///
+    /// The counterpart of [`Self::from_document_json`]: one string round-trips
+    /// every task, the history behind the calendar and the whole cultivation
+    /// ladder.
+    pub fn document_json(&self) -> String {
+        serde_json::to_string(&self.document).unwrap_or_default()
+    }
+
     fn from_document(document: Document, utc_offset_seconds: i32) -> Self {
+        Self::from_document_seeded(document, utc_offset_seconds, None)
+    }
+
+    /// The state a document produces, with the birth roll's seed supplied.
+    ///
+    /// The desktop reads the clock for a fresh save's 潜质; a browser cannot, so
+    /// it passes a number it drew itself. `None` is the desktop path and reads
+    /// [`Cultivation::new`].
+    fn from_document_seeded(
+        document: Document,
+        utc_offset_seconds: i32,
+        seed: Option<u64>,
+    ) -> Self {
         let focus_minutes = clamp_focus_minutes(document.focus_minutes);
         let session_seconds = focus_minutes.saturating_mul(60);
-        let cultivation = Cultivation::new(document.cultivation.clone());
+        let cultivation = match seed {
+            Some(seed) => Cultivation::new_with_seed(document.cultivation.clone(), seed),
+            None => Cultivation::new(document.cultivation.clone()),
+        };
         // A record naming a task the document no longer has is stale — the task
         // was deleted before the write — so it is dropped rather than restored
         // into a countdown that would complete into nothing.

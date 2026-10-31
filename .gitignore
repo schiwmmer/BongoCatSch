@@ -24,3 +24,7 @@ target
 # 某知识管理同步工具误写到仓库根的记忆蒸馏目录（内容与 .workbuddy/memory/ 同源），
 # 不是仓库资产；保留文件供该工具同步，仅防止被误提交
 /memory/
+
+# 浏览器构建产物：由 `just web` 生成，不入库
+target-web/
+web/bongocat_pomodoro_web.wasm

@@ -444,7 +444,7 @@ pub fn gear_set_bonus(worn: &[EquipmentRecord]) -> Derived {
 
 /// One active 装备 set, as a surface reads it: the set, how many of its pieces
 /// are worn, and what the wearing pays.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct GearSetView {
     pub set: GearSet,
     /// How many pieces of the set are worn. Never one — a lone piece is a
