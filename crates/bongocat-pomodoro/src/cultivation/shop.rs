@@ -260,6 +260,65 @@ pub fn offers_for_day(day_number: i64, realm: Realm) -> usize {
     SHOP_MIN_OFFERS + (mix(seed) % span) as usize
 }
 
+/// One tier of one attribute is the unit a seed row is counted in.
+///
+/// Six rather than one so the two 潜质 herbs can be a fraction of a seed
+/// without floats: a 悟心草 is half a share, a 慧心草 a third of one.
+const SEED_SHARE: u32 = 6;
+
+/// Half a share: a 悟心草 is half as likely as one seed of one tier.
+const INSIGHT_SHARE: u32 = SEED_SHARE / 2;
+
+/// A third of a share: a 慧心草 is the rarest seed the shelf stocks.
+const WISDOM_SHARE: u32 = SEED_SHARE / 3;
+
+/// How far from the realm's own tier a shelf seed may sit.
+///
+/// Three either way: past that a seed is not a goal but a wall — a tier the
+/// buyer's garden cannot plant and their purse cannot spend on anything else —
+/// so the window clips rather than trailing off into rows nobody wants.
+const SEED_TIER_REACH: u8 = 3;
+
+/// The weight of one seed tier, by how far it sits from the realm's own.
+///
+/// Eight, four, two, one: every tier away from the buyer's own is half as
+/// likely as the one before it, so a shelf reads as "this realm's seeds, with
+/// something better and something worse beside them" rather than as a uniform
+/// row of the ladder.
+fn seed_tier_weight(distance: u8) -> u32 {
+    match distance {
+        0 => 8,
+        1 => 4,
+        2 => 2,
+        _ => 1,
+    }
+}
+
+/// Which tier a seed on the shelf is, given the tier of the realm it is stocked
+/// for.
+///
+/// Nearer is likelier, and halves at every step away. Both ends of the ladder
+/// clip the window instead of wrapping: a 炼气 shelf has nothing below 一阶 to
+/// offer, so the weight that would have gone there is simply not in the draw.
+fn roll_seed_tier(realm_tier: u8, rng: &mut super::Rng) -> u8 {
+    let lowest = realm_tier.saturating_sub(SEED_TIER_REACH).max(1);
+    let highest = realm_tier
+        .saturating_add(SEED_TIER_REACH)
+        .min(super::garden::MAX_SEED_TIER);
+    let total: u32 = (lowest..=highest)
+        .map(|candidate| seed_tier_weight(candidate.abs_diff(realm_tier)))
+        .sum();
+    let mut roll = rng.below(u64::from(total)) as u32;
+    for candidate in lowest..=highest {
+        let weight = seed_tier_weight(candidate.abs_diff(realm_tier));
+        if roll < weight {
+            return candidate;
+        }
+        roll -= weight;
+    }
+    highest
+}
+
 /// Roll one realm's shelf for a day.
 ///
 /// Deterministic in `(day_number, realm)`: the shop is regenerated from those
@@ -297,27 +356,23 @@ pub fn roll_offers(day_number: i64, realm: Realm, seed: u64) -> Vec<ShopOffer> {
             0 => {
                 // The seed row. One pool over the seeds themselves rather than
                 // over their attributes: four attributes across the ladder's
-                // ten tiers are forty shares, and the two 潜质 herbs are two
-                // more. A 悟心草 therefore turns up as often as one particular
-                // 根骨 seed of one particular tier does — a sighting in the
-                // shelf, not a third of the seed rows — which is what a herb
-                // being "just another seed" has to mean once tiers are counted
-                // as kinds. The tier itself is still rolled around the realm's
-                // own below: the pool decides *what* is on the row, not how far
-                // above the buyer it reaches.
-                let attribute_seeds =
-                    Attribute::ALL.len() * usize::from(super::garden::MAX_SEED_TIER);
-                let pick = rng.below((attribute_seeds + 2) as u64) as usize;
-                if pick < attribute_seeds {
+                // ten tiers are forty shares, and the two 潜质 herbs are
+                // fractions of one — half a share for a 悟心草, a third for a
+                // 慧心草. Neither herb is a row the shelf can nearly always
+                // have. The tier is drawn around the realm's own below instead
+                // of uniformly: a shelf is stocked for the body standing in
+                // front of it.
+                let seed_shares = Attribute::ALL.len() as u32
+                    * u32::from(super::garden::MAX_SEED_TIER)
+                    * SEED_SHARE;
+                let pool = seed_shares + INSIGHT_SHARE + WISDOM_SHARE;
+                let pick = rng.below(u64::from(pool)) as u32;
+                if pick < seed_shares {
                     ShopOffer::Seed {
-                        attribute: Attribute::from_index(pick % Attribute::ALL.len()),
-                        // One tier either side of the realm's own: a herb a tier
-                        // down is a reachable one for the garden, one a tier up
-                        // is a goal.
-                        tier: tier
-                            .saturating_add(1)
-                            .saturating_sub(u8::try_from(rng.below(3)).unwrap_or(0))
-                            .clamp(1, 10),
+                        attribute: Attribute::from_index(
+                            (pick / SEED_SHARE) as usize % Attribute::ALL.len(),
+                        ),
+                        tier: roll_seed_tier(tier, &mut rng),
                         // The grade is the discovery roll, the same five-grade
                         // ladder a dropped seed reads: a shelf sells what the
                         // garden grows.
@@ -326,7 +381,7 @@ pub fn roll_offers(day_number: i64, realm: Realm, seed: u64) -> Vec<ShopOffer> {
                     }
                 } else {
                     ShopOffer::Herb {
-                        herb: if pick == attribute_seeds {
+                        herb: if pick < seed_shares + INSIGHT_SHARE {
                             AptitudeHerb::Insight
                         } else {
                             AptitudeHerb::Wisdom
@@ -531,13 +586,12 @@ pub enum ArtOwnership {
 mod tests {
     use super::*;
 
-    /// The two 潜质 herbs are ordinary shelf stock, counted as seeds: each of
-    /// them turns up about as often as one particular seed of one particular
-    /// tier does — one share of the forty-two the seed row is drawn from, not a
-    /// third of it — and the pill, the one 潜质 item still rolled on its own,
+    /// The two 潜质 herbs are counted as seeds and priced out of the shelf by
+    /// fractions of one: a 悟心草 at half a seed of one tier, a 慧心草 at a
+    /// third of one, and the pill — the one 潜质 item still rolled on its own —
     /// stays a one-in-two-hundred day.
     #[test]
-    fn the_two_herbs_are_seeds_of_one_share_and_the_pill_is_the_rarest_row() {
+    fn the_two_herbs_are_fractions_of_a_seed_and_the_pill_is_the_rarest_row() {
         let days = 4_000_i64;
         let (mut insight, mut wisdom, mut marrow, mut seeds) = (0_u32, 0_u32, 0_u32, 0_u32);
         for day in 0..days {
@@ -553,15 +607,27 @@ mod tests {
                 }
             }
         }
-        // A seed row draws from forty attribute-seed shares and two herb shares,
-        // so one herb against the attribute seeds already drawn is one in forty.
+        // One seed of one tier is six pool units, so the attribute seeds drawn
+        // already say what a single herb should have landed: half a seed, or a
+        // third of one.
         let shares = Attribute::ALL.len() * usize::from(crate::cultivation::garden::MAX_SEED_TIER);
-        let per_share = f64::from(seeds) / shares as f64;
-        for (label, count) in [("悟心草", insight), ("慧心草", wisdom)] {
-            let ratio = f64::from(count) / per_share;
+        let per_seed = f64::from(seeds) / shares as f64;
+        for (label, count, fraction) in [
+            (
+                "悟心草",
+                insight,
+                f64::from(INSIGHT_SHARE) / f64::from(SEED_SHARE),
+            ),
+            (
+                "慧心草",
+                wisdom,
+                f64::from(WISDOM_SHARE) / f64::from(SEED_SHARE),
+            ),
+        ] {
+            let ratio = f64::from(count) / (per_seed * fraction);
             assert!(
                 (0.6..=1.6).contains(&ratio),
-                "{label} turns up {ratio:.2} times as often as one seed of one tier: \
+                "{label} turns up {ratio:.2} times its share: \
                  {count} against {seeds} attribute seeds"
             );
         }
@@ -573,6 +639,64 @@ mod tests {
             "洗髓丹 one day in two hundred: {marrow} of {days}"
         );
         assert!(marrow < wisdom, "the pill is the rarest of the three");
+    }
+
+    /// A shelf is stocked for the body standing in front of it: its seeds sit
+    /// around the realm's own tier, and every tier away is half as likely as
+    /// the one before it, clipped at three either side.
+    #[test]
+    fn a_shelfs_seeds_sit_around_the_realm_it_is_stocked_for() {
+        let days = 2_000_i64;
+        // 五阶, so both sides of the window have room to show.
+        let realm = Realm::from_index(4);
+        let mut by_tier = [0_u32; 11];
+        for day in 0..days {
+            for offer in roll_offers(day, realm, day as u64) {
+                if let ShopOffer::Seed { tier, .. } = offer {
+                    by_tier[usize::from(tier)] += 1;
+                }
+            }
+        }
+        // One tier in, one tier out: each step away is half the count of the
+        // step before it, measured with room for the sampling noise.
+        for (near, far) in [(5, 4), (4, 3), (3, 2), (5, 6), (6, 7), (7, 8)] {
+            assert!(
+                f64::from(by_tier[near]) > 1.4 * f64::from(by_tier[far]),
+                "{} 阶 is nearer the realm than {} 阶: {} against {}",
+                near,
+                far,
+                by_tier[near],
+                by_tier[far]
+            );
+        }
+        assert_eq!(
+            by_tier[1] + by_tier[9] + by_tier[10],
+            0,
+            "the window clips three tiers out rather than trailing down the ladder"
+        );
+    }
+
+    /// The window clips at the ends of the ladder: 炼气 offers nothing below 一阶
+    /// and nothing above 四阶, rather than wrapping or reaching for a tier the
+    /// player cannot plant for another nine realms.
+    #[test]
+    fn the_shop_floor_clips_the_seed_window() {
+        let mut seen = [false; 11];
+        for day in 0..2_000_i64 {
+            for offer in roll_offers(day, Realm::from_index(0), day as u64) {
+                if let ShopOffer::Seed { tier, .. } = offer {
+                    seen[usize::from(tier)] = true;
+                }
+            }
+        }
+        assert!(
+            seen[1] && seen[2] && seen[3] && seen[4],
+            "no seed row at all"
+        );
+        assert!(
+            !seen[5] && !seen[6] && !seen[7] && !seen[8] && !seen[9] && !seen[10],
+            "a 炼气 shelf reached past three tiers"
+        );
     }
 
     /// The three 潜质 items are priced apart, and the pill is the dearest thing
