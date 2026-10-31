@@ -49,8 +49,17 @@ pub(super) fn record_section(
     // "what is going on" is where the cultivator is, and it is printed even
     // when nothing has happened yet. One line in the primary ink, and when they
     // are out it names the road and the wait.
+    let returning = cultivation.walk_early || cultivation.work_early;
     let status = if cultivation.at_home {
         text(locale, "cultivation.record.status_home").to_string()
+    } else if returning {
+        // A return trip is under way: what is left is the walk back, not the
+        // outing, so the line names the trip and not the road that was given up.
+        let home_at = cultivation
+            .work
+            .map(|work| work.ends_unix)
+            .or(cultivation.exploration_ready_at);
+        cooldown_line(home_at, "cultivation.record.status_returning", locale)
     } else if let Some(run) = cultivation.work {
         // At a job: the board names the work, this names the wait. The job is
         // still in hand whenever the door is shut — the door falls open the
@@ -73,15 +82,31 @@ pub(super) fn record_section(
         // bare word rather than an empty line.
         text(locale, "cultivation.record.status_out").to_string()
     };
+    // The door is the line itself plus, while the cultivator is out, the one
+    // control that cuts the outing short: whatever kind of outing it is, the way
+    // back is the same decision, so the button is drawn off "is out" rather than
+    // off which outing it happens to be.
+    let mut door = div()
+        .id("cultivation-at-home")
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .text_xs()
+        .text_color(tokens.text)
+        .child(status)
+        .test_support();
+    if !cultivation.at_home {
+        door = door.child(return_early_control(
+            view,
+            returning,
+            cultivation.outing_return_seconds,
+            locale,
+            tokens,
+        ));
+    }
     column = column
-        .child(
-            div()
-                .id("cultivation-at-home")
-                .text_xs()
-                .text_color(tokens.text)
-                .child(status)
-                .test_support(),
-        )
+        .child(door)
         .child(section_title(locale, "cultivation.record.title", tokens));
     // The offset is read once per render rather than once per line: every line
     // on the page belongs to the same local clock.
@@ -136,6 +161,68 @@ pub(super) fn record_section(
         );
     }
     column
+}
+
+/// The one control the door offers while the cultivator is out: call the outing
+/// home early.
+///
+/// A walk, a shift at a job — every outing the ladder has is called back the same
+/// way, so the button hangs off "is out" rather than off which outing it is, and
+/// the command it publishes is the one command the domain has for it.
+///
+/// It asks before it acts, because a called outing pays nothing at all: the find
+/// is forfeit and only the trip home is spent. That sentence has to be said
+/// before the hours are given up, not after — a button that quietly threw a
+/// shift away would be the one place on the page where a click costs the user
+/// something they did not read.
+fn return_early_control(
+    view: &Entity<SettingsView>,
+    returning: bool,
+    trip_seconds: i64,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    let label_key = if returning {
+        "cultivation.record.returning"
+    } else {
+        "cultivation.record.return_early"
+    };
+    // What the trip home would cost, said before the click rather than after:
+    // the return is a third of the time already spent, rounded up to the minute
+    // so the six-second floor cannot read as "0 分".
+    let hours = trip_seconds / 3_600;
+    let minutes = ((trip_seconds % 3_600) / 60).max(i64::from(hours == 0));
+    let sentence = format_text(
+        locale,
+        "cultivation.record.return_early_confirm",
+        &[
+            ("hours", hours.to_string()),
+            ("minutes", minutes.to_string()),
+        ],
+    );
+    // A return trip already under way is drawn, not offered: a second call would
+    // only rewrite a trip that has begun, and a button that looks live but does
+    // nothing reads as broken.
+    let trigger = Button::new("cultivation-return-early")
+        .small()
+        .label(text(locale, label_key))
+        .disabled(returning);
+    PopConfirm::new("cultivation-return-early-confirm", sentence)
+        .anchor(Anchor::TopLeft)
+        .arrow(true)
+        .icon(gpui_kit::assets::IconName::TriangleAlert, tokens.danger)
+        .confirm_label(text(locale, "actions.confirm"))
+        .cancel_label(text(locale, "actions.cancel"))
+        .trigger(trigger)
+        .on_confirm({
+            let view = view.clone();
+            move |_, cx| {
+                view.update(cx, |view, cx| {
+                    let _ = view.pomodoro.try_publish(PomodoroCommand::ReturnEarly);
+                    cx.notify();
+                });
+            }
+        })
 }
 
 /// The full history, drawn over the settings surface.

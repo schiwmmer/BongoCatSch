@@ -1950,6 +1950,13 @@ fn a_called_walk_pays_nothing() {
         .explore(start, ExplorationHours::Twelve)
         .expect("the walk sets out");
     assert!(cultivation.return_early(start + 6 * 3_600), "called home");
+    assert_eq!(
+        cultivation
+            .view_on(start + 6 * 3_600, 0)
+            .outing_return_seconds,
+        2 * 3_600,
+        "six hours out, two back — and the page knows it"
+    );
     let called = cultivation.walk().expect("still on the way back");
     assert!(called.early);
     assert_eq!(
@@ -1969,6 +1976,57 @@ fn a_called_walk_pays_nothing() {
     );
     assert_eq!(home.explorations, 0, "a called walk does not count");
     assert_eq!(cultivation.stones(), 0, "and fills no purse");
+}
+
+/// 提前返回 from a job reads the same way as from a walk: the shift comes home
+/// with no wage, no point and no fresh board, and the trip back is a third of
+/// the hours already stood.
+#[test]
+fn a_called_shift_pays_nothing() {
+    let start = 1_000;
+    let mut cultivation = Cultivation::default();
+    cultivation
+        .accept_job(0, start, 20_000)
+        .expect("the job is taken");
+    let before = cultivation.document().stones;
+    // Two hours stood, so the way home is forty minutes.
+    let stood = start + 2 * 3_600;
+    assert_eq!(
+        cultivation.view_on(stood, 20_000).outing_return_seconds,
+        40 * 60,
+        "the page is told what the trip home costs before the click"
+    );
+    assert!(cultivation.return_early(stood), "called home");
+    let called = cultivation.document().work.expect("still on the way back");
+    assert!(called.early);
+    assert_eq!(
+        called.ends_unix,
+        stood + 40 * 60,
+        "two hours out, forty minutes back"
+    );
+    // The trip back is an outing of its own: still away, still not home, and a
+    // second call cannot rewrite it.
+    assert!(
+        !cultivation.view_on(stood + 60, 20_000).at_home,
+        "still away"
+    );
+    assert!(cultivation.view_on(stood + 60, 20_000).work_early);
+    assert!(!cultivation.return_early(stood + 120));
+    // Home again, and paid nothing at all.
+    assert!(
+        cultivation.settle_work(called.ends_unix).is_none(),
+        "a called shift pays no wage"
+    );
+    let home = cultivation.view_on(called.ends_unix, 20_000);
+    assert!(home.at_home, "the trip back ends at home");
+    assert!(!home.work_early);
+    assert!(home.work.is_none(), "the shift is over");
+    assert_eq!(cultivation.document().stones, before, "and fills no purse");
+    assert_eq!(
+        cultivation.document().jobs_roll,
+        0,
+        "a called shift does not turn the board over"
+    );
 }
 
 /// A walk that turns something up says what it turned up: the herb, the piece,

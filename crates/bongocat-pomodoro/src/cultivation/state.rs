@@ -811,6 +811,18 @@ pub struct CultivationView {
     /// A called walk still owes its return trip, so the page keeps it on the
     /// road rather than offering to call it twice.
     pub walk_early: bool,
+    /// Whether the shift under way has already been called home.
+    ///
+    /// The walk's rule, read off the other outing: the page draws the status
+    /// line as "on the way back" instead of offering to call a called shift.
+    pub work_early: bool,
+    /// How long the trip home would cost if the outing were called back now, in
+    /// seconds. Zero while at home.
+    ///
+    /// The page says the price before the click rather than after it: the return
+    /// trip is a third of the time already spent, and a user deciding whether to
+    /// give up the hours is owed that number in the confirmation itself.
+    pub outing_return_seconds: i64,
     /// The instant the guardian can be fought again, while a loss still holds
     /// the attempt.
     pub breakthrough_ready_at: Option<i64>,
@@ -3387,22 +3399,31 @@ impl Cultivation {
         Some(walk)
     }
 
-    /// Call the walk home early.
+    /// Call the outing under way home early — a walk or a shift at a job.
     ///
-    /// The find is forfeit — the road is not walked, so there is nothing on it —
-    /// and the return trip is a third of the time already spent, so calling a
-    /// walk back is a way to stop paying attention to it rather than a way to
-    /// undo it.
+    /// Whichever is holding the cultivator, the rule is the same one: the find
+    /// is forfeit (the road is not walked, the work is not worked), and the trip
+    /// back is a third of the time already spent. So calling an outing back is a
+    /// way to stop paying attention to it rather than a way to undo it, and the
+    /// page can offer the same button whether the cultivator is on the road or
+    /// at a job.
     pub fn return_early(&mut self, now_unix: i64) -> bool {
-        let Some(walk) = self.document.walk else {
-            self.note_refusal(Refusal::ExploreCooldown);
-            return false;
-        };
-        if walk.early {
-            return false;
+        if let Some(walk) = self.document.walk {
+            if walk.early {
+                return false;
+            }
+            self.document.walk = Some(walk.called_home(now_unix));
+            return true;
         }
-        self.document.walk = Some(walk.called_home(now_unix));
-        true
+        if let Some(work) = self.document.work {
+            if work.early {
+                return false;
+            }
+            self.document.work = Some(work.called_home(now_unix));
+            return true;
+        }
+        self.note_refusal(Refusal::NotOut);
+        false
     }
 
     /// Settle the walk that is home: roll what it turned up, pay it, and let the
@@ -3648,6 +3669,12 @@ impl Cultivation {
             return None;
         }
         self.document.work = None;
+        // A shift called home is a shift not worked: no wage, no point, no
+        // record, and no fresh board — the job in hand is the one that was left,
+        // so calling a shift back cannot be a free reroll either.
+        if run.early {
+            return None;
+        }
         // The wage is the figure the board printed, and the wage is the wage:
         // nothing about how the work came off changes what it was. What the work
         // decides is the lasting gain, off the cultivator's hold on the
@@ -3750,6 +3777,21 @@ impl Cultivation {
         self.document
             .work
             .is_some_and(|work| !work.is_done(now_unix))
+    }
+
+    /// What calling the outing under way home would cost, in seconds.
+    ///
+    /// The same price for both kinds of outing, read off the one shared rule: a
+    /// third of the time already spent. Zero while at home, so a caller can read
+    /// it without asking whether anyone is out first.
+    fn return_trip_now(&self, now_unix: i64) -> i64 {
+        if let Some(walk) = self.document.walk.filter(|walk| !walk.is_home(now_unix)) {
+            return super::explore::return_trip_seconds(now_unix.saturating_sub(walk.started_unix));
+        }
+        if let Some(work) = self.document.work.filter(|work| !work.is_done(now_unix)) {
+            return super::explore::return_trip_seconds(now_unix.saturating_sub(work.started_unix));
+        }
+        0
     }
 
     /// Why the tower is closed right now, or `None` when a floor can be climbed.
@@ -4454,6 +4496,11 @@ impl Cultivation {
             // draws the button as "on its way back" rather than offering to
             // call a called walk.
             walk_early: self.document.walk.is_some_and(|walk| walk.early),
+            // And the same for a shift: a called shift is still a shift until
+            // the trip home is over, so the page says so rather than letting a
+            // second call look live and do nothing.
+            work_early: self.document.work.is_some_and(|work| work.early),
+            outing_return_seconds: self.return_trip_now(now_unix),
             breakthrough_ready_at: self.document.breakthrough_blocked_until,
             breakthrough_attempts: self.breakthrough_attempts,
             explorations: self.document.explorations,

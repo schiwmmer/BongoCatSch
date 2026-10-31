@@ -210,7 +210,7 @@ pub(super) fn exploration_panel(
             let view = view.clone();
             move |_, _, cx| {
                 view.update(cx, |view, cx| {
-                    let _ = view.pomodoro.try_publish(PomodoroCommand::ReturnWalk);
+                    let _ = view.pomodoro.try_publish(PomodoroCommand::ReturnEarly);
                     cx.notify();
                 });
             }

@@ -156,6 +156,10 @@ pub enum Refusal {
     Trade(TradeRefusal),
     /// A walk was asked for while the last one is still on cooldown.
     ExploreCooldown,
+    /// An outing was called home while the cultivator was already home: there is
+    /// no road back from nowhere, and a button that only shows while out cannot
+    /// reach this — it is the refusal a hand-made call would get.
+    NotOut,
     /// A trial was asked for while the cultivator is still out on a walk: the
     /// tower is climbed at home, so an unreturned walk closes it.
     TrialOut,
@@ -187,6 +191,7 @@ impl Refusal {
         match self {
             Self::Trade(trade) => trade.key(),
             Self::ExploreCooldown => "cultivation.explore.refuse_cooldown",
+            Self::NotOut => "cultivation.record.refuse_not_out",
             Self::TrialOut => "cultivation.trial.refuse_out",
             Self::TrialDrained => "cultivation.trial.refuse_drained",
             Self::TrialTop => "cultivation.trial.refuse_top",

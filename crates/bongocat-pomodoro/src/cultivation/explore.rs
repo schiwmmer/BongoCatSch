@@ -402,7 +402,7 @@ impl WalkInProgress {
     pub fn called_home(self, now_unix: i64) -> Self {
         let spent = now_unix.saturating_sub(self.started_unix).max(0);
         Self {
-            ends_unix: now_unix.saturating_add((spent / 3).max(MIN_RETURN_SECONDS)),
+            ends_unix: now_unix.saturating_add(return_trip_seconds(spent)),
             early: true,
             ..self
         }
@@ -430,6 +430,17 @@ impl WalkInProgress {
 /// that ended in the same second the button was pressed would read as a walk
 /// that never started rather than as one that came home.
 pub const MIN_RETURN_SECONDS: i64 = 6;
+
+/// How long the trip home takes once an outing has been called back.
+///
+/// A third of the time already spent: the road home is shorter than the road
+/// out, but it is not free, so calling an outing back is a way to stop paying
+/// attention to it rather than a way to undo it. Shared by both kinds of outing
+/// — a walk and a shift — so the two cannot drift into different prices for the
+/// same decision.
+pub fn return_trip_seconds(spent_seconds: i64) -> i64 {
+    (spent_seconds.max(0) / 3).max(MIN_RETURN_SECONDS)
+}
 
 /// Whether the guardian can be fought again: the cooldown after a loss has run
 /// out.

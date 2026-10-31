@@ -250,11 +250,14 @@ pub enum PomodoroCommand {
     /// `hours` is how long the walk is taken for: the same road, walked for
     /// longer, finds more and holds the cultivator longer — four, eight or
     /// twelve, and anything else is read as eight. The walk pays nothing until
-    /// it is back: see [`Self::ReturnWalk`].
+    /// it is back: see [`Self::ReturnEarly`].
     Explore { hours: crate::ExplorationHours },
-    /// Call the walk under way home early. It pays nothing, and the trip back
-    /// is a third of the time already spent.
-    ReturnWalk,
+    /// Call the outing under way home early — a walk or a shift at a job.
+    ///
+    /// It pays nothing, and the trip back is a third of the time already spent.
+    /// One command for both, because the page offers one button whatever kind of
+    /// outing is holding the cultivator, and the rule does not vary by kind.
+    ReturnEarly,
     /// Take the job in that slot of the day's board.
     ///
     /// The slot rather than the job, for the reason the shelf is bought by slot:
@@ -366,7 +369,7 @@ impl PomodoroCommand {
             | Self::Breakthrough
             | Self::SelectArt { .. }
             | Self::Explore { .. }
-            | Self::ReturnWalk
+            | Self::ReturnEarly
             | Self::AcceptJob { .. }
             | Self::RefreshJobs
             | Self::Tower
@@ -593,7 +596,7 @@ impl PomodoroState {
             PomodoroCommand::Explore { hours } => {
                 self.cultivation.explore(now_unix, hours);
             }
-            PomodoroCommand::ReturnWalk => {
+            PomodoroCommand::ReturnEarly => {
                 self.cultivation.return_early(now_unix);
             }
             PomodoroCommand::AcceptJob { slot } => {
@@ -746,7 +749,15 @@ impl PomodoroState {
     /// the cultivator's day, and hours spent while the application was shut have
     /// to be paid on the next launch rather than lost.
     pub fn apply_work_return(&mut self, now_unix: i64) -> bool {
-        if self.cultivation.settle_work(now_unix).is_none() {
+        let before = self.cultivation.document().work;
+        let paid = self.cultivation.settle_work(now_unix);
+        // A shift called home settles with nothing to pay — the payout is what
+        // says "a job came home", not the clock — so the tick has to read the
+        // shift itself: a page left saying "仍在外" about an early shift that is
+        // already over would be reading the save wrong, and a save that is not
+        // written back would bring the dead shift back on the next launch.
+        let came_home = before.is_some() && self.cultivation.document().work.is_none();
+        if paid.is_none() && !came_home {
             return false;
         }
         self.sync_cultivation();
@@ -1487,6 +1498,38 @@ mod tests {
         assert_eq!(snapshot.tasks[0].completed_pomodoros, 1);
         assert_eq!(snapshot.timer, None);
         assert_eq!(snapshot.last_completion, Some(completion));
+    }
+
+    /// 提前返回 from a job, end to end: the command calls the shift home, and the
+    /// tick that finds it home reports that something happened even though
+    /// nothing was paid — a page left saying 外出, or a save that kept the dead
+    /// shift, would be a shift the user cannot get out of.
+    #[test]
+    fn a_shift_called_home_settles_on_the_tick_without_paying() {
+        let mut state = PomodoroState::empty();
+        state.apply(PomodoroCommand::AcceptJob { slot: 0 }, 1_000);
+        assert!(
+            state.snapshot(1).cultivation.work.is_some(),
+            "the job is taken"
+        );
+        // Two hours stood, so the way home is forty minutes.
+        let stood = 1_000 + 2 * 3_600;
+        state.apply(PomodoroCommand::ReturnEarly, stood);
+        let called = state
+            .snapshot(1)
+            .cultivation
+            .work
+            .expect("still on the way back");
+        assert!(called.early, "the shift is called home");
+        assert_eq!(called.ends_unix, stood + 2_400, "two hours out, forty back");
+        // Still out: the tick has nothing to settle.
+        assert!(!state.apply_work_return(called.ends_unix - 1));
+        // Home: settled, and the tick says so although no wage was paid.
+        assert!(state.apply_work_return(called.ends_unix));
+        let view = state.snapshot(1).cultivation;
+        assert!(view.work.is_none(), "the shift is over");
+        assert!(view.at_home, "and the cultivator is home");
+        assert_eq!(view.stones, 0, "a called shift pays no 灵石");
     }
 
     #[test]

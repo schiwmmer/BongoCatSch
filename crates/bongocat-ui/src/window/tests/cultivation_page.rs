@@ -435,6 +435,7 @@ fn a_taken_job_reads_as_taken_not_open(cx: &mut TestAppContext) {
         hours: 1,
         grade: ArtGrade::Yellow,
         kind: JobKind::default(),
+        early: false,
     });
     let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
     let (_view, visual) = cultivation_page_with(cx, pomodoro);
@@ -465,6 +466,10 @@ fn the_door_reads_where_the_cultivator_is(cx: &mut TestAppContext) {
         painted(visual, "cultivation-at-home"),
         "the door is drawn while the cultivator is at home"
     );
+    assert!(
+        !painted(visual, "cultivation-return-early"),
+        "at home there is no outing to call back"
+    );
     let mut away = Cultivation::default().view();
     away.at_home = false;
     let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(away));
@@ -474,6 +479,12 @@ fn the_door_reads_where_the_cultivator_is(cx: &mut TestAppContext) {
     assert!(
         painted(visual, "cultivation-at-home"),
         "the door is drawn while the cultivator is out"
+    );
+    // Every outing is called back the same way, so the control is drawn off the
+    // door rather than off which outing it is.
+    assert!(
+        painted(visual, "cultivation-return-early"),
+        "an outing can always be called home"
     );
 }
 
@@ -579,7 +590,7 @@ fn a_walk_under_way_offers_to_come_home(cx: &mut TestAppContext) {
     });
     let commands = published(&sink);
     assert!(
-        matches!(commands.as_slice(), [PomodoroCommand::ReturnWalk]),
+        matches!(commands.as_slice(), [PomodoroCommand::ReturnEarly]),
         "the click asks the worker to call the walk home: {commands:?}"
     );
 }

@@ -309,6 +309,13 @@ pub struct JobRun {
     /// What the job trains, read again when it comes home.
     #[serde(default)]
     pub kind: JobKind,
+    /// Whether the user called the shift home early.
+    ///
+    /// A called shift pays nothing — the work is not worked, so there is no
+    /// wage and no point — and what it costs is the trip back, a third of the
+    /// time already spent, exactly as a called walk pays for it.
+    #[serde(default)]
+    pub early: bool,
 }
 
 impl JobRun {
@@ -321,6 +328,22 @@ impl JobRun {
             hours: offer.hours,
             grade: offer.grade,
             kind: offer.kind,
+            early: false,
+        }
+    }
+
+    /// The same shift, called home at `now_unix`.
+    ///
+    /// The return trip is [`super::explore::return_trip_seconds`] — a third of
+    /// the hours already stood, with a floor so the button is never a way to
+    /// undo a shift for nothing. The shift has not been worked, so it is marked
+    /// early and [`crate::Cultivation::settle_work`] will pay it nothing.
+    pub fn called_home(self, now_unix: i64) -> Self {
+        let spent = now_unix.saturating_sub(self.started_unix).max(0);
+        Self {
+            ends_unix: now_unix.saturating_add(super::explore::return_trip_seconds(spent)),
+            early: true,
+            ..self
         }
     }
 
