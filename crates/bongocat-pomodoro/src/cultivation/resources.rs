@@ -330,8 +330,43 @@ impl CollectionYield {
     }
 }
 
+/// The finds one site turns up, each with the base amount and the trade level
+/// that scales it. The forest pays 木材 and (once 伐木 has earned it) 煤; the
+/// mountain 石块 and (once 采石 has) 铁; the mine pays the two rares and no
+/// common find at all.
+fn site_finds(
+    site: GatherSite,
+    woodcut: u8,
+    stonecut: u8,
+) -> [Option<(Resource, u32, u8)>; 2] {
+    match site {
+        GatherSite::Forest => [
+            Some((Resource::Wood, BASE_COMMON_YIELD, woodcut)),
+            (woodcut >= COAL_UNLOCK_LEVEL).then_some((Resource::Coal, BASE_RARE_YIELD, woodcut)),
+        ],
+        GatherSite::Mountain => [
+            Some((Resource::Stone, BASE_COMMON_YIELD, stonecut)),
+            (stonecut >= IRON_UNLOCK_LEVEL).then_some((Resource::Iron, BASE_RARE_YIELD, stonecut)),
+        ],
+        GatherSite::Mine => [
+            (stonecut >= IRON_UNLOCK_LEVEL).then_some((Resource::Iron, BASE_RARE_YIELD, stonecut)),
+            (woodcut >= COAL_UNLOCK_LEVEL).then_some((Resource::Coal, BASE_RARE_YIELD, woodcut)),
+        ],
+    }
+}
+
+/// The skill xp one gathering banks, per trade, before the 道场 scaling.
+fn site_xp(site: GatherSite, dojo: u8) -> (u32, u32) {
+    match site {
+        GatherSite::Forest => (scale_xp(dojo), 0),
+        GatherSite::Mountain => (0, scale_xp(dojo)),
+        // The mine works both trades, so it trains both.
+        GatherSite::Mine => (scale_xp(dojo), scale_xp(dojo)),
+    }
+}
+
 /// One collection at `site`, by a cultivator with the two trade levels and the
-/// two building levels that touch it.
+/// two building levels that touch it — one round's worth.
 pub fn collect(
     site: GatherSite,
     woodcut: u8,
@@ -339,55 +374,14 @@ pub fn collect(
     workshop: u8,
     dojo: u8,
 ) -> CollectionYield {
-    let (woodcut_xp, stonecut_xp) = match site {
-        GatherSite::Forest => (scale_xp(dojo), 0),
-        GatherSite::Mountain => (0, scale_xp(dojo)),
-        // The mine works both trades and pays both rare finds: it is the place
-        // a cultivator goes when the two trained hands are worth more together.
-        GatherSite::Mine => (scale_xp(dojo), scale_xp(dojo)),
-    };
-    let (skill_level, common, rare, rare_unlocked) = match site {
-        GatherSite::Forest => (
-            woodcut,
-            Resource::Wood,
-            Resource::Coal,
-            woodcut >= COAL_UNLOCK_LEVEL,
-        ),
-        GatherSite::Mountain => (
-            stonecut,
-            Resource::Stone,
-            Resource::Iron,
-            stonecut >= IRON_UNLOCK_LEVEL,
-        ),
-        // The mine pays only the two rare finds: it is the place a cultivator
-        // goes when the two trained hands are worth more together, and what it
-        // turns up is what the two trades have earned — no common find at all.
-        GatherSite::Mine => {
-            let iron = stonecut >= IRON_UNLOCK_LEVEL;
-            let coal = woodcut >= COAL_UNLOCK_LEVEL;
-            let mut gained = ResourceBag::default();
-            let yield_ = |level: u8| scale_yield(BASE_RARE_YIELD, level, workshop);
-            if iron {
-                gained.add(Resource::Iron, yield_(stonecut));
-            }
-            if coal {
-                gained.add(Resource::Coal, yield_(woodcut));
-            }
-            return CollectionYield {
-                gained,
-                woodcut_xp,
-                stonecut_xp,
-            };
-        }
-    };
     let mut gained = ResourceBag::default();
-    gained.add(
-        common,
-        scale_yield(BASE_COMMON_YIELD, skill_level, workshop),
-    );
-    if rare_unlocked {
-        gained.add(rare, scale_yield(BASE_RARE_YIELD, skill_level, workshop));
+    for (resource, base, trade) in site_finds(site, woodcut, stonecut)
+        .into_iter()
+        .flatten()
+    {
+        gained.add(resource, scale_yield(base, trade, workshop));
     }
+    let (woodcut_xp, stonecut_xp) = site_xp(site, dojo);
     CollectionYield {
         gained,
         woodcut_xp,
@@ -444,18 +438,26 @@ pub fn collect_scaled(
     dojo: u8,
     duration_permille: u32,
 ) -> CollectionYield {
-    let base = collect(site, woodcut, stonecut, workshop, dojo);
+    // The session length folds into the single division, not onto an already
+    // truncated per-round count: the raw product times the length is divided
+    // once, so a 工坊 level is never rounded away between the two stages. This
+    // is the doc's "只在最后截断一次" — `collect` truncates the same product
+    // once at the round scale, and the two agree at every round boundary.
     let mut gained = ResourceBag::default();
-    for resource in Resource::ALL {
-        let count = base.gained.get(resource);
-        if count > 0 {
-            gained.add(resource, count.saturating_mul(duration_permille) / 1_000);
-        }
+    for (resource, base, trade) in site_finds(site, woodcut, stonecut)
+        .into_iter()
+        .flatten()
+    {
+        gained.add(
+            resource,
+            scale_yield_session(base, trade, workshop, duration_permille),
+        );
     }
+    let (woodcut_xp, stonecut_xp) = site_xp(site, dojo);
     CollectionYield {
         gained,
-        woodcut_xp: base.woodcut_xp.saturating_mul(duration_permille) / 1_000,
-        stonecut_xp: base.stonecut_xp.saturating_mul(duration_permille) / 1_000,
+        woodcut_xp: woodcut_xp.saturating_mul(duration_permille) / 1_000,
+        stonecut_xp: stonecut_xp.saturating_mul(duration_permille) / 1_000,
     }
 }
 
@@ -517,16 +519,27 @@ impl SessionMode {
     }
 }
 
-/// The yield of one find at a given trade level and 工坊 level.
-///
-/// A single division at the end, rather than one after each multiplier: two
-/// floors in a row quietly eat the low levels of a small yield — a 工坊 at five
-/// is five percent of a base of four, which a two-step truncation rounds to
-/// nothing. One truncation keeps every level's increment visible.
+/// The un-truncated yield of one find at a trade level and 工坊 level: the base
+/// amount times both permille multipliers, in millionths. `collect` divides it
+/// once per round; `collect_scaled` multiplies in the session length and divides
+/// once per session — so a 工坊 level is never rounded away between the two, the
+/// way a per-round floor fed into a second floor used to eat the low levels.
+fn raw_find(base: u32, trade_level: u8, workshop: u8) -> u64 {
+    let trade = u64::from(1_000 + u32::from(trade_level) * 50);
+    let workshop_m = u64::from(1_000 + u32::from(workshop) * Building::Workshop.permille());
+    u64::from(base) * trade * workshop_m
+}
+
+/// The yield of one find in a single round: the raw product divided once.
 fn scale_yield(base: u32, trade_level: u8, workshop: u8) -> u32 {
-    let trade = 1_000 + u32::from(trade_level) * 50;
-    let workshop_m = 1_000 + u32::from(workshop) * Building::Workshop.permille();
-    base.saturating_mul(trade).saturating_mul(workshop_m) / 1_000_000
+    (raw_find(base, trade_level, workshop) / 1_000_000) as u32
+}
+
+/// The yield of one find across a session of `duration_permille` thousandths of
+/// a round: the raw product times the length, divided once — never the
+/// already-truncated per-round count times the length, which would floor twice.
+fn scale_yield_session(base: u32, trade_level: u8, workshop: u8, duration_permille: u32) -> u32 {
+    (raw_find(base, trade_level, workshop) * u64::from(duration_permille) / 1_000_000_000) as u32
 }
 
 /// The skill xp one gathering pays at a given 道场 level.
@@ -828,22 +841,53 @@ mod tests {
 
     #[test]
     fn a_scaled_session_pays_proportionally() {
-        let one = collect(GatherSite::Forest, 1, 1, 0, 0);
+        // A one-round session is exactly one round: both paths divide the same
+        // raw product, one at the round scale and one at the session scale.
+        let one_round = collect(GatherSite::Forest, 1, 1, 0, 0);
+        let one_session = collect_scaled(GatherSite::Forest, 1, 1, 0, 0, 1_000);
+        assert_eq!(one_session.gained.wood, one_round.gained.wood);
+        assert_eq!(one_session.woodcut_xp, one_round.woodcut_xp);
+
+        // A longer session pays in proportion to its length (integer floor aside).
         let three = collect_scaled(GatherSite::Forest, 1, 1, 0, 0, 3_000);
-        assert_eq!(three.gained.wood, one.gained.wood * 3);
-        assert_eq!(three.woodcut_xp, one.woodcut_xp * 3);
+        let six = collect_scaled(GatherSite::Forest, 1, 1, 0, 0, 6_000);
+        assert!(
+            (i64::from(six.gained.wood) - 2 * i64::from(three.gained.wood)).abs() <= 2,
+            "a doubled session roughly doubles the haul: {} vs {}",
+            six.gained.wood,
+            three.gained.wood * 2
+        );
+        assert_eq!(three.woodcut_xp, one_round.woodcut_xp * 3);
         assert_eq!(
             three.stonecut_xp,
-            one.stonecut_xp * 3,
+            one_round.stonecut_xp * 3,
             "forest trains 伐木 alone"
         );
-        // The rare find scales too, so a trained hand's deeper haul is not a
-        // flat number.
+
+        // The rare find scales too, so a trained hand's deeper haul is not flat.
         let trained = collect(GatherSite::Mountain, 1, IRON_UNLOCK_LEVEL, 0, 0);
         let trained_session =
             collect_scaled(GatherSite::Mountain, 1, IRON_UNLOCK_LEVEL, 0, 0, 2_500);
-        assert_eq!(trained_session.gained.iron, trained.gained.iron * 25 / 10);
-        assert_eq!(trained_session.gained.stone, trained.gained.stone * 25 / 10);
+        assert!(trained_session.gained.iron > 0 && trained_session.gained.iron >= trained.gained.iron);
+        assert!(trained_session.gained.stone > trained.gained.stone);
+    }
+
+    #[test]
+    fn a_workshop_level_never_loses_its_increment_across_a_session() {
+        // The one-truncation fix: a session's yield is the raw product times the
+        // length, divided once — so every 工坊 level moves the haul. The old
+        // double floor left half the levels paying the same number (169, 169,
+        // 197, 197, … at 仙人 12h); now each level adds.
+        let duration = rounds_per_hour_permille(9) * 12; // 仙人, a 12h expedition
+        let mut prev = 0;
+        for workshop in 0..=10 {
+            let haul = collect_scaled(GatherSite::Forest, 10, 0, workshop, 0, duration).gained.wood;
+            assert!(
+                haul > prev,
+                "满配仙人 12h 工坊 {workshop} 级没有涨产量: {haul} <= {prev}"
+            );
+            prev = haul;
+        }
     }
 
     #[test]
