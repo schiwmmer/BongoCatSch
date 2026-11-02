@@ -31,6 +31,32 @@ pub(crate) struct ProductOverlaySession {
     pub(crate) resize_sender: Option<SyncSender<OverlayResizeOutcome>>,
     pub(crate) right_button_monitor: Option<RightButtonMonitor>,
     pub(crate) hover: PointerHoverHide,
+    /// The hover stats panel under the cat. It shares the session's frame
+    /// tick: the same pointer hit-test that drives the hover hide decides
+    /// when the HUD shows, so the two surfaces can never disagree about
+    /// whether the pointer is on the cat.
+    pub(crate) stats_hud: Option<StatsHud>,
+    /// The countdown on the cat's mouse pad, and the performance a finished
+    /// session plays.
+    ///
+    /// Both are presentation-only: a panel that cannot be created degrades to no
+    /// countdown and no performance, and the cat, the counters and the input
+    /// service keep working without them.
+    pub(crate) pomodoro: Option<PomodoroSurfaces>,
+    /// The last completion sequence the surfaces have already played.
+    ///
+    /// The worker reports a completion by putting a new sequence in its snapshot;
+    /// remembering the one already played is what stops a session that finishes
+    /// between two polls from playing twice.
+    pub(crate) played_completion: u64,
+    /// The countdown the application last published, as the overlay draws it.
+    pub(crate) pomodoro_timer: Option<crate::OverlayPomodoroTimer>,
+    /// The completion the application last published, if any.
+    pub(crate) pomodoro_completion: Option<crate::OverlayPomodoroCompletion>,
+    /// The cultivation copy the HUD draws, composed by the
+    /// application: the overlay has no locale of its own, and the copy is the
+    /// application's business.
+    pub(crate) cultivation: Option<crate::OverlayCultivationText>,
     /// Inactivity hide shares the session's frame tick and the hover hide's
     /// fade window: both are temporary presentation states layered on the
     /// same alpha channel, and the pointer routing treats either one as
@@ -56,6 +82,7 @@ impl ProductOverlaySession {
         let OverlayInteractionSinks {
             context_menu_sender,
             resize_sender,
+            pomodoro_menu_sender,
         } = interaction_sinks;
         validate_product_options(options)?;
         let initial_frame = render_consumer
@@ -131,6 +158,13 @@ impl ProductOverlaySession {
             context_menu_sender.clone(),
             resize_sender.clone(),
         );
+        // The HUD is presentation-only: a panel that cannot be created
+        // degrades to no HUD, and the cat, the counters and the input
+        // service keep working without it.
+        let stats_hud = StatsHud::create(mtm, "").ok();
+        let pomodoro = PomodoroSurfaces::create(mtm, pomodoro_menu_sender).ok();
+        // A pomodoro surface set that came up empty is not worth reporting: the
+        // countdown is decoration next to a cat the user is still using.
         Ok(Self {
             application,
             overlay,
@@ -153,6 +187,12 @@ impl ProductOverlaySession {
             resize_sender,
             right_button_monitor: context_menu_monitor,
             hover: PointerHoverHide::default(),
+            stats_hud,
+            pomodoro,
+            played_completion: 0,
+            pomodoro_timer: None,
+            pomodoro_completion: None,
+            cultivation: None,
             idle: IdleHide::default(),
             placement: OverlayPlacementConstraint::default(),
             session_started: Instant::now(),
@@ -521,13 +561,33 @@ impl ProductOverlaySession {
         // asks whether the pointer is over the window, and `force_move`
         // accumulates the model's position from relative motion, which is only an
         // estimate of where the pointer is.
-        let pointer_inside = !resizing
-            && cursor
-                .and_then(|sample| appkit_pointer_position(sample.pointer, mtm))
-                .is_some_and(|position| pointer_inside_window(bounds, position.x, position.y));
+        let pointer = cursor
+            .and_then(|sample| appkit_pointer_position(sample.pointer, mtm))
+            .map(|position| (position.x, position.y));
+        // The pointer resting on the countdown counts as being on the cat: the
+        // countdown is part of the cat's surface, and fading the cat out from
+        // under a panel the user is about to right-click would make that panel
+        // unreachable just as they reach for it.
+        let on_countdown = self
+            .pomodoro
+            .as_ref()
+            .zip(pointer)
+            .is_some_and(|(pomodoro, (x, y))| pomodoro.countdown_is_under_pointer(x, y));
+        let pointer_inside = (!resizing
+            && pointer.is_some_and(|(x, y)| pointer_inside_window(bounds, x, y)))
+            || on_countdown;
         let now = self.session_started.elapsed();
+        // A running pomodoro is work the user is doing *on* the cat: the pad
+        // carries the countdown and a right-click on the model is how the
+        // session is paused or abandoned. The hover hide takes both away —
+        // once it has faded the cat out it starts passing pointer events
+        // through, so the right-click lands on the desktop instead and the
+        // session is unreachable until the pointer leaves and the cat comes
+        // back. The hover hide therefore stands down for as long as a timer
+        // is on the clock, and resumes the moment the session ends.
+        let session_running = self.pomodoro_timer.is_some();
         let fade = self.hover.observe(PointerHoverObservation {
-            enabled: options.hide_on_pointer_hover && input_running && !held,
+            enabled: options.hide_on_pointer_hover && input_running && !held && !session_running,
             delay: Duration::from_millis(u64::from(options.hide_on_pointer_hover_delay_ms)),
             pointer_inside,
             now,
@@ -545,7 +605,103 @@ impl ProductOverlaySession {
             alpha,
             (options.click_through && !held) || self.hover.hidden() || self.idle.hidden(),
         );
+        // The stats HUD shares the hit test above: the pointer resting on the
+        // cat (and the session actually presenting the cat) is what raises it.
+        // The text refreshes only when a counter changed, so an idle hover
+        // costs one bounds comparison per frame. The visibility flag comes
+        // from the client's snapshot slot rather than an eighth argument.
+        let hud_allowed =
+            pointer_inside && input_running && self.runtime_client.snapshot().overlay_visible;
+        if let Some(hud) = self.stats_hud.as_mut() {
+            match (hud_allowed, self.cultivation.as_ref()) {
+                (true, Some(copy)) => {
+                    let screens = screen_bounds_all(mtm).unwrap_or_default();
+                    hud.set_status(
+                        &copy.hud,
+                        f64::from(copy.hud_progress_permille.min(1_000)) / 1_000.0,
+                    );
+                    hud.show_below(bounds, &screens);
+                }
+                _ => hud.hide(),
+            }
+        }
+        // The countdown keeps the cat's own visibility gates: it is part of
+        // the surface the user interacts with, so a countdown left floating
+        // over a cat the user hid would be the one thing still on screen.
+        let cat_shown = !self.hover.hidden() && !self.idle.hidden();
+        self.update_pomodoro(bounds, cat_shown)?;
         Ok(())
+    }
+
+    /// The right-click the countdown raised since the last call, taken once.
+    ///
+    /// The monitor records the request and this takes it, so a click that lands
+    /// between two frames is not lost and one that lands twice in a frame is
+    /// raised once.
+    pub(crate) fn take_pomodoro_menu_request(&self) -> Option<crate::OverlayPomodoroMenuRequest> {
+        self.pomodoro
+            .as_ref()
+            .and_then(PomodoroSurfaces::take_menu_request)
+    }
+
+    /// Advance the countdown and any running performance.
+    ///
+    /// The swing is applied to the cat's *real* frame while every geometry the
+    /// product reasons about keeps reading the logical box `bounds` was taken
+    /// from. That separation is the whole point: the placement correction would
+    /// otherwise read a swinging cat as one dragged off screen and pull it back,
+    /// and the hover hit test would flicker as the cat moved under a stationary
+    /// pointer.
+    fn update_pomodoro(
+        &mut self,
+        bounds: OverlayWindowBounds,
+        cat_visible: bool,
+    ) -> Result<(), OverlayError> {
+        let timer = self.pomodoro_timer;
+        let completion = self.pomodoro_completion;
+        let Some(pomodoro) = self.pomodoro.as_mut() else {
+            return Ok(());
+        };
+        // A completion that arrived is played once, whatever else this frame is
+        // doing. It is checked before the timer so a session that finished is
+        // performed even if the snapshot already has no timer on it.
+        if let Some(completion) = completion
+            && completion.sequence > self.played_completion
+        {
+            self.played_completion = completion.sequence;
+            pomodoro.start_performance(bounds);
+        }
+        let swing = pomodoro.advance();
+        self.overlay.apply_swing(swing);
+        if cat_visible {
+            pomodoro.show_countdown(timer, bounds);
+        } else {
+            pomodoro.hide_countdown();
+        }
+        Ok(())
+    }
+
+    /// Take the countdown and completion the application has published.
+    ///
+    /// They arrive through the overlay's own options rather than the runtime
+    /// snapshot because the pomodoro worker is not part of the runtime: it owns
+    /// its own thread and its own document, and folding it into the runtime
+    /// would make the runtime own a feature the cat does not draw.
+    pub(crate) fn set_pomodoro_state(
+        &mut self,
+        timer: Option<crate::OverlayPomodoroTimer>,
+        completion: Option<crate::OverlayPomodoroCompletion>,
+    ) {
+        self.pomodoro_timer = timer;
+        self.pomodoro_completion = completion;
+    }
+
+    /// Take the cultivation copy the application composed.
+    ///
+    /// Passing `None` hides both surfaces: a client with no worker has no
+    /// realm to show, and a stale realm would be worse than none.
+    pub(crate) fn set_cultivation_text(&mut self, copy: Option<crate::OverlayCultivationText>) {
+        self.cultivation = copy;
     }
 
     /// Create a native window that already carries the current hover fade.
@@ -573,9 +729,13 @@ impl ProductOverlaySession {
 
     pub(crate) fn window_bounds(&self) -> Result<OverlayWindowBounds, OverlayError> {
         let frame = self.overlay.panel.frame();
+        // The origin is the logical one, without the performance swing: every
+        // caller of this box reasons about where the cat *is*, and a cat mid-swing
+        // is still where the user put it.
+        let origin = self.overlay.logical_origin();
         OverlayWindowBounds::new(
-            rounded_i32(frame.origin.x)?,
-            rounded_i32(frame.origin.y)?,
+            rounded_i32(origin.x)?,
+            rounded_i32(origin.y)?,
             rounded_u32(frame.size.width)?,
             rounded_u32(frame.size.height)?,
         )

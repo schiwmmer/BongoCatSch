@@ -17,12 +17,9 @@ body:
     id: platform
     attributes:
       label: Platform
-      description: Which operating system would this be for? Linux is not a release target, so those requests are not planned.
+      description: Which operating system would this be for? macOS is the only release target.
       options:
-        - Windows
         - macOS
-        - Both
-        - Linux (not a release target)
     validations:
       required: true
 

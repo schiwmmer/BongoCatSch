@@ -1,0 +1,71 @@
+//! Locating files the app ships in its `resources` directory.
+//!
+//! Two layouts, one answer. A macOS app bundle keeps them in
+//! `Contents/Resources`, and a build-tree run keeps them in the repository's
+//! own `resources` directory. The candidates are tried in that order and the
+//! first that exists wins, so a bundle never silently falls back to the
+//! repository it was built from.
+//!
+//! Callers pass a path relative to `resources` (`pomodoro/tomato-filled.png`),
+//! the same spelling the repository layout and the bundle layout share.
+
+use std::path::PathBuf;
+
+/// Resolve a bundled resource by its `resources`-relative path.
+///
+/// Falls back to the `resources`-relative spelling when nothing exists yet —
+/// the caller gets a path it can report rather than an empty guess.
+pub fn bundled_resource(relative: &str) -> PathBuf {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(executable) = std::env::current_exe()
+        && let Some(directory) = executable.parent()
+    {
+        // macOS app bundle: <bundle>/Contents/MacOS/<exe> -> <bundle>/Contents/Resources.
+        candidates.push(directory.join("../Resources").join(relative));
+        // A bare binary run outside a bundle: a resources directory
+        // beside the executable.
+        candidates.push(directory.join("resources").join(relative));
+    }
+    // Build-tree run: the repository's resources directory.
+    candidates.push(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../resources")
+            .join(relative),
+    );
+
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.exists())
+        .unwrap_or_else(|| PathBuf::from("resources").join(relative))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_repository_resource_resolves_to_an_existing_file() {
+        // The tomato icons ship in the repository's resources directory, so a
+        // build-tree test run must find them through the manifest candidate.
+        let path = super::bundled_resource("pomodoro/tomato-filled.png");
+        assert!(
+            path.exists(),
+            "the filled tomato icon should resolve in a build-tree run: {}",
+            path.display()
+        );
+        assert!(
+            path.ends_with("pomodoro/tomato-filled.png"),
+            "the resolved path keeps the requested spelling: {}",
+            path.display()
+        );
+    }
+
+    #[test]
+    fn a_missing_resource_falls_back_to_the_requested_spelling() {
+        // Nothing to find: the answer is still a path the caller can show,
+        // never an empty string or a panic.
+        let path = super::bundled_resource("pomodoro/does-not-exist.png");
+        assert_eq!(
+            path,
+            std::path::PathBuf::from("resources/pomodoro/does-not-exist.png")
+        );
+    }
+}

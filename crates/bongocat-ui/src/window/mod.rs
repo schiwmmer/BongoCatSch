@@ -23,6 +23,7 @@ use bongocat_platform::{
     ModelSourcePickerError, ModelSourcePickerOutcome, pick_model_cover, pick_model_folder,
     validate_model_folder,
 };
+use bongocat_pomodoro::{PomodoroClient, PomodoroCommand};
 use gpui_kit::component::{
     ActiveTheme, Disableable, Icon, IndexPath, Root, Theme, ThemeMode, ThemeStyled, WindowExt,
     button::{Button, ButtonVariant, ButtonVariants},
@@ -55,6 +56,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod cultivation_duel;
+use cultivation_duel::{CultivationDuel, CultivationDuelActions, CultivationDuelSource};
+mod cultivation_settings;
 mod presentation;
 use presentation::*;
 mod about;
@@ -84,6 +88,7 @@ use model_import_card::ModelImportCard;
 use model_mver_dialog::build_mver_mode_dialog;
 mod models;
 mod navigation;
+mod pomodoro_settings;
 pub use navigation::SettingsNavigationMemory;
 use navigation::{SettingsNavigationPage, model_library_search_keywords};
 mod render;
@@ -94,8 +99,6 @@ mod shortcuts;
 mod shortcuts_page;
 mod smoke;
 mod view_state;
-#[cfg(target_os = "windows")]
-mod window_mode;
 use crate::pop_confirm::PopConfirm;
 pub use lifecycle::open_settings_window;
 use localization::{
@@ -121,6 +124,12 @@ const MODEL_EDIT_CANCEL_TAB_INDEX: isize = 73;
 struct SettingsServiceErrorNotification;
 
 struct ShortcutConflictNotification;
+
+/// Marks the notification pushed when a cultivation action was refused.
+///
+/// Its own marker rather than the service error's, so a refusal does not
+/// replace a message the user is still reading about something else.
+struct CultivationRefusalNotification;
 
 /// Marks the notification pushed when the model catalog cannot be read.
 ///
@@ -214,14 +223,166 @@ pub struct SettingsWindowSeed {
     pub appearance_theme: SettingsTheme,
 }
 
+/// Which surface the pomodoro settings page is showing.
+///
+/// The page keeps a task list and a month calendar; the toggle only swaps
+/// which one the body renders, so the task data the list reads is never lost
+/// when the user looks at the calendar and back. The cultivation ladder is a
+/// settings page of its own and not one of these views.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PomodoroSettingsView {
+    List,
+    Calendar,
+}
+
+/// Seconds since the Unix epoch, or zero when the clock predates it.
+///
+/// The pomodoro surfaces use it to mark today on the calendar and to draw how
+/// long a crop has left; both are display-only subtractions, so a clock that
+/// cannot answer reads as "ripe" rather than failing the page.
+pub(super) fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// What the pomodoro task editor is working on.
+///
+/// One editor exists at a time and it belongs to the view rather than to a
+/// row, because a row is rebuilt every frame and the draft has to survive
+/// that — the same reason the model rename keeps its draft on the view.
+/// `New` creates a task; `Existing` rewrites the one named by its id; `Duplicate`
+/// opens the editor pre-filled from an existing task but submits a fresh
+/// `CreateTask`, so the source stays put and a second copy with the same details
+/// is what lands in the list — the menu's "copy" hands the user a confirm step
+/// rather than cloning silently.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PomodoroEditorTarget {
+    New,
+    Existing(u64),
+    Duplicate(u64),
+}
+
 pub struct SettingsView {
-    #[cfg(target_os = "windows")]
-    pub(crate) window_background_color: Entity<gpui_kit::component::color_picker::ColorPickerState>,
-    #[cfg(target_os = "windows")]
-    pub(crate) window_background_debouncer: crate::SettingsPatchDebouncer<[u8; 3]>,
-    #[cfg(target_os = "windows")]
-    pub(crate) window_background_timer_generation: u64,
     pub(crate) client: SettingsClient,
+    /// The pomodoro timer client, so the settings page can read the task list
+    /// and toggle a task's done state without owning the worker.
+    pub(crate) pomodoro: PomodoroClient,
+    /// The free-text filter the task-list subview applies to task names.
+    pub(crate) pomodoro_search: String,
+    /// Whether the pomodoro page shows the task list or the month calendar.
+    pub(crate) pomodoro_view: PomodoroSettingsView,
+    /// The (year, month) the calendar subview is currently displaying.
+    pub(crate) pomodoro_display_month: (i32, u32),
+    /// Whether the pomodoro task list has its finished-tasks group unfolded.
+    /// Finished tasks fold by default; a search overrides the fold and shows
+    /// every match.
+    pub(crate) pomodoro_done_expanded: bool,
+    /// How many days the pomodoro trend chart spans: 7 or 30.
+    pub(crate) pomodoro_chart_days: usize,
+    /// The calendar day the user picked, or `None` while the chart ends on
+    /// today. Clicking a calendar cell selects that day (future days refuse),
+    /// the day-detail strip lists its tasks, and the trend chart rewinds its
+    /// window to end on it.
+    pub(crate) pomodoro_selected_day: Option<bongocat_pomodoro::CalendarDay>,
+    /// The search box the task-list subview filters task names with. Stored as an
+    /// input entity rather than a bare string so the field keeps its own cursor
+    /// and selection across frames; the typed text is mirrored into
+    /// `pomodoro_search` on every change for filtering.
+    pub(crate) pomodoro_search_input: Entity<InputState>,
+    /// The task editor the task-list subview is showing, or `None` while no
+    /// task is being created or edited. Opening the editor from the calendar
+    /// switches the page back to the list, so the fields are never open on a
+    /// subview that does not render them.
+    pub(crate) pomodoro_editor: Option<PomodoroEditorTarget>,
+    /// The editor's name field, kept as an entity beside the search box's for
+    /// the same reason: the field keeps its own cursor while the rows around
+    /// it are rebuilt every frame.
+    pub(crate) pomodoro_editor_name: Entity<InputState>,
+    /// The editor's expected-session-count field.
+    pub(crate) pomodoro_editor_sessions: Entity<InputState>,
+    /// The last pomodoro revision the settings window rendered, so the background
+    /// poll can tell a real change from an idle tick and only then `cx.notify()`.
+    pub(crate) pomodoro_observed_revision: u64,
+    /// The whole minutes left on the soonest crop the cultivation page last
+    /// drew. A crop ripens on the wall clock rather than on a worker change, so
+    /// this is what lets the poll repaint the garden when a plot turns pickable
+    /// without cloning the snapshot on every idle tick.
+    pub(crate) cultivation_minute_observed: Option<i64>,
+    /// Which item's attribute breakdown the cultivation page has open, if any.
+    /// Clicking an item's name toggles it; only one stays open at a time so a
+    /// long satchel stays scannable.
+    pub(crate) cultivation_open_item: Option<u64>,
+    /// Which shelf slot's detail the cultivation page has open, if any.
+    /// Clicking a shelf row's name toggles it, the same one-open-at-a-time rule
+    /// the inventory rows follow.
+    pub(crate) cultivation_open_offer: Option<usize>,
+    /// Which seed stack's harvest facts the cultivation page has open, if any.
+    ///
+    /// A seed is the same seed on the shelf, in the satchel and in the ground,
+    /// so one click anywhere says what it will pay: the attribute, the points
+    /// and how long it takes. One open at a time, the rule every other
+    /// expandable row on this page follows.
+    pub(crate) cultivation_open_seed: Option<cultivation_settings::SeedKey>,
+    /// Which plot's crop facts the cultivation page has open, if any. Kept
+    /// apart from the seed above because a plot is addressed by its index, not
+    /// by what is growing in it: two plots can hold the same herb.
+    pub(crate) cultivation_open_plot: Option<usize>,
+    /// Whether the cultivation page's full event history is open over the
+    /// page. The page carries the click, the window frame carries the popup,
+    /// so this is all the state there is.
+    pub(crate) cultivation_events_open: bool,
+    /// The local day whose morning event this window has already opened, so
+    /// the day's ambush is shown exactly once.
+    ///
+    /// A day rather than a count: the window is rebuilt on every launch, and a
+    /// count that started from zero would replay the last ambush the save has
+    /// on file as if it had just happened. The day is the one the snapshot was
+    /// read for, and the domain writes the same day down when the popup is
+    /// acknowledged, so a relaunch the same afternoon stays quiet.
+    pub(crate) cultivation_daily_seen_day: Option<i64>,
+    /// Whether the learned 功法 panel has been unfolded past the three it shows.
+    ///
+    /// A save can know a hundred 功法 and still be working on three: the panel
+    /// answers "what am I training", and the full list is one click away.
+    pub(crate) cultivation_mastered_open: bool,
+    /// Whether the seed panel has been unfolded past the five it shows.
+    ///
+    /// Five is what the panel shows by default, lowest grade first: a satchel of
+    /// twenty stacks is a page of its own, and the seeds worth planting first are
+    /// the cheap ones a young garden can actually bring up. Everything else is
+    /// one click away, the rule the learned 功法 panel above already follows.
+    pub(crate) cultivation_seeds_open: bool,
+    /// The walk length the user has chosen, in hours: four, eight or twelve.
+    ///
+    /// A preference rather than a record: the domain is told the length with
+    /// every walk, so the page only has to remember which chip is lit. Eight is
+    /// the middle of the three and the closest to the ten hours the road used to
+    /// take, which is why it is where a fresh page starts.
+    pub(crate) cultivation_explore_hours: u8,
+    /// Whether the realm ladder is unfolded under the realm line.
+    ///
+    /// Closed by default: the page is one scrolling column, and the ten-realm
+    /// list is reference material rather than something to read every launch.
+    /// Clicking the realm line opens it, and the same click closes it.
+    pub(crate) cultivation_ladder_open: bool,
+    /// The fight the cultivation page is replaying over the page, if any.
+    pub(crate) cultivation_duel: Option<CultivationDuel>,
+    /// A fight or a walk the user asked for that the worker has not answered
+    /// yet, with the count of that action at the moment it was asked for: the
+    /// count is what tells an answered command from a running pomodoro's tick.
+    pub(crate) cultivation_duel_pending: Option<(CultivationDuelSource, u32)>,
+    /// A refused cultivation action waiting to be shown as an error, and the
+    /// refusal count it was seen at.
+    ///
+    /// The count is what tells a *new* refusal from the one already sitting in
+    /// the snapshot: the same reason refused twice is two messages, and one
+    /// reason sitting there is one message said once.
+    pub(crate) cultivation_refusal_pending: Option<(bongocat_pomodoro::Refusal, u32)>,
+    /// The refusal count the page has already shown, so a new one can be told
+    /// from the last.
+    pub(crate) cultivation_refusal_seen: u32,
     pub(crate) seed: SettingsWindowSeed,
     pub(crate) snapshot: Option<SettingsSnapshot>,
     pub(crate) pending: Option<PendingOperation>,

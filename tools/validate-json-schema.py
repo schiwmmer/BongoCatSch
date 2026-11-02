@@ -70,21 +70,10 @@ def validate_file(path: Path, validator: Draft202012Validator) -> None:
 
 
 _PORTABLE_MODEL_ID = re.compile(r"^[A-Za-z0-9_-](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9_-])?$")
-_WINDOWS_RESERVED_MODEL_IDS = {"CON", "PRN", "AUX", "NUL"}
 
 
 def is_portable_model_id(value: str) -> bool:
-    if len(value.encode("utf-8")) > 64 or not _PORTABLE_MODEL_ID.fullmatch(value):
-        return False
-    stem = value.split(".", 1)[0].upper()
-    return not (
-        stem in _WINDOWS_RESERVED_MODEL_IDS
-        or (
-            len(stem) == 4
-            and stem[:3] in {"COM", "LPT"}
-            and stem[3] in "123456789"
-        )
-    )
+    return len(value.encode("utf-8")) <= 64 and bool(_PORTABLE_MODEL_ID.fullmatch(value))
 
 
 def has_control_character(value: str) -> bool:

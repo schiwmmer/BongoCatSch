@@ -22,6 +22,7 @@ use bongocat_config::{
 use bongocat_input::{CursorProducer, GamepadAxisProducer, InputProducer};
 use bongocat_model::{ModelId, ModelOrigin, PresetModelCatalog};
 use bongocat_model_store::{ModelStore, PresetCoverStore};
+use bongocat_pomodoro::{PomodoroClient, PomodoroService};
 use bongocat_render::RenderConsumer;
 use bongocat_runtime::{RuntimeClient, RuntimeOwner};
 use bongocat_update::UpdateDiagnostics;
@@ -69,6 +70,16 @@ pub struct Application {
     recorded_expression_sequence: Option<u64>,
     runtime: RuntimeOwner,
     motion_audio: Option<MotionAudioService>,
+    /// The pomodoro worker, when it started.
+    ///
+    /// It owns a thread like the audio service does and is stopped in the same
+    /// shutdown step, so an application that cannot run a focus session still
+    /// starts and still reports why.
+    pomodoro: Option<PomodoroService>,
+    /// A handle to the pomodoro worker that outlives the service field, so the
+    /// overlay and the windows can read and drive the timer without borrowing
+    /// the worker itself.
+    pomodoro_client: PomodoroClient,
     render_consumer: Option<RenderConsumer>,
     application_log: ApplicationLogHandle,
     core_log_diagnostics: Option<Arc<dyn Fn() -> CoreLogDiagnostics + Send + Sync>>,
@@ -82,6 +93,14 @@ pub struct Application {
 impl Application {
     pub fn runtime_client(&self) -> RuntimeClient {
         self.runtime.client()
+    }
+
+    /// A handle to the pomodoro timer.
+    ///
+    /// The handle is cloneable and independent of the worker's lifetime, so a
+    /// surface can hold one across the shutdown that owns the worker.
+    pub fn pomodoro_client(&self) -> PomodoroClient {
+        self.pomodoro_client.clone()
     }
 
     pub fn config_revision(&self) -> Option<u64> {

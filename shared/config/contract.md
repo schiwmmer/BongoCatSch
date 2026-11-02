@@ -40,15 +40,15 @@ updates
 
 | Section       | Field                                 | Meaning                                |
 | ------------- | ------------------------------------- | -------------------------------------- |
-| `system`      | `show_taskbar_icon`                   | Windows 模型窗口任务栏按钮可见性，默认 `false` |
+| `system`      | `show_taskbar_icon`                   | 惰性保留字段（ADR-0099）：macOS 不解释其语义，恒 `false` |
 | `system`      | `show_dock_icon`                      | macOS 程序坞图标可见性，默认 `false`    |
-| `system`      | `show_status_icon`                    | 托盘/菜单栏入口可见性                  |
+| `system`      | `show_status_icon`                    | macOS 菜单栏状态图标可见性              |
 | `updates`     | `check_automatically`                 | 自动检查更新，默认 `false`              |
 | `updates`     | `check_interval_hours`                | 自动检查间隔小时数，`[1, 8760]`         |
 | `appearance`  | `theme`                               | `system`、`light` 或 `dark`            |
 | `appearance`  | `language`                            | UI locale                              |
 | `overlay`     | `click_through`                       | 指针事件是否穿透                       |
-| `overlay`     | `window_mode`                         | Windows 普通窗口模式，默认 `false`；macOS 不应用 |
+| `overlay`     | `window_mode`                         | 惰性保留字段（ADR-0099）：macOS 不解释其语义，恒 `false` |
 | `overlay`     | `window_background_color`             | 窗口模式背景 RGB，三个 `0..=255` 字节，默认 `[0, 255, 0]` |
 | `overlay`     | `hold_modifier_to_interact`           | 按住即临时恢复交互的**物理**修饰键：`left_control`、`left_shift`、`left_alt`、`left_meta`、对应 `right_*`，或为 `null`（默认，无键） |
 | `overlay`     | `always_on_top`                       | 是否置顶                               |
@@ -191,25 +191,20 @@ viewport 内。这解决的是「前台应用捕获指针、把光标钉在一�
 的方式移动的指针（程序化 warp、绝对定位设备）不会被跟随，所以默认关闭。该字段带 `#[serde(default)]`，
 缺失 `input.mouse` 命名空间的旧配置按关闭读取，不进入恢复流程。
 
-`system.show_status_icon` 控制 Windows 托盘或 macOS 菜单栏状态图标，不销毁系统菜单的
-唯一事件 owner。托盘菜单与 overlay 右键菜单是同一 owner 下的两个 popup 根，共享强类型 action
+`system.show_status_icon` 控制 macOS 菜单栏状态图标，不销毁系统菜单的
+唯一事件 owner。菜单栏菜单与 overlay 右键菜单是同一 owner 下的两个 popup 根，共享强类型 action
 映射和事件队列，但展示不同的菜单项集合。修改时先通过有界主线程 bridge 应用平台显隐，成功后才按
 expected revision 原子提交配置；平台失败不提交，配置失败则恢复旧的平台可见性。启动直接应用当前 v1
-值，隐藏后仍可通过设置窗口、Windows 单实例唤醒或 macOS application reopen 恢复入口。
+值，隐藏后仍可通过设置窗口或 macOS application reopen 恢复入口。
 
-`system.show_taskbar_icon` 只控制 Windows 模型窗口的任务栏按钮，默认 `false`，也不隐藏或
-销毁窗口，更不影响设置窗口；设置窗口始终保留它自己的任务栏按钮和原生标题栏。默认关闭是
-刻意的：模型窗口本身是一个无标题栏的 `WS_POPUP`，它在任务栏里的按钮没有对应的窗口可供
-用户操作，设置窗口才是可用的任务栏入口，因此默认不额外占用一个任务栏位置，需要的用户自行
-打开。macOS 不把该字段解释为 Dock 图标。修改时先在主线程把模型窗口的
-`WS_EX_APPWINDOW`/`WS_EX_TOOLWINDOW` 切换并回读，成功后才按 expected revision 原子提交
-配置；平台失败不提交，配置失败恢复旧值。启动把当前 v1 值写进 overlay 会话选项，模型切换
-或圆角等需要重建 HWND 的变化沿用会话已应用的值。
+`system.show_taskbar_icon` 是 Windows 时代的惰性保留字段（ADR-0099）：macOS 从不读取它，
+也不控制任何平台行为。它不隐藏或销毁窗口，更不影响设置窗口；macOS 上该字段恒为 `false`，
+且不被解释为 Dock 图标——Dock 图标由 `show_dock_icon` 单独控制。
 
 `system.show_dock_icon` 是 macOS 程序坞图标的唯一来源，默认 `false`。默认关闭是刻意的：产品
 启动时以 `NSApplicationActivationPolicyAccessory` 运行，本来就没有程序坞图标，菜单栏状态图标
 才是入口，字段加入前后行为一致。它是进程级激活策略而不是窗口样式，所以与
-`show_taskbar_icon` 分列两个字段、互不解释：开关打开切到 `Regular`，关闭切回 `Accessory`。
+`show_dock_icon` 分列两个字段、互不解释：开关打开切到 `Regular`，关闭切回 `Accessory`。
 overlay 启动时才设置该策略，因此启动恢复必须在 overlay 会话建立之后应用，否则会被覆盖。
 该值与设置窗口是否存在无关：没有窗口时也要生效。修改时先在主线程改策略并回读 `activationPolicy`，
 成功后才按 expected revision 原子提交配置；平台失败不提交，配置失败把策略恢复为旧值。
@@ -443,8 +438,8 @@ modifier、抑制重复 key down；binding replace 保留 pressed set 以避免 
   imported 的身份/标题规则相同，且**两个列表各自独立判重**：同一个 id 可以同时出现在两边
   （内置 `standard` 与用户导入的 `standard` 是两张卡片）。列表为空表示所有内置模型都还用构建
   给的名字。该列表的写入只来自改名，没有任何导入、删除或裁剪路径。
-- 内置模型的封面替换不走配置：内置包位于 app 包内（macOS `Contents/Resources/models`、Windows
-  安装目录），产品不得写入，替换封面存放在用户数据根的 `model-overrides/<id>/resources/cover.png`
+- 内置模型的封面替换不走配置：内置包位于 app 包内（macOS `Contents/Resources/models`），
+  产品不得写入，替换封面存放在用户数据根的 `model-overrides/<id>/resources/cover.png`
   （与模型包内封面同名同层级），由设置页按来源读取。
 
 ## Backup Retention

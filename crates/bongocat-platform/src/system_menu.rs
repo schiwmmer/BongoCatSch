@@ -17,12 +17,44 @@ pub struct SystemMenuPresentation {
     pub always_on_top: String,
     pub hide_on_pointer_hover: String,
     pub check_for_updates: String,
+    /// The pomodoro entry's label.
+    ///
+    /// macOS only. The label is compiled out with the row rather than resolved
+    /// to an empty string the platform would render as a blank entry.
+    pub start_pomodoro: String,
+    /// What the model-window menu offers while a session is counting.
+    ///
+    /// macOS only, for the same reason as [`Self::start_pomodoro`].
+    pub pause_pomodoro: String,
+    /// What the model-window menu offers while a session is paused.
+    pub resume_pomodoro: String,
+    /// The row that throws a session away, in both of those states.
+    pub abandon_pomodoro: String,
+    /// The cultivation entry's label, macOS only for the same reason as
+    /// [`Self::start_pomodoro`].
+    pub start_cultivation: String,
     pub quit: String,
     pub overlay_visible: bool,
     pub click_through_enabled: bool,
     pub always_on_top_enabled: bool,
     pub hide_on_pointer_hover_enabled: bool,
     pub update_check_available: bool,
+}
+
+/// What the model-window menu says about the focus session.
+///
+/// The pomodoro rows are the one part of that menu that is not a setting: they
+/// follow the session, so the caller reads the timer and hands over which of the
+/// three shapes the menu should wear.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PomodoroMenuMode {
+    /// No session: the menu offers to start one.
+    Idle,
+    /// A session is counting down: the menu offers to pause or abandon it.
+    Running,
+    /// A session is stopped with time left: the menu offers to resume or
+    /// abandon it.
+    Paused,
 }
 
 /// A product action emitted by either native menu surface.
@@ -40,6 +72,23 @@ pub enum SystemMenuAction {
     ToggleAlwaysOnTop,
     ToggleHideOnPointerHover,
     CheckForUpdates,
+    /// Open the pomodoro task picker.
+    ///
+    /// macOS only.
+    StartPomodoro,
+    /// Open the settings window on the cultivation page.
+    ///
+    /// macOS only, mirroring [`Self::StartPomodoro`].
+    StartCultivation,
+    /// Freeze the running focus session.
+    PausePomodoro,
+    /// Continue a paused focus session from the time it stopped at.
+    ResumePomodoro,
+    /// End the focus session without counting it.
+    ///
+    /// The session's work is discarded rather than recorded: an abandoned
+    /// session is a session the user chose not to finish.
+    AbandonPomodoro,
     Quit,
 }
 

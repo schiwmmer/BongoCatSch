@@ -402,10 +402,6 @@ impl SettingsView {
             return;
         }
         let now = Instant::now();
-        #[cfg(target_os = "windows")]
-        if self.flush_window_background_color(cx, now, true) {
-            return;
-        }
         let Some(snapshot) = self.snapshot.clone() else {
             self.flush_pending_requested = false;
             let should_quit = self.quit_after_flush;

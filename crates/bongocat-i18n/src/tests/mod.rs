@@ -4,7 +4,10 @@
 //! needs them: a key check, a placeholder check and a coverage check all start
 //! from the same flattened catalog and the same scan of the source.
 
-use super::{current_platform_id, format_text, locale_code, platform_text, text};
+use super::{
+    compact_number, current_platform_id, format_text, group_thousands, locale_code, platform_text,
+    text,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -38,9 +41,7 @@ fn flatten(value: &serde_json::Value, prefix: &str, out: &mut BTreeMap<String, S
 /// locale added to `locales/` and to the `messages` match below but not here
 /// would leave every comparison silently covering one catalog fewer, which is
 /// exactly the failure this constant exists to make impossible.
-pub(super) const LOCALES: [&str; 8] = [
-    "en-US", "zh-CN", "zh-TW", "ar-SA", "vi-VN", "pt-BR", "ko-KR", "fr-FR",
-];
+pub(super) const LOCALES: [&str; 2] = ["en-US", "zh-CN"];
 
 /// The locale every other catalog is compared against.
 pub(super) const DEFAULT: &str = "en-US";
@@ -54,12 +55,6 @@ fn source(locale: &str) -> &'static str {
     match locale {
         "en-US" => include_str!("../../locales/en-US.json"),
         "zh-CN" => include_str!("../../locales/zh-CN.json"),
-        "zh-TW" => include_str!("../../locales/zh-TW.json"),
-        "ar-SA" => include_str!("../../locales/ar-SA.json"),
-        "vi-VN" => include_str!("../../locales/vi-VN.json"),
-        "pt-BR" => include_str!("../../locales/pt-BR.json"),
-        "ko-KR" => include_str!("../../locales/ko-KR.json"),
-        "fr-FR" => include_str!("../../locales/fr-FR.json"),
         _ => panic!("unsupported test locale"),
     }
 }
@@ -94,7 +89,7 @@ fn placeholders(value: &str) -> BTreeSet<&str> {
 }
 
 /// Platform override suffixes the catalog is expected to carry (ADR-0028).
-const PLATFORM_OVERRIDES: [&str; 2] = ["macos", "windows"];
+const PLATFORM_OVERRIDES: [&str; 1] = ["macos"];
 
 /// A catalog reduced to the two questions a source scan asks of it.
 struct Catalog {

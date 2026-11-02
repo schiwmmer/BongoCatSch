@@ -115,6 +115,9 @@ pub(crate) fn maybe_trigger_random_behavior_locked(
             if renderer.set_expression(&expression, now).is_err() {
                 return;
             }
+            // An automatic pick is a face the cat shows on its own, so it is
+            // reported as the active expression whether or not it is a one-shot
+            // that the renderer later recovers from; it is never remembered.
             let active = ActiveExpressionSnapshot {
                 expression,
                 command_sequence: automatic_sequence,

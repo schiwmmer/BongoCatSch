@@ -21,7 +21,6 @@ pub(crate) fn preset_root() -> PathBuf {
         .join("resources/models")
 }
 
-#[cfg(target_os = "macos")]
 pub(crate) fn bundled_preset_root(executable: &Path) -> Option<PathBuf> {
     let macos = executable.parent()?;
     if macos.file_name()?.to_str()? != "MacOS" {
@@ -32,14 +31,4 @@ pub(crate) fn bundled_preset_root(executable: &Path) -> Option<PathBuf> {
         return None;
     }
     Some(contents.join("Resources/models"))
-}
-
-#[cfg(target_os = "windows")]
-pub(crate) fn bundled_preset_root(executable: &Path) -> Option<PathBuf> {
-    executable_relative_preset_root(executable)
-}
-
-#[cfg(any(target_os = "windows", test))]
-pub(crate) fn executable_relative_preset_root(executable: &Path) -> Option<PathBuf> {
-    Some(executable.parent()?.join("resources/models"))
 }

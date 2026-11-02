@@ -118,10 +118,25 @@ impl RuntimeClient {
         Some(memory.clone())
     }
 
-    pub fn wait_for_revision(
+    /// Wait until `satisfied` holds on the current snapshot, or the timeout lapses.
+    ///
+    /// Every `wait_for_*` helper is the same loop: take the snapshot guard once,
+    /// test a predicate, and when it does not hold yet park on the condvar until
+    /// something changes. Writing that loop out per predicate duplicated the
+    /// deadline arithmetic, the condvar hand-off and the timed-out re-check six
+    /// times, and each copy had to remember to re-test the predicate on the
+    /// snapshot it was woken with. The loop now lives here once.
+    ///
+    /// `abort_on_stopped` is the one place the six helpers genuinely differ:
+    /// [`Self::wait_for_revision`] has no reason to give up when the runtime
+    /// stops, because a revision that was already published stays published, so
+    /// it passes `false`; the other five wait on a state the runtime drives, and
+    /// a stopped runtime will never produce it, so they pass `true`.
+    fn wait_until(
         &self,
-        minimum_revision: u64,
         timeout: Duration,
+        abort_on_stopped: bool,
+        satisfied: impl Fn(&RuntimeSnapshot) -> bool,
     ) -> Option<RuntimeSnapshot> {
         let deadline = Instant::now().checked_add(timeout)?;
         let mut snapshot = self
@@ -130,8 +145,11 @@ impl RuntimeClient {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
-            if snapshot.revision >= minimum_revision {
+            if satisfied(&snapshot) {
                 return Some(self.with_transport_diagnostics(snapshot.clone()));
+            }
+            if abort_on_stopped && snapshot.state == RuntimeState::Stopped {
+                return None;
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
@@ -143,10 +161,20 @@ impl RuntimeClient {
                 .wait_timeout(snapshot, remaining)
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             snapshot = next;
-            if result.timed_out() && snapshot.revision < minimum_revision {
+            if result.timed_out() && !satisfied(&snapshot) {
                 return None;
             }
         }
+    }
+
+    pub fn wait_for_revision(
+        &self,
+        minimum_revision: u64,
+        timeout: Duration,
+    ) -> Option<RuntimeSnapshot> {
+        self.wait_until(timeout, false, |snapshot| {
+            snapshot.revision >= minimum_revision
+        })
     }
 
     pub fn wait_for_state(
@@ -154,33 +182,7 @@ impl RuntimeClient {
         expected: RuntimeState,
         timeout: Duration,
     ) -> Option<RuntimeSnapshot> {
-        let deadline = Instant::now().checked_add(timeout)?;
-        let mut snapshot = self
-            .snapshot
-            .value
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        loop {
-            if snapshot.state == expected {
-                return Some(self.with_transport_diagnostics(snapshot.clone()));
-            }
-            if snapshot.state == RuntimeState::Stopped {
-                return None;
-            }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return None;
-            }
-            let (next, result) = self
-                .snapshot
-                .changed
-                .wait_timeout(snapshot, remaining)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            snapshot = next;
-            if result.timed_out() && snapshot.state != expected {
-                return None;
-            }
-        }
+        self.wait_until(timeout, true, |snapshot| snapshot.state == expected)
     }
 
     pub fn wait_for_command(
@@ -188,40 +190,11 @@ impl RuntimeClient {
         command_sequence: u64,
         timeout: Duration,
     ) -> Option<RuntimeSnapshot> {
-        let deadline = Instant::now().checked_add(timeout)?;
-        let mut snapshot = self
-            .snapshot
-            .value
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        loop {
-            if snapshot
+        self.wait_until(timeout, true, |snapshot| {
+            snapshot
                 .last_command_sequence
                 .is_some_and(|sequence| sequence_reached(sequence, command_sequence))
-            {
-                return Some(self.with_transport_diagnostics(snapshot.clone()));
-            }
-            if snapshot.state == RuntimeState::Stopped {
-                return None;
-            }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return None;
-            }
-            let (next, result) = self
-                .snapshot
-                .changed
-                .wait_timeout(snapshot, remaining)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            snapshot = next;
-            if result.timed_out()
-                && !snapshot
-                    .last_command_sequence
-                    .is_some_and(|sequence| sequence_reached(sequence, command_sequence))
-            {
-                return None;
-            }
-        }
+        })
     }
 
     pub fn wait_for_model_preparation(
@@ -229,13 +202,7 @@ impl RuntimeClient {
         command_sequence: u64,
         timeout: Duration,
     ) -> Option<RuntimeSnapshot> {
-        let deadline = Instant::now().checked_add(timeout)?;
-        let mut snapshot = self
-            .snapshot
-            .value
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        loop {
+        self.wait_until(timeout, true, |snapshot| {
             let prepared = snapshot
                 .pending_model
                 .as_ref()
@@ -243,35 +210,8 @@ impl RuntimeClient {
             let completed = snapshot
                 .last_command_sequence
                 .is_some_and(|sequence| sequence_reached(sequence, command_sequence));
-            if prepared || completed {
-                return Some(self.with_transport_diagnostics(snapshot.clone()));
-            }
-            if snapshot.state == RuntimeState::Stopped {
-                return None;
-            }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return None;
-            }
-            let (next, result) = self
-                .snapshot
-                .changed
-                .wait_timeout(snapshot, remaining)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            snapshot = next;
-            if result.timed_out() {
-                let prepared = snapshot
-                    .pending_model
-                    .as_ref()
-                    .is_some_and(|pending| pending.token.command_sequence == command_sequence);
-                let completed = snapshot
-                    .last_command_sequence
-                    .is_some_and(|sequence| sequence_reached(sequence, command_sequence));
-                if !prepared && !completed {
-                    return None;
-                }
-            }
-        }
+            prepared || completed
+        })
     }
 
     pub fn wait_for_input_sequence(
@@ -279,42 +219,12 @@ impl RuntimeClient {
         input_sequence: u64,
         timeout: Duration,
     ) -> Option<RuntimeSnapshot> {
-        let deadline = Instant::now().checked_add(timeout)?;
-        let mut snapshot = self
-            .snapshot
-            .value
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        loop {
-            if snapshot
+        self.wait_until(timeout, true, |snapshot| {
+            snapshot
                 .input
                 .last_input_sequence
                 .is_some_and(|sequence| sequence_reached(sequence, input_sequence))
-            {
-                return Some(self.with_transport_diagnostics(snapshot.clone()));
-            }
-            if snapshot.state == RuntimeState::Stopped {
-                return None;
-            }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return None;
-            }
-            let (next, result) = self
-                .snapshot
-                .changed
-                .wait_timeout(snapshot, remaining)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            snapshot = next;
-            if result.timed_out()
-                && !snapshot
-                    .input
-                    .last_input_sequence
-                    .is_some_and(|sequence| sequence_reached(sequence, input_sequence))
-            {
-                return None;
-            }
-        }
+        })
     }
 
     pub fn wait_for_cursor_samples(
@@ -322,34 +232,10 @@ impl RuntimeClient {
         minimum_consumed: u64,
         timeout: Duration,
     ) -> Option<RuntimeSnapshot> {
-        let deadline = Instant::now().checked_add(timeout)?;
-        let mut snapshot = self
-            .snapshot
-            .value
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        loop {
-            if self.cursor_producer.diagnostics().consumed >= minimum_consumed {
-                return Some(self.with_transport_diagnostics(snapshot.clone()));
-            }
-            if snapshot.state == RuntimeState::Stopped {
-                return None;
-            }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return None;
-            }
-            let (next, result) = self
-                .snapshot
-                .changed
-                .wait_timeout(snapshot, remaining)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            snapshot = next;
-            if result.timed_out() && self.cursor_producer.diagnostics().consumed < minimum_consumed
-            {
-                return None;
-            }
-        }
+        self.wait_until(timeout, true, |snapshot| {
+            let _ = snapshot;
+            self.cursor_producer.diagnostics().consumed >= minimum_consumed
+        })
     }
 
     pub(crate) fn with_transport_diagnostics(

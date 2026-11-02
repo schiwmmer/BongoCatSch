@@ -1,14 +1,15 @@
 //! The macOS overlay adapter.
 //!
 //! The product is one borderless `NSPanel` over the user's desktop, drawn by
-//! Metal through a `CAMetalLayer`. The layout mirrors the Windows adapter's on
-//! purpose, so the two read the same way: `session` is what the product drives,
+//! Metal through a `CAMetalLayer`. `session` is what the product drives,
 //! `renderer`, `pipelines` and `textures` own the frame, `resize_monitor` is
 //! the only view of the desktop, and the rest each answer one question.
 
 mod cover_capture;
 mod geometry;
+mod hud;
 mod pipelines;
+mod pomodoro;
 mod renderer;
 mod resize_monitor;
 mod session;
@@ -22,7 +23,9 @@ mod textures;
 // module would be the same list eight times.
 pub(crate) use cover_capture::*;
 pub(crate) use geometry::*;
+pub(crate) use hud::*;
 pub(crate) use pipelines::*;
+pub(crate) use pomodoro::*;
 pub(crate) use renderer::*;
 pub(crate) use resize_monitor::*;
 pub(crate) use session::*;
@@ -81,8 +84,9 @@ use objc2::{
 };
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSColor, NSEvent,
-    NSEventMask, NSNormalWindowLevel, NSPanel, NSScreen, NSStatusWindowLevel, NSView,
-    NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowLevel, NSWindowStyleMask,
+    NSEventMask, NSFont, NSNormalWindowLevel, NSPanel, NSProgressIndicator, NSScreen,
+    NSStatusWindowLevel, NSTextField, NSView, NSWindowAnimationBehavior,
+    NSWindowCollectionBehavior, NSWindowLevel, NSWindowStyleMask,
 };
 use objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSPoint, NSRect, NSSize};
 use objc2_quartz_core::CAMetalLayer as ObjcMetalLayer;

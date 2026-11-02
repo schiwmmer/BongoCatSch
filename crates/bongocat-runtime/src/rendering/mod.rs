@@ -39,6 +39,7 @@ mod tests;
 
 pub(crate) use automatic::*;
 pub(crate) use error::*;
+pub(crate) use expression::ExpressionSetOutcome;
 pub(crate) use model_input::*;
 pub(crate) use state::*;
 

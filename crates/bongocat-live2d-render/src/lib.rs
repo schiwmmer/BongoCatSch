@@ -432,8 +432,8 @@ pub fn key_name_candidates(hid_usage: u16) -> Vec<&'static str> {
         // The main Enter key: community models in the wild ship `Return.png`.
         0x28 => candidates.push("Return"),
         // `BackSlash` is spelled `Backslash` by the legacy converter's key
-        // table and by `rdev`. The two differ only in case, and neither macOS
-        // nor Windows distinguishes case in a path, so a package that ships the
+        // table and by `rdev`. The two differ only in case, and macOS does not
+        // distinguish case in a path, so a package that ships the
         // old spelling keeps it — `KeyImageInventory::provides` compares the
         // file's real stem, which is why only this candidate can make it draw.
         0x31 => candidates.push("Backslash"),

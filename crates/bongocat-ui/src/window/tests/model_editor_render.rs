@@ -47,6 +47,7 @@ fn opening_a_models_editor_does_not_change_the_card(cx: &mut TestAppContext) {
                 },
                 Rc::new(|_| {}),
                 Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
                 window,
                 cx,
             )
@@ -195,6 +196,7 @@ fn a_preset_models_card_opens_the_same_in_place_editor(cx: &mut TestAppContext) 
                 },
                 Rc::new(|_| {}),
                 Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
                 window,
                 cx,
             )
@@ -304,6 +306,7 @@ fn an_in_flight_command_never_flickers_the_models_page_gate(cx: &mut TestAppCont
                 },
                 Rc::new(|_| {}),
                 Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
                 window,
                 cx,
             )
@@ -383,6 +386,7 @@ fn the_frames_before_the_first_snapshot_render_the_seeded_appearance(cx: &mut Te
                 },
                 Rc::new(|_| {}),
                 Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
                 window,
                 cx,
             )

@@ -73,6 +73,13 @@ pub struct Live2dModel {
     pub(crate) physics: Option<physics::PhysicsRuntime>,
     pub(crate) model_opacity: f32,
     pub(crate) core: core::CoreModel,
+    /// Parameter ids the most recent expression pass actually wrote. The
+    /// automatic eye blink must not overwrite these, otherwise a squint or a
+    /// short-eye expression is cancelled by the blink on every frame and the
+    /// expression appears to do nothing (the "new expressions do not respond"
+    /// report). Repopulated by [`Live2dModel::apply_expression_layers`] each
+    /// frame, empty when no expression layer is active.
+    pub(crate) expression_driven_parameter_ids: BTreeSet<String>,
 }
 
 impl Live2dModel {
@@ -128,6 +135,7 @@ impl Live2dModel {
             physics,
             model_opacity: 1.0,
             core,
+            expression_driven_parameter_ids: BTreeSet::new(),
         })
     }
 
@@ -278,6 +286,12 @@ impl Live2dModel {
         }
         let eye_blink_ids = self.eye_blink_parameter_ids.clone();
         for id in eye_blink_ids {
+            // Do not cancel an expression that drove this eye parameter this
+            // frame: a squint or short-eye expression must survive the blink
+            // that follows it in the same frame.
+            if self.expression_driven_parameter_ids.contains(&id) {
+                continue;
+            }
             if matches!(
                 self.set_normalized_parameter_by_id(&id, eye_blink)?,
                 ParameterUpdate::Applied { .. }
@@ -512,7 +526,7 @@ impl Live2dModel {
             }
         }
 
-        let applied_parameter_count = {
+        let (applied_parameter_count, driven_parameter_ids) = {
             let parameter_ids = layers
                 .iter()
                 .flat_map(|layer| {
@@ -523,6 +537,7 @@ impl Live2dModel {
                 })
                 .collect::<BTreeSet<_>>();
             let mut applied = 0;
+            let mut driven = BTreeSet::new();
             for id in parameter_ids {
                 let Some(current) = self.core.parameter_value_by_id(id)? else {
                     continue;
@@ -533,10 +548,15 @@ impl Live2dModel {
                     ParameterUpdate::Applied { .. }
                 ) {
                     applied += 1;
+                    driven.insert(id.to_string());
                 }
             }
-            applied
+            (applied, driven)
         };
+        // Remember which parameters this pass actually wrote, so the automatic
+        // eye blink later in the same frame skips them instead of overwriting
+        // the expression (see apply_automatic_effects).
+        self.expression_driven_parameter_ids = driven_parameter_ids;
 
         Ok(ExpressionApplyStatus {
             applied_parameter_count,

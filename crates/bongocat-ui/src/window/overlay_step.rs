@@ -7,11 +7,6 @@
 use super::*;
 
 pub(crate) fn window_mode_active(overlay: Option<SettingsOverlay>) -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        overlay.is_some_and(|s| s.window_mode)
-    }
-    #[cfg(target_os = "macos")]
     {
         let _ = overlay;
         false

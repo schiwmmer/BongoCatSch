@@ -3,8 +3,7 @@
 //! The shortcut recorder above it cannot be reused as-is, and the reason is the
 //! keyboard rather than the code. GPUI reports a modifier as a boolean flag
 //! change carrying no key identity: on macOS a modifier press produces no key
-//! event at all, and on Windows both shift virtual-key codes collapse into the
-//! same modifier branch. There is therefore no key event to read, no left/right to
+//! event at all. There is therefore no key event to read, no left/right to
 //! tell apart, and nothing that would distinguish a held modifier from the flag
 //! left over after the release.
 //!

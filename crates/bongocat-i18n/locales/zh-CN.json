@@ -27,12 +27,85 @@
     },
     "about": {
       "title": "关于"
+    },
+    "pomodoro": {
+      "title": "番茄时钟"
+    },
+    "cultivation": {
+      "title": "修仙"
     }
   },
   "system_menu": {
     "title": "BongoCat",
+    "start_pomodoro": "开始番茄钟",
+    "pause_pomodoro": "暂停番茄钟",
+    "resume_pomodoro": "继续番茄钟",
+    "abandon_pomodoro": "放弃番茄钟",
+    "start_cultivation": "修仙",
     "open_settings": "设置",
     "quit": "退出 BongoCat"
+  },
+  "pomodoro": {
+    "window": {
+      "title": "番茄钟"
+    },
+    "picker": {
+      "new_task": "新建任务",
+      "continue_last": "继续上次未完成的任务",
+      "task_name": "任务名称",
+      "task_name_placeholder": "你正在做什么？",
+      "estimated_sessions": "预计番茄数",
+      "session_length": "每个番茄 %{minutes} 分钟",
+      "create": "创建",
+      "close": "关闭"
+    },
+    "task": {
+      "section": "你的任务",
+      "start": "开始",
+      "running": "进行中",
+      "paused": "已暂停",
+      "progress": "已完成 %{completed} / 预计 %{estimated} 个番茄",
+      "progress_compact": "%{completed}/%{estimated}",
+      "none": "还没有任务。在上方命名一个即可开始。",
+      "running_now": "进行中：%{name}",
+      "created_at": "创建于 %{time}"
+    },
+    "worker_lost": "番茄钟未能启动，详情见日志。",
+    "timer": {
+      "abandon": "放弃",
+      "pause": "暂停",
+      "resume": "继续"
+    },
+    "settings": {
+      "search_placeholder": "搜索任务",
+      "tab_list": "任务列表",
+      "tab_calendar": "日历",
+      "no_tasks": "暂无任务。",
+      "prev_month": "上个月",
+      "next_month": "下个月",
+      "weekdays": "一,二,三,四,五,六,日",
+      "month_label": "%{year}年%{month}月",
+      "month_summary": "%{sessions} 个会话 · %{tasks} 个任务",
+      "done_group": "已完成（%{count}）",
+      "chart_days_7": "近 7 天",
+      "chart_days_30": "近 30 天",
+      "chart_minutes": "专注时长（分钟）",
+      "chart_done": "完成任务数",
+      "tooltip_pomodoros": "番茄 %{count}",
+      "tooltip_minutes": "专注 %{minutes} 分钟",
+      "month_tasks": "本月任务",
+      "day_tasks": "当日任务",
+      "day_tasks_empty": "当日无专注记录",
+      "new_task": "新建任务",
+      "task_edit": "编辑",
+      "task_duplicate": "复制",
+      "task_editor_title": "编辑任务",
+      "task_delete": "删除",
+      "save": "保存",
+      "cancel": "取消",
+      "axis_minutes": "分钟",
+      "axis_tasks": "个"
+    }
   },
   "startup_permission": {
     "later": "稍后设置",
@@ -40,11 +113,6 @@
       "title": "需要「输入监控」权限",
       "description": "BongoCat 需要「输入监控」权限，才能正常接收键盘和鼠标输入。",
       "open_settings": "打开系统设置"
-    },
-    "administrator": {
-      "title": "建议以管理员权限运行",
-      "description": "BongoCat 需要管理员权限，才能在其他应用以管理员权限运行时继续接收键盘和鼠标输入。\n\n设置方法：右键 BongoCat → 属性 → 兼容性 → 勾选「以管理员身份运行此程序」。",
-      "open_program_folder": "退出并前往设置"
     }
   },
   "about": {
@@ -262,6 +330,11 @@
         "field": "名称"
       }
     },
+    "behavior_palette": {
+      "hint": "点一下即可试看",
+      "expressions": "表情",
+      "motions": "动作"
+    },
     "errors": {
       "conflict": "%{shortcut} 已被其他快捷键占用"
     }
@@ -327,13 +400,7 @@
         "options": {
           "system": "跟随系统",
           "chinese_simplified": "简体中文",
-          "chinese_traditional": "繁體中文",
-          "english": "English",
-          "arabic": "العربية",
-          "vietnamese": "Tiếng Việt",
-          "portuguese": "Português",
-          "korean": "한국어",
-          "french": "Français"
+          "english": "English"
         }
       }
     },
@@ -510,12 +577,8 @@
       },
       "status_icon": {
         "label": {
-          "macos": "显示菜单栏图标",
-          "windows": "显示系统托盘图标"
+          "macos": "显示菜单栏图标"
         }
-      },
-      "taskbar_icon": {
-        "label": "显示任务栏图标"
       },
       "dock_icon": {
         "label": "始终显示程序坞图标"
@@ -539,6 +602,537 @@
         "unsupported_os": "当前操作系统不支持开机自启动",
         "unsupported_build": "开发版本不支持开机自启动"
       }
+    }
+  },
+  "stats": {
+    "hud": {
+      "progress": "%{value} / %{remaining} 成长值 · %{percent}%",
+      "total": "成长值 %{value}",
+      "realm": "%{stage} · %{layer} 层 %{rank} 阶"
+    },
+    "stage": {
+      "name": {
+        "1": "炼气",
+        "2": "筑基",
+        "3": "结丹",
+        "4": "元婴",
+        "5": "化神",
+        "6": "炼虚",
+        "7": "合体",
+        "8": "大乘",
+        "9": "渡劫",
+        "10": "仙人"
+      }
+    }
+  },
+  "cultivation": {
+    "realm": "%{stage} · %{layer} 层 %{rank} 阶",
+    "progress": "%{value} / %{remaining} 成长值",
+    "capped": "本境圆满，破境方能再进",
+    "growth": {
+      "next": "下一个番茄钟 +%{value} 成长值"
+    },
+    "attributes": "属性",
+    "free_points": "可分配 %{points} 点",
+    "attribute": {
+      "root": "根骨",
+      "strength": "力量",
+      "mana": "法力",
+      "agility": "身法",
+      "add": "+1",
+      "add_ten": "+10",
+      "root_desc": "根骨：每点 +8 内力值、+2 潜质。潜质越高，学功法越快、也越不容易失败。",
+      "strength_desc": "力量：每点 +3 攻击力、+20 生命值。",
+      "mana_desc": "法力：每点 +3 法术强度、+2 法抗。",
+      "agility_desc": "身法：每点 +2 速度、命中 +10、闪避 +10。命中对闪避的比值决定命中率：相当则约八成，相差一倍则约五成。"
+    },
+    "arts": {
+      "title": "功法书",
+      "empty": "还没有功法书。闯关成功必得，探索亦有几率。"
+    },
+    "mastered": {
+      "title": "已习得功法",
+      "empty": "尚无圆满之功法。修习圆满后即已习得，永久生效，也可售出。",
+      "progress": "已至 %{rank}/%{total} 阶",
+      "show_all": "展开全部 %{count} 部",
+      "show_less": "收起"
+    },
+    "art": {
+      "kind": {
+        "internal": "内功",
+        "external": "外功"
+      },
+      "grade": {
+        "yellow": "黄阶",
+        "profound": "玄阶",
+        "earth": "地阶",
+        "heaven": "天阶",
+        "divine": "神阶"
+      },
+      "gain": "%{attribute} +%{value}",
+      "cost": "耗内力 %{value}",
+      "multiplier": "基准威力 %{value}%",
+      "select": "修习",
+      "selected": "修习中",
+      "mastery_attribute": "大成 · 每阶属性 +%{value}%",
+      "mastery_damage": "大成 · 附加 %{value}% 攻击力",
+      "progress": "已至 %{rank}/%{total} 阶 · 下一阶 %{need} 番茄 · 本阶已修 %{progress}/%{need}",
+      "complete": "%{total}/%{total} 阶 · 圆满",
+      "success": "成功率 %{rate}%",
+      "failures": "已失败 %{count} 次",
+      "aptitude": "潜质 +%{value}/阶",
+      "copies": "×%{count}",
+      "blows": "×%{count} 段",
+      "band": "每段 %{min}%~%{max}%",
+      "total_band": "合计 %{min}%~%{max}%",
+      "effect_slow": "寒劲 减速 %{value}%",
+      "effect_haste": "轻身 加速 %{value}%",
+      "effect_focus": "凝神 命中 +%{value}"
+    },
+    "derived": "外显属性",
+    "derived_hint": "由四项属性算出，不可加点",
+    "formula": {
+      "line": "%{base} + %{attribute} %{value} × %{per} = %{result}",
+      "capped": "%{formula}（上限 %{cap}）",
+      "line_bonus": "%{base} + %{attribute} %{value} × %{per} + %{bonus} = %{result}",
+      "baseline": "等级 %{level} 的基础为 %{baseline} · 你为 %{result} · 相差 %{delta}"
+    },
+    "bonus": "外显：%{lines}",
+    "set": {
+      "line": "%{set} ×%{count}：%{lines}"
+    },
+    "gear_sets": "装备套装",
+    "art_sets": "功法家族",
+    "quality": {
+      "common": "普通",
+      "fine": "优秀",
+      "rare": "精良",
+      "immortal": "史诗",
+      "legendary": "传说",
+      "mythic": "神话",
+      "divine": "神装",
+      "transcendent": "绝世"
+    },
+    "effect": {
+      "frost": "寒霜",
+      "thunder": "雷亟",
+      "sunder": "碎甲",
+      "weaken": "蛊蚀",
+      "frost_desc": "敌方攻击力 -%{value}%、命中 -%{value}%",
+      "thunder_desc": "敌方速度 -%{value}%",
+      "sunder_desc": "敌方法抗 -%{value}%",
+      "weaken_desc": "敌方生命值 -%{value}%"
+    },
+    "attack": "攻击力 %{value}",
+    "health": "生命值 %{value}",
+    "inner": "内力值 %{value}",
+    "spell": "法术强度 %{value}",
+    "resist": "法抗 %{value}",
+    "speed": "速度 %{value}",
+    "hit": "命中 %{value}",
+    "evade": "闪避 %{value}",
+    "aptitude": "潜质 %{value}",
+    "power": "战力 %{power}",
+    "power_level": "境界 %{value}",
+    "power_equipment": "装备 %{value}",
+    "power_crop": "仙草 %{value}",
+    "equipment": "装备",
+    "slot": {
+      "weapon": "武器",
+      "clothes": "衣服",
+      "pants": "裤子",
+      "boots": "鞋子",
+      "empty": "未装备"
+    },
+    "item": {
+      "label": "%{slot} · %{tier} 阶 · %{quality}",
+      "label_named": "%{name} · %{tier} 阶 · %{quality}",
+      "quality": "%{quality} %{stars}",
+      "star_line": "%{stars} · 全属性 ×%{percent}%",
+      "star_button": "升星 %{stones} 灵石 %{tribute}",
+      "effect_line": "特效 %{effect}：%{detail}",
+      "set_line": "套装：%{set}",
+      "details": "根骨 %{root} · 力量 %{strength} · 法力 %{mana} · 身法 %{agility}",
+      "equip": "装备",
+      "unequip": "卸下"
+    },
+    "inventory": {
+      "title": "储物袋",
+      "empty": "还没有装备。完成番茄钟有小概率掉落。"
+    },
+    "seed": {
+      "label": "%{attribute}种子 · %{tier} 阶 · %{grade}",
+      "label_named": "%{name} · %{tier} 阶 · %{grade}",
+      "plant": "种植",
+      "harvest_line": "收获时 %{attribute} +%{value}"
+    },
+    "seeds": {
+      "title": "种子",
+      "empty": "还没有种子。",
+      "total": "共 %{count} 枚",
+      "show_all": "展开全部 %{count} 种",
+      "show_less": "收起"
+    },
+    "garden": {
+      "title": "仙草园",
+      "empty": "空地",
+      "growing": "%{minutes} 分钟后成熟",
+      "harvest": "收获",
+      "full": "灵田都已种满。",
+      "buy_plot": "购置灵田 · %{price} 灵石",
+      "refuse_limit": "灵田已开垦到上限",
+      "growing_hours": "%{hours} 小时后成熟",
+      "growing_days": "%{days} 天后成熟",
+      "rank": "仙草园 %{rank} 阶",
+      "rank_top": "仙草园已臻圆满",
+      "xp": "造化 %{have} / %{need}",
+      "upgrade": "进阶 · %{price} 灵石",
+      "refuse_capped": "仙草园已臻圆满",
+      "refuse_xp": "造化不足，还需多加采撷",
+      "plant_odds": "成活率 %{percent}%",
+      "withered": "未能成活",
+      "dig": "铲除"
+    },
+    "resources": {
+      "title": "资源与采集",
+      "bag_entry": "%{resource} %{count}/%{cap}",
+      "trade": "Lv %{level} · 经验 %{xp}/%{next}",
+      "building": "%{building} Lv %{level}/%{max}",
+      "cost": "%{stones} 灵石 %{tribute}",
+      "upgrade_five": "×5"
+    },
+    "mode": {
+      "study": "修习",
+      "woodcut": "伐木",
+      "mine": "采石"
+    },
+    "site": {
+      "forest": "森林·伐木",
+      "mountain": "山·采石",
+      "mine": "矿洞·双技能"
+    },
+    "skill": {
+      "woodcut": "伐木",
+      "stonecut": "采石"
+    },
+    "building": {
+      "workshop": "工坊",
+      "warehouse": "仓库",
+      "smithy": "铁匠铺",
+      "dojo": "道场"
+    },
+    "building_tip": {
+      "workshop": "每级 +10% 采集产出。",
+      "warehouse": "每级 +25% 资源储量上限。",
+      "smithy": "每级 -10% 升星灵石成本。",
+      "dojo": "每级 +10% 采集经验；修习功法成功率 +1‰。"
+    },
+    "expedition": {
+      "status": "正在%{site}外出 · %{hours} 小时 · %{eta}",
+      "hours": "%{hours} 小时",
+      "eta": "%{hours} 小时 %{minutes} 分后归来",
+      "returning_in": "归返途中 · 尚需 %{hours} 小时 %{minutes} 分",
+      "refuse_out": "正在采集，归来后方可行动。"
+    },
+    "breakthrough": {
+      "title": "破境",
+      "guardian": "镇守%{stage} · 战力 %{power}",
+      "ready": "战力已足，可闯关。",
+      "weak": "战力不足，先寻装备与仙草。",
+      "attempt": "闯关",
+      "won": "破境成功，晋入%{stage}。",
+      "max": "已至仙人境圆满。",
+      "held": "%{hours} 小时 %{minutes} 分后可再次闯关",
+      "banner": "本境圆满 · 击败守卫即可晋入%{stage}"
+    },
+    "duel": {
+      "blow": "普通一击",
+      "blow_index": "第 %{index} 击",
+      "close": "关闭",
+      "dodge": "%{attacker} 一击被 %{target} 闪避",
+      "guardian": "镇守",
+      "hit": "%{attacker} 以 %{art} 击中 %{target}，造成 %{damage} 点伤害（%{target} 剩余 %{health}）",
+      "hp": "%{health} / %{max}",
+      "lose": "败北",
+      "lost_gear": "丢失装备：%{name}",
+      "playing": "战斗回放中…点击日志可跳过",
+      "power": "战力 %{player} 对 %{guardian}",
+      "replay": "重播",
+      "reward_art": "获得功法：%{name}",
+      "reward_gear": "获得装备：%{name}",
+      "side_foe": "敌方",
+      "side_you": "我方",
+      "title_breakthrough": "破境之战",
+      "title_trial": "锁妖塔之战",
+      "title_exploration": "遭遇战",
+      "wanderer": "游荡者",
+      "win": "胜利",
+      "you": "你",
+      "reward_stones": "得灵石 %{value} 枚",
+      "title_daily": "晨间遭遇",
+      "title_proving": "试炼之战"
+    },
+    "jobs": {
+      "title": "打工",
+      "hint": "工钱固定，按手艺达成率给额外属性点",
+      "row": "%{hours} 小时 · %{stones} 灵石",
+      "accept": "接取",
+      "taken": "接取中",
+      "refresh": "刷新",
+      "refresh_cost": "刷新 %{stones} 灵石",
+      "working": "正在做 %{kind}（%{grade}），%{hours} 小时，工钱 %{stones} 灵石",
+      "due": "%{hours} 小时 %{minutes} 分后交工",
+      "refuse_working": "手上的活还没交工",
+      "refuse_gone": "这份活已经被人接走了",
+      "paid_base": "交工：%{kind}，%{hours} 小时，%{stones} 灵石，达成率 %{rate}%",
+      "gain": "，额外 +%{points} %{attribute}",
+      "require_single": "需 %{attribute} %{value}(%{margin}%)",
+      "require_pair": "需 %{first} %{value_first}(%{a}%) · 需 %{second} %{value_second}(%{b}%)",
+      "success": "达成率 %{rate}%",
+      "names": {
+        "attack": "炼体",
+        "health": "淬骨",
+        "inner": "吐纳",
+        "spell": "符箓",
+        "resist": "铸甲",
+        "speed": "疾行",
+        "hit": "鹰眼",
+        "evade": "影步",
+        "attack_health": "体修",
+        "attack_inner": "御气",
+        "attack_spell": "剑诀",
+        "attack_resist": "战甲",
+        "attack_speed": "战步",
+        "attack_hit": "破军",
+        "attack_evade": "游斗",
+        "health_inner": "龟息",
+        "health_spell": "阵纹",
+        "health_resist": "金身",
+        "health_speed": "横练",
+        "health_hit": "不动",
+        "health_evade": "卸力",
+        "inner_spell": "术法",
+        "inner_resist": "周天",
+        "inner_speed": "轻功",
+        "inner_hit": "凝神",
+        "inner_evade": "化影",
+        "spell_resist": "护体",
+        "spell_speed": "御风",
+        "spell_hit": "咒印",
+        "spell_evade": "移形",
+        "resist_speed": "铁布衫",
+        "resist_hit": "金钟罩",
+        "resist_evade": "铜墙",
+        "speed_hit": "电光",
+        "speed_evade": "踏雪",
+        "hit_evade": "听风"
+      }
+    },
+    "explore": {
+      "attempt": "外出探索",
+      "defeat": "遭遇战败北，幸而未失。",
+      "found_art": "寻得功法：%{name}",
+      "found_gear": "寻得装备：%{name}",
+      "found_seed": "寻得种子：%{name}",
+      "found_stones": "寻得灵石：%{value}",
+      "eta": "%{hours} 小时 %{minutes} 分后归来",
+      "nothing": "一无所获。",
+      "ready": "可以在外走一趟了。",
+      "return": "提前回返",
+      "returning": "返程中",
+      "returning_in": "返程中 · 尚需 %{hours} 小时 %{minutes} 分",
+      "refuse_cooldown": "上次外出尚未回返，需再等些时日。",
+      "title": "探索",
+      "victory": "遭遇战胜利，小有斩获。",
+      "hours": "%{hours} 小时 · ×%{mult}",
+      "hint": "走满时长归来才有收获，提前回返一无所获",
+      "busy_gathering": "正在采集，归来后方可探索。"
+    },
+    "trial": {
+      "title": "锁妖塔",
+      "opponent": "锁妖塔守卫",
+      "floor": "第 %{floor} 层 · 守关人战力 %{power}",
+      "attempt": "闯塔",
+      "attempts_left": "今日余 %{left}/%{total} 次",
+      "cleared": "已通关第 %{floor} 层",
+      "top": "锁妖塔已通关，再无可攀之层。",
+      "hint": "守关人逐层变强，通关必得灵石，几率掉装备功法",
+      "won": "第 %{floor} 层通关。",
+      "lost": "第 %{floor} 层未过。",
+      "refuse_out": "尚在外游历，归来后方可闯塔。",
+      "refuse_drained": "今日闯塔次数已尽，明日再来。",
+      "refuse_top": "锁妖塔已通关，再无可攀之层。",
+      "sweep": "横扫",
+      "sweep_result": "横扫 %{floors} 层 · 仙草 ×%{seeds} · 装备 ×%{gear} · 功法 ×%{arts} · 灵石「%{stones}」",
+      "refuse_not_sweepable": "战力未远胜守关人，不可横扫。"
+    },
+    "notice": {
+      "absence": "%{days} 天未修炼，成长值 -%{charged}",
+      "drop_equipment": "获得装备 %{item}",
+      "drop_seed": "获得种子 %{item}",
+      "seed_return": "收获返得 %{seed}",
+      "star_success": "升星成功：%{name} 升至 %{star} 星",
+      "star_failed": "升星失败：%{name} 降至 %{star} 星",
+      "drop_art": "千分之一：获得功法《%{item}》",
+      "drop_herb": "千分之一：获得 %{item}",
+      "drop_stones": "千分之一：获得 %{item} 灵石",
+      "collect": "%{site}：获得 %{gained}，采集经验 +%{xp}",
+      "building_upgrade": "%{building} 升至 %{level} 级"
+    },
+    "record": {
+      "title": "最近事件",
+      "status_home": "在家",
+      "status_out": "外出",
+      "status_out_walk": "外出：正在探索，剩余 %{hours} 小时 %{minutes} 分返回",
+      "status_out_work": "外出：在打工（%{grade}·%{hours} 小时），剩余 %{remain_hours} 小时 %{remain_minutes} 分返回",
+      "status_returning": "返程中：尚需 %{hours} 小时 %{minutes} 分到家",
+      "return_early": "提前返回",
+      "returning": "返程中",
+      "return_early_confirm": "提前返回没有任何奖励：本次外出作废，返程要走上 %{hours} 小时 %{minutes} 分。确定返回？",
+      "refuse_not_out": "人已在家，无需返程。",
+      "empty": "还没有动静。完成番茄钟、外出探索，都记在这里。",
+      "guardian": "守卫",
+      "wanderer": "游荡者",
+      "outcome": {
+        "seed": "寻得仙草",
+        "gear": "寻得装备",
+        "art": "寻得功法",
+        "stones": "寻得灵石"
+      },
+      "found_art": "功法「%{name}」",
+      "found_gear": "装备「%{name}」",
+      "found_seed": "仙草「%{name}」",
+      "found_stones": "灵石「%{value}」",
+      "show_all": "查看全部 %{count} 件事",
+      "history": "全部事件"
+    },
+    "event": {
+      "session": "完成修炼，成长 +%{growth}",
+      "session_gather": "采集完一个番茄钟：%{site} 得 %{gained}",
+      "session_gather_xp": "，经验 +%{xp}",
+      "expedition": "外出采集归来：%{site} %{hours} 小时，得 %{gained}",
+      "expedition_xp": "，经验 +%{xp}",
+      "found": "番茄钟掉落",
+      "work": "打工 %{hours} 小时，得 %{stones} 灵石，达成率 %{rate}%",
+      "absence": "%{days} 天未修炼，成长值 -%{charged}",
+      "walk": "外出探索：%{outcome}",
+      "train_failed": "修习《%{name}》未成，进度仍在",
+      "train_progress": "修习《%{name}》有所精进",
+      "train_ranked": "《%{name}》突破至第 %{rank} 阶",
+      "train_mastered": "《%{name}》已至圆满",
+      "train_body": "练功有成，属性点 +%{points}",
+      "breakthrough_won": "闯关成功，晋入新境界！",
+      "breakthrough_lost": "闯关未成，尚需砥砺。",
+      "bought": "花 %{stones} 灵石购入 %{what}",
+      "sold": "售出 %{what}，得 %{stones} 灵石",
+      "harvest": "仙草园收成了一株。",
+      "harvested": "仙草园收成 %{seed}，%{attribute} +%{points}",
+      "herb_harvested": "仙草园收成 %{seed}（潜质灵草）",
+      "harvested_xp": "造化 +%{xp}",
+      "withered": "%{seed} 未能成活（%{percent}%）· 造化 +%{xp}",
+      "rank_up": "仙草园晋至 %{rank} 阶（花 %{stones} 灵石）",
+      "bought_bare": "购入 %{what}",
+      "star_success": "%{name} 升星成功，%{stars}（花 %{stones} 灵石、%{tribute}）",
+      "star_failed": "%{name} 升星失败，降至 %{star} 星（花 %{stones} 灵石、%{tribute}）",
+      "building_upgrade": "%{building} 升至 %{level} 级（花 %{stones} 灵石、%{tribute}）",
+      "aptitude": "%{herb} · 潜质 +%{gain} → %{value}",
+      "aptitude_gate": "%{line}（耗洗髓丹 %{pills}）",
+      "marrow_found": "得洗髓丹 ×1（%{source}）",
+      "bonus": "意外之财：%{find}",
+      "bonus_stones": "%{stones} 灵石",
+      "with_effect": "%{what}（%{effect}）",
+      "trial_sweep": "横扫第 %{from}~%{to} 层",
+      "sweep_seed": "仙草 ×%{count}",
+      "sweep_gear": "装备 ×%{count}",
+      "sweep_art": "功法 ×%{count}",
+      "work_gain": "，额外 +%{points} %{attribute}"
+    },
+    "shop": {
+      "title": "集市",
+      "stones": "灵石 %{stones}",
+      "shelf": "今日货架（每日刷新）",
+      "empty": "今日货架空了，明日再来。",
+      "bought": "已购",
+      "sell": "卖 %{stones}",
+      "equipment": "装备",
+      "seed": "仙草",
+      "art": "功法",
+      "price": "%{stones} 灵石",
+      "refuse_stones": "灵石不够",
+      "refuse_offer": "这件今日已不在货架上",
+      "refuse_bought": "今日已买过这件",
+      "refuse_owned": "没有这件东西",
+      "refuse_equipped": "身上的装备不能卖",
+      "refuse_training": "正在修炼的功法不能卖",
+      "refuse_already": "此功法已圆满，书中无页可读",
+      "sold": "已售",
+      "refuse_sold": "这本功法之书已售过，不可再卖",
+      "refuse_star_capped": "这件装备已满 10 星，无法再升",
+      "refuse_resources": "资源不足，无法升星（需要 %{tribute}）",
+      "refuse_building_capped": "这座建筑已满 10 级，无法再升",
+      "detail_sell": "卖出可得 %{stones} 灵石",
+      "special": "特价 %{value} 折 · 原价 %{list}",
+      "seed_tier": "%{tier} 阶%{grade}仙草",
+      "plot": "一块灵田",
+      "herb": "潜质之物",
+      "herb_facts": "%{herb} · %{effect}",
+      "herb_gain": "潜质 +%{value}",
+      "herb_marrow_gain": "突破整百所需",
+      "owned": "已有",
+      "mastered": "已习得"
+    },
+    "hint": {
+      "derived_title": "八项战斗数值：四项属性换算出来的结果，不能直接加点",
+      "derived_hint_each": "由四项属性换算，改上面那四项才会变。",
+      "power_hint": "战力：破境时判定胜负用的那一个数，由四项属性、功法与装备共同换算。",
+      "aptitude_hint": "潜质决定功法研习的成功率与速度：潜质为 0 时成功率按品阶为黄 50%、玄 42%、地 35%、天 20%、神 5%，每 1 点潜质把成功率乘 1.01、把所需番茄钟乘 0.99。这门功法每失败一次，成功率同样再乘 1.01，且失败次数跨阶累计、直到修成为止。它不参与战斗。"
+    },
+    "daily": {
+      "ambush": "晨间遇袭，击退来犯",
+      "ambush_lost": "晨间遇袭，不敌而退，所幸未失",
+      "gift": "晨起有得",
+      "trinket": "晨间无事，拾得零碎"
+    },
+    "level": {
+      "total": "当前等级 %{level} / %{total}",
+      "rule": "累计等级 =（境界位次 − 1）× 100 + 层数 × 10 + 阶数，层数自 0 起算。十境界 × 一百级 = 一千级。",
+      "span": "%{from}–%{to} 级"
+    },
+    "power_art": "内功 %{value}",
+    "power_art_bonus": "内功外显 %{value}",
+    "power_allocated": "已分配 %{value}",
+    "power_equipment_bonus": "装备外显 %{value}",
+    "power_total": "总战力 %{value}",
+    "aptitude_use": "服用",
+    "aptitude_refuse_herb": "没有这件灵草",
+    "aptitude_refuse_capped": "潜质已至圆满",
+    "aptitude_refuse_marrow": "洗髓丹不足，潜质卡在整百",
+    "herb": {
+      "use_pill": "使用 · %{pills} 颗",
+      "insight": "悟心草",
+      "wisdom": "慧心草",
+      "marrow": "洗髓丹"
+    },
+    "marrow_source": {
+      "combat": "战斗",
+      "fortune": "机缘",
+      "shop": "集市"
+    },
+    "proving": {
+      "title": "试炼",
+      "attempt": "试炼",
+      "chances": "试炼机会 %{left}/%{total}",
+      "hint": "每个完成的番茄钟换一次试炼，外出未归不可试炼",
+      "won": "试炼获胜。",
+      "lost": "试炼落败，未有所获。",
+      "refuse_empty": "暂无试炼机会：完成一个番茄钟可得一次",
+      "refuse_out": "尚在外游历，回山门后方可试炼"
+    },
+    "resource": {
+      "wood": "木",
+      "stone": "石",
+      "iron": "铁",
+      "coal": "煤"
     }
   }
 }

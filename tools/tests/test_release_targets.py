@@ -12,13 +12,12 @@ RELEASE_WORKFLOW = WORKFLOW_DIRECTORY / "release.yml"
 DENY = ROOT / "deny.toml"
 DEPENDENCY_POLICY = ROOT / "tools" / "check-dependencies.sh"
 
-# The three shipped target/arch combinations. Windows ARM64 is not one of them:
-# Cubism Native R5 has no desktop ARM64 Core, and Windows runs the x64 build
-# under emulation. See docs/adr/0033-build-packaging-and-release-toolchain.md.
+# The two shipped macOS target/arch combinations. macOS is the only shipped
+# platform; both Apple-silicon and Intel legs build on a runner of their own
+# architecture (ADR-0078, ADR-0033).
 SHIPPED_TARGETS = (
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",
-    "x86_64-pc-windows-msvc",
 )
 
 
@@ -85,9 +84,10 @@ class ReleaseTargetTests(unittest.TestCase):
                     "architecture does not match it",
                 )
 
-    def test_active_ci_still_builds_windows_x64(self):
+    def test_active_ci_builds_no_windows_target(self):
         source = CI_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("x86_64-pc-windows-msvc", source)
+        self.assertNotIn("pc-windows-msvc", source)
+        self.assertNotIn("windows-latest", source)
 
     def test_dependency_policy_audits_exactly_the_shipped_targets(self):
         """The offline audit walks a target list of its own, outside `deny.toml`.

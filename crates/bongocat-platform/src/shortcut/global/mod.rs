@@ -4,9 +4,6 @@
 //! registrations, and forwards pressed events to the dispatcher.
 //!
 //! Platform notes:
-//! - Windows: `RegisterHotKey` posts `WM_HOTKEY` to the message queue of
-//!   the thread that created the manager's hidden window, so the owner
-//!   thread runs a Win32 message pump.
 //! - macOS: hot key events arrive through the Carbon handler on the main
 //!   event loop; creation and registration from the owner thread were
 //!   verified against `RegisterEventHotKey` in a controlled experiment.

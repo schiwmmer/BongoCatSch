@@ -52,6 +52,7 @@ fn frame_evaluation_order_is_motion_expression_input_effects_then_core_update() 
         clip: expression,
         started_at: Duration::ZERO,
         fade_in_completed: false,
+        auto_recover_at: None,
         fade_out_started_at: None,
     });
 
@@ -59,6 +60,7 @@ fn frame_evaluation_order_is_motion_expression_input_effects_then_core_update() 
         .evaluate(
             ModelInputSnapshot {
                 pointer_x: -0.5,
+                pointer_y: -0.5,
                 ..ModelInputSnapshot::default()
             },
             Duration::ZERO,
@@ -66,10 +68,25 @@ fn frame_evaluation_order_is_motion_expression_input_effects_then_core_update() 
         .expect("evaluate frame");
     let model = &renderer.active.as_ref().expect("active model").model;
     for (id, expected) in [
+        // ParamEyeLOpen is driven by the MOTION curve only, so the automatic
+        // blink still owns it (the blink overwrites non-expression eye params).
         ("ParamEyeLOpen", 0.0),
-        ("ParamEyeROpen", 0.0),
+        // ParamEyeROpen is driven by the EXPRESSION (Overwrite 0.7). The
+        // expression must survive the blink that follows it in the frame, or a
+        // squint/short-eye expression would never be visible (the report).
+        ("ParamEyeROpen", 0.7),
         ("ParamMouthOpenY", 0.8),
-        ("ParamAngleX", -15.0),
+        // ParamAngleX is declared by the MOTION, so the input pass leaves it
+        // alone and the expression's Overwrite 10.0 is what survives. Reading
+        // -15.0 here would mean pointer tracking reset a motion-driven angle,
+        // which is what made a nod invisible while the cursor was anywhere but
+        // the centre of the screen.
+        ("ParamAngleX", 10.0),
+        // ParamAngleY is declared by no motion, so the input pass still owns it
+        // and the pointer lands as usual. Both halves of the contract are
+        // pinned here: the motion keeps what it declares, the pointer keeps the
+        // rest.
+        ("ParamAngleY", -15.0),
     ] {
         let actual = model
             .parameter_value_by_id(id)
@@ -126,6 +143,7 @@ fn latest_expression_stays_full_weight_after_clock_rollback() {
             clip: expression,
             started_at: Duration::ZERO,
             fade_in_completed: false,
+            auto_recover_at: None,
             fade_out_started_at: None,
         });
 

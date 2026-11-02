@@ -1,7 +1,8 @@
-//! Stopping the runtime and the motion audio service, and reporting both.
+//! Stopping the runtime and every worker service, and reporting each of them.
 //!
-//! Shutdown never hides one failure behind the other: the aggregate error names
-//! both, so a stuck audio thread is as visible as a stuck runtime.
+//! Shutdown never hides one failure behind another: a single failure keeps its
+//! own error code, and two or more are reported together so a stuck audio thread
+//! is as visible as a stuck runtime.
 
 use super::Application;
 use crate::app_log::{ApplicationLogContext, ApplicationLogEvent};
@@ -14,12 +15,20 @@ impl Application {
             .record(ApplicationLogEvent::shutdown_started());
         let marker_start = self.run_marker.mark_shutdown_started();
         let runtime_result = self.runtime.shutdown(RUNTIME_TIMEOUT);
+        // The pomodoro worker stops after the runtime, like the audio worker:
+        // neither produces anything the runtime needs, and both are asked to stop
+        // inside the same budget the runtime got.
         let audio_result = self
             .motion_audio
             .map(|service| service.shutdown(RUNTIME_TIMEOUT))
             .transpose()
             .map(|_| ());
-        match combine_shutdown_results(runtime_result, audio_result) {
+        let pomodoro_result = self
+            .pomodoro
+            .map(|service| service.shutdown(RUNTIME_TIMEOUT))
+            .transpose()
+            .map(|_| ());
+        match combine_shutdown_results(runtime_result, audio_result, pomodoro_result) {
             Ok(stopped) => {
                 let marker_complete = self.run_marker.complete();
                 let marker_error = marker_start.err().or(marker_complete.err());

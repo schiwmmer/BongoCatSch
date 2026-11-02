@@ -5,8 +5,4 @@
     non_upper_case_globals
 )]
 
-#[cfg(target_os = "macos")]
 include!("macos.rs");
-
-#[cfg(target_os = "windows")]
-include!("windows.rs");

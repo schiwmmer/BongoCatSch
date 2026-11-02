@@ -22,9 +22,7 @@ use std::path::PathBuf;
 
 use std::fs;
 
-#[cfg(target_os = "macos")]
 use objc2::{MainThreadMarker, rc::autoreleasepool};
-#[cfg(target_os = "macos")]
 use objc2_app_kit::NSApplication;
 
 /// The file names the cover dialog offers. This is a convenience filter: the
@@ -67,7 +65,6 @@ impl ModelSourcePickerError {
     }
 }
 
-#[cfg(target_os = "macos")]
 fn asynchronous_sheet_is_available(mtm: MainThreadMarker) -> bool {
     let application = NSApplication::sharedApplication(mtm);
     let has_window = application.mainWindow().is_some() || !application.windows().is_empty();
@@ -91,7 +88,6 @@ where
 }
 
 /// Let the user choose the model folder to import.
-#[cfg(target_os = "macos")]
 pub(crate) fn pick_model_folder<F>(on_complete: F) -> Result<(), ModelSourcePickerError>
 where
     F: FnOnce(Result<ModelSourcePickerOutcome, ModelSourcePickerError>) + Send + 'static,
@@ -118,25 +114,6 @@ where
     })
 }
 
-/// Let the user choose the model folder to import.
-#[cfg(target_os = "windows")]
-pub(crate) fn pick_model_folder<F>(on_complete: F) -> Result<(), ModelSourcePickerError>
-where
-    F: FnOnce(Result<ModelSourcePickerOutcome, ModelSourcePickerError>) + Send + 'static,
-{
-    spawn_picker_worker(on_complete, || {
-        // The Windows backend runs the common item dialog on this dedicated worker's STA.
-        match rfd::FileDialog::new()
-            .set_can_create_directories(false)
-            .pick_folder()
-        {
-            Some(path) => validate_selected_folder(path),
-            None => Ok(ModelSourcePickerOutcome::Cancelled),
-        }
-    })
-}
-
-#[cfg(target_os = "macos")]
 pub(crate) fn pick_model_cover<F>(on_complete: F) -> Result<(), ModelSourcePickerError>
 where
     F: FnOnce(Result<ModelSourcePickerOutcome, ModelSourcePickerError>) + Send + 'static,
@@ -155,23 +132,6 @@ where
     spawn_picker_worker(on_complete, move || match async_io::block_on(task) {
         Some(handle) => validate_selected_image(handle.path().to_path_buf()),
         None => Ok(ModelSourcePickerOutcome::Cancelled),
-    })
-}
-
-#[cfg(target_os = "windows")]
-pub(crate) fn pick_model_cover<F>(on_complete: F) -> Result<(), ModelSourcePickerError>
-where
-    F: FnOnce(Result<ModelSourcePickerOutcome, ModelSourcePickerError>) + Send + 'static,
-{
-    spawn_picker_worker(on_complete, || {
-        match rfd::FileDialog::new()
-            .set_can_create_directories(false)
-            .add_filter("Cover image", &COVER_EXTENSIONS)
-            .pick_file()
-        {
-            Some(path) => validate_selected_image(path),
-            None => Ok(ModelSourcePickerOutcome::Cancelled),
-        }
     })
 }
 
@@ -313,7 +273,6 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn pickers_reject_background_threads_before_touching_appkit() {
         let source = std::thread::spawn(|| pick_model_folder(|_| {}))

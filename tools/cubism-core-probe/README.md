@@ -25,11 +25,6 @@ DYLD_LIBRARY_PATH=/external/core \
   standard=/absolute/path/demomodel.moc3
 ```
 
-On Windows, link the matching x64 import library and place the official DLL next to the
-probe executable or on its controlled DLL search path. Native Windows ARM64 is outside
-the final target set after ADR-0033, so Windows on ARM runs the x64 probe/build; this
-probe must not use the UWP artifact.
-
 The approved minimal developer baseline may commit the official header and reviewed
 real generated bindings under `vendor/cubism/5-r.5` and `bongocat-live2d`. The SDK
 ZIP, extracted SDK, additional Core binaries, and probe target directory remain

@@ -56,7 +56,7 @@ fn restart_requirement_matches_the_platform() {
     assert_eq!(
         restart_required_after_install(),
         cfg!(target_os = "macos"),
-        "macOS replaces the running bundle; Windows hands off to the installer"
+        "macOS replaces the running bundle"
     );
 }
 

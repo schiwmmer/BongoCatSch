@@ -122,10 +122,10 @@ fn is_legacy_only_gamepad_stem(stem: &str) -> bool {
 /// shoulder button. The four face buttons and the two menu buttons cannot
 /// decide this either way, because both vocabularies spell them the same.
 ///
-/// `entries` is the directory's exact file stems, not a path probe: neither
-/// Windows nor macOS distinguishes case in a path, so probing for `DPadUp.png`
-/// succeeds in a directory that ships the canonical `DpadUp.png`, and every
-/// package would be classified as legacy.
+/// `entries` is the directory's exact file stems, not a path probe: a
+/// case-insensitive volume does not distinguish case in a path, so probing for
+/// `DPadUp.png` succeeds in a directory that ships the canonical `DpadUp.png`,
+/// and every package would be classified as legacy.
 fn speaks_legacy_gamepad_names(entries: &BTreeSet<String>) -> bool {
     legacy_gamepad_key_image_names()
         .any(|(legacy, _)| is_legacy_only_gamepad_stem(legacy) && entries.contains(legacy))
@@ -396,7 +396,7 @@ mod tests {
     /// A case-only legacy stem has to change its actual spelling, on a
     /// case-insensitive filesystem as much as on a case-sensitive one. A direct
     /// rename is a no-op where the source and the destination are the same file,
-    /// which would leave the package drawing nothing on Windows and macOS.
+    /// which would leave the package drawing nothing on macOS.
     #[test]
     fn a_case_only_legacy_stem_is_renamed_to_its_canonical_spelling() {
         for (legacy, canonical) in [("Backslash", "BackSlash"), ("DPadUp", "DpadUp")] {

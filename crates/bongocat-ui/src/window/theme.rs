@@ -63,7 +63,6 @@ pub(crate) fn apply_native_theme(theme: SettingsTheme, window: &Window) {
 /// window — the smoke assertions — falls back to the application appearance, which is the
 /// same platform query.
 pub(crate) fn system_appearance(window: Option<&Window>, cx: &App) -> WindowAppearance {
-    #[cfg(target_os = "macos")]
     {
         // Neither argument is consulted: the whole point of this branch is to avoid the
         // value gpui holds, and the platform query needs no window.
@@ -72,10 +71,6 @@ pub(crate) fn system_appearance(window: Option<&Window>, cx: &App) -> WindowAppe
             bongocat_platform::SystemAppearance::Light => WindowAppearance::Light,
             bongocat_platform::SystemAppearance::Dark => WindowAppearance::Dark,
         }
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        window.map_or_else(|| cx.window_appearance(), Window::appearance)
     }
 }
 
@@ -102,8 +97,7 @@ pub(crate) fn resolved_theme_mode(
 /// `System` resolves against the live system appearance, which on macOS is only the
 /// truth once the application override a pinned Light/Dark installed has been dropped —
 /// so the override is dropped first, mirroring the ordering of `apply_component_theme`
-/// (native first, then resolve). Windows has no process override to drop; its frame is
-/// corrected by the roundtrip's `apply_component_theme` right after this.
+/// (native first, then resolve).
 pub(crate) fn apply_optimistic_component_theme(theme: SettingsTheme, cx: &mut App) {
     if theme == SettingsTheme::System {
         let _ = bongocat_platform::apply_process_theme(None);

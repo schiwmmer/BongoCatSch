@@ -60,7 +60,6 @@ fn automatic_update_schedule_rearms_from_the_last_dispatch_and_caps_polling() {
 
 /// The restart waits long enough to be seen, then happens whether or not the
 /// window is still open.
-#[cfg(target_os = "macos")]
 #[test]
 fn the_post_install_restart_waits_for_the_delay_then_fires() {
     let observed_at = Instant::now();

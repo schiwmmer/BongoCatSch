@@ -241,9 +241,9 @@ impl Render for UpdateView {
                     false,
                 )
                 .on_click(move |_, _window, cx| {
-                    // Off the callback thread: `ShellExecuteW` pumps this process's message
-                    // queue, which re-enters GPUI's foreground tasks while they are inside
-                    // the `App` borrow this callback is holding (issue #1081).
+                    // Off the callback thread: the `open` call blocks until the
+                    // browser takes the URL, so running it here would freeze the
+                    // window inside the callback.
                     crate::external_link::open(url.clone(), cx.background_executor()).detach();
                 }),
             );

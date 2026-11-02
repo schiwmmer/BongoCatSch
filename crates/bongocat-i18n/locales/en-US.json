@@ -27,12 +27,85 @@
     },
     "about": {
       "title": "About"
+    },
+    "pomodoro": {
+      "title": "Pomodoro"
+    },
+    "cultivation": {
+      "title": "Cultivation"
     }
   },
   "system_menu": {
     "title": "BongoCat",
+    "start_pomodoro": "Start Pomodoro",
+    "pause_pomodoro": "Pause Pomodoro",
+    "resume_pomodoro": "Resume Pomodoro",
+    "abandon_pomodoro": "Abandon Pomodoro",
+    "start_cultivation": "Cultivation",
     "open_settings": "Settings",
     "quit": "Quit BongoCat"
+  },
+  "pomodoro": {
+    "window": {
+      "title": "Pomodoro"
+    },
+    "picker": {
+      "new_task": "New task",
+      "continue_last": "Pick up where you left off",
+      "task_name": "Task name",
+      "task_name_placeholder": "What are you working on?",
+      "estimated_sessions": "Expected sessions",
+      "session_length": "%{minutes} minutes per session",
+      "create": "Create",
+      "close": "Close"
+    },
+    "task": {
+      "section": "Your tasks",
+      "start": "Start",
+      "running": "Running",
+      "paused": "Paused",
+      "progress": "%{completed} of %{estimated} sessions",
+      "progress_compact": "%{completed}/%{estimated}",
+      "none": "No tasks yet. Name one above to get started.",
+      "running_now": "Running: %{name}",
+      "created_at": "Created %{time}"
+    },
+    "worker_lost": "The pomodoro timer could not start. Check the log for details.",
+    "timer": {
+      "abandon": "Abandon",
+      "pause": "Pause",
+      "resume": "Resume"
+    },
+    "settings": {
+      "search_placeholder": "Search tasks",
+      "tab_list": "Task list",
+      "tab_calendar": "Calendar",
+      "no_tasks": "No tasks to show.",
+      "prev_month": "Previous month",
+      "next_month": "Next month",
+      "weekdays": "Mon,Tue,Wed,Thu,Fri,Sat,Sun",
+      "month_label": "%{year}-%{month}",
+      "month_summary": "%{sessions} sessions · %{tasks} tasks",
+      "done_group": "Finished (%{count})",
+      "chart_days_7": "Last 7 days",
+      "chart_days_30": "Last 30 days",
+      "chart_minutes": "Focus minutes",
+      "chart_done": "Tasks finished",
+      "tooltip_pomodoros": "Pomodoros %{count}",
+      "tooltip_minutes": "Focus %{minutes} min",
+      "month_tasks": "Tasks this month",
+      "day_tasks": "Tasks this day",
+      "day_tasks_empty": "No focus sessions this day",
+      "new_task": "New Task",
+      "task_edit": "Edit",
+      "task_duplicate": "Duplicate",
+      "task_editor_title": "Edit Task",
+      "task_delete": "Delete",
+      "save": "Save",
+      "cancel": "Cancel",
+      "axis_minutes": "min",
+      "axis_tasks": "tasks"
+    }
   },
   "startup_permission": {
     "later": "Set Up Later",
@@ -40,11 +113,6 @@
       "title": "Input Monitoring Permission Required",
       "description": "BongoCat needs Input Monitoring permission to receive keyboard and mouse input.",
       "open_settings": "Open System Settings"
-    },
-    "administrator": {
-      "title": "Recommend running with administrator access",
-      "description": "BongoCat needs administrator access to keep receiving keyboard and mouse input when another app is running with administrator privileges.\n\nTo set it up: right-click BongoCat → Properties → Compatibility → turn on \"Run this program as an administrator\".",
-      "open_program_folder": "Exit and open Settings"
     }
   },
   "about": {
@@ -262,6 +330,11 @@
         "field": "Name"
       }
     },
+    "behavior_palette": {
+      "hint": "Click a name to try it",
+      "expressions": "Expressions",
+      "motions": "Motions"
+    },
     "errors": {
       "conflict": "%{shortcut} is already assigned to another shortcut"
     }
@@ -327,13 +400,7 @@
         "options": {
           "system": "System",
           "chinese_simplified": "简体中文",
-          "chinese_traditional": "繁體中文",
-          "english": "English",
-          "arabic": "العربية",
-          "vietnamese": "Tiếng Việt",
-          "portuguese": "Português",
-          "korean": "한국어",
-          "french": "Français"
+          "english": "English"
         }
       }
     },
@@ -510,12 +577,8 @@
       },
       "status_icon": {
         "label": {
-          "macos": "Show menu bar icon",
-          "windows": "Show system tray icon"
+          "macos": "Show menu bar icon"
         }
-      },
-      "taskbar_icon": {
-        "label": "Show taskbar icon"
       },
       "dock_icon": {
         "label": "Always show Dock icon"
@@ -539,6 +602,537 @@
         "unsupported_os": "Running at startup is unavailable on this operating system",
         "unsupported_build": "Running at startup is unavailable in development builds"
       }
+    }
+  },
+  "stats": {
+    "hud": {
+      "progress": "%{value} / %{remaining} growth · %{percent}%",
+      "total": "growth %{value}",
+      "realm": "%{stage} · layer %{layer} rank %{rank}"
+    },
+    "stage": {
+      "name": {
+        "1": "Qi Refining",
+        "2": "Foundation",
+        "3": "Golden Core",
+        "4": "Nascent Soul",
+        "5": "Mana Transformation",
+        "6": "Void Refinement",
+        "7": "Integration",
+        "8": "Mahayana",
+        "9": "Tribulation",
+        "10": "Immortal"
+      }
+    }
+  },
+  "cultivation": {
+    "realm": "%{stage} · layer %{layer} rank %{rank}",
+    "progress": "%{value} / %{remaining} growth",
+    "capped": "This realm is full — break through to go further",
+    "growth": {
+      "next": "Next pomodoro +%{value} growth"
+    },
+    "attributes": "Attributes",
+    "free_points": "%{points} points to place",
+    "attribute": {
+      "root": "Constitution",
+      "strength": "Strength",
+      "mana": "Mana",
+      "agility": "Agility",
+      "add": "+1",
+      "add_ten": "+10",
+      "root_desc": "Constitution: +8 inner force and +2 aptitude a point. Aptitude is what makes 功法 learn faster and fail less.",
+      "strength_desc": "Strength: +3 attack and +20 health a point.",
+      "mana_desc": "Mana: +3 spell power and +2 spell resist a point.",
+      "agility_desc": "Agility: +2 speed, +10 hit and +10 evade a point. Hit against the other side's evade decides the chance: even is about eighty percent, a two-to-one gap about fifty."
+    },
+    "arts": {
+      "title": "Art books",
+      "empty": "No art books yet. Winning a realm fight always grants one; exploring may."
+    },
+    "mastered": {
+      "title": "Learned arts",
+      "empty": "No art learned through yet. Train one to its last rank and it stays with you for good — or sell it.",
+      "progress": "rank %{rank}/%{total}",
+      "show_all": "Show all %{count}",
+      "show_less": "Show fewer"
+    },
+    "art": {
+      "kind": {
+        "internal": "Internal",
+        "external": "External"
+      },
+      "grade": {
+        "yellow": "Yellow",
+        "profound": "Profound",
+        "earth": "Earth",
+        "heaven": "Heaven",
+        "divine": "Divine"
+      },
+      "gain": "%{attribute} +%{value}",
+      "cost": "costs %{value} inner",
+      "multiplier": "%{value}% base power",
+      "select": "Train",
+      "selected": "Training",
+      "mastery_attribute": "Mastered · +%{value}% attributes per rank",
+      "mastery_damage": "Mastered · +%{value}% attack per blow",
+      "progress": "Rank %{rank}/%{total} · next rank %{need} pomodoros · %{progress}/%{need} trained",
+      "complete": "%{total}/%{total} ranks · complete",
+      "success": "lands %{rate}%",
+      "failures": "%{count} failed attempts",
+      "aptitude": "aptitude +%{value} a rank",
+      "copies": "×%{count}",
+      "blows": "×%{count} blows",
+      "band": "%{min}%~%{max}% a blow",
+      "total_band": "%{min}%~%{max}% total",
+      "effect_slow": "chill: 速度 −%{value}%",
+      "effect_haste": "footwork: 速度 +%{value}%",
+      "effect_focus": "focus: 命中 +%{value}"
+    },
+    "derived": "Shown",
+    "derived_hint": "From the four attributes; no points here",
+    "formula": {
+      "line": "%{base} + %{attribute} %{value} × %{per} = %{result}",
+      "capped": "%{formula} (capped at %{cap})",
+      "line_bonus": "%{base} + %{attribute} %{value} × %{per} + %{bonus} = %{result}",
+      "baseline": "level %{level} base: %{baseline} · yours: %{result} · %{delta}"
+    },
+    "bonus": "Outright: %{lines}",
+    "set": {
+      "line": "%{set} ×%{count}: %{lines}"
+    },
+    "gear_sets": "Equipment sets",
+    "art_sets": "Art families",
+    "quality": {
+      "common": "Common",
+      "fine": "Fine",
+      "rare": "Rare",
+      "immortal": "Epic",
+      "legendary": "Legendary",
+      "mythic": "Mythic",
+      "divine": "Divine",
+      "transcendent": "Transcendent"
+    },
+    "effect": {
+      "frost": "Frost",
+      "thunder": "Thunder",
+      "sunder": "Sunder",
+      "weaken": "Blight",
+      "frost_desc": "enemy attack -%{value}% and hit -%{value}%",
+      "thunder_desc": "enemy speed -%{value}%",
+      "sunder_desc": "enemy resist -%{value}%",
+      "weaken_desc": "enemy health -%{value}%"
+    },
+    "attack": "attack %{value}",
+    "health": "health %{value}",
+    "inner": "inner force %{value}",
+    "spell": "spell power %{value}",
+    "resist": "spell resist %{value}",
+    "speed": "speed %{value}",
+    "hit": "hit %{value}",
+    "evade": "evade %{value}",
+    "aptitude": "aptitude %{value}",
+    "power": "power %{power}",
+    "power_level": "level %{value}",
+    "power_equipment": "gear %{value}",
+    "power_crop": "herbs %{value}",
+    "equipment": "Gear",
+    "slot": {
+      "weapon": "Weapon",
+      "clothes": "Robe",
+      "pants": "Trousers",
+      "boots": "Boots",
+      "empty": "Empty"
+    },
+    "item": {
+      "label": "%{slot} · tier %{tier} · %{quality}",
+      "label_named": "%{name} · tier %{tier} · %{quality}",
+      "quality": "%{quality} %{stars}",
+      "star_line": "%{stars} · all attributes ×%{percent}%",
+      "star_button": "Star up %{stones} stones %{tribute}",
+      "effect_line": "Effect %{effect}: %{detail}",
+      "set_line": "Set: %{set}",
+      "details": "Constitution %{root} · Strength %{strength} · Mana %{mana} · Agility %{agility}",
+      "equip": "Equip",
+      "unequip": "Take off"
+    },
+    "inventory": {
+      "title": "Satchel",
+      "empty": "No gear yet. A finished pomodoro sometimes drops one."
+    },
+    "seed": {
+      "label": "%{attribute} seed · tier %{tier} · %{grade}",
+      "label_named": "%{name} · tier %{tier} · %{grade}",
+      "plant": "Plant",
+      "harvest_line": "%{attribute} +%{value} when harvested"
+    },
+    "seeds": {
+      "title": "Seeds",
+      "empty": "No seeds yet.",
+      "total": "%{count} seeds",
+      "show_all": "Show all %{count}",
+      "show_less": "Show less"
+    },
+    "garden": {
+      "title": "Herb garden",
+      "empty": "Empty plot",
+      "growing": "ripe in %{minutes} min",
+      "harvest": "Harvest",
+      "full": "Every plot is planted.",
+      "buy_plot": "Buy a plot · %{price} stones",
+      "refuse_limit": "the garden already holds every plot it can",
+      "growing_hours": "ready in %{hours}h",
+      "growing_days": "ready in %{days}d",
+      "rank": "Garden rank %{rank}",
+      "rank_top": "The garden wants for nothing",
+      "xp": "Mastery %{have} / %{need}",
+      "upgrade": "Raise a rank · %{price} stones",
+      "refuse_capped": "the garden is tended as well as it can be",
+      "refuse_xp": "too little mastery banked for the next rank",
+      "plant_odds": "%{percent}% to take",
+      "withered": "Did not take",
+      "dig": "Dig out"
+    },
+    "resources": {
+      "title": "Resources & Gathering",
+      "bag_entry": "%{resource} %{count}/%{cap}",
+      "trade": "Lv %{level} · %{xp}/%{next} xp",
+      "building": "%{building} Lv %{level}/%{max}",
+      "cost": "%{stones} stones %{tribute}",
+      "upgrade_five": "×5"
+    },
+    "mode": {
+      "study": "Study",
+      "woodcut": "Woodcut",
+      "mine": "Stonecut"
+    },
+    "site": {
+      "forest": "Forest·Woodcut",
+      "mountain": "Mountain·Stonecut",
+      "mine": "Mine·Both"
+    },
+    "skill": {
+      "woodcut": "Woodcut",
+      "stonecut": "Stonecut"
+    },
+    "building": {
+      "workshop": "Workshop",
+      "warehouse": "Warehouse",
+      "smithy": "Smithy",
+      "dojo": "Dojo"
+    },
+    "building_tip": {
+      "workshop": "+10% gathering yield per level.",
+      "warehouse": "+25% resource storage cap per level.",
+      "smithy": "-10% star-up stone cost per level.",
+      "dojo": "+10% gathering xp per level; +1‰ art training success."
+    },
+    "expedition": {
+      "status": "Out %{site} for %{hours}h · %{eta}",
+      "hours": "%{hours}h",
+      "eta": "Home in %{hours}h %{minutes}m",
+      "returning_in": "On the way back · %{hours}h %{minutes}m to go",
+      "refuse_out": "Out gathering — act once home."
+    },
+    "breakthrough": {
+      "title": "Breakthrough",
+      "guardian": "Guardian of %{stage} · power %{power}",
+      "ready": "Your power is enough. Fight.",
+      "weak": "Not enough power — find gear and herbs first.",
+      "attempt": "Fight",
+      "won": "Breakthrough! You have entered %{stage}.",
+      "max": "The immortal realm is complete.",
+      "held": "The next attempt in %{hours}h %{minutes}m",
+      "banner": "This realm is full — beat its guardian to enter %{stage}"
+    },
+    "duel": {
+      "blow": "a plain blow",
+      "blow_index": "Blow %{index}",
+      "close": "Close",
+      "dodge": "%{attacker} swings and %{target} slips it",
+      "guardian": "the guardian",
+      "hit": "%{attacker} lands %{art} on %{target} for %{damage} (%{target} has %{health} left)",
+      "hp": "%{health} / %{max}",
+      "lose": "Defeat",
+      "lost_gear": "Gear lost: %{name}",
+      "playing": "Replaying the fight… click the log to skip",
+      "power": "Power %{player} against %{guardian}",
+      "replay": "Replay",
+      "reward_art": "Art learned: %{name}",
+      "reward_gear": "Gear gained: %{name}",
+      "side_foe": "Their side",
+      "side_you": "Your side",
+      "title_trial": "Tower bout",
+      "title_breakthrough": "The breakthrough fight",
+      "title_exploration": "A chance meeting",
+      "wanderer": "the wanderer",
+      "win": "Victory",
+      "you": "You",
+      "reward_stones": "%{value} stones",
+      "title_daily": "Morning Encounter",
+      "title_proving": "Trial bout"
+    },
+    "jobs": {
+      "title": "Odd jobs",
+      "hint": "Fixed wage; attribute bonus by how well the trade went.",
+      "row": "%{hours}h · %{stones} stones",
+      "accept": "Take it",
+      "taken": "In progress",
+      "refresh": "Reroll",
+      "refresh_cost": "Reroll for %{stones} stones",
+      "working": "Working a %{kind} (%{grade}) job, %{hours}h, for %{stones} stones",
+      "due": "Done in %{hours}h %{minutes}m",
+      "refuse_working": "The job in hand is not finished",
+      "refuse_gone": "Someone else took that job",
+      "paid_base": "Delivered: %{kind}, %{hours}h, %{stones} stones, %{rate}% success",
+      "gain": ", plus +%{points} %{attribute}",
+      "require_single": "needs %{attribute} %{value} (%{margin}%)",
+      "require_pair": "needs %{first} %{value_first} (%{a}%) · %{second} %{value_second} (%{b}%)",
+      "success": "%{rate}% success",
+      "names": {
+        "attack": "Body Tempering",
+        "health": "Bone Forging",
+        "inner": "Breath Cycling",
+        "spell": "Talisman Scribing",
+        "resist": "Armor Casting",
+        "speed": "Swift Travel",
+        "hit": "Hawk Eye",
+        "evade": "Shadow Step",
+        "attack_health": "Body Forge",
+        "attack_inner": "Qi Blade",
+        "attack_spell": "Sword Rite",
+        "attack_resist": "War Plate",
+        "attack_speed": "War Step",
+        "attack_hit": "Vanguard",
+        "attack_evade": "Skirmish",
+        "health_inner": "Tortoise Breath",
+        "health_spell": "Ward Sigil",
+        "health_resist": "Golden Body",
+        "health_speed": "Iron Stance",
+        "health_hit": "Steadfast",
+        "health_evade": "Deflect",
+        "inner_spell": "Spellcraft",
+        "inner_resist": "Meridian",
+        "inner_speed": "Lightfoot",
+        "inner_hit": "Focus",
+        "inner_evade": "Shadow Shift",
+        "spell_resist": "Aegis",
+        "spell_speed": "Wind Rider",
+        "spell_hit": "Hex Brand",
+        "spell_evade": "Blink",
+        "resist_speed": "Iron Cloth",
+        "resist_hit": "Gold Bell",
+        "resist_evade": "Bronze Wall",
+        "speed_hit": "Lightning",
+        "speed_evade": "Snow Step",
+        "hit_evade": "Wind Listen"
+      }
+    },
+    "explore": {
+      "attempt": "Take a walk",
+      "defeat": "The wanderer was too much; nothing was lost but the walk.",
+      "found_art": "Art found: %{name}",
+      "found_gear": "Gear found: %{name}",
+      "found_seed": "Seed found: %{name}",
+      "found_stones": "Stones found: %{value}",
+      "eta": "Home in %{hours}h %{minutes}m",
+      "nothing": "Nothing came of it.",
+      "ready": "You are home, and free to set out.",
+      "return": "Come home early",
+      "returning": "On the way back",
+      "returning_in": "On the way back · %{hours}h %{minutes}m to go",
+      "refuse_cooldown": "The last walk has not come back yet — wait a while longer.",
+      "title": "Exploration",
+      "victory": "The wanderer was beaten, and paid for it.",
+      "hours": "%{hours}h · ×%{mult}",
+      "hint": "Walk the hours out or come home with nothing.",
+      "busy_gathering": "Out gathering — explore once home."
+    },
+    "trial": {
+      "title": "Demon-Locking Tower",
+      "opponent": "Tower Warden",
+      "floor": "Floor %{floor} · warden power %{power}",
+      "attempt": "Climb",
+      "attempts_left": "%{left}/%{total} climbs left today",
+      "cleared": "Cleared through floor %{floor}",
+      "top": "The tower is cleared; no floor is left to climb.",
+      "hint": "Wardens deepen each floor; a clear floor always pays.",
+      "won": "Floor %{floor} cleared.",
+      "lost": "Floor %{floor} was too much.",
+      "refuse_out": "Still out on a walk — the tower opens once you are home.",
+      "refuse_drained": "No climbs left today. Come back tomorrow.",
+      "refuse_top": "The tower is cleared; no floor is left to climb.",
+      "sweep": "Sweep",
+      "sweep_result": "Swept %{floors} floors · herbs ×%{seeds} · gear ×%{gear} · arts ×%{arts} · stones %{stones}",
+      "refuse_not_sweepable": "Only a body far stronger than the warden may sweep."
+    },
+    "notice": {
+      "absence": "%{days} days without practice — growth -%{charged}",
+      "drop_equipment": "Found gear: %{item}",
+      "drop_seed": "Found a seed: %{item}",
+      "seed_return": "The harvest brought back %{seed}",
+      "star_success": "Star up: %{name} rose to %{star} stars",
+      "star_failed": "Star up failed: %{name} fell to %{star} stars",
+      "drop_art": "One in a thousand: an art, %{item}",
+      "drop_herb": "One in a thousand: %{item}",
+      "drop_stones": "One in a thousand: %{item} stones",
+      "collect": "%{site}: got %{gained}, +%{xp} gathering xp",
+      "building_upgrade": "%{building} rose to level %{level}"
+    },
+    "record": {
+      "title": "Recent events",
+      "status_home": "At home",
+      "status_out": "Away",
+      "status_out_walk": "Away: exploring, back in %{hours} h %{minutes} m",
+      "status_out_work": "Away: on a %{grade} job (%{hours} h), back in %{remain_hours} h %{remain_minutes} m",
+      "status_returning": "On the way back: home in %{hours} h %{minutes} m",
+      "return_early": "Return now",
+      "returning": "On the way back",
+      "return_early_confirm": "Returning early pays nothing: this outing is forfeit, and the trip back still costs %{hours} h %{minutes} m. Return now?",
+      "refuse_not_out": "Already home — there is no road back.",
+      "empty": "Nothing yet. Finished sessions and walks both land here.",
+      "guardian": "Guardian",
+      "wanderer": "Wanderer",
+      "outcome": {
+        "seed": "found a herb",
+        "gear": "found gear",
+        "art": "found an art",
+        "stones": "found stones"
+      },
+      "found_art": "art “%{name}”",
+      "found_gear": "gear “%{name}”",
+      "found_seed": "herb “%{name}”",
+      "found_stones": "stones “%{value}”",
+      "show_all": "Show all %{count} events",
+      "history": "Full history"
+    },
+    "event": {
+      "session": "Session finished, +%{growth} growth",
+      "session_gather": "A gathering session: %{site} gave %{gained}",
+      "session_gather_xp": ", +%{xp} xp",
+      "expedition": "Expedition home: %{site}, %{hours}h, gave %{gained}",
+      "expedition_xp": ", +%{xp} xp",
+      "found": "Pomodoro find",
+      "work": "Worked %{hours}h for %{stones} stones (%{rate}% success)",
+      "absence": "%{days} days without practice — growth -%{charged}",
+      "walk": "Walked out: %{outcome}",
+      "train_failed": "Training “%{name}” came to nothing; the progress stays",
+      "train_progress": "Training “%{name}” moved along",
+      "train_ranked": "“%{name}” rose to rank %{rank}",
+      "train_mastered": "“%{name}” is mastered",
+      "train_body": "Body training paid off — attribute points +%{points}",
+      "breakthrough_won": "The realm fight is won — a new realm opens!",
+      "breakthrough_lost": "The realm fight is lost — train and return.",
+      "bought": "Bought %{what} for %{stones} stones",
+      "sold": "Sold %{what} for %{stones} stones",
+      "harvest": "A crop was pulled.",
+      "harvested": "Harvested %{seed} — %{attribute} +%{points}",
+      "herb_harvested": "Harvested %{seed} (an aptitude herb)",
+      "harvested_xp": "mastery +%{xp}",
+      "withered": "%{seed} did not take (%{percent}%) — mastery +%{xp}",
+      "rank_up": "The garden rose to rank %{rank} (%{stones} stones)",
+      "bought_bare": "Bought %{what}",
+      "star_success": "%{name} rose a star — %{stars} (%{stones} stones, %{tribute})",
+      "star_failed": "%{name} fell back to %{star} stars (%{stones} stones, %{tribute})",
+      "building_upgrade": "%{building} rose to level %{level} (%{stones} stones, %{tribute})",
+      "aptitude": "%{herb} · aptitude +%{gain} → %{value}",
+      "aptitude_gate": "%{line} (Marrow Pill ×%{pills})",
+      "marrow_found": "Found a Marrow Pill (%{source})",
+      "bonus": "Unexpected gain: %{find}",
+      "bonus_stones": "%{stones} stones",
+      "with_effect": "%{what} (%{effect})",
+      "trial_sweep": "Swept floors %{from}–%{to}",
+      "sweep_seed": "herbs ×%{count}",
+      "sweep_gear": "gear ×%{count}",
+      "sweep_art": "arts ×%{count}",
+      "work_gain": ", plus +%{points} %{attribute}"
+    },
+    "shop": {
+      "title": "Market",
+      "stones": "Stones %{stones}",
+      "shelf": "Today's shelf (refreshes daily)",
+      "empty": "The shelf is bare. Come back tomorrow.",
+      "bought": "Bought",
+      "sell": "Sell %{stones}",
+      "equipment": "Gear",
+      "seed": "Herb",
+      "art": "Art",
+      "price": "%{stones} stones",
+      "refuse_stones": "Not enough stones",
+      "refuse_offer": "Not on today's shelf",
+      "refuse_bought": "Already bought today",
+      "refuse_owned": "You do not own that",
+      "refuse_equipped": "Worn gear cannot be sold",
+      "refuse_training": "The art being trained cannot be sold",
+      "refuse_already": "That art is already learned — no page left to sell",
+      "sold": "Sold",
+      "refuse_sold": "This tome has been sold already",
+      "refuse_star_capped": "This piece already holds all ten stars",
+      "refuse_resources": "Not enough resources to star up (needs %{tribute})",
+      "refuse_building_capped": "This building already holds all ten ranks",
+      "detail_sell": "Sells back for %{stones} stones",
+      "special": "On sale · %{value}/10 of the listed %{list}",
+      "seed_tier": "a tier %{tier} %{grade} herb",
+      "plot": "a garden plot",
+      "herb": "Aptitude item",
+      "herb_facts": "%{herb} · %{effect}",
+      "herb_gain": "aptitude +%{value}",
+      "herb_marrow_gain": "opens an even hundred",
+      "owned": "Owned",
+      "mastered": "Learned"
+    },
+    "hint": {
+      "derived_title": "The eight combat numbers: what the four attributes turn into, not points you can spend",
+      "derived_hint_each": "Read off the four attributes above; only changing those moves this.",
+      "power_hint": "Power is the single number a breakthrough is decided by, and it follows from the four attributes, the arts and the gear together.",
+      "aptitude_hint": "Aptitude sets how reliably and how fast arts are learned — 50% (黄) / 42% (玄) / 35% (地) / 20% (天) / 5% (神) at zero, and each point multiplies the rate by 1.01 and the cost by 0.99. Every failed attempt multiplies the rate by another 1.01, and those failures belong to the whole art: they carry past a 阶 rather than resetting with it. It joins no fight."
+    },
+    "daily": {
+      "ambush": "Ambushed at dawn — the attacker was driven off",
+      "ambush_lost": "Ambushed at dawn — driven back, and nothing lost",
+      "gift": "The morning handed something over",
+      "trinket": "A quiet morning, and a few coins in the dust"
+    },
+    "level": {
+      "total": "Level %{level} / %{total}",
+      "rule": "Cumulative level = (realm position − 1) × 100 + layer × 10 + rank, layers counted from 0. Ten realms × one hundred levels = one thousand.",
+      "span": "%{from}–%{to}"
+    },
+    "power_art": "Internal %{value}",
+    "power_art_bonus": "Internal lines %{value}",
+    "power_allocated": "Placed %{value}",
+    "power_equipment_bonus": "Gear lines %{value}",
+    "power_total": "Total %{value}",
+    "aptitude_use": "Feed",
+    "aptitude_refuse_herb": "None of that herb in the bag",
+    "aptitude_refuse_capped": "Aptitude is already at its peak",
+    "aptitude_refuse_marrow": "Not enough Marrow Pills: stuck at the even hundred",
+    "herb": {
+      "use_pill": "Use · %{pills} pills",
+      "insight": "Insight Herb",
+      "wisdom": "Wisdom Herb",
+      "marrow": "Marrow Pill"
+    },
+    "marrow_source": {
+      "combat": "a fight",
+      "fortune": "a stroke of luck",
+      "shop": "the market"
+    },
+    "proving": {
+      "title": "Trial",
+      "attempt": "Trial",
+      "chances": "Trial chances %{left}/%{total}",
+      "hint": "One trial per finished pomodoro; none while away.",
+      "won": "The trial was passed.",
+      "lost": "The trial was too much; nothing came of it.",
+      "refuse_empty": "No trial chance banked: finish a pomodoro to earn one",
+      "refuse_out": "Still out on a walk — a trial waits until you are home"
+    },
+    "resource": {
+      "wood": "wood",
+      "stone": "stone",
+      "iron": "iron",
+      "coal": "coal"
     }
   }
 }

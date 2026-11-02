@@ -7,34 +7,18 @@
 //!
 //! # Why the hand-off cannot happen inside the callback
 //!
-//! A GPUI button or link callback runs while the framework holds a mutable
-//! borrow of its `App`, which is a `RefCell`. On Windows, opening a URL means
-//! `ShellExecuteW`, and `ShellExecuteW` **pumps this process's message queue**
-//! before it returns. Pumping delivers the messages GPUI's own platform window
-//! handles, and handling them runs its foreground tasks — on this thread, inside
-//! the callback, with that borrow still held.
-//!
-//! Those tasks call `AsyncApp::update`, which asks the same `RefCell` for
-//! another mutable borrow. `RefCell` grants one, so the second one panics with
-//! `RefCell already borrowed` and the process dies on the way out. The product's
-//! own long-lived pollers in `bongocat-app` are among those tasks, which is what
-//! makes the trap so easy to fall into: any of them would do it.
-//!
-//! The freeze users saw before the crash is the same call, blocking on the
-//! browser while the window cannot paint.
-//!
-//! macOS runs the `open` command instead of `ShellExecuteW` and pumps nothing,
-//! which is why the identical button was fine there.
+//! The `open` call is synchronous and blocks until the browser it started has
+//! taken the URL, so running it inside a GPUI button or link callback freezes
+//! the window while it cannot paint.
 //!
 //! # The rule
 //!
-//! The blocking platform call runs on a background executor, so no message pump
-//! happens on the thread that owns the borrow. Only the outcome comes back.
+//! The blocking platform call runs on a background executor, so the thread that
+//! owns the borrow never blocks. Only the outcome comes back.
 //!
-//! `ShellExecuteW` is the only message-pumping call the product makes from a
-//! view callback. `opener::reveal` spawns its own worker thread, and the
-//! clipboard writes do not pump; the directory launches happen on the settings
-//! worker, off the UI thread entirely.
+//! `opener::reveal` spawns its own worker thread, and the clipboard writes do
+//! not block; the directory launches happen on the settings worker, off the UI
+//! thread entirely.
 
 use bongocat_platform::ExternalUrlOpenError;
 use gpui_kit::{BackgroundExecutor, Task};

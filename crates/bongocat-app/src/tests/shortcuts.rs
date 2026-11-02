@@ -45,39 +45,48 @@ fn activating_a_model_fills_in_the_legacy_default_behavior_shortcuts() {
         .wait_for_command(token.command_sequence, RUNTIME_TIMEOUT)
         .expect("standard model activation");
 
-    // `standard` declares four motions in two groups and three
-    // expressions. The legacy ordering walks motions before expressions,
-    // so the seven behaviours land on the first seven digit slots.
+    // `standard` declares four motions in each of two groups and seven
+    // expressions. The legacy rule assigns chords by flat position, walking
+    // motions before expressions, so dropping one motion and three expressions
+    // moves every later behaviour up the same table rather than keeping a
+    // per-kind tier.
     let bindings = application
         .config()
         .shortcuts
         .model_behavior_bindings
         .clone();
-    assert_eq!(bindings.len(), 7);
+    assert_eq!(bindings.len(), 15);
     assert!(
         bindings
             .iter()
             .all(|binding| binding.model.id == "standard")
     );
     let primary = behavior_shortcut_primary_name();
-    for (behavior_id, slot) in [
-        ("motion:CAT_motion:0", 1),
-        ("motion:CAT_motion:1", 2),
-        ("motion:CAT_motion_lock:0", 3),
-        ("motion:CAT_motion_lock:1", 4),
-        ("expression:live2d_expression0.exp3.json", 5),
-        ("expression:live2d_expression1.exp3.json", 6),
-        ("expression:live2d_expression2.exp3.json", 7),
+    for (behavior_id, expected) in [
+        ("motion:CAT_motion:0", format!("{primary}+1")),
+        ("motion:CAT_motion:1", format!("{primary}+2")),
+        ("motion:CAT_motion_lock:0", format!("{primary}+5")),
+        ("motion:CAT_motion_lock:1", format!("{primary}+6")),
+        // Position 8 and 9 are still in the digit tier, so the last two
+        // motions of the second group are followed by two expressions there.
+        (
+            "expression:live2d_expression0.exp3.json",
+            format!("{primary}+9"),
+        ),
+        (
+            "expression:live2d_expression1.exp3.json",
+            format!("{primary}+0"),
+        ),
+        (
+            "expression:live2d_expression2.exp3.json",
+            format!("Shift+{primary}+1"),
+        ),
     ] {
         let binding = bindings
             .iter()
             .find(|binding| binding.behavior_id == behavior_id)
             .unwrap_or_else(|| panic!("{behavior_id} has no default binding"));
-        assert_eq!(
-            binding.shortcut,
-            format!("{primary}+{slot}"),
-            "{behavior_id}"
-        );
+        assert_eq!(binding.shortcut, expected, "{behavior_id}");
     }
 
     // The chords are persisted, but the switch still gates whether the
@@ -116,7 +125,7 @@ fn the_command_gate_keeps_the_recorded_bindings_and_only_leaves_the_table() {
     let mut application =
         Application::start_with_layout(layout.clone()).expect("start application");
     // Control+Alt+0 sits outside the primary tier, so the expectation below
-    // reads the same on macOS and Windows.
+    // reads the same on macOS.
     application
         .set_shortcuts(bongocat_ui_protocol::SettingsShortcuts {
             commands: vec![bongocat_ui_protocol::SettingsShortcutBinding {
@@ -179,7 +188,7 @@ fn selecting_a_model_keeps_the_behavior_bindings_the_user_recorded() {
     let layout = StorageLayout::under(base.path(), BUILD_ENVIRONMENT);
     let mut application = Application::start_with_layout(layout).expect("start application");
     // Both chords sit outside the primary tier, so the expectation below
-    // reads the same on macOS and Windows.
+    // reads the same on macOS.
     application
         .set_shortcuts(bongocat_ui_protocol::SettingsShortcuts {
             commands: vec![bongocat_ui_protocol::SettingsShortcutBinding {
@@ -207,7 +216,7 @@ fn selecting_a_model_keeps_the_behavior_bindings_the_user_recorded() {
         .shortcuts
         .model_behavior_bindings
         .clone();
-    assert_eq!(bindings.len(), 7);
+    assert_eq!(bindings.len(), 15);
     let chord = |behavior_id: &str| {
         bindings
             .iter()
@@ -227,11 +236,13 @@ fn selecting_a_model_keeps_the_behavior_bindings_the_user_recorded() {
     );
     assert_eq!(
         chord("motion:CAT_motion_lock:0"),
-        Some(format!("{primary}+2"))
+        Some(format!("{primary}+4"))
     );
     assert_eq!(
         chord("expression:live2d_expression2.exp3.json"),
-        Some(format!("{primary}+6"))
+        // The recorded binding freed one slot, so the fifteenth behaviour is the
+        // last chord of the digit tier rather than the third of the Shift tier.
+        Some(format!("{primary}+0"))
     );
     assert_eq!(
         application.config().shortcuts.command_bindings.len(),
@@ -267,7 +278,7 @@ fn clearing_all_shortcuts_does_not_survive_the_next_activation() {
         .expect("select standard model");
     assert_eq!(
         application.config().shortcuts.model_behavior_bindings.len(),
-        7
+        15
     );
 
     // What the page's "Clear all shortcuts" button sends.
@@ -290,7 +301,7 @@ fn clearing_all_shortcuts_does_not_survive_the_next_activation() {
     assert!(application.config().shortcuts.command_bindings.is_empty());
     assert_eq!(
         application.config().shortcuts.model_behavior_bindings.len(),
-        7,
+        15,
         "the model behaviour defaults are re-assigned by activation"
     );
     application.shutdown().expect("clean shutdown");
@@ -387,7 +398,7 @@ fn switching_models_swaps_the_behavior_half_of_the_shortcut_table() {
         .expect("enable behavior shortcuts");
     // Recorded before any model is active, so `standard` owns a chord no
     // other model will be handed: outside the primary tier, so the
-    // expectation below reads the same on macOS and Windows.
+    // expectation below reads the same on macOS.
     application
         .set_shortcuts(bongocat_ui_protocol::SettingsShortcuts {
             commands: Vec::new(),

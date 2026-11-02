@@ -140,7 +140,6 @@ fn discovery_bounds_resources_before_mver_detection_and_package_validation() {
     );
 }
 
-#[cfg(target_os = "macos")]
 #[test]
 fn discovery_rejects_symlinked_children_even_when_they_point_inside_the_folder() {
     let data = tempdir().unwrap();

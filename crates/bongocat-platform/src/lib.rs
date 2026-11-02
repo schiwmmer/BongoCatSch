@@ -11,6 +11,25 @@ pub use input_error::PlatformInputError;
 mod installation;
 pub use installation::InstallationLayout;
 
+mod interaction_stats;
+pub use interaction_stats::{
+    PersistedStats, flush_if_due, flush_now, init as interaction_stats_init, record_key,
+    record_mouse, set_input_flush_hook, set_input_hook, totals as interaction_totals,
+};
+
+mod local_time;
+pub use local_time::local_utc_offset_seconds;
+
+mod pomodoro_sound;
+pub use pomodoro_sound::{
+    CULTIVATION_RETURN_SOUND, POMODORO_COMPLETE_SOUND, POMODORO_LEVEL_UP_SOUND,
+    POMODORO_TASK_DONE_SOUND, play_cultivation_return_sound, play_level_up_sound,
+    play_pomodoro_complete_sound, play_task_done_sound,
+};
+
+mod bundled_resource;
+pub use bundled_resource::bundled_resource;
+
 mod model_source_picker;
 pub use model_source_picker::{ModelSourcePickerError, ModelSourcePickerOutcome};
 
@@ -34,13 +53,8 @@ pub use shortcut::{
     GlobalShortcutCounters, GlobalShortcutService, GlobalShortcutServiceError, ShortcutHotkeyError,
 };
 pub use shortcut::{ShortcutDispatch, ShortcutDispatchError, ShortcutDispatcher};
-#[cfg(target_os = "windows")]
-mod single_instance_windows;
-#[cfg(target_os = "windows")]
-pub use single_instance_windows::{SingleInstance, SingleInstanceStart};
 
 mod theme;
-#[cfg(target_os = "macos")]
 pub use theme::system_appearance;
 pub use theme::{
     AppTheme, NativeThemeError, SystemAppearance, apply_process_theme, apply_theme,
@@ -48,7 +62,9 @@ pub use theme::{
 };
 
 mod system_menu;
-pub use system_menu::{SystemMenuAction, SystemMenuError, SystemMenuPresentation};
+pub use system_menu::{
+    PomodoroMenuMode, SystemMenuAction, SystemMenuError, SystemMenuPresentation,
+};
 mod system_menu_native;
 pub use system_menu_native::SystemMenu;
 
@@ -67,28 +83,13 @@ pub use startup_permission::{
 mod native_window;
 pub use native_window::NativeWindowError;
 
-#[cfg(target_os = "macos")]
 mod gilrs_gamepad;
-#[cfg(target_os = "macos")]
 mod macos;
-#[cfg(target_os = "macos")]
 pub use macos::{
     MacInputService, current_display_bounds, display_bounds_for_window, dock_icon_is_visible,
     global_window_origin, hide_native_window, input_monitoring_permission, local_window_origin,
     native_window_is_visible, request_input_monitoring_permission, set_dock_icon_visible,
     show_native_window, system_language, window_content_top_inset,
-};
-#[cfg(target_os = "windows")]
-mod gilrs_gamepad;
-#[cfg(target_os = "windows")]
-mod windows;
-#[cfg(target_os = "windows")]
-pub use windows::WindowsInputService;
-#[cfg(target_os = "windows")]
-pub use windows::{
-    current_display_bounds, display_bounds_for_window, global_window_origin, hide_native_window,
-    local_window_origin, request_native_window_close, show_native_window, system_language,
-    taskbar_icon_is_visible, terminate_after_product_shutdown,
 };
 
 /// Let the user choose the model folder to import.

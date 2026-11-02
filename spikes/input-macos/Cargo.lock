@@ -28,17 +28,12 @@ name = "bongocat-input-macos-spike"
 version = "0.1.0"
 dependencies = [
  "block2",
- "bongocat-input-queue-spike",
  "core-foundation",
  "core-graphics2",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
 ]
-
-[[package]]
-name = "bongocat-input-queue-spike"
-version = "0.1.0"
 
 [[package]]
 name = "cfg-if"

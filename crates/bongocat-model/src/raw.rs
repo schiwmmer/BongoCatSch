@@ -124,6 +124,13 @@ pub(crate) struct RawExpressionResource {
     pub(crate) fade_in_seconds: Option<f32>,
     #[serde(rename = "FadeOutTime", default)]
     pub(crate) fade_out_seconds: Option<f32>,
+    /// This application's extension: a one-shot expression recovers to the
+    /// model's own face after holding this many seconds. Missing or zero keeps
+    /// the expression persistent. Parsed here only so a standard Live2D exp3
+    /// with the field is accepted as a model resource; the value's meaning is
+    /// owned by the playback layer, so the field is deliberately not read.
+    #[serde(rename = "AutoRecoverTime", default)]
+    pub(crate) _auto_recover_seconds: Option<f32>,
     #[serde(rename = "Parameters")]
     pub(crate) parameters: Vec<RawExpressionParameter>,
 }

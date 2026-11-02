@@ -10,8 +10,6 @@
 //! Unix modes are applied after every directory creation and every atomic
 //! replacement, because a file that replaces another can otherwise inherit the
 //! mode of the file it replaced instead of the mode it was created with.
-//! Windows has nothing to do here: the profile directory ACL is already the
-//! platform's user-private boundary, so every helper is a no-op there.
 //!
 //! This crate owns the permission and replacement primitives only. Deciding
 //! *where* product state lives stays in `bongocat-config`, and log retention
@@ -83,14 +81,16 @@ pub fn create_private_dir_all(path: &Path) -> io::Result<()> {
 pub fn write_private_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     #[cfg(unix)]
     let mut options = AtomicWriteFile::options();
-    #[cfg(not(unix))]
-    let options = AtomicWriteFile::options();
     #[cfg(unix)]
     {
         use atomic_write_file::unix::OpenOptionsExt;
         use std::os::unix::fs::OpenOptionsExt as _;
         options.preserve_mode(false).mode(0o600);
     }
+    // Platforms without Unix modes (the wasm build of the pomodoro crate never
+    // writes) keep the plain options; there is no mode to preserve or request.
+    #[cfg(not(unix))]
+    let options = AtomicWriteFile::options();
     let mut file = options.open(path)?;
     file.write_all(bytes)?;
     file.commit()?;

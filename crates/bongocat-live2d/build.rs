@@ -11,13 +11,6 @@ fn main() {
     match target.as_str() {
         "aarch64-apple-darwin" => link_static_core(vendor.join("lib/macos/arm64")),
         "x86_64-apple-darwin" => link_static_core(vendor.join("lib/macos/x86_64")),
-        "x86_64-pc-windows-msvc" => {
-            println!(
-                "cargo:rustc-link-search=native={}",
-                vendor.join("lib/windows/x86_64/143").display()
-            );
-            println!("cargo:rustc-link-lib=static=Live2DCubismCore_MD");
-        }
         _ => {}
     }
 }

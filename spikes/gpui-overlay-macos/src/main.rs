@@ -917,9 +917,6 @@ mod macos_overlay {
     }
 }
 
-#[cfg(target_os = "windows")]
-use bongocat_overlay_windows_spike as windows_overlay;
-
 use gpui::{
     App, Application, Bounds, Context, Global, Render, Timer, Window, WindowBounds, WindowOptions,
     div, prelude::*, px, rgb, size,
@@ -933,9 +930,6 @@ const AUTO_QUIT_MILESTONE_WAIT_ATTEMPTS: usize = 200;
 
 #[cfg(target_os = "macos")]
 type PlatformOverlay = macos_overlay::NativeOverlay;
-
-#[cfg(target_os = "windows")]
-type PlatformOverlay = windows_overlay::NativeOverlay;
 
 struct OverlayGlobal {
     overlay: Option<PlatformOverlay>,
@@ -1000,28 +994,6 @@ impl Render for SettingsProbe {
 }
 
 fn main() {
-    #[cfg(target_os = "windows")]
-    if let Some(cycles) =
-        argument_value("--windows-overlay-cycles").and_then(|value| value.parse::<u32>().ok())
-    {
-        let report = windows_overlay::run_creation_cycles(cycles)
-            .expect("Windows overlay create/destroy cycle smoke failed");
-        println!(
-            "gpui-overlay-spike: Windows cycles={} non_empty_frames={} handles_before={} handles_after={} threads_before={} threads_after={} threads_baseline_high_water={} measurement_batches={} gpu_bytes_before={} gpu_bytes_after={} clean_shutdown=true",
-            report.cycles,
-            report.non_empty_frames,
-            report.handles_before,
-            report.handles_after,
-            report.threads_before,
-            report.threads_after,
-            report.threads_baseline_high_water,
-            report.measurement_batches,
-            report.gpu_bytes_before,
-            report.gpu_bytes_after
-        );
-        return;
-    }
-
     #[cfg(target_os = "macos")]
     if let Some(cycles) =
         argument_value("--macos-overlay-cycles").and_then(|value| value.parse::<u32>().ok())
@@ -1210,12 +1182,6 @@ fn main() {
                     ) {
                         Ok(()) => {
                             run_visibility_smoke = true;
-                            #[cfg(target_os = "windows")]
-                            println!(
-                                "gpui-overlay-spike: Windows native overlay created driver={} dpi={}",
-                                overlay.driver_name(),
-                                overlay.dpi()
-                            );
                             #[cfg(target_os = "macos")]
                             println!("gpui-overlay-spike: macOS native overlay created");
                         }
@@ -1607,11 +1573,6 @@ fn create_platform_overlay() -> Result<PlatformOverlay, String> {
     macos_overlay::NativeOverlay::create(mtm)
 }
 
-#[cfg(target_os = "windows")]
-fn create_platform_overlay() -> Result<PlatformOverlay, String> {
-    windows_overlay::NativeOverlay::create()
-}
-
 #[cfg(target_os = "macos")]
 fn initial_show_and_present(
     overlay: &mut PlatformOverlay,
@@ -1630,25 +1591,9 @@ fn initial_show_and_present(
     }
 }
 
-#[cfg(target_os = "windows")]
-fn initial_show_and_present(
-    overlay: &mut PlatformOverlay,
-    _simulate_drawable_unavailable: bool,
-    _simulate_stale_drawable_size: bool,
-) -> Result<(), String> {
-    overlay.verify_drag_contract()?;
-    show_and_present(overlay)
-}
-
 #[cfg(target_os = "macos")]
 fn show_and_present(overlay: &PlatformOverlay) -> Result<(), String> {
     overlay.show();
-    overlay.clear_present()
-}
-
-#[cfg(target_os = "windows")]
-fn show_and_present(overlay: &PlatformOverlay) -> Result<(), String> {
-    overlay.show()?;
     overlay.clear_present()
 }
 
@@ -1658,21 +1603,7 @@ fn hide_platform_overlay(overlay: &PlatformOverlay) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(target_os = "windows")]
-fn hide_platform_overlay(overlay: &PlatformOverlay) -> Result<(), String> {
-    overlay.hide()
-}
-
 #[cfg(target_os = "macos")]
-fn resize_platform_overlay(
-    overlay: &mut PlatformOverlay,
-    width: u32,
-    height: u32,
-) -> Result<(), String> {
-    overlay.resize(width, height)
-}
-
-#[cfg(target_os = "windows")]
 fn resize_platform_overlay(
     overlay: &mut PlatformOverlay,
     width: u32,
@@ -1689,23 +1620,6 @@ fn render_platform_frame(overlay: &PlatformOverlay) -> Result<(), FrameFailure> 
             kind: FrameFailureKind::SurfaceUnavailable,
             message,
         })
-}
-
-#[cfg(target_os = "windows")]
-fn render_platform_frame(overlay: &PlatformOverlay) -> Result<(), FrameFailure> {
-    overlay.render_scheduled_frame().map_err(|error| {
-        let kind = match error.kind() {
-            windows_overlay::RenderFailureKind::SurfaceUnavailable => {
-                FrameFailureKind::SurfaceUnavailable
-            }
-            windows_overlay::RenderFailureKind::DeviceLost => FrameFailureKind::DeviceLost,
-            windows_overlay::RenderFailureKind::Fatal => FrameFailureKind::Fatal,
-        };
-        FrameFailure {
-            kind,
-            message: error.to_string(),
-        }
-    })
 }
 
 fn argument_value(name: &str) -> Option<String> {

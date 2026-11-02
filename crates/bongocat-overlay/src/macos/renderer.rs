@@ -16,6 +16,11 @@ pub(crate) const METAL_COMPLETION_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub(crate) struct NativeOverlay {
     pub(crate) panel: ManuallyDrop<Retained<NSPanel>>,
+    /// The performance's current swing, applied on top of the logical origin.
+    ///
+    /// It is stored rather than only applied because every reader of the
+    /// window's geometry has to be able to subtract it again.
+    swing: NSPoint,
     pub(crate) device: Device,
     pub(crate) layer: MetalLayer,
     pub(crate) queue: CommandQueue,
@@ -177,6 +182,7 @@ impl NativeOverlay {
             model_generation: frame.model_generation,
             resources: Arc::clone(&frame.resources),
             model,
+            swing: NSPoint::new(0.0, 0.0),
             presentation: OverlayPresentationState::default(),
             corner_radius_percent: options.corner_radius_percent,
             applied_alpha: f64::from(options.opacity_percent) / 100.0,
@@ -245,10 +251,37 @@ impl NativeOverlay {
     /// activation. The caller has already compared the box against the live
     /// frame, so an unchanged origin is a no-op.
     pub(crate) fn set_origin(&self, bounds: OverlayWindowBounds) {
-        let origin = NSPoint::new(f64::from(bounds.x), f64::from(bounds.y));
+        self.set_swung_origin(NSPoint::new(f64::from(bounds.x), f64::from(bounds.y)));
+    }
+
+    /// Where the window's origin is, excluding the performance swing.
+    ///
+    /// Every caller that reasons about geometry — the placement correction, the
+    /// hover hit test, the window-state report — reads this rather than the live
+    /// frame, so a swinging cat is read as a still cat. Without that split the
+    /// placement correction would treat each swing as the window being dragged
+    /// off screen and pull it back, and the hover test would flicker as the cat
+    /// moved under a stationary pointer.
+    pub(crate) fn logical_origin(&self) -> NSPoint {
+        let origin = self.panel.frame().origin;
+        NSPoint::new(origin.x - self.swing.x, origin.y - self.swing.y)
+    }
+
+    fn set_swung_origin(&self, origin: NSPoint) {
         if self.panel.frame().origin != origin {
             self.panel.setFrameOrigin(origin);
         }
+    }
+
+    /// Apply a performance swing on top of the logical origin.
+    ///
+    /// The swing is stored rather than only applied, because
+    /// [`Self::logical_origin`] has to subtract it again to recover the position
+    /// the rest of the product reasons about.
+    pub(crate) fn apply_swing(&mut self, swing: NSPoint) {
+        self.swing = swing;
+        let logical = self.logical_origin();
+        self.set_swung_origin(NSPoint::new(logical.x + swing.x, logical.y + swing.y));
     }
 
     /// Adapt the panel to a newly prepared model while keeping the live width.

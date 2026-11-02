@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        感谢你花时间反馈问题。BongoCat 仅发布 Windows 与 macOS 版本。
+        感谢你花时间反馈问题。BongoCat 仅发布 macOS 版本。
 
         提交前请先做三件事：
 
@@ -18,11 +18,9 @@ body:
     id: platform
     attributes:
       label: 平台
-      description: 问题发生在哪个操作系统？Linux 不在发布范围内，相关反馈不会被处理。
+      description: 问题发生在哪个操作系统？macOS 是唯一发布平台。
       options:
-        - Windows
         - macOS
-        - Linux（不在发布范围内）
     validations:
       required: true
 

@@ -1,9 +1,9 @@
 //! Turning one captured overlay frame into a model cover.
 //!
-//! The per-platform renderers produce the pixels (see the `CoverCaptureSession`
-//! in `macos.rs` and `windows.rs`); everything that does not depend on a GPU
-//! backend lives here, so it is covered by ordinary unit tests on any supported
-//! platform instead of only by the platform smoke.
+//! The renderer produces the pixels (see the `CoverCaptureSession` in
+//! `macos.rs`); everything that does not depend on a GPU backend lives here, so
+//! it is covered by ordinary unit tests on any supported platform instead of
+//! only by the platform smoke.
 //!
 //! A captured frame is what the overlay window shows: the model's own background
 //! image, the Live2D drawables, and transparent pixels wherever the window has no
@@ -65,11 +65,10 @@ pub(crate) struct CapturedFrame {
 impl CapturedFrame {
     /// Convert a backend readback of premultiplied BGRA8 into straight-alpha RGBA8.
     ///
-    /// Both backends composite premultiplied — D3D11 through its blend state and
-    /// Metal through the same factors — and both present BGRA, so the conversion
-    /// is shared rather than repeated per platform. `row_pitch` is the backend's
-    /// row stride: D3D11's staging texture pads rows, Metal's `get_bytes` does
-    /// not, and both are expressed the same way here.
+    /// Metal composites premultiplied through the standard blend factors and
+    /// presents BGRA. `row_pitch` is Metal's `get_bytes` row stride, which does
+    /// not pad rows; the conversion still accepts a padded stride so the same
+    /// code reads a staging buffer either way.
     ///
     /// Alpha is un-premultiplied because PNG carries straight alpha: writing the
     /// premultiplied values would darken every semi-transparent edge.
@@ -306,7 +305,7 @@ use super::*;
 /// stays free between frames.
 ///
 /// The capture must run where a native window can be created: the main thread on
-/// macOS, and the thread that owns the window on Windows.
+/// macOS.
 pub fn capture_model_cover(
     model: Arc<bongocat_model::CommittedModel>,
 ) -> Result<ModelCoverCapture, OverlayError> {
@@ -337,21 +336,15 @@ pub fn capture_model_cover(
 /// keeps ticking while the capture's model settles (ADR-0055).
 ///
 /// The session must live where a native window can be created: the main thread
-/// on macOS, and the thread that owns the window on Windows.
+/// on macOS.
 pub struct ModelCoverCaptureSession {
-    #[cfg(target_os = "macos")]
     pub(crate) inner: macos::CoverCaptureSession,
-    #[cfg(target_os = "windows")]
-    pub(crate) inner: windows::CoverCaptureSession,
 }
 
 impl ModelCoverCaptureSession {
     pub fn start(model: Arc<bongocat_model::CommittedModel>) -> Result<Self, OverlayError> {
         Ok(Self {
-            #[cfg(target_os = "macos")]
             inner: macos::CoverCaptureSession::start(model)?,
-            #[cfg(target_os = "windows")]
-            inner: windows::CoverCaptureSession::start(model)?,
         })
     }
 
@@ -411,7 +404,7 @@ mod tests {
 
     #[test]
     fn padded_rows_are_read_at_the_backend_pitch() {
-        // Two 1x1 rows with four bytes of D3D11 padding after each one.
+        // Two 1x1 rows with four bytes of padding after each one.
         let padded = [0, 0, 255, 255, 9, 9, 9, 9, 0, 255, 0, 255, 9, 9, 9, 9];
         let converted =
             CapturedFrame::from_premultiplied_bgra(&padded, 8, 1, 2).expect("conversion");

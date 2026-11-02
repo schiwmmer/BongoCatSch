@@ -1,11 +1,10 @@
 //! The replacement cover images of the models the build ships.
 //!
 //! A preset's package lives inside the application bundle — a signed `.app` on
-//! macOS, the installation directory on Windows — and the product may not write
-//! there. A replacement cover therefore cannot live beside the package it
-//! belongs to the way an installed model's cover does, so it is kept on the
-//! user side, in its own root, in exactly the per-model shape a package uses:
-//! `<root>/<id>/resources/cover.png`.
+//! macOS — and the product may not write there. A replacement cover therefore
+//! cannot live beside the package it belongs to the way an installed model's
+//! cover does, so it is kept on the user side, in its own root, in exactly the
+//! per-model shape a package uses: `<root>/<id>/resources/cover.png`.
 //!
 //! That shape is the point of this module. The settings page resolves a cover
 //! from either origin through one layout constant ([`package_cover_path`]), so

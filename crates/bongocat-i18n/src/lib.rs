@@ -20,42 +20,28 @@ pub const DEFAULT_LOCALE: &str = "en-US";
 
 /// Every catalog this crate ships, in the order the language selector shows.
 ///
-/// The names are region-qualified the way a single-catalog-per-language release
-/// is conventionally named: the subtag nominates the primary variety the copy
-/// was written in, and it does not claim a regional specialisation the catalog
-/// does not carry. `en-US` is the same kind of name — it serves `en-GB` just as
-/// `ar-SA` serves `ar-EG`.
-pub const SHIPPED_LOCALES: [&str; 8] = [
-    "en-US", "zh-CN", "zh-TW", "ar-SA", "vi-VN", "pt-BR", "ko-KR", "fr-FR",
-];
+/// The product ships two: English and Simplified Chinese. The names stay
+/// region-qualified the way a single-catalog-per-language release is
+/// conventionally named — the subtag nominates the variety the copy was written
+/// in and claims no regional specialisation the catalog does not carry.
+pub const SHIPPED_LOCALES: [&str; 2] = ["en-US", "zh-CN"];
 
 /// Resolve any locale tag onto the catalog that serves it.
 ///
 /// This is the RFC 4647 language-subtag fallback every other runtime already
 /// does — browsers' `Intl`, CLDR, and the operating system itself all truncate
-/// right-to-left until a known tag is hit, so `ar-EG` falls back to `ar` rather
-/// than to English. Matching the primary subtag against the shipped catalogs is
-/// that same rule, and it is what keeps a machine reporting `vi` or `vi-VN` or
-/// `ar` or `ar-EG` or `pt` or `pt-PT` or `ko` or `fr-CA` on one catalog instead
-/// of eight.
+/// right-to-left until a known tag is hit, so `en-GB` falls back to `en` rather
+/// than to English-by-luck. Matching the primary subtag against the shipped
+/// catalogs is that same rule, and it is what puts a machine reporting `zh`,
+/// `zh-CN`, `zh-Hans` or `zh-Hant` on the one Chinese catalog the product has.
 ///
-/// `zh` is the one case that cannot be decided by the primary subtag alone.
-/// Simplified and Traditional are different written forms rather than regional
-/// variants, and both ship their own catalog. Every `zh` tag therefore resolves
-/// from inside the `zh` branch by script subtag, which is the one thing the
-/// region subtag cannot express on its own. Letting it fall through to the
-/// subtag loop would hand Simplified-tagged machines Traditional copy, or the
-/// other way round.
+/// With a single Chinese catalog there is nothing for a script subtag to choose
+/// between, so every `zh` tag reaches `zh-CN`. A Traditional-Chinese user reads
+/// Simplified copy, which is the honest outcome of shipping one Chinese
+/// translation rather than two.
 pub fn locale_code(code: &str) -> &str {
     let normalized = code.replace('_', "-").to_ascii_lowercase();
     let language = normalized.split('-').next().unwrap_or("");
-    if language == "zh" {
-        return if is_simplified_chinese(&normalized) {
-            "zh-CN"
-        } else {
-            "zh-TW"
-        };
-    }
     SHIPPED_LOCALES
         .iter()
         .copied()
@@ -65,16 +51,6 @@ pub fn locale_code(code: &str) -> &str {
                 .is_some_and(|(shipped_language, _)| shipped_language == language)
         })
         .unwrap_or(DEFAULT_LOCALE)
-}
-
-/// Whether a `zh` tag names the Simplified script rather than the Traditional one.
-///
-/// The script subtag (`hant`/`hans`) is authoritative when it is present; the
-/// `TW`/`HK`/`MO` region subtags are the spellings platforms use when it is not.
-fn is_simplified_chinese(normalized: &str) -> bool {
-    !normalized
-        .split('-')
-        .any(|subtag| matches!(subtag, "hant" | "tw" | "hk" | "mo"))
 }
 
 /// Translate a stable key for the requested locale.
@@ -113,20 +89,86 @@ pub fn format_text(locale: &str, key: &str, values: &[(&str, String)]) -> String
     message
 }
 
+/// A count as a surface prints it: compact enough to sit beside a bar.
+///
+/// Growth runs into five digits long before a save is old, and a number that
+/// long crowds out everything else in a badge or a one-line HUD. So a count of a
+/// thousand or more is printed in K, M, B or T with a fraction, and a count
+/// below a thousand is printed exactly. The units are the ones a reader already
+/// knows: `1.2K` is one thousand two hundred, `54.7K` is fifty-four thousand
+/// seven hundred and a fraction.
+///
+/// The fraction is one decimal in thousands and two from millions up: a tenth
+/// of a thousand is a hundred, which is as fine as anyone reads a K, while a
+/// tenth of a million is a hundred thousand and two counts that differ by tens
+/// of thousands would print the same. Trailing zeros are dropped, so a whole
+/// figure stays `3T` rather than `3.00T`.
+///
+/// Rounding is done in the unit's own fraction rather than in floating point,
+/// so the figure is the one integer arithmetic produces and a value like
+/// `999_999` becomes `1M` rather than a four-digit `1000K`: the unit is chosen
+/// after the rounding, not before it.
+pub fn compact_number(value: u64) -> String {
+    /// The units, largest first, with the count each one stands for and how
+    /// many decimal places it is printed with.
+    const UNITS: [(u128, &str, u32); 4] = [
+        (1_000_000_000_000, "T", 2),
+        (1_000_000_000, "B", 2),
+        (1_000_000, "M", 2),
+        (1_000, "K", 1),
+    ];
+    if value < 1_000 {
+        return value.to_string();
+    }
+    for (scale, suffix, places) in UNITS {
+        // The figure in the unit's own fraction, rounded half up. A figure that
+        // rounds up to four digits has outgrown the unit and is tried against
+        // the next one instead.
+        let factor = 10u128.pow(places);
+        let scaled = (u128::from(value) * factor + scale / 2) / scale;
+        // A figure below one whole unit of this scale is not written in it, and
+        // one that rounds up to four digits has outgrown it.
+        if (factor..10_000 * factor).contains(&scaled) {
+            let whole = scaled / factor;
+            let fraction = scaled % factor;
+            if fraction == 0 {
+                return format!("{whole}{suffix}");
+            }
+            let digits = format!("{fraction:0width$}", width = places as usize);
+            return format!("{whole}.{}{suffix}", digits.trim_end_matches('0'));
+        }
+    }
+    // Past a trillion the figure is printed in trillions without a decimal: no
+    // save reaches it, and a unit past T would never be read by anyone.
+    format!("{}T", value as u128 / 1_000_000_000_000)
+}
+
+/// A whole number with a comma between every three digits, as a ledger reads
+/// it: `1234567` becomes `1,234,567`.
+///
+/// This is a plain grouping, not [`compact_number`]: a combat figure is read by
+/// its exact magnitude rather than by the unit that shortens it, so "12,345"
+/// says more than "12.3K". The combat powers the cultivator page prints are
+/// `u32`, and a grouping that took `u64` would make every caller cast.
+pub fn group_thousands(value: u32) -> String {
+    let digits = value.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, ch) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
+}
+
 /// Stable identifier for the platform the catalog text targets.
 ///
 /// Returned as the lower-case snake-case suffix used in catalog overrides such
 /// as `settings.app_system.status_icon.label.macos`. Add a new value when a
 /// newly supported platform needs its own copy of an otherwise-shared string.
 pub const fn current_platform_id() -> &'static str {
-    #[cfg(target_os = "macos")]
-    {
-        "macos"
-    }
-    #[cfg(target_os = "windows")]
-    {
-        "windows"
-    }
+    "macos"
 }
 
 /// Resolve a translation that can vary per supported platform.

@@ -2,8 +2,8 @@
 //!
 //! The colour formats follow the encoded-space contract in ADR-0063: an sRGB
 //! texture view must not decode the source and an sRGB drawable must not
-//! re-encode the composited frame, or the overlay's colours would differ from
-//! the Windows backend's for the same model.
+//! re-encode the composited frame, or the overlay's colours would be wrong for
+//! the same model.
 
 use super::*;
 

@@ -11,5 +11,6 @@
       "Value": 0.313,
       "Blend": "Multiply"
     }
-  ]
+  ],
+  "AutoRecoverTime": 1.5
 }

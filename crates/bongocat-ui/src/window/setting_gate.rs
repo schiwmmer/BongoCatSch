@@ -64,6 +64,19 @@ impl SettingGate {
     pub(super) fn disables_controls(self) -> bool {
         self.editing_blocked || !self.enabled
     }
+
+    /// Whether a preview-only control — one that plays a behavior but records
+    /// nothing, like the behavior palette — is disabled.
+    ///
+    /// A preview is not a shortcut binding, so the gate switch that disables
+    /// the shortcut controls never disables it: turning the shortcut switch off
+    /// must not take the trial palette away, or a model's own behaviors could
+    /// not be previewed at all. Only structurally blocked editing (no snapshot
+    /// yet, an import running) disables it — there is no live model to play
+    /// against, which is what a preview needs.
+    pub(super) fn disables_preview(self) -> bool {
+        self.editing_blocked
+    }
 }
 
 #[cfg(test)]

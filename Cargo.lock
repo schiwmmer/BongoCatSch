@@ -777,6 +777,7 @@ dependencies = [
  "bongocat-model-store",
  "bongocat-overlay",
  "bongocat-platform",
+ "bongocat-pomodoro",
  "bongocat-render",
  "bongocat-runtime",
  "bongocat-storage",
@@ -923,7 +924,6 @@ dependencies = [
  "objc2-quartz-core 0.3.2",
  "raw-window-handle",
  "thiserror 2.0.21",
- "windows 0.62.2",
 ]
 
 [[package]]
@@ -952,6 +952,7 @@ dependencies = [
  "bongocat-config",
  "bongocat-input",
  "bongocat-runtime",
+ "bongocat-storage",
  "dispatch2",
  "gilrs",
  "global-hotkey",
@@ -967,12 +968,33 @@ dependencies = [
  "permission-flow",
  "raw-window-handle",
  "rfd",
+ "serde",
+ "serde_json",
  "sys-locale",
  "tempfile",
  "thiserror 2.0.21",
  "tray-icon",
  "url",
- "windows 0.62.2",
+]
+
+[[package]]
+name = "bongocat-pomodoro"
+version = "2.3.1"
+dependencies = [
+ "bongocat-storage",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "bongocat-pomodoro-web"
+version = "2.3.1"
+dependencies = [
+ "bongocat-pomodoro",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1016,6 +1038,7 @@ dependencies = [
  "bongocat-config",
  "bongocat-i18n",
  "bongocat-platform",
+ "bongocat-pomodoro",
  "bongocat-ui-protocol",
  "gpui-kit",
  "serde",
@@ -2767,7 +2790,6 @@ dependencies = [
  "vec_map",
  "wasm-bindgen",
  "web-sys",
- "windows 0.62.2",
 ]
 
 [[package]]

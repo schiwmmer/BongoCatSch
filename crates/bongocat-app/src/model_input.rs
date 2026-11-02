@@ -99,10 +99,9 @@ pub(crate) fn input_bindings_for_model(
         // on the HID Keyboard/Keypad page — its usage folds Apple's vendor page
         // into the same `u16` — so every range above misses it and it has to be
         // written out, exactly as it has to be named explicitly in
-        // `bongocat-live2d::key_name_candidates`. Windows never reports the key
-        // (the firmware owns it), so the binding is inert there. It is still
-        // gated on the model's artwork like every other key: a model without a
-        // `Globe.png` (or the legacy `Function.png`) gets no reaction at all.
+        // `bongocat-live2d::key_name_candidates`. The binding is gated on the
+        // model's artwork like every other key: a model without a `Globe.png`
+        // (or the legacy `Function.png`) gets no reaction at all.
         bind_drawable_key(
             &mut key_hands,
             bongocat_render::GLOBE_KEY_USAGE,

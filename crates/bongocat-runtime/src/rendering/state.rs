@@ -60,4 +60,8 @@ pub(crate) struct ExpressionPlayback {
     pub(crate) started_at: Duration,
     pub(crate) fade_in_completed: bool,
     pub(crate) fade_out_started_at: Option<Duration>,
+    /// The moment a one-shot expression starts fading out on its own. A
+    /// persistent expression leaves this `None` and waits for a replace or a
+    /// clear, which is what keeps a user-chosen face on screen.
+    pub(crate) auto_recover_at: Option<Duration>,
 }

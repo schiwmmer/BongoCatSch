@@ -16,6 +16,7 @@ use gpui_kit::{
 
 mod behavior_names;
 mod copy;
+mod cultivation_page;
 mod dropdown;
 mod external_link;
 mod hold_modifier;
@@ -108,6 +109,7 @@ fn settings_view_with_endpoint(
                 },
                 Rc::new(|_| {}),
                 Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
                 window,
                 cx,
             )
@@ -195,6 +197,7 @@ fn rendered_shortcuts_scope(
                 },
                 Rc::new(|_| {}),
                 Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
                 window,
                 cx,
             )

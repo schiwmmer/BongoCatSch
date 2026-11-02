@@ -140,11 +140,6 @@ impl SettingsView {
         }
         // Each shell-icon row is rendered on exactly one platform, so the smoke
         // asserts the label for the one it can actually paint.
-        #[cfg(target_os = "windows")]
-        if bongocat_i18n::text(locale, "settings.app_system.taskbar_icon.label").is_empty() {
-            return Err("app & system is missing the taskbar-icon label".to_owned());
-        }
-        #[cfg(target_os = "macos")]
         if bongocat_i18n::text(locale, "settings.app_system.dock_icon.label").is_empty() {
             return Err("app & system is missing the Dock-icon label".to_owned());
         }
@@ -321,6 +316,53 @@ impl SettingsView {
             );
             if !status.contains(expected_origin) {
                 return Err("model library page did not localize the model status".to_owned());
+            }
+        }
+        Ok(())
+    }
+
+    /// Paint the cultivation ladder and check what it claims.
+    ///
+    /// The ladder is the one settings page whose body comes from the pomodoro
+    /// worker rather than the settings service, so this reads that snapshot the
+    /// way the page does and then checks the ladder reads as a ladder: one of
+    /// the ten realms, the layer and rank its level says, and the copy every
+    /// scope of the page draws. A page that renders none of that would still
+    /// pass a title check.
+    pub fn show_cultivation_page_for_smoke(
+        &mut self,
+        _cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let cultivation = self.pomodoro.snapshot().cultivation;
+        let locale = self.display_language().catalog_locale();
+        if cultivation.realm.index() >= bongocat_pomodoro::Realm::ALL.len() {
+            return Err("cultivation page named a realm outside the ladder".to_owned());
+        }
+        if bongocat_i18n::text(locale, cultivation.realm.name_key()).is_empty() {
+            return Err(format!(
+                "cultivation page is missing localized text for {}",
+                cultivation.realm.name_key()
+            ));
+        }
+        let said = bongocat_pomodoro::layer_rank(cultivation.level);
+        if said.layer != cultivation.layer || said.rank != cultivation.rank {
+            return Err("cultivation page layer and rank disagree with the level".to_owned());
+        }
+        for key in [
+            "cultivation.attributes",
+            "cultivation.derived",
+            "cultivation.equipment",
+            "cultivation.arts.title",
+            "cultivation.garden.title",
+            "cultivation.breakthrough.title",
+            "cultivation.explore.title",
+            "cultivation.proving.title",
+            "cultivation.trial.title",
+        ] {
+            if bongocat_i18n::text(locale, key).is_empty() {
+                return Err(format!(
+                    "cultivation page is missing localized text for {key}"
+                ));
             }
         }
         Ok(())

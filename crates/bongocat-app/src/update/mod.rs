@@ -50,10 +50,7 @@ pub(crate) const UPDATE_COMMAND_CAPACITY: usize = 8;
 /// Whether the running process keeps executing the previous release after an install.
 ///
 /// macOS replaces the `.app` in place, so the process has to be replaced before the
-/// new build is used. Windows hands the payload to the NSIS installer, which
-/// replaces the files and relaunches the application itself; the update library
-/// exits the process before returning there, so a completed install is never
-/// observed on that platform.
+/// new build is used.
 pub const fn restart_required_after_install() -> bool {
     cfg!(target_os = "macos")
 }

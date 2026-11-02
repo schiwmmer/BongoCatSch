@@ -145,6 +145,23 @@ impl MotionClip {
 }
 
 impl MotionClip {
+    /// The model parameters this clip writes, in declaration order.
+    ///
+    /// A frame runs motion, then expression, then pointer input, then the
+    /// automatic effects. Every later pass would otherwise overwrite what the
+    /// motion just set, so a host needs to know which parameters the motion owns
+    /// to leave them alone for the rest of the frame. Part-opacity curves and
+    /// model-level curves (`EyeBlink`, `LipSync`, `Opacity`) are not parameters
+    /// and are left out.
+    pub fn parameter_ids(&self) -> impl Iterator<Item = &str> {
+        self.curves
+            .iter()
+            .filter(|curve| curve.target == MotionCurveTarget::Parameter)
+            .map(|curve| curve.id.as_str())
+    }
+}
+
+impl MotionClip {
     pub fn evaluate(&self, elapsed: Duration) -> MotionEvaluation {
         self.evaluate_with_looping(elapsed, self.looping)
     }

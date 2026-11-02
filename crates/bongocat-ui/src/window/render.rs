@@ -1,4 +1,5 @@
 use super::*;
+use gpui_kit::component::Sizable as _;
 use gpui_kit::{FileDropEvent, canvas};
 
 fn with_search_keywords<I>(items: I, keywords: &[SharedString]) -> impl Iterator<Item = SettingItem>
@@ -107,11 +108,6 @@ impl Render for SettingsView {
         let editing_blocked = self.editing_blocked(snapshot.as_ref());
         let pet_controls_disabled =
             editing_blocked || window_mode_active(snapshot.as_ref().map(|s| s.overlay));
-        #[cfg(target_os = "windows")]
-        let background_color_gate = SettingGate::new(
-            editing_blocked,
-            snapshot.as_ref().is_some_and(|s| s.overlay.window_mode),
-        );
         let hover_hide_delay_available = snapshot
             .as_ref()
             .is_some_and(|snapshot| hover_hide_delay_applies(snapshot.overlay));
@@ -188,6 +184,21 @@ impl Render for SettingsView {
                 Notification::new()
                     .id::<SettingsServiceErrorNotification>()
                     .message(settings_error(language, error))
+                    .with_type(NotificationType::Error),
+                cx,
+            );
+        }
+        // A refused purchase or a walk that is not owed is said out loud: a
+        // click that does nothing has to say why, or the user reads the button
+        // as broken.
+        if let Some((refusal, _count)) = self.cultivation_refusal_pending.take() {
+            window.push_notification(
+                Notification::new()
+                    .id::<CultivationRefusalNotification>()
+                    .message(bongocat_i18n::text(
+                        language.catalog_locale(),
+                        refusal.key(),
+                    ))
                     .with_type(NotificationType::Error),
                 cx,
             );
@@ -347,8 +358,6 @@ impl Render for SettingsView {
                     ))
                     .items(with_search_keywords(
                         vec![
-                    #[cfg(target_os = "windows")]
-                    window_mode::window_mode_row(&view_entity, language),
                     SettingItem::new(
                         bongocat_i18n::text(
                             language.catalog_locale(),
@@ -601,12 +610,6 @@ impl Render for SettingsView {
                     ))
                     .items(with_search_keywords(
                         vec![
-                            #[cfg(target_os = "windows")]
-                            window_mode::background_color_row(
-                                &self.window_background_color,
-                                language,
-                                background_color_gate,
-                            ),
                             SettingItem::new(
                                 bongocat_i18n::text(
                                     language.catalog_locale(),
@@ -929,6 +932,28 @@ impl Render for SettingsView {
                     ),
                 )
                 .disabled(random_behavior_gate.disables_controls()),
+                // The palette closes the group: it is not a setting but a
+                // preview, so it sits below the switches it previews rather
+                // than among them, and the group heading already names the
+                // page. It reads the active model, so its list follows the
+                // model the page's own rows are about.
+                SettingItem::render({
+                    let view = view_entity.clone();
+                    move |_: &RenderOptions, _window: &mut Window, app: &mut App| {
+                        let tokens = Tokens::from_theme(app);
+                        view.update(app, move |view, cx| {
+                            let snapshot = view.snapshot.clone();
+                            shortcuts_page::model_behavior_palette(
+                                cx,
+                                language,
+                                behavior_shortcuts_gate,
+                                tokens,
+                                snapshot.as_ref(),
+                            )
+                        })
+                        .into_any_element()
+                    }
+                }),
             ],
             &model_behavior_keywords,
         ));
@@ -1373,37 +1398,9 @@ impl Render for SettingsView {
                             },
                         ),
                     ));
-                    #[cfg(target_os = "windows")]
-                    items.push(SettingItem::new(
-                        bongocat_i18n::text(
-                            language.catalog_locale(),
-                            "settings.app_system.taskbar_icon.label",
-                        ),
-                        SettingField::switch(
-                            {
-                                let view = view_entity.clone();
-                                move |app| {
-                                    view.read(app)
-                                        .snapshot
-                                        .as_ref()
-                                        .is_some_and(|s| s.taskbar_icon_visible || s.overlay.window_mode)
-                                }
-                            },
-                            {
-                                let view = view_entity.clone();
-                                move |value, app| {
-                                    view.update(app, |view, cx| {
-                                        view.set_taskbar_icon_visible(value, cx)
-                                    });
-                                }
-                            },
-                        ),
-                    ).disabled(window_mode_active(snapshot.as_ref().map(|s| s.overlay))));
-                    // The macOS counterpart of the Windows taskbar button. It is its
-                    // own row and its own field rather than a second meaning of
-                    // `show_taskbar_icon`, which the contract explicitly refuses to
-                    // read as a Dock icon.
-                    #[cfg(target_os = "macos")]
+                    // The macOS Dock icon. It is its own row and its own field
+                    // rather than a second meaning of `show_taskbar_icon`, which
+                    // the contract explicitly refuses to read as a Dock icon.
                     items.push(SettingItem::new(
                         bongocat_i18n::text(
                             language.catalog_locale(),
@@ -1600,6 +1597,85 @@ impl Render for SettingsView {
                 ))
                 .group(model_behavior_group);
 
+        // The pomodoro page is one custom element so the task list and the month
+        // calendar can use the full content width; the sidebar entry still sits
+        // beside model behavior because both are about what the cat helps the
+        // user get done.
+        let pomodoro_new_task_locale = language.catalog_locale();
+        let pomodoro_page = SettingPage::new(SettingsNavigationPage::Pomodoro.title(language))
+            .icon(SettingsNavigationPage::Pomodoro.icon())
+            // The page header carries the new-task button beside the title:
+            // creating a task is the one action this page exists for, and the
+            // picker window is a second surface over the same command. The
+            // navigation reporter keeps its place in front of the button.
+            .title_suffix({
+                let reporter =
+                    page_reporter(SettingsNavigationPage::Pomodoro, navigation_memory.clone());
+                let view_entity = view_entity.clone();
+                move |window, cx| {
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(reporter(window, cx))
+                        .child(
+                            Button::new("pomodoro-new-task")
+                                .small()
+                                .label(bongocat_i18n::text(
+                                    pomodoro_new_task_locale,
+                                    "pomodoro.settings.new_task",
+                                ))
+                                .on_click({
+                                    let view = view_entity.clone();
+                                    move |_, window, cx| {
+                                        view.update(cx, |view, cx| {
+                                            view.open_pomodoro_task_editor(
+                                                PomodoroEditorTarget::New,
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                }),
+                        )
+                }
+            })
+            .group(
+                SettingGroup::new().item(
+                    SettingItem::render({
+                        let view = view_entity.clone();
+                        move |options: &RenderOptions, window: &mut Window, cx: &mut App| {
+                            pomodoro_settings::content(view.clone(), options, window, cx)
+                        }
+                    })
+                    .keywords(pomodoro_settings::keywords(language)),
+                ),
+            );
+
+        // The cultivation ladder is a destination of its own, right under the
+        // pomodoro page whose finished sessions feed it. It is one custom
+        // element like the pomodoro body: the ladder is a column of rows, not
+        // a stack of labeled settings cards.
+        let cultivation_page =
+            SettingPage::new(SettingsNavigationPage::Cultivation.title(language))
+                .icon(SettingsNavigationPage::Cultivation.icon())
+                .title_suffix(page_reporter(
+                    SettingsNavigationPage::Cultivation,
+                    navigation_memory.clone(),
+                ))
+                .group(
+                    SettingGroup::new().item(
+                        SettingItem::render({
+                            let view = view_entity.clone();
+                            move |options: &RenderOptions, window: &mut Window, cx: &mut App| {
+                                cultivation_settings::content(view.clone(), options, window, cx)
+                            }
+                        })
+                        .keywords(cultivation_settings::keywords(language)),
+                    ),
+                );
+
         // The page's two scopes are two titled groups rather than tabs: a
         // `SettingPage` cannot host child pages, but the settings component
         // renders every titled group of a page with more than one group as a
@@ -1657,6 +1733,8 @@ impl Render for SettingsView {
                 appearance_page,
                 model_library_page,
                 model_behavior_page,
+                pomodoro_page,
+                cultivation_page,
                 overlay_page,
                 input_interaction_page,
                 shortcuts_page,
@@ -1680,6 +1758,70 @@ impl Render for SettingsView {
                         });
                     }
                 })
+        });
+        // The fight the cultivation page is replaying, over the page that asked
+        // for it. The three buttons move view state the page owns, so they are
+        // wired here rather than inside the panel.
+        let cultivation_duel_overlay = self.cultivation_duel.as_ref().map(|duel| {
+            let view = cx.entity().downgrade();
+            cultivation_duel::render(
+                duel,
+                language.catalog_locale(),
+                Tokens::from_theme(cx),
+                CultivationDuelActions {
+                    on_replay: Rc::new({
+                        let view = view.clone();
+                        move |window: &mut Window, cx: &mut App| {
+                            let _ = view.update(cx, |view, cx| {
+                                if let Some(duel) = view.cultivation_duel.as_mut() {
+                                    duel.replay();
+                                }
+                                cx.notify();
+                                let _ = window;
+                            });
+                        }
+                    }),
+                    on_skip: Rc::new({
+                        let view = view.clone();
+                        move |window: &mut Window, cx: &mut App| {
+                            let _ = view.update(cx, |view, cx| {
+                                if let Some(duel) = view.cultivation_duel.as_mut() {
+                                    duel.reveal_all();
+                                }
+                                cx.notify();
+                                let _ = window;
+                            });
+                        }
+                    }),
+                    on_close: Rc::new(move |window: &mut Window, cx: &mut App| {
+                        let _ = view.update(cx, |view, cx| {
+                            view.cultivation_duel = None;
+                            cx.notify();
+                            let _ = window;
+                        });
+                    }),
+                },
+            )
+        });
+
+        // The cultivation page's full event history, over the page that asked
+        // for it. The page carries the click and this frame carries the popup,
+        // so the only wiring here is the close action.
+        let cultivation_events_overlay = self.cultivation_events_open.then(|| {
+            let view = cx.entity().downgrade();
+            let events = self.pomodoro.snapshot().cultivation.events;
+            cultivation_settings::events_overlay(
+                &events,
+                language.catalog_locale(),
+                Tokens::from_theme(cx),
+                Rc::new(move |window: &mut Window, cx: &mut App| {
+                    let _ = view.update(cx, |view, cx| {
+                        view.cultivation_events_open = false;
+                        cx.notify();
+                        let _ = window;
+                    });
+                }),
+            )
         });
 
         div()
@@ -1714,6 +1856,8 @@ impl Render for SettingsView {
             .child(div().min_h_0().w_full().flex_1().child(settings))
             .child(model_drag_exit_listener)
             .children(model_drag_overlay)
+            .children(cultivation_duel_overlay)
+            .children(cultivation_events_overlay)
             .into_any_element()
     }
 }

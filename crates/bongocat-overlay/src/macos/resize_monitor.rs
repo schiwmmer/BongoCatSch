@@ -103,8 +103,7 @@ pub(crate) fn install_context_menu_monitor(
 /// The pointer position the resize math measures against.
 ///
 /// AppKit's screen coordinates grow upwards while the drag math assumes a
-/// downwards-positive axis (the legacy webview and the Windows adapter both use
-/// one), so the vertical component is negated once, here. The window's own
+/// downwards-positive axis, so the vertical component is negated once, here. The window's own
 /// coordinate space is deliberately not used: the drag changes the frame while
 /// it runs, which would make the same screen position read differently from one
 /// event to the next.

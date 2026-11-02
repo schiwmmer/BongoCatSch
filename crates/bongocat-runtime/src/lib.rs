@@ -495,6 +495,18 @@ pub enum RuntimeCommand {
     /// current run, so a later stop for the same ID intentionally targets it.
     StopMotion(MotionId),
     SetExpression(ExpressionId),
+    /// Takes whatever expression is on the model off again, and adds nothing
+    /// in its place: the face settles back into the model's own over the fade
+    /// the clip declares.
+    ///
+    /// A product surface that borrowed the face without being asked for it —
+    /// the pomodoro's focus face, put on when a countdown starts — needs this
+    /// to give the face back, because it has no expression of the user's to
+    /// name instead. Unlike the toggle a repeated
+    /// [`RuntimeCommand::SetExpression`] may perform, this is not a configured
+    /// behaviour and it never reads as the user undoing a choice: nothing is
+    /// remembered and nothing is forgotten.
+    ClearExpression,
 }
 
 impl ShortcutAction {

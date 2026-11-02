@@ -122,16 +122,6 @@ pub fn platform_layout(
     Ok(StorageLayout::under_application_root(base, environment))
 }
 
-#[cfg(target_os = "windows")]
-pub fn platform_layout(
-    environment: BuildEnvironment,
-) -> Result<StorageLayout, PlatformStorageError> {
-    let base = dirs::data_dir()
-        .ok_or(PlatformStorageError::DataDirectoryUnavailable)?
-        .join("BongoCat");
-    Ok(StorageLayout::under_application_root(base, environment))
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NativeConfig {
@@ -149,7 +139,7 @@ pub struct NativeConfig {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SystemConfig {
-    /// Windows only: the product launches without a model-window taskbar button.
+    /// Lazy retained field (ADR-0099): macOS never interprets this, always `false`.
     pub show_taskbar_icon: bool,
     /// macOS only: the process is a menu bar accessory app, so a fresh
     /// configuration keeps the Dock icon hidden.
@@ -182,7 +172,7 @@ pub enum Theme {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct OverlayConfig {
-    /// Windows ordinary capture window; other platforms retain overlay behavior.
+    /// Lazy retained field (ADR-0099): macOS never interprets this, always `false`.
     ///
     /// Carries a default for the same reason the product's schema does: the field
     /// arrived after the first v1 documents were written, and this spike's default
@@ -190,7 +180,7 @@ pub struct OverlayConfig {
     /// `shared/config/fixtures/default.json`.
     #[serde(default)]
     pub window_mode: bool,
-    /// The solid background the Windows capture window paints.
+    /// The solid background the window-mode capture window paints (ADR-0099 lazy field).
     #[serde(default = "default_window_background_color")]
     pub window_background_color: [u8; 3],
     pub click_through: bool,
@@ -922,9 +912,8 @@ impl ConfigStore {
 }
 
 fn sync_file_contents(path: &Path) -> Result<(), ConfigError> {
-    // FlushFileBuffers requires a writable handle on Windows even when this process has
-    // finished writing through another handle. Unix accepts both modes, so use the stricter
-    // access contract consistently across platforms.
+    // A writable handle is the stricter access contract, kept consistently on
+    // macOS; opening write-only and syncing is well-defined here.
     OpenOptions::new().write(true).open(path)?.sync_all()?;
     Ok(())
 }
@@ -1039,23 +1028,6 @@ mod tests {
             Some(BUNDLE_ID)
         );
         assert!(!bundle_root.parent().unwrap().ends_with(BUNDLE_ID));
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn windows_platform_layout_uses_roaming_app_data_product_namespace() {
-        let data_root = dirs::data_dir().expect("Windows roaming AppData");
-        let development = platform_layout(BuildEnvironment::Development).unwrap();
-        let production = platform_layout(BuildEnvironment::Production).unwrap();
-        assert_eq!(
-            development.root,
-            data_root.join("BongoCat").join("development")
-        );
-        assert_eq!(
-            production.root,
-            data_root.join("BongoCat").join("production")
-        );
-        assert_ne!(development.root, production.root);
     }
 
     #[test]

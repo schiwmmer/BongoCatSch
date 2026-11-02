@@ -140,13 +140,7 @@
       "enum": [
         "system",
         "zh-CN",
-        "zh-TW",
-        "en-US",
-        "ar-SA",
-        "vi-VN",
-        "pt-BR",
-        "ko-KR",
-        "fr-FR"
+        "en-US"
       ],
       "type": "string"
     },

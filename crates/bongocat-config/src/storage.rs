@@ -32,12 +32,24 @@ pub struct StorageLayout {
     /// The user side of the models the build ships.
     ///
     /// A preset's package lives inside the application bundle — a signed
-    /// `.app` on macOS, the installation directory on Windows — which the
-    /// product may not write to. The artwork that replaces a preset's cover is
-    /// kept here instead, in the same per-model shape a package uses
-    /// (`<id>/resources/cover.png`), so the settings page reads a cover the
-    /// same way whichever origin it came from.
+    /// `.app` on macOS — which the product may not write to. The artwork that
+    /// replaces a preset's cover is kept here instead, in the same per-model
+    /// shape a package uses (`<id>/resources/cover.png`), so the settings page
+    /// reads a cover the same way whichever origin it came from.
     pub model_overrides: PathBuf,
+    /// The lifetime interaction counters (one file, one document).
+    ///
+    /// It is deliberately not a `config.json` field: the interaction history
+    /// must survive the configuration's backup-recovery path untouched, so it
+    /// lives beside it as its own document.
+    pub interaction_stats: PathBuf,
+    /// The pomodoro tasks and their completion history (one file, one document).
+    ///
+    /// It is a sibling of the interaction counters rather than a `config.json`
+    /// field for the same reason: the focus history has to survive the
+    /// configuration's backup-recovery path untouched. The running countdown is
+    /// deliberately absent from it — see ADR-0090.
+    pub pomodoro_tasks: PathBuf,
     pub backups: PathBuf,
     pub logs: PathBuf,
     pub updates: PathBuf,
@@ -56,6 +68,8 @@ impl StorageLayout {
             window_state: root.join(WINDOW_STATE_FILE_NAME),
             models: root.join("models"),
             model_overrides: root.join("model-overrides"),
+            interaction_stats: root.join("interaction-stats.json"),
+            pomodoro_tasks: root.join("pomodoro-tasks.json"),
             backups: root.join("backups"),
             logs: root.join("logs"),
             updates: root.join("updates"),
@@ -90,17 +104,6 @@ pub enum PlatformStorageError {
     DataDirectoryUnavailable,
 }
 
-#[cfg(target_os = "macos")]
-pub fn platform_layout(
-    environment: BuildEnvironment,
-) -> Result<StorageLayout, PlatformStorageError> {
-    let root = dirs::data_dir()
-        .ok_or(PlatformStorageError::DataDirectoryUnavailable)?
-        .join(BUNDLE_ID);
-    Ok(StorageLayout::under_application_root(root, environment))
-}
-
-#[cfg(target_os = "windows")]
 pub fn platform_layout(
     environment: BuildEnvironment,
 ) -> Result<StorageLayout, PlatformStorageError> {

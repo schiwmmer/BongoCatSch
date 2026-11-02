@@ -23,6 +23,7 @@ pub(crate) fn apply_model_input(
     model: &mut Live2dModel,
     input: ModelInputSnapshot,
     settings: ModelSettings,
+    motion_parameters: &std::collections::BTreeSet<String>,
 ) -> Result<(), RuntimeRenderErrorCode> {
     let (pointer_x, pointer_y, pointer_z) = if settings.ignore_pointer {
         (0.0, 0.0, 0.0)
@@ -80,6 +81,13 @@ pub(crate) fn apply_model_input(
             && model
                 .parameter_range(ProductParameter::StickShowRightHand)
                 .is_some());
+    // A motion that wrote a parameter earlier in this frame owns it until the
+    // frame ends. Pointer tracking runs after the motion pass, so without this
+    // the cursor resets `ParamAngleX`/`ParamAngleY` to the pointer position on
+    // every frame and a nod or a headshake is invisible: the motion does play,
+    // and its result is overwritten before the model is ever updated. The
+    // previous guard compared the pointer against an exact zero, which never
+    // holds while the cursor is anywhere but the screen centre.
     for (parameter, value) in [
         (ProductParameter::MouseX, pointer_x),
         (ProductParameter::MouseY, pointer_y),
@@ -119,6 +127,21 @@ pub(crate) fn apply_model_input(
         (ProductParameter::StickRightX, input.stick_right_x),
         (ProductParameter::StickRightY, input.stick_right_y),
     ] {
+        let is_pointer_parameter = matches!(
+            parameter,
+            ProductParameter::MouseX
+                | ProductParameter::MouseY
+                | ProductParameter::AngleX
+                | ProductParameter::AngleY
+                | ProductParameter::AngleZ
+                | ProductParameter::EyeBallX
+                | ProductParameter::EyeBallY
+        );
+        // Only the parameters a motion actually declares are skipped. A model
+        // whose idle motion drives nothing keeps following the cursor.
+        if is_pointer_parameter && motion_parameters.contains(parameter.id()) {
+            continue;
+        }
         match model.set_normalized_parameter(parameter, value) {
             Ok(ParameterUpdate::Applied { .. } | ParameterUpdate::Unsupported) => {}
             Err(error) => {

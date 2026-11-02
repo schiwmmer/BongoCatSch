@@ -193,7 +193,6 @@ pub(crate) fn run_diagnostics_export_failure_smoke() -> Result<(), Box<dyn std::
     std::fs::remove_dir(&diagnostics)?;
     std::fs::write(&diagnostics, &previous_diagnostics)?;
 
-    #[cfg(target_os = "macos")]
     {
         // Marking the existing preview bundle immutable makes the atomic commit fail after the
         // staging file has been fully written. Unlike a directory or a read-only parent, this is

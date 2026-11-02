@@ -15,6 +15,16 @@ pub(super) enum SettingsNavigationPage {
     Appearance,
     ModelLibrary,
     ModelBehavior,
+    /// The pomodoro clock: its task list and the month calendar of finished
+    /// focus sessions. Sits beside model behavior because both are about what
+    /// the cat helps the user get done, and the timer is a model-independent
+    /// activity the user reaches for between sessions.
+    Pomodoro,
+    /// The cultivation ladder the finished sessions feed: realm, attributes,
+    /// gear, garden and guardian. Its own destination rather than a pomodoro
+    /// tab because it is a progression the user checks on its own, not a view
+    /// over the timer.
+    Cultivation,
     ModelWindow,
     InputInteraction,
     Shortcuts,
@@ -65,26 +75,40 @@ impl SettingsNavigationMemory {
     pub(super) fn select(&self, page: SettingsNavigationPage) {
         self.page.set(page);
     }
+
+    /// Point the next settings window at the cultivation page.
+    ///
+    /// The context menu opens the settings window on a specific destination; the
+    /// page order stays private to this module, so the caller says "cultivation"
+    /// rather than restating the numeric index.
+    pub fn open_cultivation(&self) {
+        self.select(SettingsNavigationPage::Cultivation);
+    }
 }
 
 impl SettingsNavigationPage {
-    const fn index(self) -> usize {
+    /// The zero-based page index consumed by gpui-kit's `SelectIndex`.
+    pub(super) const fn index(self) -> usize {
         match self {
             Self::Appearance => 0,
             Self::ModelLibrary => 1,
             Self::ModelBehavior => 2,
-            Self::ModelWindow => 3,
-            Self::InputInteraction => 4,
-            Self::Shortcuts => 5,
-            Self::AppSystem => 6,
-            Self::About => 7,
+            Self::Pomodoro => 3,
+            Self::Cultivation => 4,
+            Self::ModelWindow => 5,
+            Self::InputInteraction => 6,
+            Self::Shortcuts => 7,
+            Self::AppSystem => 8,
+            Self::About => 9,
         }
     }
 
-    pub(super) const ALL: [Self; 8] = [
+    pub(super) const ALL: [Self; 10] = [
         Self::Appearance,
         Self::ModelLibrary,
         Self::ModelBehavior,
+        Self::Pomodoro,
+        Self::Cultivation,
         Self::ModelWindow,
         Self::InputInteraction,
         Self::Shortcuts,
@@ -97,6 +121,8 @@ impl SettingsNavigationPage {
             Self::Appearance => "navigation.appearance.title",
             Self::ModelLibrary => "navigation.model_library.title",
             Self::ModelBehavior => "navigation.model_behavior.title",
+            Self::Pomodoro => "navigation.pomodoro.title",
+            Self::Cultivation => "navigation.cultivation.title",
             Self::ModelWindow => "navigation.model_window.title",
             Self::InputInteraction => "navigation.input_interaction.title",
             Self::Shortcuts => "navigation.shortcuts.title",
@@ -114,6 +140,8 @@ impl SettingsNavigationPage {
             Self::Appearance => IconName::Settings,
             Self::ModelLibrary => IconName::Cat,
             Self::ModelBehavior => IconName::SlidersHorizontal,
+            Self::Pomodoro => IconName::AlarmClock,
+            Self::Cultivation => IconName::Sparkles,
             Self::ModelWindow => IconName::AppWindow,
             Self::InputInteraction => IconName::MousePointer2,
             Self::Shortcuts => IconName::Keyboard,
@@ -160,6 +188,15 @@ impl SettingsNavigationPage {
                 "Display & behavior",
                 "显示与行为",
             ],
+            Self::Pomodoro => &[
+                "Pomodoro",
+                "Tomato timer",
+                "番茄钟",
+                "番茄时钟",
+                "Focus timer",
+                "专注计时",
+            ],
+            Self::Cultivation => &["Cultivation", "Realm", "修仙", "境界", "仙草", "属性"],
             Self::ModelWindow => &["Overlay"],
             Self::InputInteraction => &["Interaction", "Input", "交互", "输入"],
             Self::Shortcuts => &[],
@@ -223,6 +260,8 @@ mod tests {
                 SettingsNavigationPage::Appearance,
                 SettingsNavigationPage::ModelLibrary,
                 SettingsNavigationPage::ModelBehavior,
+                SettingsNavigationPage::Pomodoro,
+                SettingsNavigationPage::Cultivation,
                 SettingsNavigationPage::ModelWindow,
                 SettingsNavigationPage::InputInteraction,
                 SettingsNavigationPage::Shortcuts,

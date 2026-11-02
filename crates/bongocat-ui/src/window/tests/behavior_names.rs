@@ -259,10 +259,9 @@ fn editor_is_open(visual: &mut VisualTestContext, behavior_id: &str) -> bool {
 /// Selects everything in the focused input, with the keystroke the compiled
 /// platform actually bound.
 ///
-/// The input binds `cmd-a` on macOS and `ctrl-a` everywhere else, so pressing the
-/// other one is a silent no-op — and the edit that follows would append to the
-/// prefilled label instead of replacing it. That is exactly how the first Windows
-/// CI run of this suite failed: the stored name arrived as "the sleepy oneMotion 2".
+/// The input binds `cmd-a` on macOS, so pressing `ctrl-a` is a silent no-op —
+/// and the edit that follows would append to the prefilled label instead of
+/// replacing it.
 fn select_all_in_focus(visual: &mut VisualTestContext) {
     let keystroke = if cfg!(target_os = "macos") {
         "cmd-a"

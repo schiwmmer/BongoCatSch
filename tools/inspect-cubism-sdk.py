@@ -31,10 +31,6 @@ LEGAL_FILES = {
 }
 
 TARGET_ARTIFACTS = {
-    "x86_64-pc-windows-msvc": {
-        "windows_x64_dll": "dll/windows/x86_64/Live2DCubismCore.dll",
-        "windows_x64_import_library": "dll/windows/x86_64/Live2DCubismCore.lib",
-    },
     "aarch64-apple-darwin": {
         "macos_arm64_static_library": "lib/macos/arm64/libLive2DCubismCore.a",
     },
@@ -333,18 +329,6 @@ def inspect_archive(
                 for role, relative_path in artifacts.items()
             ]
 
-        unexpected_arm64 = [
-            name
-            for name in entries
-            if name.startswith(f"{core_root}dll/windows/arm64/")
-            or name.startswith(f"{core_root}lib/windows/arm64/")
-        ]
-        if unexpected_arm64:
-            raise InspectionError(
-                "R5 archive unexpectedly contains desktop Windows ARM64 artifacts; "
-                "review the target matrix before continuing"
-            )
-
         framework_release = detect_framework_release(archive, entries)
         if framework_release != EXPECTED_SDK_RELEASE:
             raise InspectionError(
@@ -386,14 +370,6 @@ def inspect_archive(
                 "artifacts": [member_report(archive, member) for member in members],
             }
             for target, members in target_members.items()
-        }
-        target_reports["aarch64-pc-windows-msvc"] = {
-            "status": "unsupported_by_r5",
-            "artifacts": [],
-        }
-        target_reports["i686-pc-windows-msvc"] = {
-            "status": "excluded_by_product",
-            "artifacts": [],
         }
 
         total_uncompressed = sum(

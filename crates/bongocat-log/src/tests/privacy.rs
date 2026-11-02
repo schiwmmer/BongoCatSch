@@ -1,7 +1,7 @@
 //! What a log writes about the user, and with which permissions.
 
-// The only test below is Unix-only, so an ungated prelude would be an unused
-// import on Windows.
+// The only test below is Unix-only, so the prelude is gated to the Unix builds
+// this product ships on.
 #[cfg(unix)]
 use super::*;
 

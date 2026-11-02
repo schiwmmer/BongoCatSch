@@ -16,6 +16,8 @@ use crate::write_smoke_status;
 #[cfg(feature = "storage-test-injection")]
 use async_io::Timer;
 #[cfg(feature = "storage-test-injection")]
+use bongocat_pomodoro::PomodoroClient;
+#[cfg(feature = "storage-test-injection")]
 use bongocat_ui::SettingsNavigationMemory;
 #[cfg(feature = "storage-test-injection")]
 use bongocat_ui::SettingsWindowSeed;
@@ -87,6 +89,7 @@ pub(crate) fn run_settings_window_state_smoke() -> Result<(), Box<dyn std::error
                 SettingsNavigationMemory::new(),
                 |cx| cx.quit(),
                 |_: &mut App| {},
+                PomodoroClient::unavailable(),
                 cx,
             ) {
                 Ok(window) => window,

@@ -14,8 +14,8 @@
 //! refusal to treat an empty public key as "nothing to verify", and (on macOS)
 //! replacement of the installed bundle with the archive's contents.
 //!
-//! Not covered: the real GitHub endpoint, Windows installer execution, process
-//! restart, and anything requiring a published release.
+//! Not covered: the real GitHub endpoint, process restart, and anything
+//! requiring a published release.
 
 use std::fs;
 use std::io::{Read, Write};
@@ -99,13 +99,7 @@ impl LocalServer {
 /// `the_platform_key_matches_the_library`: a library that changed its spelling would
 /// otherwise silently stop finding updates.
 fn host_platform_key() -> String {
-    let os = if cfg!(target_os = "macos") {
-        "macos"
-    } else if cfg!(target_os = "windows") {
-        "windows"
-    } else {
-        unreachable!("the capability test runs on a shipped platform")
-    };
+    let os = "macos";
     let arch = if cfg!(target_arch = "aarch64") {
         "aarch64"
     } else if cfg!(target_arch = "x86_64") {
@@ -123,7 +117,6 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
-#[cfg(target_os = "macos")]
 fn write(path: &Path, contents: &str) {
     fs::create_dir_all(path.parent().expect("parent directory")).expect("parent directory");
     fs::write(path, contents).expect("write file");
@@ -457,13 +450,6 @@ fn a_manifest_from_another_pipeline_is_rejected_as_unreadable() {
                 "signature": "tauri-signature",
                 "url": "https://example.invalid/BongoCat_x64.app.tar.gz",
             },
-            "windows-x86_64-nsis": {
-                "signature": "tauri-signature",
-                // The real asset name embeds the release version; the fixture does not
-                // restate it, because no product source or test may carry the product
-                // version as a literal (`tools/tests/test_product_version_contract.py`).
-                "url": "https://example.invalid/BongoCat_<version>_x64-setup.exe",
-            },
         },
     });
 
@@ -542,7 +528,6 @@ fn an_empty_public_key_cannot_verify_a_payload() {
 
 /// The macOS install path replaces the whole bundle and drops what the previous one
 /// carried, which is what lets a release ship changed resources.
-#[cfg(target_os = "macos")]
 #[test]
 fn installing_replaces_the_configured_bundle() {
     let fixture = fixture("install");

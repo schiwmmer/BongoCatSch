@@ -5,10 +5,7 @@
 //! a frame of it contained, and when it is really visible. The modules below are
 //! those questions; the platform sessions beside them own the two implementations.
 
-#[cfg(target_os = "macos")]
 mod macos;
-#[cfg(target_os = "windows")]
-mod windows;
 
 /// Pointer hover hide is only reachable through the native sessions, so the
 /// module shares their platform gate rather than warning as dead code on the
@@ -122,7 +119,9 @@ pub use cover::{ModelCoverCaptureSession, capture_model_cover};
 pub use error::OverlayError;
 pub use preview::{run_interactive_model_preview, run_model_preview, run_model_switch_preview};
 pub use product_session::{
-    OverlayContextMenuRequest, OverlayInteractionSinks, OverlayResizeOutcome, ProductOverlaySession,
+    OverlayContextMenuRequest, OverlayCultivationText, OverlayInteractionSinks,
+    OverlayPomodoroCompletion, OverlayPomodoroMenuRequest, OverlayPomodoroTimer,
+    OverlayResizeOutcome, ProductOverlaySession,
 };
 pub use report::{OverlayTickOutcome, ProductOverlayReport};
 pub use timing::{FrameTimingSummary, PreviewReport};

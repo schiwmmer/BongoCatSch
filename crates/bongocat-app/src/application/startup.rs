@@ -26,6 +26,7 @@ use bongocat_config::{
 use bongocat_log::LogSettings as RuntimeLogSettings;
 use bongocat_model::{ModelId, ModelPackageLimits, PresetModelCatalog};
 use bongocat_model_store::{ModelStore, PresetCoverStore};
+use bongocat_pomodoro::{PomodoroClient, PomodoroService};
 use bongocat_runtime::{RuntimeCommand, RuntimeOwner};
 use std::path::Path;
 
@@ -67,6 +68,14 @@ impl Application {
         enable_rendering: bool,
         system_language: Language,
     ) -> Result<Self, ApplicationError> {
+        // The interaction counters load their persisted document before the
+        // input service can start recording: the first `init` call wins, so
+        // this is the one point the storage layout can hand the path over.
+        bongocat_platform::interaction_stats_init(layout.interaction_stats.clone());
+        // The pomodoro document path is taken here for the same reason: the
+        // layout is consumed further down, and the worker cannot be started
+        // until the configuration has been read and the log installed.
+        let pomodoro_tasks_path = layout.pomodoro_tasks.clone();
         // Install the app-owned sink before opening user-data stores so their
         // bounded failures are observable. Historical cleanup stays deferred
         // until the persisted logging policy has been loaded.
@@ -239,6 +248,74 @@ impl Application {
                     (None, bongocat_audio::MotionAudioClient::unavailable())
                 }
             };
+        // The pomodoro worker follows the audio worker: both are threads the
+        // application owns, both degrade to an unavailable client instead of
+        // failing startup, and the countdown starts from a document rather than
+        // from anything the runtime holds. The offset is passed in so the
+        // cultivation ladder charges an absence against the user's own calendar
+        // day instead of UTC.
+        let pomodoro_offset = bongocat_platform::local_utc_offset_seconds();
+        let (pomodoro, pomodoro_client) =
+            match PomodoroService::start_at(pomodoro_tasks_path, pomodoro_offset) {
+                Ok(service) => {
+                    let client = service.client();
+                    (Some(service), client)
+                }
+                Err(_) => {
+                    application_log.record(
+                        ApplicationLogEvent::new(ApplicationLogCode::ServiceDegraded)
+                            .with_context(ApplicationLogContext::Service("pomodoro"))
+                            .with_context(ApplicationLogContext::Reason("pomodoro_start_failed")),
+                    );
+                    (None, PomodoroClient::unavailable())
+                }
+            };
+        // Credit raw keyboard and mouse activity as cultivation growth. The
+        // per-input hook only counts interactions; the flush hook (run on the
+        // same input worker on every stats flush, and on shutdown) drains the
+        // count into one batched command. Batching matters because
+        // `process_command` writes the document on every command, so publishing
+        // one command per keystroke would thrash the disk during a typing burst.
+        {
+            use std::sync::Arc;
+            use std::sync::atomic::{AtomicU64, Ordering};
+
+            const INPUT_BATCH: u64 = 16;
+            let pending = Arc::new(AtomicU64::new(0));
+
+            let record_client = pomodoro_client.clone();
+            let record_pending = pending.clone();
+            bongocat_platform::set_input_hook(Box::new(move || {
+                let seen = record_pending.fetch_add(1, Ordering::Relaxed) + 1;
+                if seen >= INPUT_BATCH {
+                    let count = record_pending.swap(0, Ordering::Relaxed);
+                    if count > 0
+                        && record_client
+                            .try_publish(bongocat_pomodoro::PomodoroCommand::RecordInput {
+                                count: count.min(u32::MAX as u64) as u32,
+                            })
+                            .is_err()
+                    {
+                        record_pending.fetch_add(count, Ordering::Relaxed);
+                    }
+                }
+            }));
+
+            let flush_client = pomodoro_client.clone();
+            bongocat_platform::set_input_flush_hook(Box::new(move || {
+                let count = pending.swap(0, Ordering::Relaxed);
+                if count > 0
+                    && flush_client
+                        .try_publish(bongocat_pomodoro::PomodoroCommand::RecordInput {
+                            count: count.min(u32::MAX as u64) as u32,
+                        })
+                        .is_err()
+                {
+                    pending.fetch_add(count, Ordering::Relaxed);
+                }
+            }));
+        }
+
         let runtime_overlay_visible = true;
         let runtime_motion_audio_enabled = config.model.play_motion_audio;
         let (runtime, render_consumer) = if enable_rendering {
@@ -335,6 +412,8 @@ impl Application {
             recorded_expression_sequence: None,
             runtime,
             motion_audio,
+            pomodoro,
+            pomodoro_client,
             render_consumer,
             application_log,
             core_log_diagnostics: None,

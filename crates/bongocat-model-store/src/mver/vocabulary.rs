@@ -55,7 +55,7 @@ pub(crate) const LEGACY_VK_RETURN: i64 = 0x0D;
 /// back into a single shared `Alt` name. A hand-written key table that does name
 /// a side is honoured: `VK_LMENU` (`0xA4`) and `VK_RMENU` (`0xA5`) resolve to
 /// the exact side, exactly as `bongocat-platform` maps the same two codes for
-/// the live Windows input path.
+/// the live macOS input path.
 ///
 /// The other modifier codes (`0x10` Shift, `0x11` Control) are ambiguous in the
 /// same way and keep their shared family name, which the runtime resolves for

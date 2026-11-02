@@ -1,0 +1,5338 @@
+//! The cultivation state and the transitions over it.
+//!
+//! Like [`crate::PomodoroState`], this is a plain value: every transition takes
+//! the wall time and the local day as arguments, so the tests can walk a whole
+//! ladder — including six missed days and a breakthrough — without a clock.
+//!
+//! Two rules carry most of the design. The first is that the level is derived:
+//! it is a function of the growth total, capped at the current realm's last
+//! layer, so there is no second number that can drift out of step with the
+//! first. The second is that growth never drops below the floor of the realm
+//! already entered, which is what makes an absence penalty cost progress
+//! without ever taking back a breakthrough the user fought for.
+
+use std::array;
+
+use super::{
+    ART_COUNT, ArtGrade, ArtKind, ArtOutcome, ArtSetView, ArtStrike, ArtView, Attribute,
+    Attributes, BONUS_GEAR_PERMILLE, BONUS_INSIGHT_PERMILLE, BONUS_SEED_PERMILLE,
+    BONUS_STONES_PERMILLE, BONUS_WISDOM_PERMILLE, BREAKTHROUGH_COOLDOWN_SECONDS, BattleReport,
+    Building, CollectionYield, Cost, CultivationDocument, DailyKind, Derived, DerivedBreakdown,
+    DuelReport, EQUIPMENT_DROP_PERMILLE, EquipSlot, EquipmentRecord, ExpeditionInProgress,
+    ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, GatherSite, GearEffect, GearSetView,
+    Guardian, MAX_LEVEL, MAX_STAR, MAX_TRADE_LEVEL, MasteredArtView, OwnedArt, PLAYER_NAME,
+    RECENT_ARTS_CAP, Rarity, Realm, Refusal, Resource, ResourceBag, Rng, SEED_DROP_PERMILLE,
+    SESSION_BONUS_PERMILLE, SLOT_COUNT, SeedStack, SessionMode, VICTORY_SEED_PERMILLE,
+    absence_penalty, art_attributes, art_view,
+    arts::{
+        art_bonus, art_set_bonus, art_set_views, blueprint, mastered_art_attributes,
+        mastered_art_bonus, mastered_art_view, train,
+    },
+    base_attributes,
+    battle::{guardian_for, resolve},
+    building_upgrade_cost, collect_scaled,
+    curve::{layer_growth, layer_rank, level_for_growth, stage_floor, threshold_for},
+    daily::{
+        DAILY_AMBUSH_STONES, DAILY_GIFT_STONES, DAILY_TRINKET_STONES, GiftKind, roll_gift,
+        roll_kind,
+    },
+    duel::{DUEL_RECORD_CAP, DuelRecord, FightKind, duel},
+    events::{BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind},
+    expedition_yield,
+    explore::{
+        BONUS_STONES, GUARDIAN_STONES, PROVING_STONES, TRIAL_STONES,
+        WalkRecord, breakthrough_ready, roll_stones, roll_victory,
+    },
+    garden::{
+        CropRecord, MAX_GARDEN_RANK, PlotRecord, SeedGrade, harvest_points, plant_permille,
+        plot_price, rank_cost, rank_xp_total, roll_seed_grade, seed_name, seed_return,
+        wither_points,
+    },
+    gather_duration_permille, growth_permille,
+    items::{gear_set_bonus, gear_set_views, roll_equipment},
+    mastery_permille,
+    opponent::{self, Opponent},
+    proving::{ProvingOutcome, TRIAL_CHANCES_CAP},
+    resource_cap, rounds_per_hour_permille, scaled_growth,
+    shop::{self, ShopOffer, ShopOfferView, star_up_cost},
+    skill_ready, skill_xp_total, star_success_permille,
+    trade::{TradeRefusal, session_earnings},
+    trial::{
+        TRIAL_ATTEMPTS_PER_DAY, TRIAL_MAX_FLOOR, TrialReward, floor_realm, roll_reward,
+        warden_power,
+    },
+};
+use crate::CalendarDay;
+use serde::Serialize;
+
+/// What the absence evaluation took, if anything.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct AbsenceCharge {
+    /// How many whole days without a session were charged.
+    pub days: u32,
+    /// The growth actually lost. A penalty that reaches the realm's floor
+    /// charges less than it asked for, and the difference is reported here
+    /// rather than pretended.
+    pub charged: u32,
+}
+
+/// What one finished session produced beyond its growth.
+///
+/// The first two are the ordinary drop — a piece of gear or a herb, at the
+/// session's own odds — and the rest are what the thousandth's luck pays: the
+/// ladder's one jackpot, in whatever shape it came.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub enum Drop {
+    Equipment(EquipmentRecord),
+    Seed {
+        attribute: Attribute,
+        tier: u8,
+        grade: SeedGrade,
+    },
+    /// A 功法, by the name it was given.
+    Art {
+        name: String,
+    },
+    /// One 潜质 herb.
+    ///
+    /// The grade it was found at is what the body pays, so the notice and the
+    /// log name the grade beside the herb.
+    Herb {
+        herb: super::AptitudeHerb,
+        grade: SeedGrade,
+    },
+    /// A purse of 灵石.
+    Stones(u32),
+}
+
+/// What one source's *absolute* strength hands the two ladders.
+///
+/// One value, read twice: [`Self::tier`] is the 阶级 the goods stand at and
+/// [`Self::factor`] is what the quality roll is multiplied by. Both are pure
+/// functions of the power, so a page that prints "对手战力 N" and the roll that
+/// paid out cannot disagree about what N bought.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Strength {
+    power: u32,
+}
+
+impl Strength {
+    /// The strength a body of this power is worth.
+    pub(crate) const fn of(power: u32) -> Self {
+        Self { power }
+    }
+
+    /// The rung its goods stand on: a realm, one-based.
+    pub(crate) fn tier(self) -> u8 {
+        super::drop::tier_for_power(self.power)
+    }
+
+    /// What it multiplies the quality ladder by, in parts per thousand.
+    pub(crate) fn factor(self) -> u32 {
+        super::drop::power_factor_permille(self.power)
+    }
+}
+
+/// Everything one finished session changed.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct SessionReward {
+    /// The growth the session itself paid.
+    pub growth: u32,
+    /// The penalty charged for the days before it, when there were any.
+    pub absence: Option<AbsenceCharge>,
+    pub drop: Option<Drop>,
+}
+
+/// What a breakthrough attempt came to.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct BreakthroughOutcome {
+    pub report: BattleReport,
+    /// The realm a win opens, or the one that was defended on a loss.
+    pub target: Realm,
+    /// The gear the win paid. A loss pays nothing and takes nothing.
+    pub reward: Option<EquipmentRecord>,
+    /// Every blow of the fight that settled it, for the log a surface shows.
+    pub duel: DuelReport,
+    /// The gear a loss cost, if it cost any.
+    pub lost: Option<String>,
+    /// The 功法 a win paid. A win always pays one; a loss never does.
+    pub granted_art: Option<String>,
+    /// The purse a win turned up, beside the 功法 and the gear.
+    pub stones: Option<u32>,
+    /// The herb a win turned up, by name: the one find a breakthrough makes
+    /// that used to reach the bag without the log ever saying so.
+    pub seed: Option<String>,
+}
+
+/// What one 试炼 floor came to.
+///
+/// The duel travels whole, the way a breakthrough's does, because the tower is
+/// watched blow by blow like every other fight; what the win turned up travels
+/// as the same find a walk reports, since the three kinds are the same three.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct TrialOutcome {
+    /// The floor that was climbed, one-based.
+    pub floor: u16,
+    /// What a warden of this floor is worth, as the page reads it: the band's
+    /// middle around the cultivator, floored at the floor's own rung.
+    pub warden_power: u32,
+    /// Every blow of the fight that settled it.
+    pub duel: DuelReport,
+    /// What clearing the floor turned up. A loss finds nothing but the floor.
+    pub found: ExplorationFindView,
+}
+
+/// What one swept run of the tower turned up.
+///
+/// A sweep clears several floors in one action and settles them all at once:
+/// the fights are skipped because the cultivator is overwhelmingly stronger, so
+/// the outcome is the haul rather than a blow-by-blow. The counts are the haul,
+/// because ten floors can turn up several of a kind and a single named find
+/// would have to drop the others on the floor.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct TrialSweepOutcome {
+    /// The first floor the sweep covered, one-based.
+    pub from_floor: u16,
+    /// How many floors were swept in one go.
+    pub floors: u16,
+    pub seeds: u32,
+    pub gear: u32,
+    pub arts: u32,
+    pub stones: u32,
+}
+
+/// Why a 试炼 floor cannot be climbed right now.
+///
+/// The page needs a reason to print beside a dead button, and it is the same
+/// reason the domain refuses with — so the two cannot disagree about whether
+/// the tower is closed or the day is spent.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub enum TrialBlocked {
+    /// The cultivator is still out on a walk: the tower is climbed at home.
+    Out,
+    /// The cultivator is at a job: the tower is climbed at home, and a job is
+    /// hours of the same day a walk would have been.
+    Working,
+    /// The day's floors are used up.
+    Drained,
+    /// Every floor of the tower is behind the save already.
+    Top,
+}
+
+impl TrialBlocked {
+    /// The domain refusal this state would produce.
+    pub const fn refusal(self) -> Refusal {
+        match self {
+            Self::Out => Refusal::TrialOut,
+            Self::Working => Refusal::Working,
+            Self::Drained => Refusal::TrialDrained,
+            Self::Top => Refusal::TrialTop,
+        }
+    }
+
+    /// The catalog key saying why the tower is closed.
+    pub const fn key(self) -> &'static str {
+        self.refusal().key()
+    }
+}
+
+/// Why the 试炼 cannot be fought right now, or the three reasons it can.
+///
+/// The two fights fought at home — the tower and the 试炼 — share the first two
+/// walls: a walk on the road and a job in hand are both out of the courtyard.
+/// What each adds is its own ration, the day's floors here and a banked chance
+/// there, which is why the two keep separate enums and one shared pair of
+/// refusals.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub enum ProvingBlocked {
+    /// The cultivator is still out on a walk: the courtyard is fought in.
+    Out,
+    /// The cultivator is at a job: the courtyard is fought at home, and a job
+    /// is hours of the same day a walk would have been.
+    Working,
+    /// No chance is banked: a finished pomodoro pays one.
+    Spent,
+}
+
+impl ProvingBlocked {
+    /// The domain refusal this state would produce.
+    pub const fn refusal(self) -> Refusal {
+        match self {
+            Self::Out => Refusal::ProvingOut,
+            Self::Working => Refusal::Working,
+            Self::Spent => Refusal::ProvingSpent,
+        }
+    }
+
+    /// The catalog key saying why the courtyard is closed.
+    pub const fn key(self) -> &'static str {
+        self.refusal().key()
+    }
+}
+
+/// What the day opened with, as a surface reads it.
+///
+/// The three kinds travel as one value because they are one event: whether it
+/// was a fight, what the fight came to, and what any of the three left behind.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct DailyOutcome {
+    pub kind: DailyKind,
+    /// Whether the ambush was beaten. True for the kinds that are not a fight.
+    pub won: bool,
+    /// Only an ambush settles a fight, and only a fight is replayed.
+    pub duel: Option<DuelReport>,
+    /// What the day left behind.
+    pub found: ExplorationFindView,
+}
+
+/// What a harvest took from a plot.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct HarvestOutcome {
+    /// The crop that was picked.
+    pub crop: CropRecord,
+    /// The seed the harvest gave back, if it gave one: the same attribute, the
+    /// same tier or one higher, at a grade rolled fresh.
+    pub seed: Option<(Attribute, u8, SeedGrade)>,
+}
+
+/// What one attempt at a piece's next star came to.
+///
+/// The stones are spent whether the star turns over or not — a wager is a wager
+/// — so the outcome carries the cost beside the result: a failure that cost
+/// nothing would read as a free reroll, and a run of them would be the whole
+/// ladder's economy in one button.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StarOutcome {
+    /// The item the attempt was made on.
+    pub item_id: u64,
+    /// The item's name, for the line that says what happened.
+    pub name: Option<String>,
+    /// The star the piece stood at before the attempt.
+    pub from: u8,
+    /// The star it stands at now: one up on a success, one down on a failure,
+    /// and never below the first star.
+    pub to: u8,
+    /// Whether the attempt came off.
+    pub success: bool,
+    /// What the attempt cost: the 灵石 wager and the resources the forge burned.
+    pub cost: super::Cost,
+}
+
+/// What one gathering at a site turned up.
+///
+/// Carried rather than left to the event log because the popup that says "伐木
+/// +12 木材，+100 伐木经验" has to know the move, and a gathering is too routine
+/// to be a line in the history.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct CollectOutcome {
+    /// Where the gathering was done.
+    pub site: GatherSite,
+    /// What the purse actually gained, after the 仓库's ceiling.
+    pub gained: ResourceBag,
+    /// The 伐木 xp banked by this gathering.
+    pub woodcut_xp: u32,
+    /// The 采石 xp banked by this gathering.
+    pub stonecut_xp: u32,
+    /// The 伐木 level after the gathering, if it trained 伐木.
+    pub woodcut_level: u8,
+    /// The 采石 level after the gathering, if it trained 采石.
+    pub stonecut_level: u8,
+}
+
+/// What one building rank came to.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct BuildingOutcome {
+    /// The building raised.
+    pub building: Building,
+    /// The rank it stood at before.
+    pub from: u8,
+    /// The rank it stands at now.
+    pub to: u8,
+    /// What the rank cost.
+    pub cost: Cost,
+}
+
+/// One gathering trade, as the page reads it: the level, the xp banked toward
+/// the next, and what that next costs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct TradeView {
+    /// The trade's level.
+    pub level: u8,
+    /// The xp banked toward the next level.
+    pub xp: u32,
+    /// What the next level costs, in xp.
+    pub xp_to_next: u32,
+}
+
+/// One building, as the page reads it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct BuildingView {
+    /// The rank the building stands at.
+    pub level: u8,
+    /// Whether it is as tall as it can be.
+    pub capped: bool,
+    /// What the next rank costs, and nothing at the top of the ladder.
+    pub upgrade_cost: Option<Cost>,
+}
+
+/// One gathering expedition under way, as the page reads it.
+///
+/// Carried beside the sites so the page can say "you are out gathering" and
+/// offer the same early return the walk and the job offer — and so a surface
+/// that knows the expedition is out can close the sites rather than let a
+/// click be refused.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct ExpeditionView {
+    /// The site the expedition works.
+    pub site: GatherSite,
+    /// The length it was out for, in hours.
+    pub hours: u8,
+    /// When it comes home.
+    pub ends_unix: i64,
+    /// Whether it has been called home already.
+    pub early: bool,
+}
+
+/// The resource economy as the settings page reads it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ResourcesView {
+    /// The purse.
+    pub bag: ResourceBag,
+    /// What the purse holds at most, of one resource.
+    pub cap: u32,
+    /// 伐木, the forest trade.
+    pub woodcut: TradeView,
+    /// 采石, the mountain trade.
+    pub stonecut: TradeView,
+    /// 工坊: the yield's multiplier.
+    pub workshop: BuildingView,
+    /// 仓库: the purse's width.
+    pub warehouse: BuildingView,
+    /// 铁匠铺: the wager's discount.
+    pub smithy: BuildingView,
+    /// 道场: the xp's multiplier.
+    pub dojo: BuildingView,
+    /// The gathering expedition under way, if the cultivator is out gathering.
+    pub expedition: Option<ExpeditionView>,
+}
+
+/// What one 潜质 herb did.
+///
+/// Carried rather than left to the event log because the popup that says "潜质
+/// 4.7 → 5.3" has to know the move, and a surface reading the log would have to
+/// match a line by timestamp to find it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct AptitudeUse {
+    /// Which herb was fed.
+    pub herb: super::AptitudeHerb,
+    /// How much it actually moved the total, in tenths: less than the roll when
+    /// the band's top clipped it.
+    pub gained_tenths: i32,
+    /// Where 潜质 stands now, in tenths.
+    pub aptitude_tenths: i32,
+    /// How many 洗髓丹 the move cost.
+    pub marrow_spent: u32,
+}
+
+/// What one finished job paid.
+///
+/// Kept beside the walk's record for the same reason: the popup is a moment and
+/// the quit forgets it, and a page that could not say what the last job paid is a
+/// page whose money has no history.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct WorkPaid {
+    /// How many 灵石 the job paid. The wage is the wage: nothing about the work
+    /// coming off changes what the wage was.
+    pub stones: u32,
+    /// How long the job took, in hours.
+    pub hours: u8,
+    /// The job's grade, which sized both its wage and its requirement.
+    pub grade: ArtGrade,
+    /// What the job trained, which is what it asked of the cultivator.
+    pub kind: super::JobKind,
+    /// The chance the job came off at, in parts per thousand.
+    pub success_rate: u64,
+    /// The attribute the job paid, and how many points, if the gain came up.
+    pub gain: Option<(super::DerivedSlot, u32)>,
+}
+
+/// One job as a surface reads it: what it is, what it asks, and what it pays.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct JobView {
+    /// Its position on the board, which is what taking it names.
+    pub slot: usize,
+    pub tier: u8,
+    pub hours: u8,
+    pub grade: ArtGrade,
+    /// What it pays, as the one figure the board is read against.
+    pub stones: u32,
+    /// Whether this is the job the cultivator is already working: the board
+    /// keeps the row so the page can say 接取中, but taking it again would be
+    /// refused, so the row is shown as taken rather than as open.
+    pub working: bool,
+    /// What the job trains, for the name and the reward.
+    pub kind: super::JobKind,
+    /// What the job asks of the first (or only) attribute it trains.
+    pub requirement: u32,
+    /// What the job asks of the second attribute, for a mixed job.
+    pub requirement_second: Option<u32>,
+    /// What the cultivator actually holds in the first (or only) attribute, for
+    /// the row to say how far over or under the requirement they are.
+    pub current_first: u32,
+    /// What the cultivator holds in the second attribute, for a mixed job.
+    pub current_second: Option<u32>,
+    /// The chance the job comes off, in parts per thousand, given how the
+    /// cultivator holds the attribute it asks for.
+    pub success_rate: u64,
+}
+
+/// One owned item, as a surface reads it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ItemView {
+    pub id: u64,
+    pub slot: EquipSlot,
+    pub tier: u8,
+    pub rarity: Rarity,
+    pub attributes: Attributes,
+    /// The combat numbers this piece adds outright — 攻击力, 生命值, 命中 and the
+    /// rest — with its stars folded in.
+    pub bonus: Derived,
+    pub equipped: bool,
+    /// The stars the piece holds. Zero is a piece nobody has starred.
+    pub star: u8,
+    /// The effect a 神装 carries, for the name, the icon and the detail.
+    pub effect: Option<GearEffect>,
+    /// What one more star costs: the 灵石 wager and the resources the forge
+    /// burns. `None` once the piece holds every star it can.
+    pub star_cost: Option<super::Cost>,
+    /// The xianxia-given name the drop carried, if any.
+    pub name: Option<String>,
+    /// The set this piece belongs to, when it is a set piece. A set's pieces all
+    /// carry the same name prefix, and two or more worn pay the set's bonus.
+    pub set: Option<super::items::GearSet>,
+    /// What the 集市 pays for it, in 灵石.
+    ///
+    /// Carried on the view rather than derived at the surface because the price
+    /// is the shop's margin over its own asking price: a surface that worked it
+    /// out from the tier alone would show a number the sale does not pay.
+    pub sell_price: u32,
+}
+
+/// One seed stack, as a surface reads it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct SeedView {
+    pub attribute: Attribute,
+    /// The 潜质 herb this stack grows, when it is a herb seed rather than an
+    /// attribute seed. A surface shows a herb seed by its herb, never by its
+    /// `attribute`, which is a don't-care it is not allowed to read.
+    pub herb: Option<super::AptitudeHerb>,
+    pub tier: u8,
+    /// The herb's grade: what the harvest will be multiplied by, and the colour
+    /// the row is painted.
+    pub grade: SeedGrade,
+    pub count: u32,
+    /// The herb's xianxia-given name, if the stack carries one.
+    pub name: Option<String>,
+    /// What the 集市 pays for one seed of this stack, in 灵石.
+    ///
+    /// Per seed rather than per stack: the row sells one at a time, and a number
+    /// on the button that was the price of all ten would not be the price of the
+    /// click.
+    pub sell_price: u32,
+}
+
+/// What the last finished session did to the 功法 being trained.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct TrainingView {
+    pub art_id: u64,
+    pub name: String,
+    pub outcome: ArtOutcome,
+    /// The 阶 the art stands at now.
+    pub rank: u8,
+}
+
+/// One crop in a plot.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct CropView {
+    pub attribute: Attribute,
+    /// The 潜质 herb this crop grows, when it was a herb seed; a surface shows a
+    /// herb crop by its herb, never by its `attribute`, which is a don't-care.
+    pub herb: Option<super::AptitudeHerb>,
+    pub tier: u8,
+    /// The grade it was planted at, which is what the harvest will pay at.
+    pub grade: SeedGrade,
+    /// The herb's name, carried from the seed it grew from. A crop planted by an
+    /// old save has none and reads as its attribute label.
+    pub name: Option<String>,
+    /// The instant it can be picked. A surface subtracts its own clock, so the
+    /// countdown keeps moving without the domain being polled for it.
+    pub ready_at_unix: i64,
+    /// Whether this bed has been told — and is telling — that the seed did not
+    /// take. False for every bed before its halfway mark, which is the whole
+    /// point of the reveal: a surface cannot leak a verdict the domain has not
+    /// given it.
+    pub withered: bool,
+}
+
+/// One plot, as a surface reads it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PlotView {
+    pub crop: Option<CropView>,
+}
+
+impl PlotView {
+    /// Whether this bed is showing a crop that did not take. A surface reads
+    /// this rather than the crop's fields so the rule for "dead" lives in one
+    /// place, and the button it draws and the command it sends agree.
+    pub fn is_crop_dead(&self) -> bool {
+        self.crop.as_ref().is_some_and(|crop| crop.withered)
+    }
+}
+
+/// The guardian a surface offers to fight.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct GuardianView {
+    pub target: Realm,
+    pub power: u32,
+}
+
+/// The drop a surface announces.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub enum DropView {
+    Equipment(ItemView),
+    Seed {
+        attribute: Attribute,
+        tier: u8,
+        grade: SeedGrade,
+    },
+    Art {
+        name: String,
+    },
+    Herb {
+        herb: super::AptitudeHerb,
+    },
+    Stones(u32),
+}
+
+/// What one walk turned up, as a surface reads it.
+///
+/// A walk is the only source that pays every kind at once, so its find is
+/// carried whole rather than reduced to the outcome's name: the panel can say
+/// which herb, which piece, which 功法 and how much money came of it.
+///
+/// A struct rather than one-of, because the rolls are not exclusive: 灵石 is
+/// drawn beside the finding rather than in place of it, so a walk can come
+/// back with a herb and a handful of stones both, and a find that could only
+/// hold one would have to drop the other on the floor.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct ExplorationFindView {
+    /// The herb it turned up, when it turned one up.
+    pub seed: Option<SeedView>,
+    /// The gear it turned up, when it turned some up.
+    pub gear: Option<ItemView>,
+    /// The 功法 it turned up, by the name it was given.
+    pub art: Option<String>,
+    /// The 灵石 it turned up, when it turned any up.
+    pub stones: Option<u32>,
+}
+
+impl ExplorationFindView {
+    /// Whether the walk came back with nothing at all.
+    pub fn is_empty(&self) -> bool {
+        self.seed.is_none() && self.gear.is_none() && self.art.is_none() && self.stones.is_none()
+    }
+}
+
+/// The total power, cut into the sources that made it.
+///
+/// Every field except `external` adds up to [`Self::total`] exactly: power is
+/// linear in the four attributes, so a source is worth on its own what it is
+/// worth in the sum. `external` is what the best 外功 adds to a blow and is
+/// deliberately outside that sum — a 外功 is not part of what the body is
+/// worth.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct PowerBreakdown {
+    /// What the level alone carries.
+    pub level: u32,
+    /// What the points the user placed are worth.
+    pub allocated: u32,
+    /// The four attributes the worn gear carries.
+    pub equipment: u32,
+    /// What the worn gear adds outright — 攻击力, 生命值, 命中 and the rest.
+    pub equipment_bonus: u32,
+    /// The attributes the crops have paid.
+    pub crop: u32,
+    /// The attributes the 内功 have paid.
+    pub art: u32,
+    /// What the 内功 add outright.
+    pub art_bonus: u32,
+    /// What the best 外功 adds per blow, as power. Not part of [`Self::total`].
+    pub external: u32,
+    /// The number every surface prints as 战力.
+    pub total: u32,
+}
+
+impl PowerBreakdown {
+    /// The sources as they add up — the number that has to equal
+    /// [`Self::total`].
+    pub fn parts_total(self) -> u32 {
+        self.level
+            .saturating_add(self.allocated)
+            .saturating_add(self.equipment)
+            .saturating_add(self.equipment_bonus)
+            .saturating_add(self.crop)
+            .saturating_add(self.art)
+            .saturating_add(self.art_bonus)
+    }
+}
+
+/// Everything a surface reads in one value.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct CultivationView {
+    pub level: u16,
+    pub realm: Realm,
+    /// The layer inside the realm, as [`LayerRank`] says it: ten layers of ten
+    /// ranks, so 89 is layer 8 rank 9.
+    pub layer: u8,
+    /// The rank inside that layer, one-based.
+    pub rank: u8,
+    pub growth: u32,
+    /// The growth the current level opened at.
+    pub floor: u32,
+    /// The growth the next level needs, or `None` at the realm's cap or the top
+    /// of the ladder.
+    pub next: Option<u32>,
+    /// Level, gear, herbs and the points the user placed together.
+    pub attributes: Attributes,
+    /// What those four are worth once read as a fighter.
+    pub derived: Derived,
+    pub level_attributes: Attributes,
+    pub equipment_attributes: Attributes,
+    pub crop_attributes: Attributes,
+    /// The points the user placed by hand.
+    pub allocated_attributes: Attributes,
+    /// The free points still waiting to be placed.
+    pub free_points: u32,
+    pub power: u32,
+    /// The total above, cut into the sources that made it. Every line of it adds
+    /// up to [`Self::power`], which is what lets the panel print a sum the user
+    /// can check against the number in the corner.
+    pub power_breakdown: PowerBreakdown,
+    pub equipped: [Option<ItemView>; SLOT_COUNT],
+    pub inventory: Vec<ItemView>,
+    /// Every active 装备 set: one entry per set with two or more pieces worn,
+    /// with what the wearing pays. Empty when no set is active.
+    pub gear_sets: Vec<GearSetView>,
+    pub seeds: Vec<SeedView>,
+    pub plots: Vec<PlotView>,
+    /// What one more garden plot would cost, and `None` once the garden holds
+    /// every plot it can.
+    pub next_plot_price: Option<u32>,
+    /// How well the garden is tended: the rank every planting's odds are read
+    /// against.
+    pub garden_rank: u8,
+    /// The 造化 banked towards the next rank, and what that rank asks for.
+    ///
+    /// Carried as the pair rather than as a ratio because the surface has to
+    /// draw a bar and a number, and a bar whose ceiling it had to recompute is
+    /// a bar that can disagree with the price below it. Both read zero-filed at
+    /// the top rank: there is no sixteenth apple to reach for.
+    pub garden_xp: i64,
+    pub garden_xp_needed: i64,
+    /// What the next rank costs in 灵石, and `None` once the garden is at the
+    /// top of the ladder.
+    pub garden_upgrade_cost: Option<u32>,
+    /// The guardian offered right now: present only at a realm's last layer.
+    pub guardian: Option<GuardianView>,
+    pub last_breakthrough: Option<BreakthroughOutcome>,
+    pub last_absence: Option<AbsenceCharge>,
+    pub last_drop: Option<DropView>,
+    /// What the last finished job paid, kept past the quit that ends its popup.
+    pub last_work: Option<WorkPaid>,
+    /// The jobs on the board today, and the one being worked if there is one.
+    pub jobs: Vec<JobView>,
+    /// The job being worked, with the instant it comes due.
+    pub work: Option<super::JobRun>,
+    /// What a fresh board costs, at the realm the cultivator is worth.
+    pub job_refresh_cost: u32,
+    /// The seed the most recent harvest gave back, if it gave one.
+    pub last_seed_return: Option<SeedView>,
+    /// Every 功法 owned, with the blueprint folded in.
+    ///
+    /// These are the **功法书**: the ones still being trained. A 功法 that has
+    /// been trained to 圆满 is not in this list — it is in
+    /// [`Self::mastered_arts`] instead.
+    pub arts: Vec<ArtView>,
+    /// Every 功法 learned outright, with the blueprint folded in.
+    ///
+    /// Kept apart from [`Self::arts`] because the two are sold differently: a
+    /// book can be sold, and what it taught cannot be taken back by selling it.
+    pub mastered_arts: Vec<MasteredArtView>,
+    /// Every active 功法 family: one entry per 前缀 with two or more books,
+    /// with what the holding pays. Empty when no set is active.
+    pub art_sets: Vec<ArtSetView>,
+    /// What the trained 内功 have paid in total.
+    pub art_attributes: Attributes,
+    /// What those 内功 are worth as battle power, at the same scale the total
+    /// power uses: a slice of it, not a second number.
+    pub art_power: u32,
+    /// What the best 外功 the cultivator knows would add per blow, as power.
+    ///
+    /// An 外功 pays no attribute, so it cannot show up in any of the totals
+    /// above; this is the figure that says what having one is worth.
+    pub external_power: u32,
+    /// 潜质, in tenths: 47 reads as 4.7. Fractional on purpose — every herb
+    /// pays a tenth of a point at the smallest.
+    pub aptitude_tenths: i32,
+    /// The 潜质 items held, in [`AptitudeHerb::ALL`] order.
+    pub aptitude_herbs: [u32; 3],
+    /// What opening the gate ahead costs in 洗髓丹, or `None` at the top of the
+    /// band. Read off the same rule the crossing charges, so the satchel's
+    /// button prices the gate exactly what a herb would have paid for it.
+    pub marrow_gate_cost: Option<u32>,
+    /// How many levels the ladder holds in all: [`MAX_LEVEL`], carried so a
+    /// surface can print "347 / 1000" without importing the ladder's size.
+    pub total_levels: u16,
+    /// Whether the realm is full: the growth has bought every layer the realm
+    /// has, and only the guardian stands between the save and the next one.
+    ///
+    /// The page's one prompt reads this: a hint about breaking through belongs
+    /// on screen when there is a wall to break, and nowhere else.
+    pub realm_full: bool,
+    /// The 功法 the next finished pomodoro trains.
+    pub selected_art: Option<u64>,
+    /// What the last finished session did to the 功法 being trained.
+    pub last_training: Option<TrainingView>,
+    /// The fight the last walk met, if it met one.
+    ///
+    /// Cleared by every walk that met nobody: a quiet walk's popup must carry
+    /// no fight, or it replays an older walk's battle under this walk's
+    /// verdict.
+    pub last_exploration_duel: Option<DuelReport>,
+    /// What the last walk came to.
+    pub last_exploration: Option<ExplorationOutcome>,
+    /// What the last walk turned up, when it turned something up.
+    pub last_exploration_found: Option<ExplorationFindView>,
+    /// Whether a walk is owed right now.
+    pub exploration_ready: bool,
+    /// Whether the cultivator is home: no walk on the road and no shift at work.
+    ///
+    /// The one state the page prints above the log, and the one that gates every
+    /// 外出 and 战斗 action — a cultivator away from the door cannot start a
+    /// second walk, take a job, or fight a 破境, a 守卫 or a 试炼 until the road
+    /// has brought them back.
+    pub at_home: bool,
+    /// Whether the guardian can be fought right now.
+    pub breakthrough_ready: bool,
+    /// The instant a walk is owed again, while one is not.
+    pub exploration_ready_at: Option<i64>,
+    /// How long the last walk was, which is what set that instant.
+    pub exploration_hours: super::ExplorationHours,
+    /// Whether the walk under way has already been called home.
+    ///
+    /// A called walk still owes its return trip, so the page keeps it on the
+    /// road rather than offering to call it twice.
+    pub walk_early: bool,
+    /// Whether the shift under way has already been called home.
+    ///
+    /// The walk's rule, read off the other outing: the page draws the status
+    /// line as "on the way back" instead of offering to call a called shift.
+    pub work_early: bool,
+    /// How long the trip home would cost if the outing were called back now, in
+    /// seconds. Zero while at home.
+    ///
+    /// The page says the price before the click rather than after it: the return
+    /// trip is a third of the time already spent, and a user deciding whether to
+    /// give up the hours is owed that number in the confirmation itself.
+    pub outing_return_seconds: i64,
+    /// The instant the guardian can be fought again, while a loss still holds
+    /// the attempt.
+    pub breakthrough_ready_at: Option<i64>,
+    /// How many breakthroughs have been fought so far.
+    pub breakthrough_attempts: u32,
+    /// How many walks have been taken so far.
+    pub explorations: u32,
+    /// The highest 试炼 floor cleared, zero before the tower is entered.
+    pub trial_floor: u16,
+    /// The floor the next attempt climbs.
+    pub trial_next_floor: u16,
+    /// What that floor's warden is worth, as the panel prints it.
+    pub trial_warden_power: u32,
+    /// How many floors the local day still offers.
+    pub trial_attempts_left: u32,
+    /// Why a floor cannot be climbed right now, or `None` when one can.
+    pub trial_blocked: Option<TrialBlocked>,
+    /// The fight the last floor settled, for the popup that replays it.
+    pub last_trial: Option<TrialOutcome>,
+    /// Whether the next floor is a sweep rather than a fight: the cultivator is
+    /// more than half again as strong as the warden, so the tower offers the
+    /// skip instead of the climb.
+    pub trial_sweepable: bool,
+    /// The haul the last sweep brought home, for the line that names it.
+    pub last_trial_sweep: Option<TrialSweepOutcome>,
+    /// How many 试炼 chances are banked, and the most that can be.
+    pub proving_tokens: u32,
+    /// The ceiling the count above is printed against.
+    pub proving_token_cap: u32,
+    /// Why the courtyard cannot be fought right now, or `None` when it can.
+    pub proving_blocked: Option<ProvingBlocked>,
+    /// How many 试炼 have been fought, so a surface can tell a new report from
+    /// the one it has already shown.
+    pub provings: u32,
+    /// The fight the last spent chance settled, for the popup that replays it.
+    pub last_proving: Option<ProvingOutcome>,
+    /// What the day opened with, for the page and for the popup an ambush earns.
+    pub last_daily_event: Option<DailyOutcome>,
+    /// The local day the morning event belongs to, or `None` before the first.
+    ///
+    /// Carried so a surface can tell *today's* event from an older one: the
+    /// popup opens for the day's own ambush and never replays last week's.
+    pub daily_event_day: Option<i64>,
+    /// How many mornings have opened since this state was loaded. A count
+    /// rather than a flag because "the day opened" is a fact with a history:
+    /// the tests walk a ladder across several days through it, and a surface
+    /// that ever wants "how many mornings has this save seen" reads it here.
+    pub daily_events: u32,
+    /// The local day whose morning event the user has already been shown.
+    ///
+    /// Written down when the surface acknowledges the popup, so a window opened
+    /// again the same day does not replay this morning's ambush as if it had
+    /// just happened. `None` before the first acknowledgement.
+    pub daily_event_seen_day: Option<i64>,
+    /// How many star attempts have been made this session, so a surface can
+    /// tell a new result from the one it has already shown.
+    pub star_attempts: u32,
+    /// What the last star attempt came to, kept for the line that says it.
+    pub last_star: Option<StarOutcome>,
+    /// What the last gathering turned up, kept for the line that says it.
+    pub last_collect: Option<CollectOutcome>,
+    /// What the last building rank came to, kept for the line that says it.
+    pub last_building: Option<BuildingOutcome>,
+    /// The region a new walk will be taken in, read off the realm.
+    #[serde(rename = "explore_region_idx")]
+    pub exploration_region: u8,
+    /// The level a new walk will sit at — one above the cleared level, capped.
+    #[serde(rename = "explore_level")]
+    pub exploration_level: u8,
+    /// The level of the walk under way, or zero between walks.
+    pub walk_level: u8,
+    /// The furthest level cleared in each region, indexed by ladder position.
+    pub explored_levels: [u8; super::explore::Region::ALL.len()],
+    /// Progress through each region's current level, in parts per thousand.
+    pub region_progress: [u32; super::explore::Region::ALL.len()],
+    /// The resource economy as the page reads it: the purse, the two trades and
+    /// the four buildings, each with what the page says about it.
+    pub resources: ResourcesView,
+    /// What the next finished pomodoro pays: 修习, 伐木, or 采石.
+    ///
+    /// The mode is the fork the session completion reads, so the page has to be
+    /// able to show which arm is armed — and to arm the other one.
+    pub session_mode: SessionMode,
+    /// How many floors have been attempted, so a surface can tell a new report
+    /// from one it has already shown.
+    pub trial_attempts: u32,
+    /// What the next finished session pays, in growth.
+    ///
+    /// A number rather than a percentage: the four disciplines that decide it
+    /// are not shown, so a multiplier would be a rule the user cannot see and
+    /// cannot move. This is what the next pomodoro is actually worth, and it is
+    /// the number the ladder moves by.
+    pub next_session_growth: u32,
+    /// The eight shown numbers and the arithmetic behind each of them.
+    ///
+    /// Carried whole so a hover can print the very sum that produced the
+    /// number beside it: the base, the attribute it reads, what one point of it
+    /// adds and what the ceiling held it to.
+    pub derived_breakdowns: Vec<DerivedBreakdown>,
+    /// The fights fought, newest first.
+    pub duel_record: Vec<DuelRecord>,
+    /// What the last walk settled, kept past the quit that ended its popup.
+    pub last_walk: Option<WalkRecord>,
+    /// What has happened lately, newest first: sessions, walks, 功法 turning
+    /// over, goods bought and sold, crops pulled.
+    pub events: Vec<EventRecord>,
+    /// The 灵石 in the purse.
+    pub stones: u32,
+    /// Why the last refused action was refused, if one was.
+    ///
+    /// The page shows this as an error rather than swallowing it: a click that
+    /// does nothing has to say why, or the user reads the button as broken.
+    pub last_refusal: Option<Refusal>,
+    /// How many actions have been refused so far.
+    ///
+    /// A count rather than a flag, because the surface watches it to know a
+    /// *new* refusal happened: the same reason refused twice is two messages,
+    /// and one reason refused twice is one message said twice.
+    pub refusal_count: u32,
+    /// The day this view was read for.
+    ///
+    /// Carried because the shelf is rolled from the day: a surface that worked the
+    /// day out for itself could disagree with the one the shelf was rolled from by
+    /// a timezone's worth of hours, and then every offer would read as bought.
+    pub day: i64,
+    /// Today's shelf, as the shop rows read it.
+    pub shop_offers: Vec<ShopOfferView>,
+}
+
+/// What the 集市 pays for one seed of that attribute, tier and grade.
+fn seed_sell_price(attribute: Attribute, tier: u8, grade: SeedGrade) -> u32 {
+    shop::ShopOffer::Seed {
+        attribute,
+        tier,
+        grade,
+        name: None,
+    }
+    .sell_price()
+}
+
+/// What the 集市 pays for one 潜质 herb seed of that herb and grade.
+///
+/// Priced off the herb offer rather than the seed offer, because a herb seed is
+/// not a tier of attribute points — it is a herb, priced the way the shelf
+/// prices the herb it used to hand over ready-grown.
+fn herb_seed_sell_price(herb: super::AptitudeHerb, grade: SeedGrade) -> u32 {
+    shop::ShopOffer::Herb { herb, grade }.sell_price()
+}
+
+/// One seed stack as a surface reads it. The price is read off the stack rather
+/// than passed in, so a row cannot quote a figure the sale would not pay.
+fn seed_view(stack: &SeedStack) -> SeedView {
+    let sell_price = match stack.herb {
+        Some(herb) => herb_seed_sell_price(herb, stack.grade),
+        None => seed_sell_price(stack.attribute, stack.tier, stack.grade),
+    };
+    SeedView {
+        attribute: stack.attribute,
+        herb: stack.herb,
+        tier: stack.tier,
+        grade: stack.grade,
+        count: stack.count,
+        name: stack.name.clone(),
+        sell_price,
+    }
+}
+
+/// What one bonus drop says in the event log.
+///
+/// One variant for every shape the jackpot takes, because they are one kind of
+/// event — a pomodoro that paid something extra — and the fields that are filled
+/// say which shape it was.
+fn bonus_event(drop: &Drop) -> EventDetail {
+    let find = match drop {
+        Drop::Equipment(item) => BonusFind::Equipment {
+            name: item.name.clone(),
+        },
+        Drop::Seed {
+            attribute,
+            tier,
+            grade,
+        } => BonusFind::Seed {
+            attribute: *attribute,
+            tier: *tier,
+            grade: *grade,
+        },
+        Drop::Art { name } => BonusFind::Art { name: name.clone() },
+        Drop::Herb { herb, .. } => BonusFind::Herb { herb: *herb },
+        Drop::Stones(stones) => BonusFind::Stones { stones: *stones },
+    };
+    EventDetail::Bonus { find }
+}
+
+/// How often a lost breakthrough costs a piece of gear, in parts per thousand.
+const LOST_GEAR_PERMILLE: u64 = 250;
+
+/// The cultivation ladder of one user.
+#[derive(Clone, Debug, Serialize)]
+pub struct Cultivation {
+    document: CultivationDocument,
+    /// The roll counter, so two sessions finishing in the same second still
+    /// roll different items.
+    roll_sequence: u64,
+    last_absence: Option<AbsenceCharge>,
+    last_drop: Option<Drop>,
+    last_breakthrough: Option<BreakthroughOutcome>,
+    last_seed_return: Option<SeedView>,
+    /// What the last finished session did to the 功法 being trained.
+    last_training: Option<TrainingView>,
+    /// The fight the last walk met, if it met one.
+    last_exploration_duel: Option<DuelReport>,
+    /// What the last walk came to.
+    last_exploration: Option<ExplorationOutcome>,
+    /// What the last walk turned up, when it turned something up.
+    last_exploration_found: Option<ExplorationFindView>,
+    /// What the last finished job paid.
+    last_work: Option<WorkPaid>,
+    /// The floor the last trial settled, if one was climbed this session.
+    last_trial: Option<TrialOutcome>,
+    /// The haul the last sweep brought home, if one was swept this session.
+    last_trial_sweep: Option<TrialSweepOutcome>,
+    /// The 试炼 the last spent chance settled, if one was fought this session.
+    last_proving: Option<ProvingOutcome>,
+    /// How many 试炼 chances have been spent this session. A surface watches
+    /// this rather than the report, for the same reason it watches
+    /// [`Self::trial_attempts`].
+    provings: u32,
+    /// What the day opened with, once it has opened.
+    last_daily_event: Option<DailyOutcome>,
+    /// How many morning events have fired this session. A surface no longer
+    /// watches it to open the popup — the day is written down for that — but
+    /// the count is the ladder's own history of the mornings it has opened.
+    daily_events: u32,
+    /// How many star attempts have been made this session. A surface watches
+    /// this rather than the outcome, for the same reason it watches
+    /// [`Self::daily_events`].
+    star_attempts: u32,
+    /// What the last star attempt came to.
+    last_star: Option<StarOutcome>,
+    /// What the last gathering turned up.
+    last_collect: Option<CollectOutcome>,
+    /// What the last building rank came to.
+    last_building: Option<BuildingOutcome>,
+    /// How many floors have been attempted this session. A surface watches this
+    /// rather than the report, for the same reason it watches
+    /// [`Self::breakthrough_attempts`]: a running pomodoro bumps the revision
+    /// every second.
+    trial_attempts: u32,
+    /// How many breakthroughs have been fought. A surface watches this rather
+    /// than the report: a pomodoro tick bumps the snapshot revision every
+    /// second, so "the revision moved" cannot tell a new fight from a running
+    /// timer.
+    breakthrough_attempts: u32,
+    /// Why the last refused action was refused, if one was.
+    ///
+    /// Kept beside the document rather than in it: a refusal is a moment, not
+    /// a fact worth keeping, and it is written back only so a surface can say
+    /// it out loud.
+    last_refusal: Option<Refusal>,
+    /// How many actions have been refused so far.
+    ///
+    /// Monotonic, so a surface can tell a *new* refusal from the same reason
+    /// sitting in the snapshot since the last time it looked.
+    refusal_count: u32,
+}
+
+impl Default for Cultivation {
+    fn default() -> Self {
+        Self::new(CultivationDocument::default())
+    }
+}
+
+/// A seed for the one roll a new body gets: its 潜质.
+///
+/// Read from the clock once, at birth. Every other roll in this module is seeded
+/// from the caller's `now_unix`; this is the single exception, because a body
+/// rolled from a determinable seed would hand every fresh save the same 潜质,
+/// which is the one thing "初始值为 −10～10 的随机值" rules out. The value is
+/// written down by the next save, so it is only ever read once.
+fn birth_seed() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0x5EED_1E55_1234_5678, |elapsed| {
+            (elapsed.as_nanos() as u64) ^ 0x9E37_79B9_7F4A_7C15
+        })
+}
+
+impl Cultivation {
+    /// The state a stored document produces.
+    ///
+    /// A body that has never been born is born here, once: the only wall-clock
+    /// read in this module, and it exists because 潜质 starts on a −10..+10
+    /// band rather than at zero. The number is written into the document
+    /// immediately by the caller's next write, so every later read is the
+    /// stored value and nothing is rerolled by a relaunch.
+    pub fn new(document: CultivationDocument) -> Self {
+        Self::new_with_seed(document, birth_seed())
+    }
+
+    /// The same birth roll, with the seed supplied by the caller.
+    ///
+    /// [`Self::new`] reads the clock, which a browser cannot do: the wasm build
+    /// has no `SystemTime`, and the panic it raises is the platform's rather
+    /// than the module's. A host that can produce a random number itself hands
+    /// it in here instead, so a fresh save still gets its own 潜质.
+    pub fn new_with_seed(document: CultivationDocument, seed: u64) -> Self {
+        let mut document = document.normalized();
+        if document.aptitude_tenths.is_none() {
+            let mut rng = Rng::seeded(seed);
+            document.aptitude_tenths = Some(super::aptitude::birth_aptitude(&mut rng));
+        }
+        Self {
+            document,
+            roll_sequence: 0,
+            last_absence: None,
+            last_drop: None,
+            last_breakthrough: None,
+            last_seed_return: None,
+            last_training: None,
+            last_exploration_duel: None,
+            last_exploration: None,
+            last_exploration_found: None,
+            last_work: None,
+            last_trial: None,
+            last_trial_sweep: None,
+            last_proving: None,
+            provings: 0,
+            trial_attempts: 0,
+            last_daily_event: None,
+            daily_events: 0,
+            star_attempts: 0,
+            last_star: None,
+            last_collect: None,
+            last_building: None,
+            breakthrough_attempts: 0,
+            last_refusal: None,
+            refusal_count: 0,
+        }
+    }
+
+    /// The document as it would be written back.
+    pub fn document(&self) -> &CultivationDocument {
+        &self.document
+    }
+
+    /// The realm the cultivator has entered.
+    pub fn realm(&self) -> Realm {
+        Realm::from_index(usize::from(self.document.realm))
+    }
+
+    /// The current level: the growth curve capped at the realm's last layer.
+    ///
+    /// The cap is the whole point of the guardian: growth past the cap is kept,
+    /// but it buys no layers until the fight is won, so camping at a boundary is
+    /// never a way around it.
+    pub fn level(&self) -> u16 {
+        let curve = level_for_growth(self.document.growth).level;
+        curve.min(self.realm().cap_level()).min(MAX_LEVEL)
+    }
+
+    /// The growth floor of the realm already entered: a penalty never goes
+    /// below it, so a breakthrough is never lost to an idle week.
+    fn growth_floor(&self) -> u32 {
+        stage_floor(usize::from(self.document.realm))
+    }
+
+    /// The attributes the level alone carries.
+    pub fn level_attributes(&self) -> Attributes {
+        base_attributes(self.level())
+    }
+
+    /// The attributes the worn gear carries.
+    pub fn equipment_attributes(&self) -> Attributes {
+        let mut total = Attributes::default();
+        for item in self.equipped_items() {
+            total = total.plus(item.effective_attributes());
+        }
+        total
+    }
+
+    /// The combat numbers the worn gear adds outright — 攻击力, 生命值, 命中 and
+    /// the rest — with each piece's stars folded in.
+    ///
+    /// These ride beside the attributes rather than through them: a 神装's
+    /// outright 攻击力 is 攻击力 the fight reads directly, and a surface that
+    /// had to convert it back into 力量 to show it would be showing a number
+    /// nobody wears.
+    pub fn equipment_bonus(&self) -> Derived {
+        let worn: Vec<EquipmentRecord> = self.equipped_items().collect();
+        let mut total = Derived::default();
+        for item in &worn {
+            total = total.plus(item.effective_bonus());
+        }
+        total.plus(gear_set_bonus(&worn))
+    }
+
+    /// The combat numbers the trained 内功 pay outright.
+    pub fn art_bonus(&self) -> Derived {
+        art_bonus(&self.document.arts)
+            .plus(mastered_art_bonus(&self.document.mastered_arts))
+            .plus(art_set_bonus(&self.document.arts))
+    }
+
+    /// The nine numbers this cultivator fights with: the four attributes read
+    /// through the one table, plus everything gear, 功法 and the jobs add
+    /// outright.
+    ///
+    /// The single reader of the fighter's numbers, so the page, the fight and
+    /// the breakdown behind them cannot disagree about what a 神装 is worth.
+    pub fn derived(&self) -> Derived {
+        self.attributes()
+            .derived()
+            .plus(self.equipment_bonus())
+            .plus(self.art_bonus())
+            .plus(self.job_bonus())
+    }
+
+    /// The outer attribute values the jobs have paid, permanently.
+    ///
+    /// A job pays a number rather than an attribute: the reward rides in the
+    /// derived line the fight reads, beside the gear that pays the same way.
+    pub fn job_bonus(&self) -> Derived {
+        self.document.job_bonus
+    }
+
+    /// The attributes the harvests have paid.
+    pub fn crop_attributes(&self) -> Attributes {
+        self.document.crop_bonus
+    }
+
+    /// The points the user placed by hand.
+    pub fn allocated_attributes(&self) -> Attributes {
+        self.document.allocated
+    }
+
+    /// The attributes every trained 内功 has paid.
+    ///
+    /// The books still being trained and the 功法 already learned are counted
+    /// apart and then added: the books pay what their 阶 have paid, the learned
+    /// ones pay their full mastery, and neither counts the other's.
+    pub fn art_attributes(&self) -> Attributes {
+        art_attributes(&self.document.arts)
+            .plus(mastered_art_attributes(&self.document.mastered_arts))
+    }
+
+    /// Record why an action was refused, so a surface can say it out loud.
+    ///
+    /// The count moves with it, which is what lets a surface notice a *new*
+    /// refusal rather than re-announcing the reason that has been sitting in
+    /// the snapshot since the last time it looked.
+    pub(crate) fn note_refusal(&mut self, refusal: Refusal) {
+        self.last_refusal = Some(refusal);
+        self.refusal_count = self.refusal_count.saturating_add(1);
+    }
+
+    /// The points the peak level has paid so far.
+    ///
+    /// A cultivator starts at level one, so the count is one less than the
+    /// highest level ever reached: level one has bought nothing yet.
+    pub fn granted_points(&self) -> u32 {
+        u32::from(self.document.peak_level.saturating_sub(1)) * FREE_POINTS_PER_LEVEL
+    }
+
+    /// The points still waiting to be placed.
+    ///
+    /// The levels grant one a level and 练功 occasionally pays a few on top, so
+    /// the waiting balance is both sources minus what is already placed. A
+    /// hand-edited document can hold more allocated points than the peak paid;
+    /// the subtraction saturates rather than paying a negative balance, and no
+    /// new point is granted until the peak catches up.
+    pub fn free_points(&self) -> u32 {
+        self.granted_points()
+            .saturating_add(self.document.training_points)
+            .saturating_sub(self.document.allocated.total())
+    }
+
+    /// Place one free point on an attribute.
+    ///
+    /// Returns whether anything moved: with nothing left to place the call is a
+    /// no-op, so a click on a full attribute cannot overwrite a different one.
+    pub fn allocate(&mut self, attribute: Attribute) -> bool {
+        if self.free_points() == 0 {
+            return false;
+        }
+        attribute.add_to(&mut self.document.allocated, 1);
+        true
+    }
+
+    /// Count one keyboard or mouse interaction as a point of growth.
+    ///
+    /// A finished session is the ladder's main fuel; a key or a click is a
+    /// trickle that keeps the cultivator's total moving between sessions. The
+    /// point is added straight to the lifetime growth, above the realm floor, so
+    /// an idle day can never take back growth a keystroke already paid.
+    pub fn on_input(&mut self) {
+        self.document.growth = self.document.growth.saturating_add(1);
+        self.note_peak_level();
+    }
+
+    /// Every attribute together: level, gear, herbs, trained 内功 and the points
+    /// the user placed.
+    pub fn attributes(&self) -> Attributes {
+        self.level_attributes()
+            .plus(self.equipment_attributes())
+            .plus(self.crop_attributes())
+            .plus(self.allocated_attributes())
+            .plus(self.art_attributes())
+    }
+
+    /// 潜质, in tenths: the born band plus everything gear and 功法 pay.
+    ///
+    /// One reader for the number every surface and every learning roll uses, so
+    /// the rate a row prints, the pomodoros a 阶 asks for and the roll that
+    /// decides an attempt are all the same value. The 功法 share is the ten
+    /// books written for 潜质 — a 阶 at a time, and the mastery bonus on a
+    /// finished one — and it is counted in tenths rather than as a whole number,
+    /// because 0.2 a 阶 is what the brief's ladder is made of.
+    pub fn aptitude_tenths(&self) -> i32 {
+        let born = self.document.aptitude_tenths.unwrap_or(0);
+        let outright = i32::try_from(self.equipment_bonus().aptitude)
+            .unwrap_or(i32::MAX)
+            .saturating_add(i32::try_from(self.art_bonus().aptitude).unwrap_or(i32::MAX));
+        let books = super::arts::art_aptitude_tenths(&self.document.arts).saturating_add(
+            super::arts::mastered_art_aptitude_tenths(&self.document.mastered_arts),
+        );
+        super::aptitude::clamp_tenths(
+            born.saturating_add(outright.saturating_mul(10))
+                .saturating_add(books),
+        )
+    }
+
+    /// 潜质 as a point value: 47 tenths reads as 4.7.
+    pub fn aptitude(&self) -> f32 {
+        super::aptitude::points(self.aptitude_tenths())
+    }
+
+    /// The 潜质 items the cultivator is holding, in [`super::AptitudeHerb::ALL`]
+    /// order.
+    pub fn aptitude_herbs(&self) -> [u32; 3] {
+        [
+            self.herb_held(super::AptitudeHerb::Insight),
+            self.herb_held(super::AptitudeHerb::Wisdom),
+            self.document.marrow_pills,
+        ]
+    }
+
+    /// How many of one 潜质 herb the cultivator is holding, across every grade
+    /// of its stacks. The 洗髓丹 is a count of its own.
+    fn herb_held(&self, herb: super::AptitudeHerb) -> u32 {
+        self.document
+            .herb_stacks
+            .iter()
+            .filter(|stack| stack.herb == herb)
+            .map(|stack| stack.count)
+            .sum()
+    }
+
+    /// Feed one 潜质 herb to the body.
+    ///
+    /// The herb pays its grade's one fixed number — the row the satchel shows
+    /// is what the body gets — the gate it crosses is paid in 洗髓丹, and
+    /// nothing is spent unless both halves can be paid: a herb that purchased
+    /// half a move would be a consumable the user cannot account for.
+    ///
+    /// The gain is measured against the total 潜质 the page shows — born band
+    /// plus the whole points gear and 内功 pay — so "stuck at 100" means the
+    /// number on the page, not a hidden base behind it.
+    pub fn use_aptitude_herb(
+        &mut self,
+        herb: super::AptitudeHerb,
+        now_unix: i64,
+    ) -> Result<AptitudeUse, TradeRefusal> {
+        // The pill opens a gate; it does not feed the body, so there is nothing
+        // for it to do on its own.
+        if herb.gain_tenths().is_none() {
+            return Err(TradeRefusal::HerbNotHeld);
+        }
+        // The satchel spends the cheapest grade held first, holding the best
+        // for the gate it most wants to cross: a 黄阶 慧心草 is a warm-up, a
+        // 神阶 one is kept for a hundred that needs a bigger push.
+        let Some(grade) = self.lowest_held_grade(herb) else {
+            return Err(TradeRefusal::HerbNotHeld);
+        };
+        let gained = herb.gain_tenths_for(grade).unwrap_or(1);
+        let total = self.aptitude_tenths();
+        if total >= super::APTITUDE_MAX_TENTHS {
+            return Err(TradeRefusal::AptitudeCapped);
+        }
+        let outright = total.saturating_sub(self.document.aptitude_tenths.unwrap_or(0));
+        let target = total.saturating_add(gained).min(super::APTITUDE_MAX_TENTHS);
+        let marble = super::aptitude::marrow_needed(total, target);
+        if self.document.marrow_pills < marble {
+            return Err(TradeRefusal::NotEnoughMarrow);
+        }
+        self.take_one_herb(herb, grade);
+        self.document.marrow_pills = self.document.marrow_pills.saturating_sub(marble);
+        self.document.aptitude_tenths = Some(super::aptitude::clamp_tenths(
+            target.saturating_sub(outright),
+        ));
+        let aptitude_tenths = self.aptitude_tenths();
+        let gained_tenths = aptitude_tenths.saturating_sub(total);
+        self.push_event(
+            now_unix,
+            EventDetail::Aptitude {
+                herb,
+                gained_tenths,
+                value_tenths: aptitude_tenths,
+                marrow: marble,
+            },
+        );
+        Ok(AptitudeUse {
+            herb,
+            gained_tenths,
+            aptitude_tenths,
+            marrow_spent: marble,
+        })
+    }
+
+    /// The cheapest grade of a herb the satchel is holding, if it holds one.
+    fn lowest_held_grade(&self, herb: super::AptitudeHerb) -> Option<super::SeedGrade> {
+        self.document
+            .herb_stacks
+            .iter()
+            .filter(|stack| stack.herb == herb && stack.count > 0)
+            .min_by_key(|stack| stack.grade.index())
+            .map(|stack| stack.grade)
+    }
+
+    /// Take one herb of a grade out of the satchel, dropping the stack when it
+    /// is spent.
+    fn take_one_herb(&mut self, herb: super::AptitudeHerb, grade: super::SeedGrade) {
+        if let Some(index) = self
+            .document
+            .herb_stacks
+            .iter()
+            .position(|stack| stack.herb == herb && stack.grade == grade && stack.count > 0)
+        {
+            let stack = &mut self.document.herb_stacks[index];
+            stack.count = stack.count.saturating_sub(1);
+            if stack.count == 0 {
+                self.document.herb_stacks.remove(index);
+            }
+        }
+    }
+
+    /// Feed a herb that has just been found, the moment it is found.
+    ///
+    /// The page used to hold the three 潜质 items in a row of their own with a
+    /// 服用 button beside each; a herb that the body takes on arrival needs
+    /// neither the row nor the button. What is held is written first, so a body
+    /// that cannot take it — the band is full, or the gate ahead has no pill for
+    /// it — simply keeps it in the bag, where the satchel offers the button the
+    /// page no longer carries. The grade the herb was found at is what it pays,
+    /// and what it keeps when it waits in the bag.
+    fn feed_found_herb(
+        &mut self,
+        herb: super::AptitudeHerb,
+        grade: super::SeedGrade,
+        now_unix: i64,
+    ) {
+        // A pill is never fed to the body: it opens a gate, and gates are
+        // opened from the satchel by the hand that wants them opened.
+        if herb == super::AptitudeHerb::Marrow {
+            self.document.marrow_pills = self.document.marrow_pills.saturating_add(1);
+            return;
+        }
+        // The herb is put into the bag first, because the feed is a move *out*
+        // of the bag: [`Self::use_aptitude_herb`] spends what the satchel
+        // holds, so a herb that has not been stored yet has nothing to spend.
+        // A refusal is not a failure to report — the herb stays in the bag,
+        // where the satchel offers the button the page no longer carries — and
+        // keeping it at the grade it arrived at keeps the satchel honest about
+        // what the body will pay for it.
+        self.store_herb(herb, grade);
+        let _ = self.use_aptitude_herb(herb, now_unix);
+    }
+
+    /// Put one herb of a grade into the satchel, onto the stack that already
+    /// holds it when there is one.
+    fn store_herb(&mut self, herb: super::AptitudeHerb, grade: super::SeedGrade) {
+        if let Some(stack) = self
+            .document
+            .herb_stacks
+            .iter_mut()
+            .find(|stack| stack.herb == herb && stack.grade == grade)
+        {
+            stack.count = stack.count.saturating_add(1);
+        } else {
+            self.document
+                .herb_stacks
+                .push(super::HerbStack::single(herb, grade));
+        }
+    }
+
+    /// Spend 洗髓丹 to open the gate ahead: 潜质 is carried up to the next even
+    /// hundred, at that gate's own price.
+    ///
+    /// A pill on its own has nothing to feed, so the only thing it can buy is a
+    /// gate — the same gate a herb would have had to cross, at the same price
+    /// [`super::aptitude::marrow_needed`] charges. What it skips is the herbs
+    /// that would have carried the body up to that hundred; what it does not
+    /// skip is the gate itself, which is why a body cannot be bought to the top
+    /// of the band without spending the pills the ladder asks for.
+    pub fn use_marrow_pill(&mut self, now_unix: i64) -> Result<AptitudeUse, TradeRefusal> {
+        let total = self.aptitude_tenths();
+        let Some((target, cost)) = super::aptitude::next_gate(total) else {
+            return Err(TradeRefusal::AptitudeCapped);
+        };
+        if self.document.marrow_pills < cost {
+            return Err(TradeRefusal::NotEnoughMarrow);
+        }
+        self.document.marrow_pills = self.document.marrow_pills.saturating_sub(cost);
+        // The points gear and 内功 pay outright ride beside the born value, so
+        // the move is written against the same total the page prints.
+        let outright = total.saturating_sub(self.document.aptitude_tenths.unwrap_or(0));
+        self.document.aptitude_tenths = Some(super::aptitude::clamp_tenths(
+            target.saturating_sub(outright),
+        ));
+        let aptitude_tenths = self.aptitude_tenths();
+        let gained_tenths = aptitude_tenths.saturating_sub(total);
+        let herb = super::AptitudeHerb::Marrow;
+        self.push_event(
+            now_unix,
+            EventDetail::Aptitude {
+                herb,
+                gained_tenths,
+                value_tenths: aptitude_tenths,
+                marrow: cost,
+            },
+        );
+        Ok(AptitudeUse {
+            herb,
+            gained_tenths,
+            aptitude_tenths,
+            marrow_spent: cost,
+        })
+    }
+
+    /// The combat power everything together buys.
+    ///
+    /// The attributes' own two schools, plus what the outright combat numbers
+    /// are worth at the rates those same schools pay — a flat 攻击力 stands in
+    /// for the 力量 that would have produced it, so a 神装 moves this number
+    /// exactly as hard as it hits.
+    pub fn power(&self) -> u32 {
+        self.attributes()
+            .power()
+            .saturating_add(self.equipment_bonus().power())
+            .saturating_add(self.art_bonus().power())
+    }
+
+    /// The total above, cut into the sources that made it — every line adding
+    /// up to [`Self::power`], including the one line that is not a source.
+    ///
+    /// A surface that printed the sources without that line printed a sum that
+    /// did not reach the total, which is what the panel used to do: four
+    /// attributes read as two schools pay a *pairing* bonus on the shorter half
+    /// of each pair, and a pairing counted per source is worth less than the
+    /// same pairing counted once over the whole body. Splitting the body into
+    /// five parts therefore loses `min(a, b) − Σ min(aᵢ, bᵢ)` on each half, and
+    /// that difference is [`PowerBreakdown::synergy`].
+    ///
+    /// The parts are the level, the points the user placed, the gear's own
+    /// attributes, what the gear adds outright, the crops, the 内功's
+    /// attributes and what the 内功 adds outright. 外功 is priced separately by
+    /// [`Self::external_power`] because it is not part of this total: it is what
+    /// a blow lands for, not what the body is worth.
+    pub fn power_breakdown(&self) -> PowerBreakdown {
+        let allocated = self.allocated_attributes().power();
+        let equipment = self.equipment_attributes().power();
+        let equipment_bonus = self.equipment_bonus().power();
+        let crop = self.crop_attributes().power();
+        let art = self.art_attributes().power();
+        let art_bonus = self.art_bonus().power();
+        let total = self.power();
+        // Every line above is a rounded number, so six of them can come to a
+        // point or two short of the whole. The level is the line that carries the
+        // difference: it is by far the largest, and a breakdown whose lines did
+        // not reach its own total is the report this panel exists to answer.
+        let rest = allocated
+            .saturating_add(equipment)
+            .saturating_add(equipment_bonus)
+            .saturating_add(crop)
+            .saturating_add(art)
+            .saturating_add(art_bonus);
+        let level = total.saturating_sub(rest);
+        PowerBreakdown {
+            level,
+            allocated,
+            equipment,
+            equipment_bonus,
+            crop,
+            art,
+            art_bonus,
+            external: self.external_power(),
+            total,
+        }
+    }
+
+    /// What the 内功 alone are worth as power.
+    ///
+    /// Their attributes at the very scale the four attributes are read at, plus
+    /// the outright combat lines they pay — so "内功 +N" is a slice of the total
+    /// above and not a second, incomparable number.
+    pub fn art_power(&self) -> u32 {
+        self.art_attributes()
+            .power()
+            .saturating_add(self.art_bonus().power())
+    }
+
+    /// What the best 外功 the cultivator knows would add per blow, as power.
+    ///
+    /// The *best* one rather than the sum: a fight swings one 外功 at a time, so
+    /// adding four of them up would print a number no fight could ever reach.
+    /// Each candidate is priced off the 攻击力 the cultivator actually carries,
+    /// which is the number the strike scales from.
+    pub fn external_power(&self) -> u32 {
+        let attack = self.derived().attack;
+        let known = self
+            .document
+            .arts
+            .iter()
+            .map(|art| art.art_id)
+            .chain(self.document.mastered_arts.iter().copied());
+        let mut best = 0;
+        for id in known {
+            let art = blueprint(id);
+            if art.kind != ArtKind::External {
+                continue;
+            }
+            best = best.max(super::arts::external_power_gain(
+                attack,
+                art.multiplier_permille,
+            ));
+        }
+        best
+    }
+
+    /// The items currently worn, in slot order.
+    fn equipped_items(&self) -> impl Iterator<Item = EquipmentRecord> + '_ {
+        self.document
+            .equipped
+            .iter()
+            .take(SLOT_COUNT)
+            .filter_map(|slot| slot.and_then(|id| self.item(id)))
+    }
+
+    /// The item with this id, wherever it is.
+    fn item(&self, id: u64) -> Option<EquipmentRecord> {
+        self.document
+            .equipment
+            .iter()
+            .find(|item| item.id == id)
+            .cloned()
+    }
+
+    /// Charge every whole local day without a session that has not been charged
+    /// yet.
+    ///
+    /// Charged through yesterday, never through today: a day the user is still
+    /// in cannot have been finished without a session, and charging it would
+    /// punish someone for not having worked yet at nine in the morning.
+    pub fn apply_absence(&mut self, today: CalendarDay, now_unix: i64) -> Option<AbsenceCharge> {
+        let last_active = self.document.last_active_day?;
+        let charged_through = self.document.charged_through_day.unwrap_or(last_active);
+        let first = charged_through.saturating_add(1);
+        let last = today.day_number().saturating_sub(1);
+        if last < first {
+            return None;
+        }
+        let mut days = 0u32;
+        let mut asked = 0u32;
+        for _ in first..=last {
+            asked = asked.saturating_add(scaled_growth(
+                absence_penalty(
+                    self.document.missed_streak,
+                    layer_growth(self.document.realm),
+                ),
+                self.growth_multiplier_permille(),
+            ));
+            self.document.missed_streak = self.document.missed_streak.saturating_add(1);
+            days = days.saturating_add(1);
+        }
+        self.document.charged_through_day = Some(last);
+        let before = self.document.growth;
+        self.document.growth = before.saturating_sub(asked).max(self.growth_floor());
+        let charge = AbsenceCharge {
+            days,
+            charged: before.saturating_sub(self.document.growth),
+        };
+        self.last_absence = Some(charge);
+        // The log keeps the charge past the quit that ends the notice: it is the
+        // one move the ladder makes while nobody is watching, and a level the
+        // user cannot account for is a level they will report as a bug.
+        self.push_event(
+            now_unix,
+            EventDetail::Absence {
+                days: charge.days,
+                charged: charge.charged,
+            },
+        );
+        Some(charge)
+    }
+
+    /// Fold one finished focus session into the ladder.
+    pub fn on_session_completed(
+        &mut self,
+        now_unix: i64,
+        today: CalendarDay,
+        _focus_minutes: u32,
+    ) -> SessionReward {
+        let absence = self.apply_absence(today, now_unix);
+        let today_number = today.day_number();
+        // The session number resets on a new local day, which `last_active_day`
+        // already records: the first sit-down of the day is number one, every
+        // further one the same day escalates. The count is the realm's stage
+        // aware, so the growth formula rewards climbing as well as repeating.
+        if self.document.last_active_day != Some(today_number) {
+            self.document.session_count_today = 0;
+        }
+        let session_number = self.document.session_count_today.saturating_add(1);
+        self.document.session_count_today = session_number;
+        let stage = self.realm().index() as u32 + 1;
+        // The four disciplines say what this save has been doing, and a session
+        // is worth what that is worth: a trained cultivator's pomodoro is several
+        // times a bare one, up to the ceiling [`scaled_growth`] enforces.
+        let growth = scaled_growth(
+            super::session_growth(session_number, stage),
+            self.growth_multiplier_permille(),
+        );
+        self.document.growth = self.document.growth.saturating_add(growth);
+        self.document.last_active_day = Some(today_number);
+        self.document.missed_streak = 0;
+        self.document.charged_through_day = Some(today_number);
+        self.note_peak_level();
+        // The log says a session happened and what it paid, newest behind the
+        // training it caused: the 功法's turn is the more telling line of the two.
+        self.push_event(now_unix, EventDetail::Session { growth });
+        // The session also trains whatever 功法 is selected: the pomodoro is the
+        // only honest measure of time spent training, so learning rides the same
+        // event that pays the growth.
+        self.train_selected(now_unix);
+        // The session's cut of 灵石, credited here so it lands exactly when the
+        // growth does: a purse that paid on a different day than the work would
+        // be a second, quieter ladder sitting next to the first.
+        self.credit_session_earnings();
+        // The session also buys one 试炼 chance: the training is the faucet for
+        // the courtyard's other half, and ten chances is the bank it feeds.
+        self.document.proving_tokens = self
+            .document
+            .proving_tokens
+            .saturating_add(1)
+            .min(TRIAL_CHANCES_CAP);
+        let drop = self.roll_drop(now_unix);
+        self.last_drop = drop.clone();
+        SessionReward {
+            growth,
+            absence,
+            drop,
+        }
+    }
+
+    /// The chance one 练功 session pays its points, in parts per thousand.
+    ///
+    /// A finished pomodoro with no 功法 in study is a 练功 session, and it is a
+    /// *chance* rather than a certainty so the desk stays the place the
+    /// numbers come from instead of becoming a point dispenser. A quarter of
+    /// the sessions pay.
+    const TRAIN_BODY_CHANCE_PERMILLE: u64 = 250;
+
+    /// The most one 练功 session can pay: three points. The least is one.
+    const TRAIN_BODY_MAX_POINTS: u32 = 3;
+
+    /// Put the finished session into the selected 功法, if there is one.
+    ///
+    /// 潜质 is what decides how often the attempt lands, so a 根骨 build learns
+    /// faster — the same knob the panel promises when it shows 潜质.
+    ///
+    /// A 功法 that reaches its last 阶 leaves the books and joins the learned
+    /// ones: it is no longer something being trained, and the attributes it
+    /// pays are paid from then on whether or not its book is still on the
+    /// shelf.
+    ///
+    /// With no 功法 selected the session trains the body instead: 练功, the
+    /// fallback that keeps a pomodoro a session even when no book is open.
+    fn train_selected(&mut self, now_unix: i64) {
+        let Some(art_id) = self.document.selected_art else {
+            self.train_body(now_unix);
+            return;
+        };
+        let aptitude_tenths = self.aptitude_tenths();
+        let mut rng = self.rng(now_unix);
+        let Some(art) = self
+            .document
+            .arts
+            .iter_mut()
+            .find(|art| art.art_id == art_id)
+        else {
+            return;
+        };
+        let outcome = train(art, aptitude_tenths, self.document.dojo_level, &mut rng);
+        let rank = art.rank;
+        // Read before the book leaves the shelf: the copies beyond the one just
+        // finished are unread books, and finishing one must not burn them.
+        let copies = art.copies.max(1);
+        // Every attempt counts as training, a failure included: the panel's
+        // question is "what have I been working on", not "what have I won".
+        self.note_recent_art(art_id);
+        let max_rank = blueprint(art_id).grade.ranks();
+        if outcome == ArtOutcome::Mastered && rank >= max_rank {
+            // The book has been read to the end: it stops being a book. The
+            // learned 功法 is written down in its own list so that selling the
+            // book cannot take what it taught with it.
+            self.document.arts.retain(|art| art.art_id != art_id);
+            if copies > 1 {
+                // The spares were never opened, so they go back on the shelf as
+                // one unread book: a 功法 finished from one copy does not take
+                // the others with it, and what is left is sellable on its own.
+                self.document.arts.push(OwnedArt {
+                    art_id,
+                    rank: 0,
+                    progress: 0,
+                    outcome: None,
+                    failures: 0,
+                    copies: copies - 1,
+                });
+            }
+            if !self.document.mastered_arts.contains(&art_id) {
+                self.document.mastered_arts.push(art_id);
+            }
+            // Nothing is being trained any more, so the selection goes with it —
+            // including when a spare is left: a book being read again is the
+            // user's choice, not something a finished session starts.
+            if self.document.selected_art == Some(art_id) {
+                self.document.selected_art = None;
+            }
+        }
+        self.last_training = Some(TrainingView {
+            art_id,
+            name: blueprint(art_id).name,
+            outcome,
+            rank,
+        });
+        // A session that trained a 功法 says what came of it, whatever it was:
+        // a run of failures is history too, and the record that only kept the
+        // wins would be a flatterer.
+        self.push_event(
+            now_unix,
+            EventDetail::Training {
+                name: blueprint(art_id).name,
+                outcome,
+                rank,
+            },
+        );
+    }
+
+    /// A finished pomodoro with no 功法 in study trains the body instead.
+    ///
+    /// The desk is the only place the numbers come from, so a session nobody
+    /// spent on a book is still a session — 练功 is what it becomes. It pays
+    /// straight into the attribute points, one to three at a time and only on
+    /// [`TRAIN_BODY_CHANCE_PERMILLE`], and the pay is written to the log so a
+    /// point the body earned is one the user was told about.
+    fn train_body(&mut self, now_unix: i64) {
+        let mut rng = self.rng(now_unix);
+        if rng.below(1_000) >= Self::TRAIN_BODY_CHANCE_PERMILLE {
+            return;
+        }
+        let points = u32::try_from(rng.below(u64::from(Self::TRAIN_BODY_MAX_POINTS)) + 1)
+            .unwrap_or(Self::TRAIN_BODY_MAX_POINTS);
+        self.document.training_points = self.document.training_points.saturating_add(points);
+        self.push_event(now_unix, EventDetail::TrainBody { points });
+    }
+
+    /// Which 功法 the next finished pomodoro trains, or none.
+    pub fn select_art(&mut self, art_id: Option<u64>) -> bool {
+        if let Some(art_id) = art_id
+            && !self.document.arts.iter().any(|art| art.art_id == art_id)
+        {
+            return false;
+        }
+        self.document.selected_art = art_id;
+        true
+    }
+
+    /// Find a 功法 of the asked-for grade — a book the cultivator may well
+    /// already own.
+    ///
+    /// The roll is over the grade's whole catalogue rather than over the books
+    /// missing from the shelf: a 功法 can be found twice, the way a piece of
+    /// gear can, and the second copy is folded into the book already in hand
+    /// (see [`Self::keep_art_book`]) rather than being swapped for one the
+    /// cultivator has never met.
+    ///
+    /// A 功法 learned outright is the one thing left out of the pool: there is
+    /// no book left in it, so a second copy would teach nothing. Only a grade
+    /// whose every 功法 is learned sends the roll down a grade, and only a
+    /// cultivator who knows all five hundred walks away with nothing.
+    pub fn grant_art(&mut self, grade: ArtGrade, now_unix: i64) -> Option<ArtView> {
+        let mut rng = self.rng(now_unix);
+        for grade in ArtGrade::ALL.iter().rev().skip_while(|g| **g != grade) {
+            let pool: Vec<u64> = (1..=ART_COUNT)
+                .filter(|id| {
+                    blueprint(*id).grade == *grade && !self.document.mastered_arts.contains(id)
+                })
+                .collect();
+            if pool.is_empty() {
+                continue;
+            }
+            let art_id = pool[rng.below(pool.len() as u64) as usize];
+            return self.keep_art_book(art_id);
+        }
+        None
+    }
+
+    /// Give the cultivator the book for one named 功法.
+    ///
+    /// The counterpart to [`Self::grant_art`]: a walk or a fight pays a 功法
+    /// nobody chose, while the market stocks a specific one and sells that one.
+    /// The shelf names a 功法, so a book already on it is a spare added to the
+    /// count rather than a different 功法 substituted for the one on show
+    /// ([`Self::keep_art_book`]).
+    pub(crate) fn grant_art_book(&mut self, art_id: u64) -> Option<ArtView> {
+        self.keep_art_book(art_id)
+    }
+
+    /// Put one 功法 book on the shelf, or one more copy beside the book already
+    /// sitting there.
+    ///
+    /// A book the cultivator is still reading is not started over: a second copy
+    /// of a 功法 already in hand is a spare, so the 阶 it stands at, the
+    /// pomodoros banked toward the next one and the failures it has already cost
+    /// stay exactly where they were and the reading carries on. What a duplicate
+    /// adds is the count — one more physical book, worth the stones a sale
+    /// brings and worth nothing else.
+    ///
+    /// A 功法 learned outright has no book left in it, so nothing about a second
+    /// copy would be new and nothing is handed over.
+    fn keep_art_book(&mut self, art_id: u64) -> Option<ArtView> {
+        if !(1..=ART_COUNT).contains(&art_id) {
+            return None;
+        }
+        let aptitude_tenths = self.aptitude_tenths();
+        if let Some(index) = self
+            .document
+            .arts
+            .iter()
+            .position(|art| art.art_id == art_id)
+        {
+            let art = &mut self.document.arts[index];
+            art.copies = art.copies.max(1).saturating_add(1);
+            let selected = self.document.selected_art == Some(art_id);
+            return Some(art_view(
+                &self.document.arts[index],
+                aptitude_tenths,
+                selected,
+                self.document.dojo_level,
+            ));
+        }
+        if self.document.mastered_arts.contains(&art_id) {
+            return None;
+        }
+        self.document.arts.push(OwnedArt {
+            art_id,
+            // A book on the shelf is not yet any of it learned: the first 阶 is
+            // what the sessions buy.
+            rank: 0,
+            progress: 0,
+            outcome: None,
+            failures: 0,
+            copies: 1,
+        });
+        if self.document.selected_art.is_none() {
+            self.document.selected_art = Some(art_id);
+        }
+        let selected = self.document.selected_art == Some(art_id);
+        Some(art_view(
+            self.document.arts.last()?,
+            aptitude_tenths,
+            selected,
+            self.document.dojo_level,
+        ))
+    }
+
+    /// Remember a new high-water mark for the level.
+    ///
+    /// The free points are paid against this rather than the live level, so a
+    /// missed week lowers the ladder but never the points already earned.
+    /// Put a 功法 at the front of the recent ring.
+    ///
+    /// The ring is capped and de-duplicated: one book read twice is one entry,
+    /// and the ninth-oldest falls off rather than the list growing with the
+    /// save's age.
+    fn note_recent_art(&mut self, art_id: u64) {
+        self.document.recent_arts.retain(|recent| *recent != art_id);
+        self.document.recent_arts.insert(0, art_id);
+        self.document.recent_arts.truncate(RECENT_ARTS_CAP);
+    }
+
+    fn note_peak_level(&mut self) {
+        self.document.peak_level = self.document.peak_level.max(self.level());
+    }
+
+    /// The rolls a finished session makes: its thousandth's luck first, then the
+    /// ordinary drop.
+    ///
+    /// The jackpot is rolled before the ordinary find so a session that hits both
+    /// announces the rarer thing — a thousandth beating a hundred-and-tenth is
+    /// the one line worth reading. Both are read through the session's own
+    /// strength: nothing fought here, so the cultivator's power is the source.
+    fn roll_drop(&mut self, now_unix: i64) -> Option<Drop> {
+        let mut rng = self.rng(now_unix);
+        let strength = Strength::of(self.power());
+        if rng.below(1_000) < SESSION_BONUS_PERMILLE
+            && let Some(bonus) = self.roll_bonus(strength, &mut rng, now_unix)
+        {
+            // Written to the log as it is paid: a thousandth is the one thing in
+            // a session the user will want to find again later.
+            let detail = bonus_event(&bonus);
+            self.push_event(now_unix, detail);
+            return Some(bonus);
+        }
+        let roll = rng.below(1_000);
+        if roll < EQUIPMENT_DROP_PERMILLE {
+            // A quality roll that comes up empty is a session that found nothing:
+            // the kind said "gear" and the ladder said "not this time", and the
+            // only honest thing to report is the second one.
+            let item = self.push_equipment(strength, &mut rng)?;
+            // Written to the log as it is paid, the way the jackpot is: an
+            // ordinary find that lived only in the notice left the satchel with
+            // a piece of gear the history never mentioned.
+            self.push_event(
+                now_unix,
+                EventDetail::Found {
+                    gear: item.name.clone(),
+                    seed: None,
+                },
+            );
+            return Some(Drop::Equipment(item));
+        }
+        if roll < EQUIPMENT_DROP_PERMILLE + SEED_DROP_PERMILLE {
+            let attribute = Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
+            let grade = roll_seed_grade(&mut rng);
+            let seed = self.push_seed(attribute, strength.tier(), grade, &mut rng);
+            self.push_event(
+                now_unix,
+                EventDetail::Found {
+                    gear: None,
+                    seed: seed.name.clone(),
+                },
+            );
+            return Some(Drop::Seed {
+                attribute,
+                tier: strength.tier(),
+                grade,
+            });
+        }
+        None
+    }
+
+    /// What one lucky pomodoro pays: one thing, out of the whole ladder.
+    ///
+    /// The roll is weighted by what the ladder is short of rather than by what
+    /// it is full of: gear and herbs are the ordinary finds, 灵石 is the
+    /// consolation, and a 潜质 herb or a 功法 is the shape a thousandth is
+    /// *worth*. Every branch is at the session's own strength, so the jackpot is
+    /// the same find a walk would have made, only without the walk.
+    fn roll_bonus(&mut self, strength: Strength, rng: &mut Rng, now_unix: i64) -> Option<Drop> {
+        let roll = rng.below(1_000);
+        let mut edge = BONUS_GEAR_PERMILLE;
+        if roll < edge {
+            let item = self.push_equipment(strength, rng)?;
+            return Some(Drop::Equipment(item));
+        }
+        edge += BONUS_SEED_PERMILLE;
+        if roll < edge {
+            let attribute = Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
+            let grade = roll_seed_grade(rng);
+            self.push_seed(attribute, strength.tier(), grade, rng);
+            return Some(Drop::Seed {
+                attribute,
+                tier: strength.tier(),
+                grade,
+            });
+        }
+        edge += BONUS_STONES_PERMILLE;
+        if roll < edge {
+            let amount = roll_stones(rng, BONUS_STONES, strength.tier());
+            self.document.stones = self.document.stones.saturating_add(amount);
+            return Some(Drop::Stones(amount));
+        }
+        edge += BONUS_INSIGHT_PERMILLE;
+        if roll < edge {
+            // A herb is found as a seed: it has to be grown before it can be
+            // taken, so the jackpot lands a seed in the satchel the way a walk's
+            // find does. The grade is rolled where the find is, so the seed
+            // carries the herb it was found at.
+            let grade = roll_seed_grade(rng);
+            self.push_herb_seed(super::AptitudeHerb::Insight, grade);
+            return Some(Drop::Herb {
+                herb: super::AptitudeHerb::Insight,
+                grade,
+            });
+        }
+        edge += BONUS_WISDOM_PERMILLE;
+        if roll < edge {
+            let grade = roll_seed_grade(rng);
+            self.push_herb_seed(super::AptitudeHerb::Wisdom, grade);
+            return Some(Drop::Herb {
+                herb: super::AptitudeHerb::Wisdom,
+                grade,
+            });
+        }
+        // The rest of the roll — a hundredth of a thousandth — is a 功法: the
+        // rarest shape a pomodoro can pay, and the one that has to be told apart
+        // from the same book found on a walk.
+        let grade = {
+            let mut grade_rng = self.rng(now_unix);
+            super::arts::roll_art_grade(&mut grade_rng)
+        };
+        self.grant_art(grade, now_unix)
+            .map(|art| Drop::Art { name: art.name })
+    }
+
+    /// A random source for one event. The wall clock is mixed in so a session
+    /// never rolls what the previous one did, and the counter keeps two events
+    /// in the same second apart.
+    fn rng(&mut self, now_unix: i64) -> Rng {
+        self.roll_sequence = self.roll_sequence.wrapping_add(1);
+        Rng::seeded(
+            (now_unix as u64)
+                .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+                .wrapping_add(self.roll_sequence.wrapping_mul(0xBF58_476D_1CE4_E5B9)),
+        )
+    }
+
+    /// The id the next drop takes.
+    fn next_id(&mut self) -> u64 {
+        let id = self.document.next_item_id.max(1);
+        self.document.next_item_id = id.saturating_add(1);
+        id
+    }
+
+    /// Own one rolled item, at a source's own strength.
+    ///
+    /// `None` when the quality roll came up empty: a piece of gear is only ever
+    /// rolled because something promised one, and the promise is exactly what
+    /// the ladder's remainder takes back — a weak source's find is likelier to
+    /// be nothing at all, which is what "获得概率" means.
+    fn push_equipment(&mut self, strength: Strength, rng: &mut Rng) -> Option<EquipmentRecord> {
+        let rarity = super::drop::roll_quality(rng, strength.factor())?;
+        let id = self.next_id();
+        let item = roll_equipment(id, strength.tier(), rarity, rng);
+        self.document.equipment.push(item.clone());
+        Some(item)
+    }
+
+    /// Own one item that already exists — the one a beaten opponent was wearing.
+    ///
+    /// The attributes and the name travel as they were: the piece taken off a
+    /// guardian is the piece the panel showed it wearing, and re-rolling it into
+    /// "a tier's worth of gear" would be a trophy that is not what was won.
+    fn adopt_equipment(&mut self, mut item: EquipmentRecord) -> EquipmentRecord {
+        item.id = self.next_id();
+        self.document.equipment.push(item.clone());
+        item
+    }
+
+    /// Take one piece off a beaten opponent.
+    ///
+    /// What it wore is what it hands over — the piece the panel showed on it,
+    /// attributes and all. A bare-handed opponent still pays, and that fallback
+    /// is rolled at the opponent's own strength: a strong opponent with nothing
+    /// on it is still a strong source.
+    fn take_gear(
+        &mut self,
+        rival: &Opponent,
+        strength: Strength,
+        rng: &mut Rng,
+    ) -> Option<EquipmentRecord> {
+        let dropped = (!rival.gear.is_empty())
+            .then(|| rival.gear[rng.below(rival.gear.len() as u64) as usize].clone());
+        match dropped {
+            Some(item) => Some(self.adopt_equipment(item)),
+            None => self.push_equipment(strength, rng),
+        }
+    }
+
+    /// Take the book a beaten opponent was swinging, or grant one of the grade
+    /// its realm keeps.
+    ///
+    /// The opponent's own book is what is taken, and a book the cultivator is
+    /// still reading is taken again without being reset — the second copy folds
+    /// into the one in hand. The fallback is only for the 功法 that is already
+    /// learned outright, and for an opponent carrying none: a fight that
+    /// promised a 功法 has to pay one somehow.
+    fn take_art(&mut self, rival: &Opponent, _realm: Realm, now_unix: i64) -> Option<String> {
+        if let Some(art_id) = rival.art
+            && let Some(art) = self.grant_art_book(art_id)
+        {
+            return Some(art.name);
+        }
+        // Which grade the fallback book carries is the discovery roll: the realm
+        // no longer decides it, because a 神阶 art is meant to be an event a
+        // beginner can meet rather than a reward for finishing the ladder.
+        let grade = {
+            let mut rng = self.rng(now_unix);
+            super::arts::roll_art_grade(&mut rng)
+        };
+        self.grant_art(grade, now_unix).map(|art| art.name)
+    }
+
+    /// Own one seed that already has its name.
+    ///
+    /// The shop names the herbs it sells so a shelf can be read before buying;
+    /// folding a bought seed in through [`Self::push_seed`] would re-roll that name
+    /// and the shelf would have promised one herb and delivered another.
+    ///
+    /// A stack is one attribute, one tier *and* one grade: two 地阶 herbs and a
+    /// 天阶 one of the same patch are three different things to plant, because
+    /// the grade is what the harvest pays at.
+    fn push_seed_named(
+        &mut self,
+        attribute: Attribute,
+        tier: u8,
+        grade: SeedGrade,
+        name: Option<String>,
+        rng: &mut Rng,
+    ) -> SeedView {
+        // Only an attribute stack: a herb stack of the same tier and grade is a
+        // different thing, matched on its own field in [`Self::push_herb_seed`].
+        if let Some(stack) = self.document.seeds.iter_mut().find(|stack| {
+            stack.herb.is_none()
+                && stack.attribute == attribute
+                && stack.tier == tier
+                && stack.grade == grade
+        }) {
+            stack.count = stack.count.saturating_add(1);
+            return seed_view(stack);
+        }
+        let mut stack = SeedStack::single(attribute, tier, grade);
+        stack.name = name.or_else(|| Some(seed_name(rng)));
+        let view = seed_view(&stack);
+        self.document.seeds.push(stack);
+        view
+    }
+
+    /// Own one seed, folded into an existing stack when there is one.
+    ///
+    /// Returns the stack as a surface reads it, so a caller that just found the
+    /// seed can say which herb it was.
+    fn push_seed(
+        &mut self,
+        attribute: Attribute,
+        tier: u8,
+        grade: SeedGrade,
+        rng: &mut Rng,
+    ) -> SeedView {
+        self.push_seed_named(attribute, tier, grade, None, rng)
+    }
+
+    /// Own one 潜质 herb seed, at its herb's fixed tier, folded into an existing
+    /// stack of the same herb and grade when there is one.
+    ///
+    /// A herb seed carries no name of its own: the herb *is* its name. A roll
+    /// here invented one, so the 悟心草 the shelf had just sold came home as
+    /// 幽菊 and nothing on the page still said what the seed grew into. The
+    /// attribute seeds below keep their rolled names, because two seeds of the
+    /// same attribute, tier and grade are told apart by nothing else.
+    fn push_herb_seed(&mut self, herb: super::AptitudeHerb, grade: SeedGrade) -> SeedView {
+        let tier = super::herb_tier(herb);
+        if let Some(stack) =
+            self.document.seeds.iter_mut().find(|stack| {
+                stack.herb == Some(herb) && stack.grade == grade && stack.tier == tier
+            })
+        {
+            stack.count = stack.count.saturating_add(1);
+            return seed_view(stack);
+        }
+        let stack = SeedStack::herb_single(herb, grade);
+        let view = seed_view(&stack);
+        self.document.seeds.push(stack);
+        view
+    }
+}
+
+/// What came of planting one seed.
+///
+/// There is one answer and it is not the fruitful one: the roll has already
+/// happened — it has to happen while the seed is in hand, because the odds are
+/// the reason planting is a decision — but the bed keeps the answer to itself
+/// until half the growing time is up. So planting always succeeds at the only
+/// thing a click can be told about: a crop is in the ground.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct PlantOutcome {
+    /// The odds it went in at. Worth printing because a plant at ninety-five
+    /// percent and a plant at thirty are two different wagers.
+    pub permille: u32,
+}
+
+impl Cultivation {
+    /// Plant one owned seed in the first empty plot.
+    ///
+    /// The roll happens **now**, while the seed is still in hand, and never at
+    /// harvest: a tenth-rank seed asks for ten days of the user's bed, and an
+    /// answer ten days late is a punishment they will simply stop asking for.
+    /// A crop that survived its planting cannot be lost afterwards, which is why
+    /// the plot below is only ever handed to a planting that has already come up.
+    ///
+    /// Returns what became of it, or `None` when there was no seed of that kind
+    /// or nowhere to put one — nothing is spent in either of those cases.
+    pub fn plant(
+        &mut self,
+        attribute: Attribute,
+        tier: u8,
+        grade: SeedGrade,
+        now_unix: i64,
+    ) -> Option<PlantOutcome> {
+        self.plant_one(attribute, None, tier, grade, now_unix)
+    }
+
+    /// Plant one 潜质 herb seed, at its herb's fixed tier, in the first empty
+    /// plot. The same rules as [`Self::plant`] apply — the roll happens now, and
+    /// nothing is spent when there was no such seed or no bed to put it in. The
+    /// pill is never planted: it opens a gate from the satchel, not from a bed.
+    pub fn plant_herb_seed(
+        &mut self,
+        herb: super::AptitudeHerb,
+        grade: SeedGrade,
+        now_unix: i64,
+    ) -> Option<PlantOutcome> {
+        if herb == super::AptitudeHerb::Marrow {
+            return None;
+        }
+        self.plant_one(
+            Attribute::Strength,
+            Some(herb),
+            super::herb_tier(herb),
+            grade,
+            now_unix,
+        )
+    }
+
+    /// The planting both paths share: find the stack, spend one seed, and bed
+    /// the crop — with the answer to the roll kept in the bed rather than told
+    /// on the spot.
+    ///
+    /// `herb` is `None` for an attribute seed and `Some` for a 潜质 herb seed;
+    /// every match on the stack and every event the planting writes carries it,
+    /// so a herb seed is never read as an attribute and vice versa.
+    fn plant_one(
+        &mut self,
+        attribute: Attribute,
+        herb: Option<super::AptitudeHerb>,
+        tier: u8,
+        grade: SeedGrade,
+        now_unix: i64,
+    ) -> Option<PlantOutcome> {
+        // Decided before anything is taken, because the two reads below borrow
+        // the document's own fields and cannot see past themselves.
+        let permille = plant_permille(self.document.garden_rank, tier, grade);
+        let took = {
+            let mut rng = self.rng(now_unix);
+            rng.below(1_000) < u64::from(permille)
+        };
+        let index = self.document.seeds.iter().position(|stack| match herb {
+            Some(herb) => stack.herb == Some(herb) && stack.tier == tier && stack.grade == grade,
+            None => {
+                stack.herb.is_none()
+                    && stack.attribute == attribute
+                    && stack.tier == tier
+                    && stack.grade == grade
+            }
+        })?;
+        // The bed is found before the seed is spent: a full garden must not
+        // take the seed for a planting there is nowhere to put.
+        let plot_index = self
+            .document
+            .plots
+            .iter()
+            .position(|plot| plot.is_empty())?;
+        // The plot inherits the herb's name: the seed stack is spent one
+        // planting at a time and the name is the only thing that survives it.
+        let mut stack = self.document.seeds.remove(index);
+        stack.count = stack.count.saturating_sub(1);
+        let name = stack.name.clone();
+        if stack.count > 0 {
+            self.document.seeds.push(stack);
+        }
+        // The bed takes the crop either way. A seed that was never going to come
+        // up still occupies the bed until the halfway mark, because telling the
+        // gardener at once made planting a slot machine with the answer printed
+        // on the lever: you knew before you had walked away. The 造化, the pity
+        // count and the log line are all written by [`Self::settle_garden`] the
+        // moment the bed is allowed to speak.
+        let plot = &mut self.document.plots[plot_index];
+        plot.crop = Some(match herb {
+            Some(herb) => {
+                let mut crop = CropRecord::herb_planted(
+                    herb,
+                    grade,
+                    name,
+                    self.document.garden_rank,
+                    now_unix,
+                );
+                crop.withered = !took;
+                crop
+            }
+            None => {
+                let mut crop = CropRecord::planted(
+                    attribute,
+                    tier,
+                    grade,
+                    name,
+                    self.document.garden_rank,
+                    now_unix,
+                );
+                crop.withered = !took;
+                crop
+            }
+        });
+        Some(PlantOutcome { permille })
+    }
+
+    /// Let every bed past its halfway mark say how it is doing, and clear the
+    /// dead ones that have run their course. Returns whether anything moved.
+    ///
+    /// Called by the worker's tick beside the walk and the job: a bed is on the
+    /// clock, not on a click, so a machine that slept through the halfway mark
+    /// still pays what the failure pays — 造化, the pity count and the log line —
+    /// the first time it looks.
+    pub fn settle_garden(&mut self, now_unix: i64) -> bool {
+        let mut moved = false;
+        for index in 0..self.document.plots.len() {
+            // Copied out rather than borrowed: paying a failure writes an event,
+            // which borrows the whole document again.
+            let Some(crop) = self.document.plots[index].crop.clone() else {
+                continue;
+            };
+            if !crop.withered {
+                continue;
+            }
+            if crop.is_revealed(now_unix) && !crop.settled {
+                let permille = plant_permille(self.document.garden_rank, crop.tier, crop.grade);
+                let xp = wither_points(crop.tier, crop.grade);
+                self.document.garden_xp = self.document.garden_xp.saturating_add(i64::from(xp));
+                self.push_event(
+                    now_unix,
+                    EventDetail::Withered {
+                        attribute: crop.attribute,
+                        herb: crop.herb,
+                        tier: crop.tier,
+                        grade: crop.grade,
+                        name: crop.name,
+                        permille,
+                        xp,
+                    },
+                );
+                if let Some(held) = self.document.plots[index].crop.as_mut() {
+                    held.settled = true;
+                }
+                moved = true;
+            }
+            // A dead crop is cleared once its own day is up: the harvest it will
+            // never give is the moment its claim on the bed dies too, so a plot
+            // cannot be lost by a gardener who never clicked 铲除.
+            if self.document.plots[index]
+                .crop
+                .as_ref()
+                .is_some_and(|held| held.is_ready(now_unix))
+            {
+                self.document.plots[index].crop = None;
+                moved = true;
+            }
+        }
+        moved
+    }
+
+    /// Dig a dead crop out of its bed, freeing the plot for the next seed.
+    ///
+    /// Only a dead crop can be dug: a live one is a harvest in progress, and
+    /// clearing it would be a way to throw away a seed the odds already spared.
+    pub fn dig_plot(&mut self, plot: usize, now_unix: i64) -> Option<()> {
+        let held = self
+            .document
+            .plots
+            .get(plot)
+            .and_then(|plot| plot.crop.as_ref())?;
+        if !held.stands_dead(now_unix) {
+            return None;
+        }
+        self.document.plots.get_mut(plot)?.crop = None;
+        Some(())
+    }
+
+    /// Raise the garden one rank, paid in 灵石 and earned in harvests.
+    ///
+    /// Two gates rather than one, and deliberately unlike each other: the 造化
+    /// comes only from planting and cannot be bought, while the stones come from
+    /// *selling what was planted* and cannot be farmed. One is the gardener's
+    /// patience, the other is how much of the harvest they were willing to give
+    /// up for this instead. See [`rank_cost`] for why the price is what it is.
+    pub fn upgrade_garden(&mut self, now_unix: i64) -> Result<u8, TradeRefusal> {
+        let rank = self.document.garden_rank;
+        if rank >= MAX_GARDEN_RANK {
+            return Err(TradeRefusal::GardenCapped);
+        }
+        if self.document.garden_xp < rank_xp_total(rank + 1) {
+            return Err(TradeRefusal::NotEnoughRankXp);
+        }
+        let price = rank_cost(rank);
+        if self.document.stones < price {
+            return Err(TradeRefusal::NotEnoughStones);
+        }
+        self.document.stones -= price;
+        self.document.garden_rank = rank.saturating_add(1);
+        self.push_event(
+            now_unix,
+            EventDetail::GardenRank {
+                rank: self.document.garden_rank,
+                stones: price,
+            },
+        );
+        Ok(self.document.garden_rank)
+    }
+
+    /// Pick a ripe crop, if the plot holds one.
+    ///
+    /// The harvest pays its attribute points — the tier's base times the grade's
+    /// multiplier — and then rolls once for a seed: the same attribute, the same
+    /// tier or one higher, at a grade of its own. That roll is what keeps a
+    /// garden from running dry, and it is deliberately rare next to the points
+    /// the crop already paid.
+    pub fn harvest(&mut self, plot: usize, now_unix: i64) -> Option<HarvestOutcome> {
+        let crop = {
+            let plot = self.document.plots.get_mut(plot)?;
+            let ready = plot.crop.as_ref()?.is_ready(now_unix);
+            if !ready {
+                return None;
+            }
+            let crop = plot.crop.take()?;
+            // A dead crop is not a harvest. The bed keeps it only until its day
+            // is up, and a click that lands in that window must not pay what the
+            // seed failed to earn.
+            if crop.withered {
+                return None;
+            }
+            crop
+        };
+        let points = harvest_points(crop.tier, crop.grade);
+        // A 潜质 herb crop feeds the body on the spot — that is the whole point
+        // of growing it — rather than raising an attribute. The feed itself is
+        // what moves 潜质; the harvest line only reports that the herb came up
+        // and what the garden banked for growing it.
+        let herb = crop.herb;
+        if let Some(herb) = herb {
+            self.feed_found_herb(herb, crop.grade, now_unix);
+        } else {
+            crop.attribute.add_to(&mut self.document.crop_bonus, points);
+        }
+        // Counted here rather than on the seed roll: a crop that returned nothing
+        // was still pulled, and the 造化 dimension is fed by pulling.
+        self.document.harvests = self.document.harvests.saturating_add(1);
+        // The garden learns from being gardened: the crop's own points are the
+        // 造化 towards its next rank, so a herb kept is also a herb counted, and
+        // there is no second currency to plant for.
+        let xp_before = self.document.garden_xp;
+        self.document.garden_xp = self.document.garden_xp.saturating_add(i64::from(points));
+        // What the garden banked, as the log prints it: read off the bar that
+        // moved rather than assumed equal to the points, so the line stays true
+        // if the rank rule ever prices the two apart.
+        let xp = i32::try_from(self.document.garden_xp - xp_before).unwrap_or(i32::MAX);
+        // A herb crop gives no seed back — it was grown to be taken, not to seed
+        // the next bed — so only an attribute crop rolls the return.
+        let mut seed_name = None;
+        let returned_seed = if herb.is_none() {
+            let mut rng = self.rng(now_unix);
+            // The return odds are the garden's own rank: one percent per 阶, so
+            // the garden pays for its second seed the more it has been tended.
+            let seed = seed_return(
+                crop.attribute,
+                crop.tier,
+                self.document.garden_rank,
+                &mut rng,
+            );
+            // The name travels with the stack it landed in, so the notice and the
+            // log can both say which herb came back rather than "a seed".
+            if let Some((attribute, tier, grade)) = seed {
+                seed_name = self.push_seed(attribute, tier, grade, &mut rng).name;
+            }
+            seed.map(|(attribute, tier, grade)| SeedView {
+                attribute,
+                herb: None,
+                tier,
+                grade,
+                count: 1,
+                name: seed_name.clone(),
+                sell_price: seed_sell_price(attribute, tier, grade),
+            })
+        } else {
+            None
+        };
+        self.last_seed_return = returned_seed;
+        // The line names the herb and what it paid, because "a crop came up" is
+        // a fact the user cannot check against the garden that is now empty.
+        self.push_event(
+            now_unix,
+            EventDetail::Harvested {
+                attribute: crop.attribute,
+                herb,
+                tier: crop.tier,
+                grade: crop.grade,
+                name: crop.name.clone(),
+                points: if herb.is_some() { 0 } else { points },
+                xp,
+                seed: seed_name,
+            },
+        );
+        // The returned seed travels on the outcome the way it always did: the
+        // same attribute, the same tier or one higher, at the grade rolled.
+        let outcome_seed = self
+            .last_seed_return
+            .as_ref()
+            .map(|view| (view.attribute, view.tier, view.grade));
+        Some(HarvestOutcome {
+            crop,
+            seed: outcome_seed,
+        })
+    }
+
+    /// Wear one owned item in its slot, replacing what was there.
+    pub fn equip(&mut self, item_id: u64) -> bool {
+        let Some(item) = self.item(item_id) else {
+            return false;
+        };
+        let slot = item.slot.index();
+        if self.document.equipped.get(slot).copied().flatten() == Some(item_id) {
+            return true;
+        }
+        if let Some(slot) = self.document.equipped.get_mut(slot) {
+            *slot = Some(item_id);
+        }
+        true
+    }
+
+    /// Take whatever is worn in a slot off. The item stays owned.
+    pub fn unequip(&mut self, slot: EquipSlot) -> bool {
+        let Some(entry) = self.document.equipped.get_mut(slot.index()) else {
+            return false;
+        };
+        entry.take().is_some()
+    }
+
+    /// Spend 灵石 and the forge's tribute on one attempt at a piece's next star.
+    ///
+    /// The wager is the same shape whatever the piece: the stones and the
+    /// resources are spent first, the star turns over at
+    /// [`star_success_permille`] of the star the piece stands at. A failure
+    /// drops only a half step: a piece with no half step takes one, dropping
+    /// from a whole star to the half below, and a piece already holding a half
+    /// step gives it up, dropping back to the whole. The floor is no star and
+    /// no half — a piece is never walked back to nothing when its footing is
+    /// already the first star's. Refused with the reason when the purse cannot
+    /// cover it, the piece is not owned, or the piece already holds every star.
+    pub fn star_item(&mut self, item_id: u64, now_unix: i64) -> Result<StarOutcome, TradeRefusal> {
+        let Some(item) = self.item(item_id).map(|mut item| {
+            item.star = item.star.min(MAX_STAR);
+            item.half_star = item.half_star && item.star < MAX_STAR;
+            item
+        }) else {
+            return Err(TradeRefusal::NotOwned);
+        };
+        if item.star >= MAX_STAR {
+            return Err(TradeRefusal::StarCapped);
+        }
+        let cost = star_up_cost(&item, self.document.smithy_level);
+        if self.document.stones < cost.stones {
+            return Err(TradeRefusal::NotEnoughStones);
+        }
+        if !self.document.resources.can_spend_bag(&cost.resources) {
+            return Err(TradeRefusal::NotEnoughResources);
+        }
+        self.document.stones = self.document.stones.saturating_sub(cost.stones);
+        self.document.resources.spend_bag(&cost.resources);
+        let mut rng = self.rng(now_unix);
+        let success = rng.below(1_000) < u64::from(star_success_permille(item.star));
+        let from = item.star;
+        let from_half = item.half_star;
+        //
+        // A success always clears any half step the piece carried and gains a
+        // full star. A failure drops only a half step: a piece with no half
+        // takes one away, dropping part-way back toward the star it was
+        // leaving; a piece with a half step gives that step up and drops back
+        // to the whole floor. The floor is zero star, no half: a first-star
+        // piece that fails stays where it is, paying for the wager alone.
+        let (to, to_half) = if success {
+            (from.saturating_add(1).min(MAX_STAR), false)
+        } else if from_half {
+            // Give up the half step: back to the whole star the piece was
+            // sitting above. Already at zero when the half came from a first-
+            // star failure, which is the floor.
+            (from, false)
+        } else if from == 0 {
+            // The first star, no half: the floor. A failure costs the wager
+            // and nothing else, so a piece is never walked back to nothing.
+            (0, false)
+        } else {
+            // Take the half step: a piece drops from a whole star to the half
+            // below, one step's worth of progress lost rather than two.
+            (from, true)
+        };
+        if let Some(owned) = self
+            .document
+            .equipment
+            .iter_mut()
+            .find(|owned| owned.id == item_id)
+        {
+            owned.star = to;
+            owned.half_star = to_half;
+        }
+        let outcome = StarOutcome {
+            item_id,
+            name: item.name.clone(),
+            from,
+            to,
+            success,
+            cost: cost.clone(),
+        };
+        self.star_attempts = self.star_attempts.saturating_add(1);
+        self.last_star = Some(outcome.clone());
+        self.push_event(
+            now_unix,
+            EventDetail::Star {
+                name: item.name.unwrap_or_default(),
+                star: to,
+                success,
+                cost,
+            },
+        );
+        Ok(outcome)
+    }
+
+    /// Send the cultivator out on a gathering expedition of `hours` at `site`.
+    ///
+    /// One outing at a time: an expedition is refused while another is under
+    /// way, or while a walk or a job holds the cultivator — the same walls a
+    /// walk climbs, because an expedition is hours of the same day. The yield
+    /// is settled on the clock by [`Self::settle_expedition`], never on the
+    /// click that set off.
+    pub fn start_expedition(
+        &mut self,
+        site: GatherSite,
+        hours: super::ExplorationHours,
+        now_unix: i64,
+    ) -> Option<ExpeditionInProgress> {
+        // An expedition whose time is up is settled before a new one is judged,
+        // so an old expedition already home cannot block a fresh one.
+        self.settle_expedition(now_unix);
+        if self.document.expedition.is_some() {
+            self.note_refusal(Refusal::ExpeditionOut);
+            return None;
+        }
+        if self.document.walk.is_some() {
+            self.note_refusal(Refusal::ExpeditionOut);
+            return None;
+        }
+        if self.document.work.is_some() {
+            self.note_refusal(Refusal::ExpeditionOut);
+            return None;
+        }
+        let expedition = ExpeditionInProgress::started(now_unix, site, hours);
+        self.document.expedition = Some(expedition);
+        Some(expedition)
+    }
+
+    /// The expedition under way, if the cultivator is out gathering.
+    pub fn expedition(&self) -> Option<ExpeditionInProgress> {
+        self.document.expedition
+    }
+
+    /// Settle the expedition that is home: pay what the realm's hourly rate made
+    /// over the hours chosen, and let the cultivator be at home again.
+    ///
+    /// Returns whether anything was settled. An expedition still out answers
+    /// `false` and nothing moves; an expedition called home comes back empty,
+    /// because a called expedition is one that was not worked.
+    pub fn settle_expedition(&mut self, now_unix: i64) -> bool {
+        let Some(expedition) = self.document.expedition else {
+            return false;
+        };
+        if !expedition.is_home(now_unix) {
+            return false;
+        }
+        self.document.expedition = None;
+        if expedition.early {
+            // Called home: no yield, no record. The site was not worked, which
+            // is exactly what it pays for having been called.
+            return true;
+        }
+        let hours = expedition.length();
+        let yield_ = expedition_yield(
+            expedition.site,
+            self.document.woodcut_level,
+            self.document.stonecut_level,
+            self.document.workshop_level,
+            self.document.dojo_level,
+            self.realm().index() as u32,
+            hours,
+        );
+        let outcome = self.bank_collection(expedition.site, yield_);
+        self.push_event(
+            now_unix,
+            EventDetail::Expedition {
+                site: expedition.site,
+                hours: hours.hours(),
+                gained: outcome.gained.clone(),
+                woodcut_xp: outcome.woodcut_xp,
+                stonecut_xp: outcome.stonecut_xp,
+            },
+        );
+        true
+    }
+
+    /// One finished gathering session: what a pomodoro spent at `site` pays.
+    ///
+    /// The session is worth [`gather_duration_permille`] thousandths of a base
+    /// round at the cultivator's realm, so a higher realm's pomodoro gathers
+    /// more — the same trained hands that would gather ten wood in an hour
+    /// gather thirty-two at 仙人. The purse's ceiling applies per resource, and
+    /// the trades bank xp, the same way a manual gathering does.
+    pub fn collect_session(
+        &mut self,
+        site: GatherSite,
+        now_unix: i64,
+        today: CalendarDay,
+    ) -> CollectOutcome {
+        // The session is the realm's length, run at the realm's own rate: the
+        // two are separate numbers — a 番茄钟 is 1.00 to 3.25 hours long, and
+        // every one of those hours runs at 1.00 to 2.35 rounds — so a 仙人
+        // session turns up 7.6 rounds against 炼气's one.
+        let realm = self.realm().index() as u32;
+        let duration =
+            rounds_per_hour_permille(realm).saturating_mul(gather_duration_permille(realm)) / 1_000;
+        let yield_ = collect_scaled(
+            site,
+            self.document.woodcut_level,
+            self.document.stonecut_level,
+            self.document.workshop_level,
+            self.document.dojo_level,
+            duration,
+        );
+        let outcome = self.bank_collection(site, yield_);
+        // A gathering session is a real session: it keeps the absence clock from
+        // charging the day, but it pays nothing of the 修习 ladder — no growth,
+        // no 功法 turn, no 灵石 cut, no 试炼 chance, no roll.
+        let today_number = today.day_number();
+        self.document.last_active_day = Some(today_number);
+        self.document.missed_streak = 0;
+        self.document.charged_through_day = Some(today_number);
+        self.push_event(
+            now_unix,
+            EventDetail::SessionGather {
+                site,
+                gained: outcome.gained.clone(),
+                woodcut_xp: outcome.woodcut_xp,
+                stonecut_xp: outcome.stonecut_xp,
+            },
+        );
+        outcome
+    }
+
+    /// Bank a collection into the purse and the trades: the 仓库's ceiling per
+    /// resource, the xp, and the levels the xp buys. Shared by a manual click
+    /// and a finished gathering session, so the two pay the same way.
+    fn bank_collection(&mut self, site: GatherSite, yield_: CollectionYield) -> CollectOutcome {
+        // The 仓库's ceiling is per resource: a purse at the top of one kind
+        // keeps the find of the other, so a full purse is never a lost day.
+        let cap = resource_cap(self.document.warehouse_level);
+        let mut gained = ResourceBag::default();
+        for resource in Resource::ALL {
+            let room = cap.saturating_sub(self.document.resources.get(resource));
+            gained.add(resource, yield_.gained.get(resource).min(room));
+        }
+        self.document.resources.add_bag(&gained);
+        // The trades bank xp; the while-loop lets a big 道场 climb two ranks.
+        self.document.woodcut_xp = self.document.woodcut_xp.saturating_add(yield_.woodcut_xp);
+        self.document.stonecut_xp = self.document.stonecut_xp.saturating_add(yield_.stonecut_xp);
+        while self.document.woodcut_level < MAX_TRADE_LEVEL
+            && skill_ready(self.document.woodcut_level, self.document.woodcut_xp)
+        {
+            self.document.woodcut_level += 1;
+        }
+        while self.document.stonecut_level < MAX_TRADE_LEVEL
+            && skill_ready(self.document.stonecut_level, self.document.stonecut_xp)
+        {
+            self.document.stonecut_level += 1;
+        }
+        let outcome = CollectOutcome {
+            site,
+            gained,
+            woodcut_xp: yield_.woodcut_xp,
+            stonecut_xp: yield_.stonecut_xp,
+            woodcut_level: self.document.woodcut_level,
+            stonecut_level: self.document.stonecut_level,
+        };
+        self.last_collect = Some(outcome.clone());
+        outcome
+    }
+
+    /// What a finished pomodoro pays. One thing and one thing only: a session
+    /// either cultivates, or gathers at one site, never both.
+    pub fn session_mode(&self) -> SessionMode {
+        self.document.session_mode
+    }
+
+    /// Choose what the next finished pomodoro pays.
+    pub fn set_session_mode(&mut self, mode: SessionMode) {
+        self.document.session_mode = mode;
+    }
+
+    /// Raise one building a rank for 灵石 and the gathered tribute.
+    ///
+    /// Refused at the top of a building's ladder, or when the purse cannot
+    /// cover the rank's whole price — a rank is atomic, so a purse with the
+    /// money but not the ore is told it is short of the ore.
+    pub fn upgrade_building(
+        &mut self,
+        building: Building,
+        now_unix: i64,
+    ) -> Result<BuildingOutcome, TradeRefusal> {
+        let level = self.building_level(building);
+        if level >= building.max_level() {
+            return Err(TradeRefusal::BuildingCapped);
+        }
+        let cost = building_upgrade_cost(building, level);
+        if self.document.stones < cost.stones {
+            return Err(TradeRefusal::NotEnoughStones);
+        }
+        if !self.document.resources.can_spend_bag(&cost.resources) {
+            return Err(TradeRefusal::NotEnoughResources);
+        }
+        self.document.stones = self.document.stones.saturating_sub(cost.stones);
+        self.document.resources.spend_bag(&cost.resources);
+        *self.building_level_mut(building) = level.saturating_add(1);
+        let outcome = BuildingOutcome {
+            building,
+            from: level,
+            to: level.saturating_add(1),
+            cost,
+        };
+        self.last_building = Some(outcome.clone());
+        self.push_event(
+            now_unix,
+            EventDetail::BuildingUpgrade {
+                building,
+                level: outcome.to,
+                cost: outcome.cost.clone(),
+            },
+        );
+        Ok(outcome)
+    }
+
+    /// Raise a building up to `times` ranks in one command.
+    ///
+    /// Each rank is a full atomic upgrade — the same price and the same refusals
+    /// a single one meets — and the loop stops at the first the purse cannot
+    /// cover or at the top of the ladder. The ranks actually bought come back,
+    /// and the only refusal a surface hears is a click that bought nothing.
+    pub fn upgrade_building_many(
+        &mut self,
+        building: Building,
+        times: u8,
+        now_unix: i64,
+    ) -> Result<Vec<BuildingOutcome>, TradeRefusal> {
+        let mut bought = Vec::new();
+        for _ in 0..times {
+            match self.upgrade_building(building, now_unix) {
+                Ok(outcome) => bought.push(outcome),
+                Err(refusal) if bought.is_empty() => return Err(refusal),
+                Err(_) => break,
+            }
+        }
+        Ok(bought)
+    }
+
+    /// The rank one building stands at.
+    pub(crate) fn building_level(&self, building: Building) -> u8 {
+        match building {
+            Building::Workshop => self.document.workshop_level,
+            Building::Warehouse => self.document.warehouse_level,
+            Building::Smithy => self.document.smithy_level,
+            Building::Dojo => self.document.dojo_level,
+        }
+    }
+
+    /// The rank one building stands at, writable.
+    fn building_level_mut(&mut self, building: Building) -> &mut u8 {
+        match building {
+            Building::Workshop => &mut self.document.workshop_level,
+            Building::Warehouse => &mut self.document.warehouse_level,
+            Building::Smithy => &mut self.document.smithy_level,
+            Building::Dojo => &mut self.document.dojo_level,
+        }
+    }
+
+    /// The resource economy as the settings page reads it.
+    fn resources_view(&self) -> ResourcesView {
+        let trade = |level: u8, xp: u32| TradeView {
+            level,
+            xp,
+            xp_to_next: skill_xp_total(level.saturating_add(1)),
+        };
+        let building = |building: Building, level: u8| BuildingView {
+            level,
+            capped: level >= building.max_level(),
+            upgrade_cost: (level < building.max_level())
+                .then(|| building_upgrade_cost(building, level)),
+        };
+        ResourcesView {
+            bag: self.document.resources.clone(),
+            cap: resource_cap(self.document.warehouse_level),
+            woodcut: trade(self.document.woodcut_level, self.document.woodcut_xp),
+            stonecut: trade(self.document.stonecut_level, self.document.stonecut_xp),
+            workshop: building(Building::Workshop, self.document.workshop_level),
+            warehouse: building(Building::Warehouse, self.document.warehouse_level),
+            smithy: building(Building::Smithy, self.document.smithy_level),
+            dojo: building(Building::Dojo, self.document.dojo_level),
+            expedition: self.document.expedition.map(|expedition| ExpeditionView {
+                site: expedition.site,
+                hours: expedition.hours,
+                ends_unix: expedition.ends_unix,
+                early: expedition.early,
+            }),
+        }
+    }
+
+    /// Mark the day's morning event as seen, so the window does not replay it.
+    ///
+    /// A moment the surface owns: the popup is dismissed once and the day is
+    /// written down, which is what lets a window opened again the same
+    /// afternoon stay quiet about a fight that was already shown.
+    pub fn acknowledge_daily_event(&mut self, day: i64) {
+        self.document.daily_event_seen_day = Some(day);
+    }
+
+    /// Fight the guardian standing at the end of the current realm.
+    ///
+    /// Returns `None` when there is nothing to fight: the realm is not at its
+    /// last layer, or the ladder has no next realm. A loss costs nothing but
+    /// the attempt; a win opens the next realm, lifts the growth to that
+    /// realm's floor and pays one piece of the new tier's gear.
+    pub fn breakthrough(&mut self, now_unix: i64) -> Option<BreakthroughOutcome> {
+        let current = self.realm();
+        if self.level() < current.cap_level() {
+            return None;
+        }
+        if !breakthrough_ready(self.document.breakthrough_blocked_until, now_unix) {
+            return None;
+        }
+        let guardian = guardian_for(current)?;
+        // The count is taken here, where a fight is actually joined: it is what
+        // tells a surface there is a report it has not shown yet, and "the
+        // snapshot revision moved" cannot say that — a running pomodoro bumps
+        // it every second.
+        self.breakthrough_attempts = self.breakthrough_attempts.saturating_add(1);
+        let mut rng = self.rng(now_unix);
+        let report = resolve(self.attributes(), guardian);
+        // The fight is what decides, not the number above: the panel prints the
+        // comparison so the user knows where they stand, and then the two of
+        // them actually trade blows.
+        let fighter = self.fighter(&mut rng);
+        // The guardian is the same opponent every time it is met: its power is
+        // printed before the fight, so a roll per attempt would make that number
+        // a lie. What it wears is what makes it harder than the naked rung, and
+        // that gear is what a win takes.
+        let rival = opponent::guardian(current, guardian.target);
+        let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
+        // Won fights are what train the 战斗 dimension; a loss is not counted
+        // there, and only ever shows up in the record below.
+        self.record_duel(duel.won, FightKind::Guardian, now_unix);
+        if !duel.won {
+            self.document.breakthrough_failures =
+                self.document.breakthrough_failures.saturating_add(1);
+            self.document.breakthrough_blocked_until =
+                Some(now_unix.saturating_add(BREAKTHROUGH_COOLDOWN_SECONDS));
+            // A loss can cost a piece of gear. One in four, and only one: the
+            // point is that a loss stings, not that it sets the cultivator back.
+            let lost = (rng.below(1_000) < LOST_GEAR_PERMILLE)
+                .then(|| self.drop_one_item(&mut rng))
+                .flatten();
+            let outcome = BreakthroughOutcome {
+                report,
+                target: guardian.target,
+                reward: None,
+                duel,
+                lost,
+                granted_art: None,
+                stones: None,
+                seed: None,
+            };
+            self.last_breakthrough = Some(outcome.clone());
+            // The realm it failed to open is still named: a loss is history
+            // too, and one line with the realm on it beats two kinds of line.
+            self.push_event(
+                now_unix,
+                EventDetail::Breakthrough {
+                    won: false,
+                    stage: Some(guardian.target.index() as u8),
+                    stones: None,
+                    gear: None,
+                    art: None,
+                    seed: None,
+                },
+            );
+            return Some(outcome);
+        }
+        // The guardian is the strongest thing on the page, so a win here is
+        // where the pill's odds are best — and it is rolled before the realm
+        // opens, so the newest line in the log is the find rather than the
+        // breakthrough it came with.
+        self.roll_marrow_from_combat(guardian.power, &mut rng, now_unix);
+        self.enter_realm(guardian, &rival, duel, now_unix);
+        let outcome = self.last_breakthrough.clone();
+        // The log is written after the settlement so the line carries the
+        // realm that was opened *and* everything that came with it — purse,
+        // 功法, gear and herb: the event is one line about one event, not two
+        // half-lines about a fight and a buy. A win that left its finds out of
+        // the log left a bag the user could not check against it.
+        self.push_event(
+            now_unix,
+            EventDetail::Breakthrough {
+                won: true,
+                stage: Some(guardian.target.index() as u8),
+                stones: outcome.as_ref().and_then(|outcome| outcome.stones),
+                gear: outcome
+                    .as_ref()
+                    .and_then(|outcome| outcome.reward.as_ref())
+                    .and_then(|item| item.name.clone()),
+                art: outcome
+                    .as_ref()
+                    .and_then(|outcome| outcome.granted_art.clone()),
+                seed: outcome.as_ref().and_then(|outcome| outcome.seed.clone()),
+            },
+        );
+        outcome
+    }
+
+    /// Roll one 洗髓丹 after a won fight.
+    ///
+    /// The odds climb with the opponent's power relative to the cultivator's —
+    /// one in a hundred thousand at parity, one in a thousand against something
+    /// three times as strong — so the pill is the reward for punching up rather
+    /// than for farming the easiest thing on the page.
+    fn roll_marrow_from_combat(&mut self, rival_power: u32, rng: &mut Rng, now_unix: i64) -> bool {
+        let player = self.power();
+        let ppm = super::aptitude::marrow_combat_ppm(rival_power, player);
+        if rng.below(1_000_000) >= ppm {
+            return false;
+        }
+        self.document.marrow_pills = self.document.marrow_pills.saturating_add(1);
+        self.push_event(
+            now_unix,
+            EventDetail::MarrowFound {
+                source: MarrowSource::Combat,
+            },
+        );
+        true
+    }
+
+    /// Roll one 洗髓丹 out of a quiet source: a walk that met nobody, or the
+    /// day's own event. One in ten thousand, the same number the shelf uses.
+    fn roll_marrow_from_fortune(&mut self, rng: &mut Rng, now_unix: i64) -> bool {
+        if rng.below(super::aptitude::MARROW_FORTUNE_ONE_IN) != 0 {
+            return false;
+        }
+        self.document.marrow_pills = self.document.marrow_pills.saturating_add(1);
+        self.push_event(
+            now_unix,
+            EventDetail::MarrowFound {
+                source: MarrowSource::Fortune,
+            },
+        );
+        true
+    }
+
+    /// Write one fought fight into the record, newest first.
+    /// A win is also what trains the 战斗 dimension, so the count and the line of
+    /// history are written together: a record that disagreed with the dimension
+    /// would be two truths about the same fight.
+    fn record_duel(&mut self, won: bool, kind: FightKind, now_unix: i64) {
+        if won {
+            self.document.battle_wins = self.document.battle_wins.saturating_add(1);
+        }
+        self.document.duel_record.insert(
+            0,
+            DuelRecord {
+                won,
+                kind,
+                realm: self.realm().index() as u8,
+                at_unix: now_unix,
+            },
+        );
+        self.document.duel_record.truncate(DUEL_RECORD_CAP);
+    }
+
+    /// Write one event into the page's log, newest first.
+    ///
+    /// The log is a window like the duel record: sixteen lines is what a page
+    /// reads at a glance, and a save that kept every event since the first
+    /// pomodoro would be a diary nobody opens.
+    fn push_event(&mut self, now_unix: i64, detail: EventDetail) {
+        self.document.events.insert(
+            0,
+            EventRecord {
+                at_unix: now_unix,
+                detail,
+            },
+        );
+        self.document.events.truncate(EVENT_LOG_CAP);
+    }
+
+    /// The multiplier every finished session is currently worth, in parts per
+    /// thousand.
+    ///
+    /// Read from the four disciplines rather than carried, so the page and the
+    /// formula cannot disagree about what a session pays.
+    fn growth_multiplier_permille(&self) -> u32 {
+        growth_permille(
+            self.realm(),
+            self.trained_art_rank(),
+            self.document.explorations,
+            self.document.battle_wins,
+            self.document.harvests,
+        )
+    }
+
+    /// The cultivator as a fighter, with the 外功 they would use.
+    pub(crate) fn fighter(&self, rng: &mut Rng) -> Fighter {
+        let derived = self.derived();
+        let art = self.strike(rng);
+        Fighter::from_derived(PLAYER_NAME.to_owned(), derived, art)
+    }
+
+    /// The duel the cultivator fights, with the effects their 神装 carry.
+    ///
+    /// An effect is a debuff the other side walks in with, read when the duel
+    /// is built: the number the panel shows the user before they press the
+    /// button has to be the number that decides, and a hidden post-fight
+    /// adjustment would make the shown numbers a lie about the fight that
+    /// happened.
+    pub(crate) fn duel_with_effects(
+        &self,
+        fighter: Fighter,
+        mut rival: Fighter,
+        rng: &mut Rng,
+    ) -> DuelReport {
+        if let Some((effect, rarity)) = self.strongest_effect() {
+            let depth = effect.depth_permille(rarity);
+            let bite = |value: u32| -> u32 {
+                (u64::from(value) * u64::from(1_000 - depth) / 1_000) as u32
+            };
+            match effect {
+                GearEffect::Frost => {
+                    rival.attack = bite(rival.attack);
+                    rival.hit = bite(rival.hit);
+                }
+                GearEffect::Thunder => rival.speed = bite(rival.speed),
+                GearEffect::Sunder => rival.resist = bite(rival.resist),
+                GearEffect::Weaken => rival.health = bite(rival.health),
+            }
+        }
+        duel(fighter, rival, rng)
+    }
+
+    /// The effect the worn gear carries, if any: the deepest one, and the
+    /// quality it came from.
+    fn strongest_effect(&self) -> Option<(GearEffect, Rarity)> {
+        self.equipped_items()
+            .filter_map(|item| item.effect.map(|effect| (effect, item.rarity)))
+            .max_by_key(|(_, rarity)| *rarity)
+    }
+
+    /// The 外功 the cultivator brings to a fight: randomly one of the three
+    /// strongest they can swing.
+    ///
+    /// "Strongest" is what one swing is worth: the multiplier the 外功 lands,
+    /// with the mastery share folded in for one learned to the end. A book
+    /// still part-trained competes on its multiplier alone, and one that has
+    /// not been trained to its first 阶 does not compete at all — owning a
+    /// book is not swinging it. The training's selection does not pre-empt the
+    /// roll either: the strongest three fight it out, not the book the session
+    /// happens to be reading. With fewer than three the roll runs over what
+    /// there is, and with none the fists do the work.
+    fn strike(&self, rng: &mut Rng) -> Option<ArtStrike> {
+        let mut candidates: Vec<(u64, u8, u32)> = self
+            .document
+            .arts
+            .iter()
+            .filter(|owned| blueprint(owned.art_id).kind == ArtKind::External && owned.rank >= 1)
+            .map(|owned| {
+                let art = blueprint(owned.art_id);
+                (owned.art_id, owned.rank, art.multiplier_permille)
+            })
+            .collect();
+        for id in &self.document.mastered_arts {
+            let art = blueprint(*id);
+            if art.kind == ArtKind::External {
+                candidates.push((
+                    *id,
+                    art.grade.ranks(),
+                    art.multiplier_permille + mastery_permille(art.grade),
+                ));
+            }
+        }
+        if candidates.is_empty() {
+            return None;
+        }
+        candidates.sort_by_key(|&(_, _, strength)| std::cmp::Reverse(strength));
+        candidates.truncate(3);
+        let (art_id, rank, _) = candidates[rng.below(candidates.len() as u64) as usize];
+        let art = blueprint(art_id);
+        Some(ArtStrike {
+            name: art.name,
+            multiplier_permille: art.multiplier_permille,
+            cost: art.cost,
+            // The move as the book prints it: how many blows a use throws, the
+            // band each is drawn from, and what a landing one lays on. The mark
+            // is the fight's, not the book's — it is spent in the fight the 外功
+            // is carried into, and a fresh fight starts unmarked.
+            hits: art.hits,
+            band_permille: art.band_permille,
+            effect: art.effect,
+            marked: false,
+            // A completed 外功 spends its mastery share on every blow it lands;
+            // an art one 阶 short of its last pays only its multiplier.
+            mastery_permille: if rank >= art.grade.ranks() {
+                mastery_permille(art.grade)
+            } else {
+                0
+            },
+        })
+    }
+
+    /// Give up one owned item and say which. Equipped or not, one item only —
+    /// and the cultivator is never left with nothing they can wear.
+    fn drop_one_item(&mut self, rng: &mut Rng) -> Option<String> {
+        if self.document.equipment.is_empty() {
+            return None;
+        }
+        let index = rng.below(self.document.equipment.len() as u64) as usize;
+        let item = self.document.equipment.remove(index);
+        let name = item
+            .name
+            .clone()
+            .unwrap_or_else(|| item.slot.name_key().to_owned());
+        self.document
+            .equipped
+            .iter_mut()
+            .filter(|slot| **slot == Some(item.id))
+            .for_each(|slot| *slot = None);
+        Some(name)
+    }
+
+    /// Open the realm the guardian defended and pay its trophy.
+    fn enter_realm(
+        &mut self,
+        guardian: Guardian,
+        rival: &Opponent,
+        duel: DuelReport,
+        now_unix: i64,
+    ) {
+        let target = guardian.target;
+        // The power that fought, read before anything moves: entering the realm
+        // lifts the level ceiling and pays a trophy, so a report read afterwards
+        // would credit the win to the reward rather than to the gear.
+        let player_power = self.power();
+        self.document.realm = target.index() as u8;
+        self.document.growth = self.document.growth.max(stage_floor(target.index()));
+        self.document.breakthrough_failures = 0;
+        // The realm lifts the level ceiling, so the layers the growth already
+        // bought become real levels — and real free points — now.
+        self.note_peak_level();
+        let mut rng = self.rng(0);
+        // The guardian's own strength, not the realm it guarded: what a win pays
+        // is read off the body that was beaten, which is why a guardian met at
+        // its realm's cap pays at that realm's depth.
+        let strength = Strength::of(rival.attributes.power());
+        // The trophy is the piece the guardian was wearing, not a fresh roll:
+        // what the fight was against and what it leaves behind are one thing.
+        let reward = match rival.gear.first() {
+            Some(item) => Some(self.adopt_equipment(item.clone())),
+            // A guardian met bare-handed (it can happen at the shallow end,
+            // where a piece of gear would outweigh the whole body) still pays
+            // for the realm it opened.
+            None => self.push_equipment(strength, &mut rng),
+        };
+        // A win always pays a 功法 — that is the promise the fight is made for —
+        // and it is the book the guardian was swinging.
+        let granted_art = self.take_art(rival, target, now_unix);
+        // The herb is named here rather than only folded into the bag: it is the
+        // rarest thing a realm hands over, and a log that stayed silent about it
+        // left the user finding a seed they could not account for.
+        let mut seed = None;
+        if rng.below(1_000) < VICTORY_SEED_PERMILLE {
+            let attribute = Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
+            let grade = roll_seed_grade(&mut rng);
+            seed = self
+                .push_seed(attribute, strength.tier(), grade, &mut rng)
+                .name;
+        }
+        // The guardian's purse, drawn after the 功法 and the gear because those
+        // are what a breakthrough is *for*: the money is what a realm's treasury
+        // adds on top, not the reason to fight.
+        let stones = Some(roll_stones(
+            &mut rng,
+            GUARDIAN_STONES,
+            target.index() as u8 + 1,
+        ));
+        if let Some(amount) = stones {
+            self.document.stones = self.document.stones.saturating_add(amount);
+        }
+        let outcome = BreakthroughOutcome {
+            report: BattleReport {
+                player_power,
+                guardian_power: guardian.power,
+                won: true,
+            },
+            target,
+            reward,
+            duel,
+            lost: None,
+            granted_art,
+            stones,
+            seed,
+        };
+        self.last_breakthrough = Some(outcome);
+    }
+
+    /// What beating someone on the road pays, handed to the satchel and
+    /// reported.
+    ///
+    /// Shared by the walk and the morning ambush because it is the same
+    /// encounter either way: the same weighting, the same strength, the same
+    /// three kinds. Two copies of this roll would be two chances for one of them
+    /// to drift out of tune with the panel that explains it.
+    fn award_wanderer_find(
+        &mut self,
+        rival: &Opponent,
+        rng: &mut Rng,
+        now_unix: i64,
+    ) -> ExplorationFindView {
+        let mut found = ExplorationFindView::default();
+        // A beaten opponent is the source, so what it hands over is read off its
+        // own strength rather than off the realm the fight happened in: beating
+        // something bigger than the save is how a save gets gear from deeper in.
+        let strength = Strength::of(rival.attributes.power());
+        match roll_victory(rng) {
+            // What the roll decides is *which* of the beaten fighter's things
+            // comes home with you — the things themselves were never a fresh
+            // roll, they were on the body that lost.
+            ExplorationOutcome::Art => {
+                found.art = self.take_art(rival, self.realm(), now_unix);
+            }
+            ExplorationOutcome::Gear => {
+                if let Some(item) = self.take_gear(rival, strength, rng) {
+                    found.gear = Some(self.item_view(&item));
+                }
+            }
+            ExplorationOutcome::Seed => {
+                let attribute =
+                    Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
+                let grade = roll_seed_grade(rng);
+                found.seed = Some(self.push_seed(attribute, strength.tier(), grade, rng));
+            }
+            _ => {}
+        }
+        found
+    }
+
+    /// Set out on one walk, for the length chosen.
+    ///
+    /// Nothing is paid here: the road pays when the walk comes home, which is
+    /// [`Self::settle_walk`] and the worker's tick. Returns the walk that
+    /// started, and `None` while another is still out — with the refusal noted
+    /// so the page can say why. A walk whose time has already passed is settled
+    /// first, so a save that was never ticked (a launch after a night away) can
+    /// still set out the moment it is opened.
+    pub fn explore(
+        &mut self,
+        now_unix: i64,
+        hours: super::ExplorationHours,
+    ) -> Option<super::WalkInProgress> {
+        self.settle_walk(now_unix);
+        if self.document.walk.is_some() {
+            self.note_refusal(Refusal::ExploreCooldown);
+            return None;
+        }
+        // An expedition is hours of the same day, so the road is closed while
+        // the cultivator is out gathering.
+        if self.document.expedition.is_some() {
+            self.note_refusal(Refusal::ExpeditionOut);
+            return None;
+        }
+        // A job holds the cultivator the way a walk does — it is hours of the
+        // same day — so the road is closed while one is being worked.
+        if self.document.work.is_some() {
+            self.note_refusal(Refusal::Working);
+            return None;
+        }
+        // A walk always belongs to the region of the cultivator's own realm,
+        // and starts one level above whatever they have already cleared in it —
+        // capped at the region's top, so a walk never over-levels the band.
+        let region = super::explore::Region::from_realm(self.realm());
+        let cleared = self.document.explored_levels.get(region.index()).copied().unwrap_or(0);
+        let level = (cleared + 1).min(super::explore::MAX_LEVEL);
+        let walk =
+            super::WalkInProgress::started(now_unix, hours, region.index() as u8, level);
+        self.document.last_exploration_unix = Some(now_unix);
+        // The length is written down beside the instant, because the page draws
+        // the chip the user picked last: a four-hour walk read back as a
+        // twelve-hour one would draw the wrong chip under the right countdown.
+        self.document.last_exploration_hours = hours.hours();
+        self.document.walk = Some(walk);
+        Some(walk)
+    }
+
+    /// Call the outing under way home early — a walk or a shift at a job.
+    ///
+    /// Whichever is holding the cultivator, the rule is the same one: the find
+    /// is forfeit (the road is not walked, the work is not worked), and the trip
+    /// back is a third of the time already spent. So calling an outing back is a
+    /// way to stop paying attention to it rather than a way to undo it, and the
+    /// page can offer the same button whether the cultivator is on the road or
+    /// at a job.
+    pub fn return_early(&mut self, now_unix: i64) -> bool {
+        if let Some(expedition) = self.document.expedition {
+            if expedition.early {
+                return false;
+            }
+            self.document.expedition = Some(expedition.called_home(now_unix));
+            return true;
+        }
+        if let Some(walk) = self.document.walk {
+            if walk.early {
+                return false;
+            }
+            self.document.walk = Some(walk.called_home(now_unix));
+            return true;
+        }
+        if let Some(work) = self.document.work {
+            if work.early {
+                return false;
+            }
+            self.document.work = Some(work.called_home(now_unix));
+            return true;
+        }
+        self.note_refusal(Refusal::NotOut);
+        false
+    }
+
+    /// Settle the walk that is home: roll what it turned up, pay it, and let the
+    /// cultivator be at home again.
+    ///
+    /// Returns whether anything was settled. A walk still out answers `false`
+    /// and nothing moves; a walk called home comes back empty, because a called
+    /// walk is a walk that was not taken.
+    pub fn settle_walk(&mut self, now_unix: i64) -> bool {
+        let Some(walk) = self.document.walk else {
+            return false;
+        };
+        if !walk.is_home(now_unix) {
+            return false;
+        }
+        self.document.walk = None;
+        if walk.early {
+            // Called home: no find, no purse, no record. The walk did not
+            // happen, which is exactly what it pays for having been called.
+            self.document.last_exploration_unix = Some(now_unix);
+            return true;
+        }
+        let hours = walk.length();
+        let region_index = walk.region;
+        let level = walk.level;
+        let region = super::explore::Region::from_index(region_index as usize);
+        self.document.last_exploration_unix = Some(now_unix);
+        // Counted here rather than on the outcome: a walk that found nothing is
+        // still a walk a surface has not shown yet.
+        self.document.explorations = self.document.explorations.saturating_add(1);
+        // The fight the last walk met is forgotten before this one is settled:
+        // a walk that meets nobody must carry no fight into its popup, or the
+        // popup replays an older walk's battle as this walk's verdict — which
+        // is how a quiet afternoon that turned up a handful of stones came to
+        // be announced as 败北 under a won fight's log.
+        self.last_exploration_duel = None;
+        let mut rng = self.rng(now_unix);
+        // The roll now reads the region and the level: combat comes first, with
+        // the region's and level's own encounter rate, and the quiet remainder
+        // is the usual seed-and-gear-and-art split.
+        let mut outcome = super::explore::roll_region_walk(&mut rng, hours, region_index, level);
+        // The strength is the region's rolled tier band: a walk at the region's
+        // tier finds tier-matched goods, and the tier is raised as the level
+        // steps up. 境界越高, 奖励越多, and the tier band is what the goods
+        // follow.
+        let strength = Strength::of(super::drop::tier_base_power(region));
+        let mut found = ExplorationFindView::default();
+        match outcome {
+            ExplorationOutcome::Seed => {
+                let attribute =
+                    Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
+                let grade = roll_seed_grade(&mut rng);
+                found.seed = Some(self.push_seed(attribute, strength.tier(), grade, &mut rng));
+            }
+            ExplorationOutcome::Gear => {
+                if let Some(item) = self.push_equipment(strength, &mut rng) {
+                    found.gear = Some(self.item_view(&item));
+                }
+            }
+            ExplorationOutcome::Art => {
+                // Which grade turns up is the discovery roll, not the realm's
+                // band: a walk can hand a beginner a 神阶 book, at the same
+                // ten-thousandth the shelf and the guardian use.
+                let grade = {
+                    let mut grade_rng = self.rng(now_unix);
+                    super::arts::roll_art_grade(&mut grade_rng)
+                };
+                found.art = self.grant_art(grade, now_unix).map(|art| art.name);
+            }
+            ExplorationOutcome::Victory => {
+                let fighter = self.fighter(&mut rng);
+                // A wanderer is rolled for the region and level: nobody promised
+                // who the road would send, and its numbers are only ever shown
+                // after the fact.
+                let rival = super::explore::region_wanderer(region, level, rng.below(u64::MAX));
+                let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
+                if duel.won {
+                    found = self.award_wanderer_find(&rival, &mut rng, now_unix);
+                    // A beaten wanderer can leave a 洗髓丹 behind: the odds are
+                    // read off how far it outclassed the cultivator.
+                    self.roll_marrow_from_combat(rival.attributes.power(), &mut rng, now_unix);
+                } else {
+                    outcome = ExplorationOutcome::Defeat;
+                }
+                self.record_duel(duel.won, FightKind::Wanderer, now_unix);
+                self.last_exploration_duel = Some(duel);
+            }
+            ExplorationOutcome::Defeat
+            | ExplorationOutcome::Nothing
+            | ExplorationOutcome::Stones => {
+                // A victory hand above is the only thing that advances the
+                // level; every other outcome leaves the level where it stood.
+            }
+        }
+        // A kind that was rolled but paid nothing is a walk that found nothing:
+        // the quality ladder's remainder is exactly the find that did not
+        // happen, and a line saying "found gear" over an empty satchel would be
+        // a promise the roll broke.
+        if outcome == ExplorationOutcome::Gear && found.gear.is_none() {
+            outcome = ExplorationOutcome::Nothing;
+        }
+        // A quiet walk is a random event like the morning's: one in ten thousand
+        // turns up a 洗髓丹. A fight's own roll is above, and a loss finds
+        // nothing — the pill is not a consolation prize.
+        if !matches!(
+            outcome,
+            ExplorationOutcome::Victory | ExplorationOutcome::Defeat
+        ) {
+            self.roll_marrow_from_fortune(&mut rng, now_unix);
+        }
+        // 灵石 are rolled beside the finding rather than in place of it: an
+        // outing can come back with a herb and a handful of stones both, and
+        // the purse is fed by the region and level the walk was taken at.
+        //
+        // Which purse is what tells the two outings apart: a quiet walk walks
+        // the region's own purse, and beating a wanderer pays the combat purse
+        // sitting above it. A walk that was beaten pays nothing at all — a purse
+        // that filled up on a defeat would make being beaten a way of earning.
+        let purse = if outcome == ExplorationOutcome::Victory {
+            super::explore::combat_purse(region, hours, level)
+        } else {
+            super::explore::walk_purse(region, hours, level)
+        };
+        let stones = if outcome == ExplorationOutcome::Defeat {
+            None
+        } else {
+            Some(roll_stones(&mut rng, purse, region.tier()))
+        };
+        if let Some(amount) = stones {
+            self.document.stones = self.document.stones.saturating_add(amount);
+            found.stones = Some(amount);
+            // A walk that turned up stones and nothing else reads as having
+            // turned up stones, not as having turned up nothing.
+            if outcome == ExplorationOutcome::Nothing {
+                outcome = ExplorationOutcome::Stones;
+            }
+        }
+        // The walk adds its progress to the region's slot: a walk is a step
+        // forward in the level, and deeper realms walk faster.
+        if outcome != ExplorationOutcome::Defeat {
+            let gain = super::explore::walk_progress_permille(region);
+            self.accumulate_progress(region.index(), gain);
+        }
+        // The settlement is written before the popup is shown and outlives it: the
+        // popup is forgotten on quit, the page's record is not.
+        self.document.last_walk = Some(WalkRecord {
+            at_unix: now_unix,
+            realm: self.realm().index() as u8,
+            outcome,
+            region: walk.region,
+            level: walk.level,
+            art: found.art.clone(),
+            gear: found.gear.as_ref().and_then(|item| item.name.clone()),
+            seed: found.seed.as_ref().and_then(|seed| seed.name.clone()),
+            stones,
+        });
+        self.last_exploration = Some(outcome);
+        self.last_exploration_found = Some(found);
+        // The walk joins the page's log beside the popups: finds and all, so a
+        // week of walks reads as a week rather than as one line of "last walk".
+        self.push_event(
+            now_unix,
+            EventDetail::Walk {
+                outcome,
+                art: self.document.last_walk.as_ref().and_then(|w| w.art.clone()),
+                gear: self
+                    .document
+                    .last_walk
+                    .as_ref()
+                    .and_then(|w| w.gear.clone()),
+                seed: self
+                    .document
+                    .last_walk
+                    .as_ref()
+                    .and_then(|w| w.seed.clone()),
+                stones,
+            },
+        );
+        true
+    }
+
+    /// Mark a level of a region as cleared — only advances, never retreats — so
+    /// a walk that beats the level's fight leaves the rung below it standing and
+    /// the next walk one level deeper. A save that has never walked a region's
+    /// first level holds a zero in its slot, and a walk at the region's cap
+    /// level stays at the cap: a rung is cleared by standing above it, and a
+    /// cap holds steady.
+    fn advance_explored_level(&mut self, region_index: usize, level: u8) {
+        let slot = self
+            .document
+            .explored_levels
+            .get_mut(region_index)
+            .expect("explored_levels slot exists for every region");
+        if level > *slot {
+            *slot = level;
+        }
+    }
+
+    /// Add a walk's progress to the region's current level. When the progress
+    /// crosses a thousand per mille, the level is cleared and the excess rolls
+    /// into the next.
+    fn accumulate_progress(&mut self, region_index: usize, gain: u32) {
+        let slot = self
+            .document
+            .region_progress
+            .get_mut(region_index)
+            .expect("region_progress slot exists for every region");
+        let total = slot.saturating_add(gain);
+        let level_cleared = total / 1_000;
+        *slot = total % 1_000;
+        for _ in 0..level_cleared {
+            let level = self
+                .document
+                .explored_levels
+                .get(region_index)
+                .copied()
+                .unwrap_or(0);
+            if level < super::explore::MAX_LEVEL {
+                self.advance_explored_level(region_index, level + 1);
+            }
+        }
+    }
+
+    /// The furthest level cleared in a region. A zero means the region has not
+    /// been entered yet.
+    pub fn cleared_level(&self, region_index: usize) -> u8 {
+        self.document
+            .explored_levels
+            .get(region_index)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// The board of jobs on offer, for a local day.
+    ///
+    /// The board is a function of the day and of the realm the cultivator is
+    /// worth rather than a stored list: a board written three realms ago would be
+    /// pocket change today, and a board a user never opened should not be the one
+    /// they are handed next week. The counter is what a paid re-roll moves.
+    pub fn jobs(&self, day: i64) -> Vec<super::JobOffer> {
+        let tier = super::drop::tier_for_power(self.power());
+        let mut rng = Rng::seeded(
+            (day as u64)
+                .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+                .wrapping_add(
+                    u64::from(self.document.jobs_roll).wrapping_mul(0xBF58_476D_1CE4_E5B9),
+                ),
+        );
+        super::jobs::roll_jobs(&mut rng, tier)
+    }
+
+    /// Take the job in that slot of the board.
+    ///
+    /// Refused while the cultivator is out on a walk or already at a job: both are
+    /// hours of the same day, and a cultivator who can be in two places at once
+    /// has no reason to choose between them.
+    pub fn accept_job(
+        &mut self,
+        slot: usize,
+        now_unix: i64,
+        day: i64,
+    ) -> Result<super::JobRun, Refusal> {
+        if self.document.walk.is_some() {
+            return Err(Refusal::TrialOut);
+        }
+        // An expedition is hours of the same day, so the board is closed while
+        // the cultivator is out gathering.
+        if self.document.expedition.is_some() {
+            return Err(Refusal::ExpeditionOut);
+        }
+        if self.document.work.is_some() {
+            return Err(Refusal::Working);
+        }
+        let Some(offer) = self.jobs(day).get(slot).copied() else {
+            return Err(Refusal::JobGone);
+        };
+        let run = super::JobRun::started(offer, now_unix);
+        self.document.work = Some(run);
+        Ok(run)
+    }
+
+    /// Pay for a fresh board.
+    ///
+    /// The price is what stops the board being a slot machine: three draws at a
+    /// ten-thousandth, re-rolled until a 神阶 job turns up, would cost nothing at
+    /// all if this were free.
+    pub fn refresh_jobs(&mut self) -> Result<u32, TradeRefusal> {
+        let tier = super::drop::tier_for_power(self.power());
+        let cost = super::jobs::refresh_cost(tier);
+        if self.document.stones < cost {
+            return Err(TradeRefusal::NotEnoughStones);
+        }
+        self.document.stones = self.document.stones.saturating_sub(cost);
+        self.document.jobs_roll = self.document.jobs_roll.saturating_add(1);
+        Ok(cost)
+    }
+
+    /// Settle a job that has come due. Returns what it paid.
+    ///
+    /// Called by the worker's tick the way a walk's return is: a job is hours of
+    /// the cultivator's day, so it comes home on the clock rather than on a click,
+    /// and an app that was shut for the whole of it has to pay on the next launch
+    /// rather than lose the hours.
+    pub fn settle_work(&mut self, now_unix: i64) -> Option<WorkPaid> {
+        let run = self.document.work?;
+        if !run.is_done(now_unix) {
+            return None;
+        }
+        self.document.work = None;
+        // A shift called home is a shift not worked: no wage, no point, no
+        // record, and no fresh board — the job in hand is the one that was left,
+        // so calling a shift back cannot be a free reroll either.
+        if run.early {
+            return None;
+        }
+        // The wage is the figure the board printed, and the wage is the wage:
+        // nothing about how the work came off changes what it was. What the work
+        // decides is the lasting gain, off the cultivator's hold on the
+        // attribute the job asked for.
+        let wage = run.offer().stones();
+        let grade = run.grade;
+        let kind = run.kind;
+        let level = self.level();
+        let success_rate = super::jobs::success_rate_permille(kind, self.derived(), level, grade);
+        let mut rng = self.rng(now_unix);
+        // The gain: one point to as many as the grade, at a chance that is the
+        // success rate over twenty — rolled whether the work came off or not,
+        // because a trade teaches even when it does not pay well.
+        let chance = super::jobs::point_chance_permille(success_rate);
+        let gain = if rng.below(1_000) < chance {
+            let slot = super::jobs::reward_slot(&mut rng, kind);
+            let points = super::jobs::points(&mut rng, grade);
+            slot.add_to(&mut self.document.job_bonus, points);
+            Some((slot, points))
+        } else {
+            None
+        };
+        self.document.stones = self.document.stones.saturating_add(wage);
+        // A finished job hands over a new board: the outing is over, and the next
+        // three are what the cultivator walks back into.
+        self.document.jobs_roll = self.document.jobs_roll.saturating_add(1);
+        let paid = WorkPaid {
+            stones: wage,
+            hours: run.hours,
+            grade,
+            kind,
+            success_rate,
+            gain,
+        };
+        self.last_work = Some(paid);
+        self.push_event(
+            now_unix,
+            EventDetail::Work {
+                stones: wage,
+                hours: run.hours,
+                grade,
+                success_rate,
+                gain,
+            },
+        );
+        Some(paid)
+    }
+
+    /// Whether the cultivator is at home right now: no walk and no expedition
+    /// is under way.
+    ///
+    /// The walk and the expedition are their own cooldowns — the road pays when
+    /// it comes home, the site pays when the expedition ends — so being home is
+    /// the whole gate. An outing whose time has passed is settled by the
+    /// worker's tick, and by [`Self::explore`] and [`Self::start_expedition`]
+    /// on the way in, so this never says "out" about one that is already back.
+    pub fn exploration_ready(&self, now_unix: i64) -> bool {
+        match self.document.walk {
+            // A walk whose time is up is home whether or not the tick has come
+            // round to settle it yet: a page that said "still out" about a walk
+            // that is back would be reading the clock wrong, not the walk.
+            Some(walk) => walk.is_home(now_unix),
+            None => match self.document.expedition {
+                // The same reading for an expedition: a page that said "still
+                // out" about one already back would be lying the same way.
+                Some(expedition) => expedition.is_home(now_unix),
+                None => true,
+            },
+        }
+    }
+
+    /// The walk under way, if the cultivator is out.
+    pub fn walk(&self) -> Option<super::WalkInProgress> {
+        self.document.walk
+    }
+
+    /// The instant the walk under way comes home, while one is out.
+    pub fn walk_home_at(&self) -> Option<i64> {
+        self.document.walk.map(|walk| walk.ends_unix)
+    }
+
+    /// The floor the next attempt climbs.
+    pub fn trial_next_floor(&self) -> u16 {
+        self.document.trial_floor.saturating_add(1)
+    }
+
+    /// How many floors the local day still offers.
+    ///
+    /// Reset by the day rather than by elapsed time: five floors belong to a
+    /// date the way the shelf does, so a save that has not played since
+    /// yesterday is owed five today whatever the hour.
+    pub fn trial_attempts_left(&self, day: i64) -> u32 {
+        if self.document.trial_day != Some(day) {
+            return TRIAL_ATTEMPTS_PER_DAY;
+        }
+        TRIAL_ATTEMPTS_PER_DAY.saturating_sub(self.document.trial_attempts_today)
+    }
+
+    /// Whether a job in hand is still holding the cultivator.
+    ///
+    /// The same reading the road applies to a walk: an outing whose hours have
+    /// passed is over whether or not the tick has come round to settle it, so a
+    /// fight refused because of a job that is already done would be reading the
+    /// clock wrong. The tick pays the wage; this only says where the
+    /// cultivator is, and the tower and the 试炼 ask it the same question.
+    fn working(&self, now_unix: i64) -> bool {
+        self.document
+            .work
+            .is_some_and(|work| !work.is_done(now_unix))
+    }
+
+    /// What calling the outing under way home would cost, in seconds.
+    ///
+    /// The same price for both kinds of outing, read off the one shared rule: a
+    /// third of the time already spent. Zero while at home, so a caller can read
+    /// it without asking whether anyone is out first.
+    fn return_trip_now(&self, now_unix: i64) -> i64 {
+        if let Some(expedition) = self
+            .document
+            .expedition
+            .filter(|expedition| !expedition.is_home(now_unix))
+        {
+            return super::explore::return_trip_seconds(
+                now_unix.saturating_sub(expedition.started_unix),
+            );
+        }
+        if let Some(walk) = self.document.walk.filter(|walk| !walk.is_home(now_unix)) {
+            return super::explore::return_trip_seconds(now_unix.saturating_sub(walk.started_unix));
+        }
+        if let Some(work) = self.document.work.filter(|work| !work.is_done(now_unix)) {
+            return super::explore::return_trip_seconds(now_unix.saturating_sub(work.started_unix));
+        }
+        0
+    }
+
+    /// Why the tower is closed right now, or `None` when a floor can be climbed.
+    ///
+    /// Four different walls, and the page prints which one it hit: out on a
+    /// walk, at a job, out of the day's attempts, or past the last floor. A
+    /// button that went quiet without saying which would read as broken.
+    pub fn trial_blocked(&self, now_unix: i64, day: i64) -> Option<TrialBlocked> {
+        if self.trial_next_floor() > TRIAL_MAX_FLOOR {
+            return Some(TrialBlocked::Top);
+        }
+        if !self.exploration_ready(now_unix) {
+            return Some(TrialBlocked::Out);
+        }
+        if self.working(now_unix) {
+            return Some(TrialBlocked::Working);
+        }
+        if self.trial_attempts_left(day) == 0 {
+            return Some(TrialBlocked::Drained);
+        }
+        None
+    }
+
+    /// Why the 试炼 cannot be fought right now, or `None` when it can.
+    ///
+    /// The two home fights ask the same question in the same order, so the page
+    /// and the domain cannot disagree about the reason: still on the road, then
+    /// still at work, then out of chances.
+    pub fn proving_blocked(&self, now_unix: i64) -> Option<ProvingBlocked> {
+        if !self.exploration_ready(now_unix) {
+            return Some(ProvingBlocked::Out);
+        }
+        if self.working(now_unix) {
+            return Some(ProvingBlocked::Working);
+        }
+        if self.document.proving_tokens == 0 {
+            return Some(ProvingBlocked::Spent);
+        }
+        None
+    }
+
+    /// Climb one floor of the 试炼 tower.
+    ///
+    /// The gate is the day's attempts and the cultivator's whereabouts, not a
+    /// cost: a floor is refused while a walk is still out — the tower is climbed
+    /// at home — and while the day's five are spent. A win clears the floor,
+    /// moves the frontier up one and rolls what it turned up; a loss costs
+    /// nothing but the attempt, and leaves the frontier where it stood, so the
+    /// tower is a wall to be worn down rather than a ladder that drops.
+    pub fn trial(&mut self, now_unix: i64, day: i64) -> Option<TrialOutcome> {
+        // A walk that is home is settled first: the courtyard is closed to a
+        // walk that is *out*, not to one whose find has not been read yet. The
+        // same for the job in hand — the fight waits for the road, not for the
+        // tick that pays the wage.
+        self.settle_walk(now_unix);
+        self.settle_work(now_unix);
+        if let Some(blocked) = self.trial_blocked(now_unix, day) {
+            self.note_refusal(blocked.refusal());
+            return None;
+        }
+        // The day is stamped on the first floor of it, so the count the page
+        // reads and the count the next attempt spends cannot disagree.
+        if self.document.trial_day != Some(day) {
+            self.document.trial_day = Some(day);
+            self.document.trial_attempts_today = 0;
+        }
+        let floor = self.trial_next_floor();
+        self.document.trial_attempts_today = self.document.trial_attempts_today.saturating_add(1);
+        self.document.trials = self.document.trials.saturating_add(1);
+        self.trial_attempts = self.trial_attempts.saturating_add(1);
+        let mut rng = self.rng(now_unix);
+        let fighter = self.fighter(&mut rng);
+        // A floor's warden is drawn from a band around the floor's own rung each
+        // attempt: the page prints the band's middle, and the duel settles the
+        // draw — so the climb is a gamble at the frontier, not a formality.
+        let rival = opponent::warden(floor, &mut rng);
+        let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
+        self.record_duel(duel.won, FightKind::Trial, now_unix);
+        let mut found = ExplorationFindView::default();
+        if duel.won {
+            self.document.trial_floor = floor.min(TRIAL_MAX_FLOOR);
+            // The warden is the source, so what the floor pays is read off the
+            // body that defended it: a floor reached past the save's own realm
+            // hands over that realm's goods, which is how the tower is a way
+            // down the ladder rather than a second one.
+            let strength = Strength::of(rival.attributes.power());
+            match roll_reward(&mut rng) {
+                TrialReward::Seed => {
+                    let attribute =
+                        Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
+                    let grade = roll_seed_grade(&mut rng);
+                    found.seed = Some(self.push_seed(attribute, strength.tier(), grade, &mut rng));
+                }
+                TrialReward::Gear => {
+                    if let Some(item) = self.take_gear(&rival, strength, &mut rng) {
+                        found.gear = Some(self.item_view(&item));
+                    }
+                }
+                TrialReward::Art => {
+                    found.art = self.take_art(&rival, floor_realm(floor), now_unix);
+                }
+                TrialReward::Nothing => {}
+            }
+            // The floor's purse, drawn beside the finding: a cleared floor
+            // always pays a little, so a run of empty rolls is still a run that
+            // bought something.
+            // Opened at the floor's own realm, so a deeper floor pays more even
+            // within one realm's climb.
+            if let Some(amount) = Some(roll_stones(
+                &mut rng,
+                TRIAL_STONES,
+                floor_realm(floor).index() as u8 + 1,
+            )) {
+                self.document.stones = self.document.stones.saturating_add(amount);
+                found.stones = Some(amount);
+            }
+        }
+        self.push_event(
+            now_unix,
+            EventDetail::Trial {
+                floor,
+                won: duel.won,
+                art: found.art.clone(),
+                gear: found.gear.as_ref().and_then(|item| item.name.clone()),
+                seed: found.seed.as_ref().and_then(|seed| seed.name.clone()),
+                stones: found.stones,
+            },
+        );
+        let outcome = TrialOutcome {
+            floor,
+            warden_power: warden_power(floor),
+            duel,
+            found,
+        };
+        self.last_trial = Some(outcome.clone());
+        Some(outcome)
+    }
+
+    /// Whether the next floor would be a sweep rather than a fight: the
+    /// cultivator is overwhelmingly stronger than the warden — more than half
+    /// again — so the floor is no contest and the tower offers the skip.
+    pub fn trial_sweepable(&self) -> bool {
+        let floor = self.trial_next_floor();
+        if floor > TRIAL_MAX_FLOOR {
+            return false;
+        }
+        // The sweep measures against the floor's own rung, not the scaled
+        // fight: a save far above the rung is offered the skip even though the
+        // band would have made the floor a contest — the rung is the ladder the
+        // tower is named for, and the skip is for a save that has outgrown it.
+        self.power() > opponent::floor_rung_power(floor).saturating_mul(3) / 2
+    }
+
+    /// Sweep the next stretch of the tower: one overwhelmingly strong
+    /// cultivator clears up to ten floors in one action, the fights skipped
+    /// because none of them was a contest, and every swept floor's reward paid
+    /// at once.
+    ///
+    /// The same walls the single climb answers to close the sweep too, and one
+    /// sweep spends one of the day's attempts — the floors are the reward for
+    /// being the stronger body, not a second ration of the day.
+    pub fn trial_sweep(&mut self, now_unix: i64, day: i64) -> Option<TrialSweepOutcome> {
+        self.settle_walk(now_unix);
+        self.settle_work(now_unix);
+        if let Some(blocked) = self.trial_blocked(now_unix, day) {
+            self.note_refusal(blocked.refusal());
+            return None;
+        }
+        let from_floor = self.trial_next_floor();
+        if !self.trial_sweepable() {
+            self.note_refusal(Refusal::TrialNotSweepable);
+            return None;
+        }
+        if self.document.trial_day != Some(day) {
+            self.document.trial_day = Some(day);
+            self.document.trial_attempts_today = 0;
+        }
+        let floors = 10u16.min(TRIAL_MAX_FLOOR.saturating_sub(from_floor).saturating_add(1));
+        self.document.trial_attempts_today = self.document.trial_attempts_today.saturating_add(1);
+        self.document.trials = self.document.trials.saturating_add(1);
+        self.trial_attempts = self.trial_attempts.saturating_add(1);
+        let mut rng = self.rng(now_unix);
+        let mut found = TrialSweepOutcome {
+            from_floor,
+            floors,
+            ..TrialSweepOutcome::default()
+        };
+        for step in 0..floors {
+            let floor = from_floor + step;
+            let rival = opponent::warden(floor, &mut rng);
+            let strength = Strength::of(rival.attributes.power());
+            match roll_reward(&mut rng) {
+                TrialReward::Seed => {
+                    let attribute =
+                        Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
+                    let grade = roll_seed_grade(&mut rng);
+                    self.push_seed(attribute, strength.tier(), grade, &mut rng);
+                    found.seeds = found.seeds.saturating_add(1);
+                }
+                TrialReward::Gear => {
+                    if self.take_gear(&rival, strength, &mut rng).is_some() {
+                        found.gear = found.gear.saturating_add(1);
+                    }
+                }
+                TrialReward::Art => {
+                    if self
+                        .take_art(&rival, floor_realm(floor), now_unix)
+                        .is_some()
+                    {
+                        found.arts = found.arts.saturating_add(1);
+                    }
+                }
+                TrialReward::Nothing => {}
+            }
+            // The floor's purse, drawn beside the finding: a cleared floor
+            // always pays a little, so a swept stretch always buys something.
+            let amount = roll_stones(&mut rng, TRIAL_STONES, floor_realm(floor).index() as u8 + 1);
+            self.document.stones = self.document.stones.saturating_add(amount);
+            found.stones = found.stones.saturating_add(amount);
+        }
+        self.document.trial_floor = (from_floor + floors - 1).min(TRIAL_MAX_FLOOR);
+        self.push_event(
+            now_unix,
+            EventDetail::TrialSweep {
+                from_floor,
+                floors,
+                seeds: found.seeds,
+                gear: found.gear,
+                arts: found.arts,
+                stones: found.stones,
+            },
+        );
+        let outcome = found.clone();
+        self.last_trial_sweep = Some(outcome.clone());
+        Some(outcome)
+    }
+
+    /// Spend one 试炼 chance on a fight at the cultivator's own level.
+    ///
+    /// The courtyard is fought at home, so the same two walls the tower has
+    /// close it too: a walk still on the road and a job still in hand are hours
+    /// of the same day, and the cultivator is only in one place at a time. What
+    /// this fight adds is its own ration — a banked chance, one per finished
+    /// pomodoro, ten at most — and the opponent is rolled per meeting at the
+    /// cultivator's own level: a 试炼 is a fight, not a wall. A win pays the
+    /// 锁妖塔's base table, so the two dungeons differ in when they pay, not
+    /// what.
+    pub fn proving(&mut self, now_unix: i64) -> Option<ProvingOutcome> {
+        // The walk that is home is settled before the courtyard is asked, the
+        // way the tower does it: the gate is where the cultivator is, not
+        // whether the tick has come round.
+        self.settle_walk(now_unix);
+        self.settle_work(now_unix);
+        if let Some(blocked) = self.proving_blocked(now_unix) {
+            self.note_refusal(blocked.refusal());
+            return None;
+        }
+        self.document.proving_tokens = self.document.proving_tokens.saturating_sub(1);
+        self.provings = self.provings.saturating_add(1);
+        let mut rng = self.rng(now_unix);
+        let fighter = self.fighter(&mut rng);
+        let tier = self.realm().index() as u8 + 1;
+        let rival = opponent::challenger(self.level(), tier, rng.below(u64::MAX));
+        let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
+        self.record_duel(duel.won, FightKind::Wanderer, now_unix);
+        let mut found = ExplorationFindView::default();
+        if duel.won {
+            let strength = Strength::of(rival.attributes.power());
+            match roll_reward(&mut rng) {
+                TrialReward::Seed => {
+                    let attribute =
+                        Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
+                    let grade = roll_seed_grade(&mut rng);
+                    found.seed = Some(self.push_seed(attribute, strength.tier(), grade, &mut rng));
+                }
+                TrialReward::Gear => {
+                    if let Some(item) = self.take_gear(&rival, strength, &mut rng) {
+                        found.gear = Some(self.item_view(&item));
+                    }
+                }
+                TrialReward::Art => {
+                    found.art = self.take_art(&rival, self.realm(), now_unix);
+                }
+                TrialReward::Nothing => {}
+            }
+            // Every fight pays a purse of its own size (ADR-0096), and the
+            // courtyard was the one that did not: its only reward was the
+            // exclusive roll above, which comes up empty most of the time, so a
+            // clean win could pay the cultivator nothing at all. The purse is
+            // drawn at the realm the bout was fought in, like every other one.
+            let stones = roll_stones(&mut rng, PROVING_STONES, tier);
+            self.document.stones = self.document.stones.saturating_add(stones);
+            found.stones = Some(stones);
+            // A beaten challenger can leave a 洗髓丹 behind, on the same odds
+            // every other fight rolls: the pill is not a tower's privilege.
+            self.roll_marrow_from_combat(rival.attributes.power(), &mut rng, now_unix);
+        }
+        self.push_event(
+            now_unix,
+            EventDetail::Proving {
+                won: duel.won,
+                art: found.art.clone(),
+                gear: found.gear.as_ref().and_then(|item| item.name.clone()),
+                seed: found.seed.as_ref().and_then(|seed| seed.name.clone()),
+                stones: found.stones,
+            },
+        );
+        let outcome = ProvingOutcome { duel, found };
+        self.last_proving = Some(outcome.clone());
+        Some(outcome)
+    }
+
+    /// What the day opened with, once per local day.
+    ///
+    /// Called by the worker's tick, not by a click: the day has to arrive on its
+    /// own, whether the machine was launched this morning or left running over
+    /// midnight. `None` on every tick after the first of a day, so the trick is
+    /// idempotent without the caller having to remember anything.
+    ///
+    /// An ambush is a real fight — the wanderer off the road, the same engine and
+    /// the same record — and a gift or a coin is paid straight into the satchel.
+    /// Nothing is ever taken away: the morning can only add.
+    pub fn daily_event(&mut self, now_unix: i64, day: i64) -> Option<DailyOutcome> {
+        if self.document.daily_event_day == Some(day) {
+            return None;
+        }
+        self.document.daily_event_day = Some(day);
+        self.daily_events = self.daily_events.saturating_add(1);
+        let mut rng = self.rng(now_unix);
+        let kind = roll_kind(&mut rng);
+        let mut outcome = DailyOutcome {
+            kind,
+            won: true,
+            duel: None,
+            found: ExplorationFindView::default(),
+        };
+        let tier = self.realm().index() as u8 + 1;
+        match kind {
+            DailyKind::Ambush => {
+                let fighter = self.fighter(&mut rng);
+                let rival = opponent::wanderer(self.realm(), rng.below(u64::MAX));
+                let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
+                self.record_duel(duel.won, FightKind::Wanderer, now_unix);
+                outcome.won = duel.won;
+                if duel.won {
+                    outcome.found = self.award_wanderer_find(&rival, &mut rng, now_unix);
+                    // The ambush is a fight like any other, so it rolls the
+                    // pill on the same odds: the stronger the ambusher, the
+                    // better the chance it was carrying one.
+                    self.roll_marrow_from_combat(rival.attributes.power(), &mut rng, now_unix);
+                    let amount = roll_stones(&mut rng, DAILY_AMBUSH_STONES, tier);
+                    self.document.stones = self.document.stones.saturating_add(amount);
+                    outcome.found.stones = Some(amount);
+                }
+                outcome.duel = Some(duel);
+            }
+            DailyKind::Gift => match roll_gift(&mut rng) {
+                GiftKind::Stones => {
+                    let amount = roll_stones(&mut rng, DAILY_GIFT_STONES, tier);
+                    self.document.stones = self.document.stones.saturating_add(amount);
+                    outcome.found.stones = Some(amount);
+                }
+                GiftKind::Seed => {
+                    let attribute =
+                        Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
+                    // A gift is the quiet kind of source, so it is the
+                    // cultivator's own strength that decides what the day hands
+                    // over: nothing was fought for it.
+                    let strength = Strength::of(self.power());
+                    let grade = roll_seed_grade(&mut rng);
+                    outcome.found.seed =
+                        Some(self.push_seed(attribute, strength.tier(), grade, &mut rng));
+                }
+                GiftKind::Gear => {
+                    let strength = Strength::of(self.power());
+                    match self.push_equipment(strength, &mut rng) {
+                        Some(item) => outcome.found.gear = Some(self.item_view(&item)),
+                        // A gift always hands something over — that is what makes
+                        // it a gift — so a wardrobe that rolled up empty becomes
+                        // the purse it would have been worth.
+                        None => {
+                            let amount = roll_stones(&mut rng, DAILY_GIFT_STONES, tier);
+                            self.document.stones = self.document.stones.saturating_add(amount);
+                            outcome.found.stones = Some(amount);
+                        }
+                    }
+                }
+            },
+            DailyKind::Trinket => {
+                let amount = roll_stones(&mut rng, DAILY_TRINKET_STONES, tier);
+                self.document.stones = self.document.stones.saturating_add(amount);
+                outcome.found.stones = Some(amount);
+            }
+        }
+        // A gift or a trinket is a random event, so it carries the same one in
+        // ten thousand the shelf does. An ambush rolls its own odds above, and a
+        // lost ambush finds nothing.
+        if !matches!(kind, DailyKind::Ambush) {
+            self.roll_marrow_from_fortune(&mut rng, now_unix);
+        }
+        let found = outcome.found.clone();
+        self.push_event(
+            now_unix,
+            EventDetail::Daily {
+                kind,
+                won: outcome.won,
+                art: found.art,
+                gear: found.gear.as_ref().and_then(|item| item.name.clone()),
+                seed: found.seed.as_ref().and_then(|seed| seed.name.clone()),
+                stones: found.stones,
+            },
+        );
+        self.last_daily_event = Some(outcome.clone());
+        Some(outcome)
+    }
+
+    /// The guardian offered right now, or `None` while the realm still has
+    /// layers to climb.
+    pub fn guardian(&self) -> Option<Guardian> {
+        let realm = self.realm();
+        (self.level() >= realm.cap_level())
+            .then(|| guardian_for(realm))
+            .flatten()
+    }
+
+    /// Read the snapshot a surface renders, without a clock.
+    ///
+    /// Only the tests reach for this: a surface has a clock and asks for
+    /// [`Self::view_on`], so the cooldowns it reads are the real ones.
+    pub fn view(&self) -> CultivationView {
+        self.view_on(0, 0)
+    }
+
+    /// Read the snapshot a surface renders.
+    ///
+    /// The local day is passed in rather than derived from the timestamp,
+    /// because the day is a local one: the session counter resets on it, and
+    /// the shelf is rolled from it. A surface that worked the day out for
+    /// itself could be a timezone's worth of hours out — which would show
+    /// yesterday's shelf and price the next pomodoro as the second of the day
+    /// when it is really the first.
+    pub fn view_on(&self, now_unix: i64, day: i64) -> CultivationView {
+        let realm = self.realm();
+        let level = self.level();
+        let said = layer_rank(level);
+        let floor = threshold_for(level);
+        let next = (level < realm.cap_level()).then(|| threshold_for(level + 1));
+        let level_attributes = self.level_attributes();
+        let equipment_attributes = self.equipment_attributes();
+        let crop_attributes = self.crop_attributes();
+        let allocated_attributes = self.allocated_attributes();
+        let art_attributes = self.art_attributes();
+        let attributes = level_attributes
+            .plus(equipment_attributes)
+            .plus(crop_attributes)
+            .plus(allocated_attributes)
+            .plus(art_attributes);
+        let bonus = self.equipment_bonus().plus(self.art_bonus());
+        let attribute_derived = attributes.derived();
+        // 潜质 is its own fractional number now, not a slice of 根骨: the
+        // outright lines are folded into it by the one reader, so the rate a
+        // row prints and the roll a session makes are the same value.
+        let aptitude_tenths = self.aptitude_tenths();
+        let derived = attribute_derived.plus(bonus);
+        let arts: Vec<ArtView> = self
+            .document
+            .arts
+            .iter()
+            .map(|art| {
+                art_view(
+                    art,
+                    aptitude_tenths,
+                    self.document.selected_art == Some(art.art_id),
+                    self.document.dojo_level,
+                )
+            })
+            .collect();
+        let mut mastered_arts: Vec<MasteredArtView> = self
+            .document
+            .mastered_arts
+            .iter()
+            .map(|id| MasteredArtView {
+                sold: self.document.sold_mastered_arts.contains(id),
+                ..mastered_art_view(*id)
+            })
+            .collect();
+        // A book trained to its first 阶 is 已习得 as far as it has gone: it
+        // reports here with the 阶 it stands at and no mastery yet, while the
+        // shelf keeps the training and the selling.
+        for owned in &self.document.arts {
+            if owned.rank == 0 {
+                continue;
+            }
+            mastered_arts.push(MasteredArtView {
+                rank: owned.rank,
+                max_rank: blueprint(owned.art_id).grade.ranks(),
+                complete: false,
+                mastery_permille: 0,
+                sold: false,
+                ..mastered_art_view(owned.art_id)
+            });
+        }
+        // Furthest along first: the three on the page are the books nearest to
+        // paying, and a 神阶 art at its ninth 阶 of twenty-seven is not nearer
+        // done than a 黄阶 art at its second of three — so the ratio is what
+        // ranks them, not the 阶. Equal ratios rank the better grade, because a
+        // 神阶 half-read is worth more than a 黄阶 half-read; a tie there falls
+        // back to the recent ring, which keeps the rest in the order they were
+        // last worked on.
+        let recent = &self.document.recent_arts;
+        let rank_of = |id: u64| {
+            recent
+                .iter()
+                .position(|held| *held == id)
+                .unwrap_or(usize::MAX)
+        };
+        mastered_arts.sort_by(|left, right| {
+            // rank/max_rank compared by cross-multiplication, so the ratio stays
+            // exact in integers and no float ever decides the order.
+            let left_share = u32::from(left.rank) * u32::from(right.max_rank);
+            let right_share = u32::from(right.rank) * u32::from(left.max_rank);
+            right_share
+                .cmp(&left_share)
+                .then_with(|| right.grade.cmp(&left.grade))
+                .then_with(|| rank_of(left.id).cmp(&rank_of(right.id)))
+        });
+        let mut equipped: [Option<ItemView>; SLOT_COUNT] = array::from_fn(|_| None);
+        let mut inventory = Vec::new();
+        for item in &self.document.equipment {
+            let view = self.item_view(item);
+            if view.equipped {
+                equipped[item.slot.index()] = Some(view);
+            } else {
+                inventory.push(view);
+            }
+        }
+        inventory.sort_by_key(|item| std::cmp::Reverse(item.id));
+        let worn: Vec<EquipmentRecord> = self.equipped_items().collect();
+        let mut seeds: Vec<SeedView> = self.document.seeds.iter().map(seed_view).collect();
+        seeds.sort_by(|left, right| {
+            right
+                .tier
+                .cmp(&left.tier)
+                .then_with(|| right.grade.cmp(&left.grade))
+                .then_with(|| left.attribute.index().cmp(&right.attribute.index()))
+        });
+        CultivationView {
+            level,
+            realm,
+            layer: said.layer,
+            rank: said.rank,
+            growth: self.document.growth,
+            floor,
+            next,
+            attributes,
+            derived,
+            level_attributes,
+            equipment_attributes,
+            crop_attributes,
+            allocated_attributes,
+            art_attributes,
+            free_points: self.free_points(),
+            power: self.power(),
+            power_breakdown: self.power_breakdown(),
+            equipped,
+            inventory,
+            gear_sets: gear_set_views(&worn),
+            seeds,
+            plots: self
+                .document
+                .plots
+                .iter()
+                .map(|plot| PlotView {
+                    crop: plot.crop.as_ref().map(|crop| CropView {
+                        attribute: crop.attribute,
+                        herb: crop.herb,
+                        tier: crop.tier,
+                        grade: crop.grade,
+                        name: crop.name.clone(),
+                        ready_at_unix: crop.ready_at_unix,
+                        withered: crop.stands_dead(now_unix),
+                    }),
+                })
+                .collect(),
+            // What the next plot would cost, and nothing once the garden is
+            // full: the buy button reads this rather than recomputing the
+            // table, so the number on it is the number the domain charges.
+            next_plot_price: plot_price(self.document.plots.len()),
+            garden_rank: self.document.garden_rank,
+            garden_xp: self.document.garden_xp,
+            garden_xp_needed: if self.document.garden_rank < MAX_GARDEN_RANK {
+                rank_xp_total(self.document.garden_rank.saturating_add(1))
+            } else {
+                0
+            },
+            garden_upgrade_cost: (self.document.garden_rank < MAX_GARDEN_RANK)
+                .then(|| rank_cost(self.document.garden_rank)),
+            guardian: self.guardian().map(|guardian| GuardianView {
+                target: guardian.target,
+                power: guardian.power,
+            }),
+            last_breakthrough: self.last_breakthrough.clone(),
+            last_absence: self.last_absence,
+            last_work: self.last_work,
+            work: self.document.work,
+            job_refresh_cost: super::jobs::refresh_cost(super::drop::tier_for_power(self.power())),
+            jobs: self
+                .jobs(day)
+                .into_iter()
+                .enumerate()
+                .map(|(slot, offer)| {
+                    let working = self.document.work.is_some_and(|run| {
+                        run.tier == offer.tier
+                            && run.hours == offer.hours
+                            && run.grade == offer.grade
+                    });
+                    let level = self.level();
+                    let derived = self.derived();
+                    let (first, second) = offer.kind.slots();
+                    JobView {
+                        slot,
+                        tier: offer.tier,
+                        hours: offer.hours,
+                        grade: offer.grade,
+                        stones: offer.stones(),
+                        working,
+                        kind: offer.kind,
+                        requirement: super::jobs::requirement(first, level, offer.grade),
+                        requirement_second: second
+                            .map(|slot| super::jobs::requirement(slot, level, offer.grade)),
+                        current_first: first.of(derived),
+                        current_second: second.map(|slot| slot.of(derived)),
+                        success_rate: super::jobs::success_rate_permille(
+                            offer.kind,
+                            derived,
+                            level,
+                            offer.grade,
+                        ),
+                    }
+                })
+                .collect(),
+            last_drop: self.last_drop.clone().map(|drop| match drop {
+                Drop::Equipment(item) => DropView::Equipment(ItemView {
+                    id: item.id,
+                    slot: item.slot,
+                    tier: item.tier,
+                    rarity: item.rarity,
+                    attributes: item.effective_attributes(),
+                    bonus: item.effective_bonus(),
+                    equipped: false,
+                    star: item.star(),
+                    effect: item.effect,
+                    star_cost: (!item.star_capped())
+                        .then(|| star_up_cost(&item, self.document.smithy_level)),
+                    name: item.name.clone(),
+                    set: item.set,
+                    sell_price: shop::ShopOffer::Equipment(item.clone()).sell_price(),
+                }),
+                Drop::Seed {
+                    attribute,
+                    tier,
+                    grade,
+                } => DropView::Seed {
+                    attribute,
+                    tier,
+                    grade,
+                },
+                Drop::Art { name } => DropView::Art { name },
+                Drop::Herb { herb, .. } => DropView::Herb { herb },
+                Drop::Stones(stones) => DropView::Stones(stones),
+            }),
+            last_seed_return: self.last_seed_return.clone(),
+            arts,
+            mastered_arts,
+            art_sets: art_set_views(&self.document.arts),
+            art_power: self.art_power(),
+            external_power: self.external_power(),
+            aptitude_tenths,
+            aptitude_herbs: self.aptitude_herbs(),
+            marrow_gate_cost: super::aptitude::next_gate(aptitude_tenths).map(|(_, cost)| cost),
+            total_levels: MAX_LEVEL,
+            realm_full: self.level() >= self.realm().cap_level(),
+            selected_art: self.document.selected_art,
+            last_training: self.last_training.clone(),
+            last_exploration_duel: self.last_exploration_duel.clone(),
+            last_exploration: self.last_exploration,
+            last_exploration_found: self.last_exploration_found.clone(),
+            exploration_ready: self.exploration_ready(now_unix),
+            // The door the log reads through is the same door the tower and the
+            // 试炼 ask: a walk whose time is up or a job whose hours have passed
+            // is home whether or not the tick has settled it yet, so the status
+            // line agrees with what the page actually lets the cultivator do.
+            at_home: self.exploration_ready(now_unix) && !self.working(now_unix),
+            breakthrough_ready: breakthrough_ready(
+                self.document.breakthrough_blocked_until,
+                now_unix,
+            ),
+            exploration_ready_at: self.walk_home_at(),
+            exploration_hours: super::ExplorationHours::from_hours(
+                self.document.last_exploration_hours,
+            ),
+            // Whether the walk under way has already been called home: the page
+            // draws the button as "on its way back" rather than offering to
+            // call a called walk.
+            walk_early: self.document.walk.is_some_and(|walk| walk.early),
+            // And the same for a shift: a called shift is still a shift until
+            // the trip home is over, so the page says so rather than letting a
+            // second call look live and do nothing.
+            work_early: self.document.work.is_some_and(|work| work.early),
+            outing_return_seconds: self.return_trip_now(now_unix),
+            breakthrough_ready_at: self.document.breakthrough_blocked_until,
+            breakthrough_attempts: self.breakthrough_attempts,
+            explorations: self.document.explorations,
+            trial_floor: self.document.trial_floor,
+            trial_next_floor: self.trial_next_floor(),
+            trial_warden_power: warden_power(self.trial_next_floor()),
+            trial_attempts_left: self.trial_attempts_left(day),
+            trial_blocked: self.trial_blocked(now_unix, day),
+            last_trial: self.last_trial.clone(),
+            trial_sweepable: self.trial_sweepable(),
+            last_trial_sweep: self.last_trial_sweep.clone(),
+            trial_attempts: self.trial_attempts,
+            proving_tokens: self.document.proving_tokens,
+            proving_token_cap: TRIAL_CHANCES_CAP,
+            proving_blocked: self.proving_blocked(now_unix),
+            provings: self.provings,
+            last_proving: self.last_proving.clone(),
+            last_daily_event: self.last_daily_event.clone(),
+            daily_event_day: self.document.daily_event_day,
+            daily_events: self.daily_events,
+            daily_event_seen_day: self.document.daily_event_seen_day,
+            star_attempts: self.star_attempts,
+            last_star: self.last_star.clone(),
+            last_collect: self.last_collect.clone(),
+            last_building: self.last_building.clone(),
+            exploration_region: super::explore::Region::from_realm(self.realm()).index() as u8,
+            exploration_level: {
+                let region = super::explore::Region::from_realm(self.realm());
+                self.cleared_level(region.index()).saturating_add(1)
+                    .min(super::explore::MAX_LEVEL)
+            },
+            walk_level: self
+                .document
+                .walk
+                .as_ref()
+                .map_or(0, |walk| walk.level),
+            explored_levels: self.document.explored_levels,
+            region_progress: self.document.region_progress,
+            resources: self.resources_view(),
+            session_mode: self.session_mode(),
+            next_session_growth: self.next_session_growth(day),
+            derived_breakdowns: attribute_derived.breakdowns(attributes, bonus, level),
+            duel_record: self.document.duel_record.clone(),
+            last_walk: self.document.last_walk.clone(),
+            events: self.document.events.clone(),
+            stones: self.document.stones,
+            last_refusal: self.last_refusal,
+            refusal_count: self.refusal_count,
+            day,
+            shop_offers: self.shop(day),
+        }
+    }
+
+    /// What the next finished session pays, in growth.
+    ///
+    /// The number rather than the multiplier the four disciplines add up to: the
+    /// disciplines are not shown, so a percentage would be a rule the user can
+    /// neither see nor move. This is the growth the next pomodoro is worth, and
+    /// it is read from the same formula the session itself is paid by, so the
+    /// two cannot disagree.
+    ///
+    /// The session number is the one the next session will actually be: the
+    /// counter resets when the day changes, so a session that lands on a new day
+    /// is the first of that day rather than the next of this one.
+    fn next_session_growth(&self, day: i64) -> u32 {
+        let stage = self.realm().index() as u32 + 1;
+        let session_number = if self.document.last_active_day == Some(day) {
+            self.document.session_count_today.saturating_add(1)
+        } else {
+            1
+        };
+        scaled_growth(
+            super::session_growth(session_number, stage),
+            self.growth_multiplier_permille(),
+        )
+    }
+
+    /// The 阶 of the 功法 a finished session trains, or zero when none is chosen.
+    ///
+    /// The 修炼 dimension is trained by this and nothing else, so both the bar and
+    /// the session multiplier read it from here.
+    fn trained_art_rank(&self) -> u8 {
+        self.document
+            .selected_art
+            .and_then(|id| self.document.arts.iter().find(|art| art.art_id == id))
+            .map_or(0, |art| art.rank)
+    }
+
+    /// One owned item as a surface reads it, worn or not.
+    fn item_view(&self, item: &EquipmentRecord) -> ItemView {
+        ItemView {
+            id: item.id,
+            slot: item.slot,
+            tier: item.tier,
+            rarity: item.rarity,
+            // The numbers the piece actually pays, stars folded in: what the
+            // fight reads and what the row prints are the same numbers.
+            attributes: item.effective_attributes(),
+            bonus: item.effective_bonus(),
+            equipped: self
+                .document
+                .equipped
+                .get(item.slot.index())
+                .copied()
+                .flatten()
+                == Some(item.id),
+            star: item.star(),
+            effect: item.effect,
+            // What one more star costs, and nothing once the piece holds every
+            // star it can: a button that asked for a star that cannot be had
+            // would be a button that lies.
+            star_cost: (!item.star_capped())
+                .then(|| star_up_cost(item, self.document.smithy_level)),
+            name: item.name.clone(),
+            set: item.set,
+            sell_price: shop::ShopOffer::Equipment(item.clone()).sell_price(),
+        }
+    }
+}
+
+// The shop's transitions live here rather than beside the shop's types: each one
+// reads and writes the document's private fields, and a separate module could
+// only do that by reaching through a `&mut Cultivation` it was handed.
+impl Cultivation {
+    /// The day's shelf, as a surface reads it.
+    ///
+    /// Rolled from the day and the realm, so the same day always shows the same
+    /// goods and a document cannot carry a shelf it never would have rolled. The
+    /// bought slots are cleared here rather than in the domain's own transition:
+    /// a user who opens the page on a new day — or after a 破境 re-rolled the
+    /// same day's shelf — has, for that page, a new shelf.
+    pub fn shop(&self, today: i64) -> Vec<ShopOfferView> {
+        let realm = self.realm();
+        let bought: &[u8] = if self.shop_bought_valid(today) {
+            &self.document.shop_bought
+        } else {
+            &[]
+        };
+        let offers = shop::roll_offers(today, realm, self.shop_seed(today));
+        // The day's specials are read off the same day and realm as the shelf,
+        // so the row's cut and the price a purchase charges are one number seen
+        // twice rather than two guesses at the same discount.
+        let specials = shop::special_slots(today, realm, offers.len());
+        offers
+            .into_iter()
+            .enumerate()
+            .map(|(slot, offer)| {
+                let list_price = offer.price();
+                let discount_permille = specials
+                    .iter()
+                    .find(|(special, _)| *special == slot)
+                    .map_or(0, |(_, permille)| *permille);
+                let price = if discount_permille == 0 {
+                    list_price
+                } else {
+                    shop::discounted_price(list_price, discount_permille)
+                };
+                ShopOfferView {
+                    offer: offer.clone(),
+                    price,
+                    list_price,
+                    discount_permille,
+                    sell_price: offer.sell_price(),
+                    bought: bought.contains(&(slot as u8)),
+                    slot,
+                    art_ownership: match &offer {
+                        ShopOffer::Art { art_id }
+                            if self.document.mastered_arts.contains(art_id) =>
+                        {
+                            Some(shop::ArtOwnership::Mastered)
+                        }
+                        ShopOffer::Art { art_id }
+                            if self.document.arts.iter().any(|art| art.art_id == *art_id) =>
+                        {
+                            Some(shop::ArtOwnership::Shelved)
+                        }
+                        _ => None,
+                    },
+                }
+            })
+            .collect()
+    }
+
+    /// Buy one of the day's offers.
+    ///
+    /// The slot is what a command names, not the item, because the shelf is
+    /// regenerated from the day: naming the item would mean a click on an item
+    /// from yesterday's shelf could buy today's item in the same slot.
+    pub fn buy_from_shop(
+        &mut self,
+        slot: usize,
+        today: i64,
+        now_unix: i64,
+    ) -> Result<ShopOffer, TradeRefusal> {
+        self.roll_shop_day(today);
+        let realm = self.realm();
+        let shelf = shop::roll_offers(today, realm, self.shop_seed(today));
+        let Some(offer) = shelf.get(slot).cloned() else {
+            return Err(TradeRefusal::NoSuchOffer);
+        };
+        if self.document.shop_bought.contains(&(slot as u8)) {
+            return Err(TradeRefusal::AlreadyBought);
+        }
+        // What the shelf asks, special and all: the button's number is the one
+        // the purchase charges, or the cut would be a label on nothing.
+        let price = match shop::special_slots(today, realm, shelf.len())
+            .into_iter()
+            .find(|(special, _)| *special == slot)
+        {
+            Some((_, permille)) => shop::discounted_price(offer.price(), permille),
+            None => offer.price(),
+        };
+        if self.document.stones < price {
+            return Err(TradeRefusal::NotEnoughStones);
+        }
+        // A 功法 learned outright is the one book the shelf will not sell: there
+        // is no page left in it, so a copy would teach nothing and could not even
+        // be read. A 功法 still on the shelf is a different matter — the buyer is
+        // buying a *spare*, the row says 已有 so the stones are spent knowingly,
+        // and the copy lands beside the one being read.
+        if let ShopOffer::Art { art_id } = &offer
+            && self.document.mastered_arts.contains(art_id)
+        {
+            return Err(TradeRefusal::AlreadyOwned);
+        }
+        self.document.stones -= price;
+        self.document.shop_bought.push(slot as u8);
+        // The goods land the same way a drop's do, so a bought 功法 counts toward
+        // 修炼 and a bought herb plants, rather than sitting in a drawer.
+        let bought = offer.clone();
+        // The log says what was bought, and what it cost: named when the thing
+        // has a name, the kind when it does not, and the price beside both —
+        // a purchase that does not say what it paid is one the buyer cannot
+        // check against the shelf.
+        let what = match &bought {
+            ShopOffer::Equipment(item) => SaleKind::Equipment {
+                name: item.name.clone(),
+                attributes: Some(item.effective_attributes()),
+            },
+            ShopOffer::Seed {
+                attribute,
+                name,
+                tier,
+                grade,
+            } => SaleKind::Seed {
+                name: name.clone(),
+                tier: *tier,
+                grade: *grade,
+                // The herb's own attribute, kept beside its name: the log line
+                // prints what a harvest of it pays, and that needs the attribute
+                // rather than the words in the name.
+                attribute: Some(*attribute),
+            },
+            ShopOffer::Art { art_id } => SaleKind::Art {
+                name: Some(blueprint(*art_id).name),
+                art_id: Some(*art_id),
+            },
+            ShopOffer::Herb { herb, .. } => SaleKind::Herb { herb: *herb },
+        };
+        match bought {
+            ShopOffer::Equipment(item) => {
+                let mut item = item;
+                item.id = self.next_id();
+                self.document.equipment.push(item);
+            }
+            ShopOffer::Seed {
+                attribute,
+                tier,
+                grade,
+                name,
+            } => {
+                let mut rng = self.rng(now_unix);
+                self.push_seed_named(attribute, tier, grade, name, &mut rng);
+            }
+            ShopOffer::Art { art_id } => {
+                // The book that was on the shelf, not another one of its grade:
+                // the shelf names the 功法, and buying a different one would be
+                // a market that sells what it does not show.
+                self.grant_art_book(art_id);
+            }
+            ShopOffer::Herb { herb, grade } => {
+                // A 潜质 herb is bought as a seed: it has to be grown before it
+                // can be taken, so the row hands over the seed the way it hands
+                // over any other seed. A 洗髓丹 lands in the bag, because a pill
+                // is spent by opening a gate from the satchel. The grade the row
+                // showed is the grade the seed carries and the body pays.
+                match herb {
+                    super::AptitudeHerb::Marrow => {
+                        self.document.marrow_pills = self.document.marrow_pills.saturating_add(1);
+                        self.push_event(
+                            now_unix,
+                            EventDetail::MarrowFound {
+                                source: MarrowSource::Shop,
+                            },
+                        );
+                    }
+                    _ => {
+                        self.push_herb_seed(herb, grade);
+                    }
+                }
+            }
+        }
+        self.push_event(
+            now_unix,
+            EventDetail::Bought {
+                what,
+                stones: price,
+            },
+        );
+        Ok(offer)
+    }
+
+    /// Sell one piece of gear for 灵石.
+    pub fn sell_equipment(&mut self, item_id: u64, now_unix: i64) -> Result<u32, TradeRefusal> {
+        let Some(index) = self
+            .document
+            .equipment
+            .iter()
+            .position(|item| item.id == item_id)
+        else {
+            return Err(TradeRefusal::NotOwned);
+        };
+        if self
+            .document
+            .equipped
+            .iter()
+            .flatten()
+            .any(|worn| *worn == item_id)
+        {
+            return Err(TradeRefusal::Equipped);
+        }
+        let item: EquipmentRecord = self.document.equipment.remove(index);
+        let stones = shop::ShopOffer::Equipment(item.clone()).sell_price();
+        self.document.stones = self.document.stones.saturating_add(stones);
+        self.push_event(
+            now_unix,
+            EventDetail::Sold {
+                what: SaleKind::Equipment {
+                    name: item.name.clone(),
+                    attributes: Some(item.effective_attributes()),
+                },
+                stones,
+            },
+        );
+        Ok(stones)
+    }
+
+    /// Sell one 功法 for 灵石 — a book, or the tome of a learned one.
+    ///
+    /// A **copy** is what goes first: a spare sitting beside the book being read
+    /// is sold on its own, and the reading — 阶、进度、失败 — never moves with it.
+    /// The last copy of a book being trained is refused: 修炼 reads it every
+    /// session, and the record of a session that trained a 功法 no longer owned
+    /// would be a lie.
+    ///
+    /// A **已习得** 功法 is sellable too, and selling one sells the tome, not
+    /// the knowledge: the 功法 stays in [`CultivationDocument::mastered_arts`],
+    /// its attributes and its swing stay exactly what they were, and the stones
+    /// are the market's price for the paper. The sale is collected once — a
+    /// tome the market buys again every time it is asked about would be a
+    /// money printer — so the id is written into
+    /// [`CultivationDocument::sold_mastered_arts`] and a second attempt is
+    /// refused.
+    pub fn sell_art(&mut self, art_id: u64, now_unix: i64) -> Result<u32, TradeRefusal> {
+        let copies = self
+            .document
+            .arts
+            .iter()
+            .find(|art| art.art_id == art_id)
+            .map_or(0, |art| art.copies.max(1));
+        if copies > 1 {
+            // A spare goes, the book being read stays: the two are the same
+            // 功法 and the same ladder, and the sale is priced as one book.
+            if let Some(art) = self
+                .document
+                .arts
+                .iter_mut()
+                .find(|art| art.art_id == art_id)
+            {
+                art.copies = copies - 1;
+            }
+        } else if copies == 1 {
+            if self.document.selected_art == Some(art_id) {
+                return Err(TradeRefusal::Training);
+            }
+            self.document.arts.retain(|art| art.art_id != art_id);
+        } else {
+            // A learned 功法 is not in the books; if it is not learned either,
+            // there is nothing here to sell.
+            if !self.document.mastered_arts.contains(&art_id) {
+                return Err(TradeRefusal::NotOwned);
+            }
+            if self.document.sold_mastered_arts.contains(&art_id) {
+                return Err(TradeRefusal::AlreadySold);
+            }
+            self.document.sold_mastered_arts.push(art_id);
+        }
+        let stones = shop::ShopOffer::Art { art_id }.sell_price();
+        self.document.stones = self.document.stones.saturating_add(stones);
+        self.push_event(
+            now_unix,
+            EventDetail::Sold {
+                what: SaleKind::Art {
+                    name: Some(blueprint(art_id).name),
+                    art_id: Some(art_id),
+                },
+                stones,
+            },
+        );
+        Ok(stones)
+    }
+
+    /// Sell one seed from a stack for 灵石.
+    ///
+    /// One at a time rather than the whole stack: a stack is nine seeds and one
+    /// of them, and which of them the user wants to keep is not a question a
+    /// single "sell all" button can ask.
+    pub fn sell_seed(
+        &mut self,
+        attribute: super::Attribute,
+        tier: u8,
+        grade: SeedGrade,
+        now_unix: i64,
+    ) -> Result<u32, TradeRefusal> {
+        let Some(index) = self.document.seeds.iter().position(|stack| {
+            stack.attribute == attribute && stack.tier == tier && stack.grade == grade
+        }) else {
+            return Err(TradeRefusal::NotOwned);
+        };
+        if self.document.seeds[index].count == 0 {
+            return Err(TradeRefusal::NotOwned);
+        }
+        let stack: &mut SeedStack = &mut self.document.seeds[index];
+        stack.count -= 1;
+        let stones = shop::ShopOffer::Seed {
+            attribute,
+            tier,
+            grade,
+            name: stack.name.clone(),
+        }
+        .sell_price();
+        let name = stack.name.clone();
+        if stack.count == 0 {
+            self.document.seeds.remove(index);
+        }
+        self.document.stones = self.document.stones.saturating_add(stones);
+        self.push_event(
+            now_unix,
+            EventDetail::Sold {
+                what: SaleKind::Seed {
+                    name,
+                    tier,
+                    grade,
+                    attribute: Some(attribute),
+                },
+                stones,
+            },
+        );
+        Ok(stones)
+    }
+
+    /// Sell one 潜质 herb seed from a stack for 灵石.
+    ///
+    /// One at a time, the way [`Self::sell_seed`] sells one attribute seed: the
+    /// herb seed is priced as the herb it grows into, not as a tier of
+    /// attribute points.
+    pub fn sell_herb_seed(
+        &mut self,
+        herb: super::AptitudeHerb,
+        grade: SeedGrade,
+        now_unix: i64,
+    ) -> Result<u32, TradeRefusal> {
+        let tier = super::herb_tier(herb);
+        let Some(index) = self.document.seeds.iter().position(|stack| {
+            stack.herb == Some(herb) && stack.tier == tier && stack.grade == grade
+        }) else {
+            return Err(TradeRefusal::NotOwned);
+        };
+        if self.document.seeds[index].count == 0 {
+            return Err(TradeRefusal::NotOwned);
+        }
+        let stack: &mut SeedStack = &mut self.document.seeds[index];
+        stack.count -= 1;
+        let stones = shop::ShopOffer::Herb { herb, grade }.sell_price();
+        if stack.count == 0 {
+            self.document.seeds.remove(index);
+        }
+        self.document.stones = self.document.stones.saturating_add(stones);
+        self.push_event(
+            now_unix,
+            EventDetail::Sold {
+                what: SaleKind::Herb { herb },
+                stones,
+            },
+        );
+        Ok(stones)
+    }
+    ///
+    /// The price doubles with every plot bought, and the garden holds twelve at
+    /// most: a plot is a permanent capacity, so the last one costs what a
+    /// season of sessions earns rather than what one afternoon does. A refusal
+    /// is remembered the way every trade's is, so the page can say why.
+    pub fn buy_plot(&mut self, now_unix: i64) -> Result<u32, TradeRefusal> {
+        let Some(price) = plot_price(self.document.plots.len()) else {
+            return Err(TradeRefusal::PlotLimit);
+        };
+        if self.document.stones < price {
+            return Err(TradeRefusal::NotEnoughStones);
+        }
+        self.document.stones -= price;
+        self.document.plots.push(PlotRecord::default());
+        self.push_event(
+            now_unix,
+            EventDetail::Bought {
+                what: SaleKind::Plot,
+                stones: price,
+            },
+        );
+        Ok(price)
+    }
+
+    /// Roll the shop's day forward if it has not been done yet.
+    /// Whether the recorded bought slots still describe the shelf on display.
+    ///
+    /// They are valid only against the day *and* the realm they were recorded
+    /// under, because that is what the shelf is rolled from. A 破境 lifts the
+    /// realm inside the same day, re-rolling the shelf in place; the indexes in
+    /// [`CultivationDocument::shop_bought`] are positions in that older shelf,
+    /// and honouring them against the new one would mark a good the cultivator
+    /// never bought — a 慧心草 struck through as already bought.
+    fn shop_bought_valid(&self, today: i64) -> bool {
+        self.document.shop_day == Some(today)
+            && self.document.shop_realm == Some(self.document.realm)
+    }
+
+    fn roll_shop_day(&mut self, today: i64) {
+        let realm = self.document.realm;
+        if self.document.shop_day != Some(today) || self.document.shop_realm != Some(realm) {
+            self.document.shop_day = Some(today);
+            self.document.shop_realm = Some(realm);
+            self.document.shop_bought.clear();
+        }
+    }
+
+    /// The seed the day's shelf is rolled from.
+    ///
+    /// The day alone, so the shelf is a pure function of `(day, realm)` — the same
+    /// property the tests pin. Folding in the user's own counter would have spread
+    /// two saves apart, but it would also have moved the shelf every time the user
+    /// bought something, which is a shop that rearranges itself mid-transaction.
+    fn shop_seed(&self, today: i64) -> u64 {
+        today as u64
+    }
+
+    /// Credit one finished session's 灵石.
+    ///
+    /// The only 灵石 that arrives without selling something. Small enough that a
+    /// user who never sells is poor on purpose: the currency is a way to convert a
+    /// walk into something useful, and a faucet that outran the walks would make
+    /// the shop a second ladder.
+    pub(crate) fn credit_session_earnings(&mut self) {
+        let earnings = session_earnings(self.realm());
+        self.document.stones = self.document.stones.saturating_add(earnings);
+    }
+
+    /// The purse, for a surface.
+    pub fn stones(&self) -> u32 {
+        self.document.stones
+    }
+}
+
+#[cfg(test)]
+#[path = "state_tests.rs"]
+mod tests;

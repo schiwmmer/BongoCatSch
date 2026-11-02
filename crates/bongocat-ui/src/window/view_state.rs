@@ -1,5 +1,12 @@
 use super::*;
 
+/// How often the settings window re-reads the pomodoro snapshot while it is open.
+///
+/// The client keeps a revision, so a quiet window costs nothing: the poll only
+/// `cx.notify()`s when the revision actually moved, which is what makes the
+/// calendar and the task list track a running countdown without a per-tick clone.
+const POMODORO_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+
 impl SettingsView {
     pub(super) fn set_navigation_memory(&mut self, memory: SettingsNavigationMemory) {
         self.navigation_memory = memory;
@@ -50,18 +57,6 @@ impl SettingsView {
             "navigation.settings.title",
         ));
         self.syncing_component_inputs = true;
-        #[cfg(target_os = "windows")]
-        self.window_background_color.update(cx, |picker, cx| {
-            let rgb = self
-                .window_background_debouncer
-                .pending_value()
-                .copied()
-                .unwrap_or(snapshot.overlay.window_background_color);
-            let color = super::window_mode::rgb_color(rgb);
-            if picker.value() != Some(color) {
-                picker.set_value(color, window, cx);
-            }
-        });
         self.language_select.update(cx, |select, cx| {
             select.set_items(
                 SearchableVec::new(
@@ -160,28 +155,10 @@ impl SettingsView {
         seed: SettingsWindowSeed,
         request_quit: Rc<dyn Fn(&mut App)>,
         request_update: SettingsWindowRequest,
+        pomodoro: PomodoroClient,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        #[cfg(target_os = "windows")]
-        let window_background_color = cx.new(|cx| {
-            gpui_kit::component::color_picker::ColorPickerState::new(window, cx)
-                .default_value(super::window_mode::rgb_color([0, 255, 0]))
-        });
-        #[cfg(target_os = "windows")]
-        cx.subscribe_in(
-            &window_background_color,
-            window,
-            |view, _, event: &gpui_kit::component::color_picker::ColorPickerEvent, _, cx| {
-                let gpui_kit::component::color_picker::ColorPickerEvent::Change(Some(color)) =
-                    event
-                else {
-                    return;
-                };
-                view.set_window_background_color(*color, cx);
-            },
-        )
-        .detach();
         // Every component built here is seeded with the window's language for the same
         // reason as the frame itself: they are constructed before the first snapshot
         // exists, and a component built in the default language would be replaced —
@@ -342,14 +319,120 @@ impl SettingsView {
             )
             .detach();
         }
+        // The pomodoro search box keeps its own cursor, so it lives as an entity
+        // the page renders and reads; its text is mirrored into `pomodoro_search`
+        // on every keystroke for the task-list filter.
+        let pomodoro_search_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(bongocat_i18n::text(
+                seed.language.catalog_locale(),
+                "pomodoro.settings.search_placeholder",
+            ))
+        });
+        cx.subscribe(
+            &pomodoro_search_input,
+            |view, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    view.pomodoro_search = input.read(cx).value().to_string();
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
+        // The task editor's two fields, seeded with the window's language the
+        // same way the search box is. Enter in the name field submits the
+        // editor, so creating a task never needs the pointer after the first
+        // click; the count field stays a plain field.
+        let pomodoro_editor_name = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(bongocat_i18n::text(
+                    seed.language.catalog_locale(),
+                    "pomodoro.picker.task_name_placeholder",
+                ))
+                .submit_on_enter(true)
+        });
+        cx.subscribe(
+            &pomodoro_editor_name,
+            |view, _input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    view.submit_pomodoro_task_editor(cx);
+                }
+            },
+        )
+        .detach();
+        let pomodoro_editor_sessions = cx.new(|cx| {
+            InputState::new(window, cx)
+                .default_value(crate::pomodoro_window::view::DEFAULT_EXPECTED_SESSIONS.to_string())
+                .placeholder(bongocat_i18n::text(
+                    seed.language.catalog_locale(),
+                    "pomodoro.picker.estimated_sessions",
+                ))
+        });
+        // The pomodoro snapshot advances on a worker thread, so the page re-reads
+        // it on a light timer and re-renders only when the revision moves.
+        cx.spawn(async move |this, cx| {
+            let executor = cx.background_executor().clone();
+            loop {
+                executor.timer(POMODORO_POLL_INTERVAL).await;
+                if this.update(cx, |view, cx| view.poll_pomodoro(cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+
         Self {
-            #[cfg(target_os = "windows")]
-            window_background_color,
-            #[cfg(target_os = "windows")]
-            window_background_debouncer: crate::SettingsPatchDebouncer::default(),
-            #[cfg(target_os = "windows")]
-            window_background_timer_generation: 0,
             client,
+            pomodoro,
+            // The pomodoro page opens on the task list, with no search filter and
+            // showing the month the user is in right now. The month is derived
+            // from the local UTC offset so the calendar opens on the day the
+            // user would write on a paper calendar, not on a UTC one.
+            pomodoro_search: String::new(),
+            pomodoro_view: PomodoroSettingsView::List,
+            pomodoro_display_month: {
+                let offset = bongocat_platform::local_utc_offset_seconds();
+                let now_unix = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|elapsed| elapsed.as_secs() as i64)
+                    .unwrap_or(0);
+                let today = bongocat_pomodoro::CalendarDay::from_unix(now_unix, offset).to_civil();
+                (today.year, today.month)
+            },
+            pomodoro_search_input,
+            // No editor is open when the window opens: the list is the thing
+            // the user came to look at, and the fields only exist while a
+            // task is being created or edited.
+            pomodoro_editor: None,
+            pomodoro_editor_name,
+            pomodoro_editor_sessions,
+            pomodoro_observed_revision: 0,
+            cultivation_minute_observed: None,
+            cultivation_open_item: None,
+            cultivation_open_offer: None,
+            cultivation_open_seed: None,
+            cultivation_open_plot: None,
+            // The event history starts closed: the page's five lines are the
+            // record until the user asks for more.
+            cultivation_events_open: false,
+            cultivation_mastered_open: false,
+            // The seed panel starts folded: five stacks, lowest grade first.
+            cultivation_seeds_open: false,
+            cultivation_ladder_open: false,
+            cultivation_explore_hours: 8,
+            cultivation_daily_seen_day: None,
+            // No fight is being replayed when the window opens, and none is
+            // waiting on the worker either.
+            cultivation_duel: None,
+            cultivation_duel_pending: None,
+            // Nothing has been refused yet, so there is no error waiting to be
+            // shown and no count to compare against.
+            cultivation_refusal_pending: None,
+            cultivation_refusal_seen: 0,
+            pomodoro_done_expanded: false,
+            pomodoro_chart_days: 7,
+            // No day is picked when the page opens: the chart ends on today
+            // and the day-detail strip stays hidden until a cell is clicked.
+            pomodoro_selected_day: None,
             seed,
             snapshot: None,
             pending: None,
@@ -414,5 +497,351 @@ impl SettingsView {
             completed_model_cover_captures: BTreeSet::new(),
             syncing_component_inputs: false,
         }
+    }
+
+    /// Re-read the pomodoro snapshot revision and re-render only if it moved.
+    ///
+    /// Called from a light timer while the settings window is open. The pomodoro
+    /// worker advances the revision on another thread, so comparing against the
+    /// last seen value is what keeps the task list and calendar fresh without
+    /// cloning the snapshot on every idle tick. The tick is gated on the
+    /// pomodoro page actually being the visible one — the sidebar reporter
+    /// writes the active page into the process navigation memory on every
+    /// frame, so reading it back here costs one integer compare and stops the
+    /// timer from waking for a page the user cannot see.
+    pub(super) fn poll_pomodoro(&mut self, cx: &mut Context<Self>) {
+        let page = self.navigation_memory.page_index();
+        // The timer serves both pages that read the pomodoro worker: the task
+        // list and the cultivation ladder it feeds.
+        if page != SettingsNavigationPage::Pomodoro.index()
+            && page != SettingsNavigationPage::Cultivation.index()
+        {
+            return;
+        }
+        let revision = self.pomodoro.revision();
+        if revision == self.pomodoro_observed_revision {
+            self.poll_ripening(cx);
+        } else {
+            self.pomodoro_observed_revision = revision;
+            cx.notify();
+        }
+        // A fight the user asked for is settled by the worker on its own thread:
+        // this is where the page learns it has a report to show.
+        self.open_answered_cultivation_duel(cx);
+        // The day's own event opens itself, so it is watched here rather than
+        // asked for: an ambush is the one fight nobody pressed a button for.
+        self.open_daily_event_duel(cx);
+        // And this is where a replay being read is paced out.
+        self.advance_cultivation_duel(cx);
+        // A refused purchase or a walk that is not owed is reported here: the
+        // worker says why, and the page says it out loud.
+        self.open_cultivation_refusal(cx);
+    }
+
+    /// Show the ambush the day opened with, once.
+    ///
+    /// Three things have to be true at once, and each one closes a way the
+    /// popup used to come back: the event has to be *today's* — a window that
+    /// opened on a later day never replays an older ambush; it has to be a
+    /// fight — a gift or a quiet morning is a line on the log, not a dialog;
+    /// and it has not to have been seen yet — the domain writes the day down
+    /// when the popup is acknowledged, so a relaunch the same afternoon finds
+    /// the field behind it. The snapshot revision cannot be used for any of
+    /// this, because a running pomodoro moves it every second.
+    fn open_daily_event_duel(&mut self, cx: &mut Context<Self>) {
+        let cultivation = self.pomodoro.snapshot().cultivation;
+        let today = cultivation.day;
+        if cultivation.daily_event_day != Some(today)
+            || cultivation.daily_event_seen_day == Some(today)
+            || self.cultivation_daily_seen_day == Some(today)
+        {
+            return;
+        }
+        let Some(event) = cultivation
+            .last_daily_event
+            .filter(|event| event.duel.is_some())
+        else {
+            return;
+        };
+        self.cultivation_daily_seen_day = Some(today);
+        // The acknowledgement is written down before the popup opens: the
+        // domain is the one that remembers, and a popup that was shown but not
+        // recorded would be shown again on the next launch.
+        let _ = self
+            .pomodoro
+            .try_publish(PomodoroCommand::AcknowledgeDailyEvent { day: today });
+        self.cultivation_duel = Some(CultivationDuel::new(
+            CultivationDuelSource::Daily,
+            cultivation_duel::CultivationDuelPayload::Daily(event),
+        ));
+        cx.notify();
+    }
+
+    /// Show why an action was refused, once.
+    ///
+    /// The domain counts the refusals, and this watches that count: a count
+    /// that has not moved is the same reason still sitting in the snapshot, and
+    /// a count that has moved is a new refusal that has to be said. The
+    /// snapshot revision cannot be used for this — a running pomodoro bumps it
+    /// every second.
+    fn open_cultivation_refusal(&mut self, cx: &mut Context<Self>) {
+        let cultivation = &self.pomodoro.snapshot().cultivation;
+        let count = cultivation.refusal_count;
+        if count == self.cultivation_refusal_seen {
+            return;
+        }
+        // A count that went *down* means the worker was restarted and the
+        // ladder it holds is a new one: the baseline moves rather than the
+        // page announcing a refusal that never happened.
+        if count < self.cultivation_refusal_seen {
+            self.cultivation_refusal_seen = count;
+            return;
+        }
+        self.cultivation_refusal_seen = count;
+        let Some(refusal) = cultivation.last_refusal else {
+            return;
+        };
+        self.cultivation_refusal_pending = Some((refusal, count));
+        cx.notify();
+    }
+
+    /// Show the fight or walk the user asked for, once the worker has answered.
+    ///
+    /// The count the domain keeps — fights joined, walks taken — is what says
+    /// the command was applied rather than refused: the snapshot revision moves
+    /// every second while a pomodoro runs, so waiting on it would open the
+    /// popup on a timer tick with the previous attempt's report.
+    fn open_answered_cultivation_duel(&mut self, cx: &mut Context<Self>) {
+        let Some((source, asked_at)) = self.cultivation_duel_pending else {
+            return;
+        };
+        let cultivation = &self.pomodoro.snapshot().cultivation;
+        let (count, payload) = match source {
+            CultivationDuelSource::Breakthrough => (
+                cultivation.breakthrough_attempts,
+                cultivation
+                    .last_breakthrough
+                    .clone()
+                    .map(cultivation_duel::CultivationDuelPayload::Breakthrough),
+            ),
+            CultivationDuelSource::Exploration => (
+                cultivation.explorations,
+                cultivation.last_exploration.map(|outcome| {
+                    // The fight rides beside the walk only when this walk
+                    // settled one: a quiet walk's popup must not replay an
+                    // older walk's battle under this walk's verdict. The
+                    // domain clears the report for a walk that met nobody;
+                    // this is the same rule read once more, at the one place
+                    // the three fields become one popup.
+                    let duel = matches!(
+                        outcome,
+                        bongocat_pomodoro::ExplorationOutcome::Victory
+                            | bongocat_pomodoro::ExplorationOutcome::Defeat
+                    )
+                    .then(|| cultivation.last_exploration_duel.clone())
+                    .flatten();
+                    cultivation_duel::CultivationDuelPayload::Exploration(
+                        outcome,
+                        cultivation.last_exploration_found.clone(),
+                        duel,
+                    )
+                }),
+            ),
+            CultivationDuelSource::Trial => (
+                cultivation.trial_attempts,
+                cultivation
+                    .last_trial
+                    .clone()
+                    .map(cultivation_duel::CultivationDuelPayload::Trial),
+            ),
+            CultivationDuelSource::Proving => (
+                cultivation.provings,
+                cultivation
+                    .last_proving
+                    .clone()
+                    .map(cultivation_duel::CultivationDuelPayload::Proving),
+            ),
+            // The morning ambush is never asked for: it is opened by the poll
+            // below, which watches the day's own count instead.
+            CultivationDuelSource::Daily => return,
+        };
+        if count <= asked_at {
+            // Not answered yet: the next tick asks again.
+            return;
+        }
+        self.cultivation_duel_pending = None;
+        if let Some(payload) = payload {
+            self.cultivation_duel = Some(CultivationDuel::new(source, payload));
+        }
+        cx.notify();
+    }
+
+    /// Pace out the fight the cultivation page is replaying.
+    ///
+    /// A fight dumped on the page all at once is a wall of text: the blows are
+    /// revealed an interval apart, so the replay reads the way the fight
+    /// happened. The poll that already wakes for the garden also serves this, so
+    /// a replay costs no timer of its own.
+    fn advance_cultivation_duel(&mut self, cx: &mut Context<Self>) {
+        let Some(duel) = self.cultivation_duel.as_mut() else {
+            return;
+        };
+        if duel.advance() {
+            cx.notify();
+        }
+    }
+
+    /// Ask the worker for a fight or a walk, and remember that the answer is
+    /// owed a popup.
+    ///
+    /// The count of that action is taken before the command is published, so the
+    /// poll can tell an answered command from a refused one: a running pomodoro
+    /// bumps the snapshot revision every second, and the revision cannot say
+    /// which of the two moved.
+    pub(super) fn ask_cultivation(
+        &mut self,
+        source: CultivationDuelSource,
+        command: bongocat_pomodoro::PomodoroCommand,
+        cx: &mut Context<Self>,
+    ) {
+        let cultivation = &self.pomodoro.snapshot().cultivation;
+        let count = match source {
+            CultivationDuelSource::Breakthrough => cultivation.breakthrough_attempts,
+            CultivationDuelSource::Exploration => cultivation.explorations,
+            CultivationDuelSource::Trial => cultivation.trial_attempts,
+            CultivationDuelSource::Proving => cultivation.provings,
+            // Nothing asks for the morning event; it asks for the user.
+            CultivationDuelSource::Daily => return,
+        };
+        let _ = self.pomodoro.try_publish(command);
+        self.cultivation_duel_pending = Some((source, count));
+        self.poll_pomodoro(cx);
+    }
+
+    /// Wake the cultivation page when a minute the page is counting down to
+    /// goes by.
+    ///
+    /// A crop ripens on the wall clock, not on a worker change, and so do the
+    /// two cooldowns, so the revision never moves while any of them runs. Without
+    /// this the plot would keep reading "ripe in 3 min" and never turn pickable,
+    /// and the fight button would stay locked with a stale countdown beside it,
+    /// until something else happened to repaint the page. Only the cultivation
+    /// page pays the snapshot clone, and only once per displayed minute.
+    fn poll_ripening(&mut self, cx: &mut Context<Self>) {
+        if self.navigation_memory.page_index() != SettingsNavigationPage::Cultivation.index() {
+            self.cultivation_minute_observed = None;
+            return;
+        }
+        let now = now_unix();
+        let snapshot = self.pomodoro.snapshot();
+        let key = cultivation_minute(&snapshot.cultivation, now);
+        if key == self.cultivation_minute_observed {
+            return;
+        }
+        self.cultivation_minute_observed = key;
+        cx.notify();
+    }
+}
+
+/// The whole minutes left on the soonest thing the cultivation page counts down:
+/// a ripening crop, a walk being owed, or a fight being held — or `None` when
+/// nothing is in the ground and both cooldowns have run out.
+///
+/// This is the value whose change means the page's labels changed: a ripe crop
+/// reads as zero rather than counting backwards past its instant, so the tick
+/// stops repainting once everything is pickable and both buttons are live.
+fn cultivation_minute(
+    cultivation: &bongocat_pomodoro::CultivationView,
+    now_unix: i64,
+) -> Option<i64> {
+    let crops = cultivation
+        .plots
+        .iter()
+        .filter_map(|plot| plot.crop.as_ref().map(|crop| crop.ready_at_unix));
+    let cooldowns = [
+        cultivation.exploration_ready_at,
+        cultivation.breakthrough_ready_at,
+    ]
+    .into_iter()
+    .flatten();
+    crops
+        .chain(cooldowns)
+        .map(|at| at.saturating_sub(now_unix).max(0) / 60)
+        .min()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cultivation_minute;
+    use bongocat_pomodoro::{Attribute, CropView, CultivationView, PlotView};
+
+    fn plot(ready_at_unix: i64) -> PlotView {
+        PlotView {
+            crop: Some(CropView {
+                attribute: Attribute::Root,
+                tier: 1,
+                grade: bongocat_pomodoro::SeedGrade::Earth,
+                name: None,
+                ready_at_unix,
+                herb: None,
+                withered: false,
+            }),
+        }
+    }
+
+    /// A view with nothing in the ground and no cooldown running: the page has
+    /// no countdown to draw at all.
+    fn quiet() -> CultivationView {
+        let mut cultivation = bongocat_pomodoro::Cultivation::default().view();
+        cultivation.plots = vec![PlotView { crop: None }];
+        cultivation
+    }
+
+    #[test]
+    fn an_empty_garden_has_no_countdown_to_draw() {
+        assert_eq!(cultivation_minute(&quiet(), 1_000), None);
+    }
+
+    #[test]
+    fn the_soonest_crop_is_the_one_the_page_counts_down() {
+        let mut cultivation = quiet();
+        cultivation.plots = vec![plot(2_000), plot(1_000), PlotView { crop: None }];
+        assert_eq!(
+            cultivation_minute(&cultivation, 700),
+            Some(5),
+            "300s left rounds down"
+        );
+    }
+
+    #[test]
+    fn a_ripe_crop_reads_as_zero_and_stays_there() {
+        let mut cultivation = quiet();
+        cultivation.plots = vec![plot(1_000)];
+        assert_eq!(cultivation_minute(&cultivation, 1_000), Some(0));
+        // Past the instant the key must not keep changing, or the tick would
+        // repaint the page every half second for as long as a crop sits unread.
+        assert_eq!(cultivation_minute(&cultivation, 9_999), Some(0));
+    }
+
+    #[test]
+    fn a_cooldown_the_page_counts_down_wakes_the_page_too() {
+        let mut cultivation = quiet();
+        // A walk owed in an hour and a half, with nothing in the ground.
+        cultivation.exploration_ready_at = Some(1_000 + 5_400);
+        assert_eq!(cultivation_minute(&cultivation, 1_000), Some(90));
+        // The fight being held is the sooner of the two, so it is the one drawn.
+        cultivation.breakthrough_ready_at = Some(1_000 + 600);
+        assert_eq!(cultivation_minute(&cultivation, 1_000), Some(10));
+    }
+
+    #[test]
+    fn a_cooldown_that_has_run_out_stops_waking_the_page() {
+        let mut cultivation = quiet();
+        cultivation.exploration_ready_at = Some(1_000);
+        assert_eq!(
+            cultivation_minute(&cultivation, 9_999),
+            Some(0),
+            "it reads as zero rather than counting backwards"
+        );
     }
 }

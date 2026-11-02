@@ -11,12 +11,21 @@
 
 use super::*;
 
+/// What a request to set an expression produced.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ExpressionSetOutcome {
+    /// The expression holds until something replaces or clears it.
+    Persistent,
+    /// The expression recovers to the model's own face once its hold runs out.
+    AutoRecover,
+}
+
 impl RuntimeRenderer {
     pub(crate) fn set_expression(
         &mut self,
         expression: &crate::ExpressionId,
         now: Duration,
-    ) -> Result<(), RuntimeRenderErrorCode> {
+    ) -> Result<ExpressionSetOutcome, RuntimeRenderErrorCode> {
         let active = self
             .active
             .as_mut()
@@ -26,6 +35,10 @@ impl RuntimeRenderer {
             .expression_clip(expression.name())
             .cloned()
             .ok_or(RuntimeRenderErrorCode::ExpressionLoadFailed)?;
+        let auto_recover_at = clip.auto_recover_duration().map(|hold| {
+            now.saturating_add(clip.fade_in_duration())
+                .saturating_add(hold)
+        });
         if active.expressions.len() > 1 {
             let previous = active
                 .expressions
@@ -42,9 +55,14 @@ impl RuntimeRenderer {
             started_at: now,
             fade_in_completed: false,
             fade_out_started_at: None,
+            auto_recover_at,
         });
         debug_assert!(active.expressions.len() <= 2);
-        Ok(())
+        Ok(if auto_recover_at.is_some() {
+            ExpressionSetOutcome::AutoRecover
+        } else {
+            ExpressionSetOutcome::Persistent
+        })
     }
 
     /// Start fading every expression layer out and add nothing in its place.
