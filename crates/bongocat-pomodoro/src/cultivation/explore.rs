@@ -282,8 +282,10 @@ pub struct WalkRecord {
     /// How it ended.
     pub outcome: ExplorationOutcome,
     /// The region this walk was taken in.
+    #[serde(default)]
     pub region: u8,
     /// The level inside that region.
+    #[serde(default)]
     pub level: u8,
     /// The 功法 it turned up, by name, when it turned one up.
     pub art: Option<String>,
@@ -399,8 +401,10 @@ pub struct WalkInProgress {
     /// The length that was chosen, as hours.
     pub hours: u8,
     /// The region this walk was taken in.
+    #[serde(default)]
     pub region: u8,
     /// The level inside that region.
+    #[serde(default)]
     pub level: u8,
     /// Whether the user called the walk home early.
     ///

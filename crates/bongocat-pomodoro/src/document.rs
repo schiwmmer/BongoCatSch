@@ -11,7 +11,7 @@
 
 use std::{fs, io, path::Path};
 
-use bongocat_storage::{create_private_dir_all, write_private_atomic};
+use bongocat_storage::{create_private_dir_all, set_private_path, write_private_atomic};
 use serde::{Deserialize, Serialize};
 
 /// The version this crate writes and the only one it reads back.
@@ -219,12 +219,77 @@ pub(crate) fn read_document(path: &Path) -> Document {
     document.normalized()
 }
 
+/// How many previous documents a write leaves behind as a recovery net.
+///
+/// A write that breaks deserialization — a field added without
+/// `#[serde(default)]`, a rushed migration, a schema change the new build cannot
+/// read — replaces the document with the fresh default. The backup ring keeps
+/// the recent copies so a broken read can be undone instead of forgotten.
+const DOCUMENT_BACKUP_COUNT: usize = 5;
+
+/// Copy the live document into a `backups/` ring before a write replaces it.
+fn backup_before_write(path: &Path) -> io::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let Some(parent) = path.parent() else {
+        return Ok(());
+    };
+    let backups = parent.join("backups");
+    create_private_dir_all(&backups)?;
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("document");
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let name = format!("{stem}-{ts:020}.json");
+    let target = backups.join(name);
+    if fs::copy(path, &target).is_ok() {
+        let _ = set_private_path(&target);
+        rotate_backups(&backups, stem, DOCUMENT_BACKUP_COUNT);
+    }
+    Ok(())
+}
+
+/// Keep the `keep` most recent backups for `stem`, drop the rest.
+fn rotate_backups(backups: &Path, stem: &str, keep: usize) {
+    let Ok(read) = fs::read_dir(backups) else {
+        return;
+    };
+    let mut entries: Vec<(std::time::SystemTime, std::path::PathBuf)> = Vec::new();
+    for entry in read.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if !name.starts_with(stem) {
+            continue;
+        }
+        let modified = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        entries.push((modified, path));
+    }
+    entries.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
+    for (_, path) in entries.iter().skip(keep) {
+        let _ = fs::remove_file(path);
+    }
+}
+
 /// Replace the document atomically, creating the parent directory when the
 /// first write runs before anything else has created the environment root.
 pub(crate) fn write_document(path: &Path, document: &Document) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         create_private_dir_all(parent)?;
     }
+    backup_before_write(path)?;
     let bytes = serde_json::to_vec(document).expect("the pomodoro document serializes");
     write_private_atomic(path, &bytes)
 }
