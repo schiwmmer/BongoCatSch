@@ -68,7 +68,7 @@ pub use cultivation::{
     BuildingView, CollectOutcome, CropRecord, CropView, Cultivation, CultivationDocument,
     CultivationView, DUEL_RECORD_CAP, DUEL_ROUND_CAP, DailyKind, DailyOutcome, Derived,
     DerivedBreakdown, DerivedSlot, Discipline, Drop, DropView, DuelRecord, DuelReport, DuelRound,
-    ENCOUNTER_PERMILLE, EQUIPMENT_DROP_PERMILLE, EVENT_LOG_CAP, EquipSlot, EquipmentRecord,
+    EQUIPMENT_DROP_PERMILLE, EVENT_LOG_CAP, EquipSlot, EquipmentRecord,
     EventDetail, EventRecord, ExpeditionInProgress, ExpeditionView, ExplorationFindView,
     ExplorationHours, ExplorationOutcome, FREE_PLOT_COUNT, FREE_POINTS_PER_LEVEL, FightKind,
     Fighter, GROWTH_MULTIPLIER_CAP_PERMILLE, GUARDIAN_NAME, GearEffect, GearSet, GearSetView,

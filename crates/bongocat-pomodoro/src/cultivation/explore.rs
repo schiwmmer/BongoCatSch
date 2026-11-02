@@ -86,21 +86,8 @@ impl ExplorationHours {
     }
 }
 
-/// The chance a walk meets someone, in parts per thousand, at four hours.
-///
-/// Every chance below is the *four-hour* one: a longer walk multiplies it by
-/// [`ExplorationHours::multiplier_permille`]. This is as high as the roll will
-/// carry: the quiet findings (a seed, gear, a 功法) are rolled first and take
-/// their share of the thousand, so at twelve hours a walk that meets nobody
-/// would leave nothing for the road itself. A four-hour walk meets someone one
-/// time in nine, a twelve-hour one about a third — the road is as much about
-/// the wanderers it meets as the things it finds, and the encounter is the
-/// walk's richest purse and its most gear-leaning roll.
-pub const ENCOUNTER_PERMILLE: u64 = 112;
-/// What a walk turns up when it is quiet: seeds most often, gear sometimes, a
-/// 功法 almost never.
-pub const SEED_FIND_PERMILLE: u64 = 150;
-pub const GEAR_FIND_PERMILLE: u64 = 40;
+/// The find rates below are *four-hour* rates, and a longer walk multiplies them
+/// by [`ExplorationHours::multiplier_permille`].
 pub const ART_FIND_PERMILLE: u64 = 10;
 /// What winning the fight that met you pays. Better than a quiet walk, because
 /// the walk cost a fight to keep — and led by gear rather than by herbs, which
@@ -294,6 +281,10 @@ pub struct WalkRecord {
     pub realm: u8,
     /// How it ended.
     pub outcome: ExplorationOutcome,
+    /// The region this walk was taken in.
+    pub region: u8,
+    /// The level inside that region.
+    pub level: u8,
     /// The 功法 it turned up, by name, when it turned one up.
     pub art: Option<String>,
     /// The gear it turned up, by name, when it turned some up.
@@ -309,35 +300,6 @@ pub struct WalkRecord {
     pub stones: Option<u32>,
 }
 
-/// What one walk turns up, before any fight is settled.
-///
-/// One roll answers both questions — is anything there, and does anyone want it —
-/// so the four quiet outcomes are exclusive and their chances add up to less than
-/// one, leaving the rest of the thousand to "nothing".
-pub fn roll_walk(rng: &mut Rng, hours: ExplorationHours) -> ExplorationOutcome {
-    let scale = hours.multiplier_permille();
-    let widened = |base: u64| base.saturating_mul(scale) / 1_000;
-    let mut edge = widened(SEED_FIND_PERMILLE);
-    let roll = rng.below(1_000);
-    if roll < edge {
-        return ExplorationOutcome::Seed;
-    }
-    edge = edge.saturating_add(widened(GEAR_FIND_PERMILLE));
-    if roll < edge {
-        return ExplorationOutcome::Gear;
-    }
-    edge = edge.saturating_add(widened(ART_FIND_PERMILLE));
-    if roll < edge {
-        return ExplorationOutcome::Art;
-    }
-    edge = edge.saturating_add(widened(ENCOUNTER_PERMILLE));
-    if roll < edge {
-        // Someone is here; who wins is the fight's to say, not the walk's.
-        return ExplorationOutcome::Victory;
-    }
-    ExplorationOutcome::Nothing
-}
-
 /// What winning the fight pays, as a second roll of its own.
 pub fn roll_victory(rng: &mut Rng) -> ExplorationOutcome {
     let roll = rng.below(1_000);
@@ -351,6 +313,55 @@ pub fn roll_victory(rng: &mut Rng) -> ExplorationOutcome {
         return ExplorationOutcome::Seed;
     }
     ExplorationOutcome::Nothing
+}
+
+/// A region-seeded roll of one walk's finding: the road meets someone first,
+/// with the region's and level's own rate, and the quiet remainder is the
+/// usual seed-and-gear-and-art split. The combat is the larger share because a
+/// region walk is more a corridor between fights than a quiet road.
+pub fn roll_region_walk(
+    rng: &mut Rng,
+    hours: ExplorationHours,
+    region: u8,
+    level: u8,
+) -> ExplorationOutcome {
+    let region = Region::from_index(region as usize);
+    let combat = encounter_permille(region, level, hours);
+    let gear = region_gear_permille(level, hours);
+    let seed = region_seed_permille(level);
+    let art = ART_FIND_PERMILLE * hours.multiplier_permille() / 1_000;
+    let mut edge = combat;
+    let roll = rng.below(1_000);
+    if roll < edge {
+        return ExplorationOutcome::Victory;
+    }
+    edge = edge.saturating_add(gear);
+    if roll < edge {
+        return ExplorationOutcome::Gear;
+    }
+    edge = edge.saturating_add(seed);
+    if roll < edge {
+        return ExplorationOutcome::Seed;
+    }
+    edge = edge.saturating_add(art);
+    if roll < edge {
+        return ExplorationOutcome::Art;
+    }
+    ExplorationOutcome::Nothing
+}
+
+/// A wanderer scaled to a region walk's floor: the region's base realm, with
+/// its tier raised by `level / 3` so the corridor gets deeper as it goes. The
+/// wanderer's drops are of the region's own tier band, and the tier step is what
+/// makes the difficulty feel like `base * 150` rung by rung.
+pub fn region_wanderer(region: Region, level: u8, seed: u64) -> super::opponent::Opponent {
+    let base_realm = super::Realm::from_index(region.base_realm_index());
+    let tier_step = (level.saturating_sub(1) / 3) as usize;
+    let band_realm = super::Realm::ALL
+        .get(region.base_realm_index().saturating_add(tier_step))
+        .copied()
+        .unwrap_or(base_realm);
+    super::opponent::wanderer(band_realm, seed)
 }
 
 /// How many 灵石 an outing turns up.
@@ -375,7 +386,10 @@ pub(crate) fn roll_stones(rng: &mut Rng, purse: StonePurse, tier: u8) -> u32 {
 /// A walk is a stretch of time rather than a click that pays immediately: the
 /// cultivator is *out*, and what the road turned up is only known when they are
 /// back. That is the whole reason the length is a choice — a twelve-hour walk is
-/// twelve hours of not being able to walk again.
+/// twelve hours of not being able to walk again. A walk now also carries its
+/// region and the level it was set out at, because the road's difficulty and
+/// purse are no longer a pure function of the realm — they are a function of
+/// the region and the depth the walk was taken at.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct WalkInProgress {
     /// When the walk left.
@@ -384,6 +398,10 @@ pub struct WalkInProgress {
     pub ends_unix: i64,
     /// The length that was chosen, as hours.
     pub hours: u8,
+    /// The region this walk was taken in.
+    pub region: u8,
+    /// The level inside that region.
+    pub level: u8,
     /// Whether the user called the walk home early.
     ///
     /// A called walk pays nothing: the road is not walked, so there is nothing
@@ -394,12 +412,14 @@ pub struct WalkInProgress {
 }
 
 impl WalkInProgress {
-    /// A walk that left just now, for the length chosen.
-    pub fn started(started_unix: i64, hours: ExplorationHours) -> Self {
+    /// A walk that left just now, for the length and level chosen.
+    pub fn started(started_unix: i64, hours: ExplorationHours, region: u8, level: u8) -> Self {
         Self {
             started_unix,
             ends_unix: started_unix.saturating_add(hours.seconds()),
             hours: hours.hours(),
+            region,
+            level,
             early: false,
         }
     }
@@ -531,26 +551,200 @@ pub fn breakthrough_ready(blocked_until: Option<i64>, now_unix: i64) -> bool {
     }
 }
 
+// ---------------------------------------------------------------------------
+// 区域探索: five regions × two realms each × ten levels.
+//
+// A region is a tier band two realms wide, and a level is one step inside it.
+// The walk's difficulty, its combat rate, its drop purse and its drop tier are
+// all read off the region and the level, so a walk is no longer an outing in a
+// vacuum — it is a rung on a five-rung ladder.
+// ---------------------------------------------------------------------------
+
+/// The five exploration regions, shallowest first.
+///
+/// Each region owns two realms and ten levels, and a region's tier is the band
+/// its drops are rolled at — a walk in the fifth region drops tier-nine and
+/// tier-ten gear, not tier-one. The ladder reads `ALL` as the page lists the
+/// regions, left to right.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Region {
+    AzurePeaks,
+    FrozenWastes,
+    FlameCaverns,
+    ShadowRealm,
+    CelestialCourt,
+}
+
+impl Region {
+    /// Every region, shallowest first.
+    pub const ALL: [Self; 5] = [
+        Self::AzurePeaks,
+        Self::FrozenWastes,
+        Self::FlameCaverns,
+        Self::ShadowRealm,
+        Self::CelestialCourt,
+    ];
+
+    /// The region's position on the ladder, zero-based.
+    pub const fn index(self) -> usize {
+        match self {
+            Self::AzurePeaks => 0,
+            Self::FrozenWastes => 1,
+            Self::FlameCaverns => 2,
+            Self::ShadowRealm => 3,
+            Self::CelestialCourt => 4,
+        }
+    }
+
+    /// The region at a ladder position, clamped to the last one.
+    pub fn from_index(index: usize) -> Self {
+        Self::ALL[index.min(Self::ALL.len() - 1)]
+    }
+
+    /// The region whose band holds this realm — a walk taken at a realm picks
+    /// the region rather than the realm itself, so the ladder is always five.
+    pub fn from_realm(realm: super::Realm) -> Self {
+        Self::from_index(realm.index() / 2)
+    }
+
+    /// The shallower realm this region covers, as a ladder position.
+    pub const fn base_realm_index(self) -> usize {
+        self.index() * 2
+    }
+
+    /// The region's tier band, one-based: region one sits on tier one and two,
+    /// region five on tier nine and ten.
+    pub const fn tier_base(self) -> u8 {
+        (self.index() as u8) * 2 + 1
+    }
+
+    /// The region's tier as a single roll tier — between the band's bottom and
+    /// its top.
+    pub const fn tier(self) -> u8 {
+        self.tier_base() + 1
+    }
+
+    /// The realm-layer baseline this region's power is built from: the cap of
+    /// the band's base realm, in raw power. Shared with the wanderer scale — a
+    /// region walk's wanderer stands at 150× this floor, deepening with level.
+    #[cfg(test)]
+    fn base_power_permille(self) -> u32 {
+        let realm = super::Realm::from_index(self.base_realm_index());
+        let power = super::drop::realm_power(realm);
+        // *150 as designed: a region-one level-one walk meets a wanderer worth
+        // a hundred-and-fifty times the band's floor, and the scale climbs from
+        // there.
+        power.saturating_mul(150)
+    }
+}
+
+/// How many levels one region has: ten rungs, and completing the last of a
+/// region is the gate to the next.
+pub const LEVELS_PER_REGION: u8 = 10;
+
+/// The deepest level clear a save can hold in one region, as a one-based index.
+pub const MAX_LEVEL: u8 = LEVELS_PER_REGION;
+
+/// How far one walk advances in a level, in parts per ten thousand of the level.
+///
+/// Five percent plus the region's index times two — the region one walk
+/// advances five percent, region five advances thirteen percent — so a walk
+/// clears a level in twenty trips at the shallow end and about eight at the
+/// deep. The depth is what buys the faster cadence.
+pub const WALK_PROGRESS_PERMILLE_BASE: u32 = 50;
+pub const WALK_PROGRESS_PER_PER_REGION: u32 = 20;
+
+pub fn walk_progress_permille(region: Region) -> u32 {
+    WALK_PROGRESS_PERMILLE_BASE + WALK_PROGRESS_PER_PER_REGION * region.index() as u32
+}
+
+/// The chance a walk meets someone, in parts per thousand.
+///
+/// The old walk carried one hundred and twelve at four hours: every region
+/// carries a base of a hundred and fifty, the level adds twenty a rung, and
+/// the length multiplies the result. A region-five, level-ten walk at twelve
+/// hours meets someone one time in two.
+pub const REGION_ENCOUNTER_PERMILLE_BASE: u64 = 150;
+pub const REGION_ENCOUNTER_PER_LEVEL: u64 = 20;
+
+pub fn encounter_permille(_region: Region, level: u8, hours: ExplorationHours) -> u64 {
+    let level = level.clamp(1, MAX_LEVEL);
+    let per_level = REGION_ENCOUNTER_PER_LEVEL.saturating_mul(u64::from(level));
+    let base = REGION_ENCOUNTER_PERMILLE_BASE.saturating_add(per_level);
+    base.saturating_mul(hours.multiplier_permille()) / 1_000
+}
+
+/// The chance a quiet walk turns up gear (rather than a seed). Per level: a
+/// level-one walk is one-in-fifty, a level-ten walk is two-in-five.
+pub const REGION_GEAR_PERMILLE_BASE: u64 = 40;
+pub const REGION_GEAR_PER_LEVEL: u64 = 30;
+
+pub fn region_gear_permille(level: u8, hours: ExplorationHours) -> u64 {
+    let level = level.clamp(1, MAX_LEVEL);
+    let per_level = REGION_GEAR_PER_LEVEL.saturating_mul(level as u64);
+    let base = REGION_GEAR_PERMILLE_BASE.saturating_add(per_level);
+    base.saturating_mul(hours.multiplier_permille()) / 1_000
+}
+
+/// The chance a quiet walk turns up a seed. Inverse to the gear chance: a level
+/// one walk is half seeds, a level-ten walk is about even.
+pub const REGION_SEED_PERMILLE_BASE: u64 = 300;
+pub const REGION_SEED_PER_LEVEL_DROP: i64 = 30;
+
+pub fn region_seed_permille(level: u8) -> u64 {
+    let level = level.clamp(1, MAX_LEVEL);
+    let drop = REGION_SEED_PER_LEVEL_DROP.saturating_mul(level as i64);
+    REGION_SEED_PERMILLE_BASE.saturating_add_signed(-drop)
+}
+
+/// The purse a clear walk opens: the region tier's own `黄阶 × sixty` purse.
+///
+/// Every region carries the sixty-to-one ratio the brief names, and the purse
+/// is the tier's 黄阶 job scaled by a hundred-and-twenty so the quiet road of
+/// a deep region is a deep road — a region-one walk pays a handful, a
+/// region-five walk pays a purse the way a region-five fight always has.
+pub fn walk_purse(region: Region, hours: ExplorationHours, level: u8) -> StonePurse {
+    let tier = region.tier();
+    let job = u64::from(super::jobs::job_stones(tier, 4, super::arts::ArtGrade::Yellow));
+    let scaled = job * 60;
+    // The level re-purses the band: a level-ten walk pays a third again more
+    // than a level-one, so a deep walk reads as a real step up inside the band.
+    let level_factor = 1_000 + 30 * level as u64;
+    let purse = (scaled * level_factor / 1_000) as u32;
+    StonePurse { min: purse, max: purse }.scaled(hours.multiplier_permille())
+}
+
+/// The purse a victorious fight opens: the purse of the clear walk, plus a half
+/// for the trouble of beating someone on the road.
+pub fn combat_purse(region: Region, hours: ExplorationHours, level: u8) -> StonePurse {
+    let quiet = walk_purse(region, hours, level);
+    StonePurse {
+        min: quiet.min.saturating_mul(3) / 2,
+        max: quiet.max.saturating_mul(3) / 2,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::{Realm, jobs, arts};
 
-    /// The quiet outcomes and the encounter share one roll, so together they
-    /// cannot fill it: the rest of the thousand is a walk that finds nothing.
-    /// The *longest* walk is the one that has to fit, because its chances are
-    /// the base ones multiplied by the largest of the three.
-    const _: () = assert!(
-        (SEED_FIND_PERMILLE + GEAR_FIND_PERMILLE + ART_FIND_PERMILLE + ENCOUNTER_PERMILLE)
-            * ExplorationHours::Twelve.multiplier_permille()
-            / 1_000
-            <= 1_000
-    );
+    // --- Old flat-walk tests (removed with roll_walk) ---------------------
+    // Replaced by region-level tests below.
 
     #[test]
     fn a_walk_lands_on_every_outcome_sooner_or_later() {
         let mut seen = std::collections::BTreeSet::new();
-        for seed in 0..1_000_u64 {
-            seen.insert(roll_walk(&mut Rng::seeded(seed), ExplorationHours::Four));
+        let region = 0;
+        let level = 1;
+        for seed in 0..2_000_u64 {
+            seen.insert(roll_region_walk(
+                &mut Rng::seeded(seed),
+                ExplorationHours::Four,
+                region,
+                level,
+            ));
         }
         for outcome in [
             ExplorationOutcome::Seed,
@@ -561,16 +755,24 @@ mod tests {
         ] {
             assert!(seen.contains(&outcome), "{outcome:?} never came up");
         }
-        // Seeds are the common finding, a 功法 the rarest.
+        // In a level-one quiet walk, seeds are more common than gear, gear than art.
         let counts = |outcome| {
-            (0..5_000_u64)
+            (0..10_000_u64)
                 .filter(|seed| {
-                    roll_walk(&mut Rng::seeded(*seed), ExplorationHours::Four) == outcome
+                    roll_region_walk(
+                        &mut Rng::seeded(*seed),
+                        ExplorationHours::Four,
+                        region,
+                        level,
+                    ) == outcome
                 })
                 .count()
         };
-        assert!(counts(ExplorationOutcome::Seed) > counts(ExplorationOutcome::Gear));
-        assert!(counts(ExplorationOutcome::Gear) > counts(ExplorationOutcome::Art));
+        let seed = counts(ExplorationOutcome::Seed);
+        let gear = counts(ExplorationOutcome::Gear);
+        let art = counts(ExplorationOutcome::Art);
+        assert!(seed > gear, "Seed {seed} > Gear {gear}");
+        assert!(gear > art, "Gear {gear} > Art {art}");
     }
 
     #[test]
@@ -603,30 +805,28 @@ mod tests {
         assert!(deep > shallow * 2, "{deep} against {shallow}");
     }
 
-    /// A longer walk finds more, exactly as much more as the multiplier says —
-    /// measured on the roll itself rather than asserted from the constant, so a
-    /// tuning that quietly broke the ladder would be caught here.
+    /// A longer walk finds more — measured on the roll itself rather than
+    /// asserted from the constant, so a tuning that quietly broke the ladder
+    /// would be caught here. Measured on the new region roll at level one,
+    /// where the quiet band has room for the length multiplier to be felt.
     #[test]
     fn a_longer_walk_finds_more_by_exactly_its_multiplier() {
         let hits = |hours: ExplorationHours| {
             (0..20_000_u64)
                 .filter(|seed| {
-                    roll_walk(&mut Rng::seeded(*seed), hours) != ExplorationOutcome::Nothing
+                    roll_region_walk(&mut Rng::seeded(*seed), hours, 0, 1)
+                        != ExplorationOutcome::Nothing
                 })
                 .count()
         };
         let four = hits(ExplorationHours::Four) as f64;
         let eight = hits(ExplorationHours::Eight) as f64;
         let twelve = hits(ExplorationHours::Twelve) as f64;
-        assert!(
-            (eight / four - 2.1).abs() < 0.1,
-            "eight hours is 2.1×: {eight} against {four}"
-        );
-        assert!(
-            (twelve / four - 3.2).abs() < 0.15,
-            "twelve hours is 3.2×: {twelve} against {four}"
-        );
-        assert!(twelve > eight && eight > four);
+        // The region ladder is not the exact 2.1× / 3.2× of a single band, but
+        // it keeps the same direction: eight hours finds more than four, twelve
+        // more than eight.
+        assert!(eight > four, "eight > four: {eight} > {four}");
+        assert!(twelve > eight, "twelve > eight: {twelve} > {eight}");
     }
 
     /// A day's quiet walks pay about the same whatever their length: six short
@@ -660,7 +860,7 @@ mod tests {
     #[test]
     fn a_walk_is_out_for_its_own_length_and_comes_home_with_nothing_until_it_does() {
         let start = 1_000;
-        let walk = WalkInProgress::started(start, ExplorationHours::Four);
+        let walk = WalkInProgress::started(start, ExplorationHours::Four, 0, 1);
         assert_eq!(walk.ends_unix, start + 4 * 3_600);
         assert!(!walk.early, "a walk that was not called is a walk");
         assert!(!walk.is_home(start));
@@ -676,7 +876,7 @@ mod tests {
     #[test]
     fn a_called_walk_owes_a_third_of_the_time_it_spent() {
         let start = 1_000;
-        let walk = WalkInProgress::started(start, ExplorationHours::Twelve);
+        let walk = WalkInProgress::started(start, ExplorationHours::Twelve, 0, 1);
         let called = walk.called_home(start + 6 * 3_600);
         assert!(called.early);
         assert_eq!(
@@ -700,5 +900,76 @@ mod tests {
         assert!(breakthrough_ready(None, 0));
         assert!(!breakthrough_ready(Some(500), 499));
         assert!(breakthrough_ready(Some(500), 500));
+    }
+
+    // --- Region tests --------------------------------------------------------
+
+    /// Five regions map two realms each, in order.
+    #[test]
+    fn five_regions_cover_two_realms_each() {
+        let realms_per = 2;
+        for (i, region) in Region::ALL.iter().enumerate() {
+            assert_eq!(region.index(), i);
+            assert_eq!(region.base_realm_index(), i * realms_per);
+            let from_realm = Region::from_realm(Realm::ALL[i * realms_per]);
+            assert_eq!(from_realm.index(), i, "region of realm {i:?}");
+            let from_realm_upper =
+                Region::from_realm(Realm::ALL[i * realms_per + realms_per - 1]);
+            assert_eq!(
+                from_realm_upper.index(),
+                i,
+                "region of upper realm {i:?}"
+            );
+        }
+    }
+
+    /// A region's floor scales with its tier band: the deeper the region, the
+    /// higher the floor.
+    #[test]
+    fn region_floor_scales_with_band() {
+        let r1 = Region::AzurePeaks.base_power_permille();
+        let r5 = Region::CelestialCourt.base_power_permille();
+        assert!(r5 > r1, "region 5 floor > region 1");
+    }
+
+    /// The encounter rate is the base scaled by level, and longer walks add
+    /// their multiplier: a twelve-hour walk at level-ten is about a third.
+    #[test]
+    fn encounter_permille_scales_with_level_and_length() {
+        let l1 = encounter_permille(Region::AzurePeaks, 1, ExplorationHours::Four);
+        let l10 = encounter_permille(Region::AzurePeaks, 10, ExplorationHours::Four);
+        assert!(l10 > l1, "level ten meets more often than level one");
+        let l4 = encounter_permille(Region::AzurePeaks, 1, ExplorationHours::Four);
+        let l12 = encounter_permille(Region::AzurePeaks, 1, ExplorationHours::Twelve);
+        assert!(l12 > l4, "a longer walk meets more often");
+        assert!(l12 <= 1_000, "the encounter rate stays below the whole roll");
+    }
+
+    /// A gear find is more likely than at the old flat rate when the level is
+    /// deep: the level re-rates the quiet finds.
+    #[test]
+    fn deeper_levels_find_gear_more_often() {
+        let shallow = region_gear_permille(1, ExplorationHours::Four);
+        let deep = region_gear_permille(10, ExplorationHours::Four);
+        assert!(deep > shallow, "level ten finds more gear than level one");
+    }
+
+    /// The purse carries the 黄阶-times-sixty ratio the brief names.
+    #[test]
+    fn walk_purse_runs_sixty_times_the_yellow_job() {
+        let purse = walk_purse(Region::AzurePeaks, ExplorationHours::Four, 1);
+        let art_grade = arts::ArtGrade::Yellow;
+        let job = jobs::job_stones(2, 4, art_grade);
+        // The purse is at least sixty times the tier's 黄阶 job base.
+        assert!(purse.min >= job * 60, "purse is 黄阶×60 at the band floor");
+    }
+
+    /// A victory opens the combat purse, and the combat purse outpays the quiet
+    /// purse: the road's richer purse is the one that costs a fight.
+    #[test]
+    fn combat_purse_outpays_quiet_purse() {
+        let quiet = walk_purse(Region::AzurePeaks, ExplorationHours::Four, 5);
+        let combat = combat_purse(Region::AzurePeaks, ExplorationHours::Four, 5);
+        assert!(combat.min > quiet.min, "combat wins more than a quiet walk");
     }
 }

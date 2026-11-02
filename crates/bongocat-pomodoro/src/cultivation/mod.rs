@@ -94,8 +94,8 @@ pub use duel::{
 };
 pub use events::{BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind};
 pub use explore::{
-    BREAKTHROUGH_COOLDOWN_SECONDS, ENCOUNTER_PERMILLE, ExpeditionInProgress, ExplorationHours,
-    ExplorationOutcome, VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkInProgress, WalkRecord,
+    BREAKTHROUGH_COOLDOWN_SECONDS, ExpeditionInProgress, ExplorationHours, ExplorationOutcome,
+    VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkInProgress, WalkRecord,
 };
 pub use garden::{
     CropRecord, FREE_PLOT_COUNT, MAX_GARDEN_RANK, MAX_PLOT_COUNT, MAX_SEED_TIER, PlotRecord,

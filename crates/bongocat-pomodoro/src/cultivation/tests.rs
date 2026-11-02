@@ -1,7 +1,7 @@
 //! The ladder's rules, exercised without a clock: the tests hand in every
 //! instant and every local day, so a hundred days of absence take microseconds.
 
-use super::explore::WALK_STONES;
+use self::explore::ExplorationOutcome;
 use super::garden::{grow_seconds, grow_seconds_at, harvest_points};
 use super::*;
 use crate::CalendarDay;
@@ -2168,11 +2168,21 @@ fn a_walk_can_turn_up_stones() {
             continue;
         };
         turned_up += 1;
-        // The walk was taken at twelve hours, so its purse is that length's:
-        // the base purse widened by the same multiplier every chance is.
-        let purse = WALK_STONES.scaled(ExplorationHours::Twelve.multiplier_permille());
+        // The walk was taken at twelve hours, so its purse is the new region
+        // purse for the rider's own region at that length — the purse the
+        // new walk_purse opens, scaled from the band's 黄阶 rate.
+        let view = cultivation.view();
+        let region = super::explore::Region::from_realm(view.realm);
+        // A fresh Cultivation holds explored_levels at [0,…], so every walk is
+        // at level one — the walked level is always in 1..=10.
+        let cleared = cultivation.cleared_level(region.index());
+        let level = (cleared + 1).min(super::explore::MAX_LEVEL);
+        let purse = super::explore::walk_purse(region, ExplorationHours::Twelve, level);
+        // The purse is opened at the region's tier, so the pocket is the purse
+        // multiplied by that tier — a deep region's pocket is a deep one.
+        let (min, max) = purse.at(region.tier());
         assert!(
-            (purse.min..=purse.max).contains(&amount),
+            (min..=max).contains(&amount),
             "a walk pays a handful, not a fortune: {amount}"
         );
         assert_eq!(cultivation.stones(), amount, "the stones land in the purse");
@@ -3020,6 +3030,7 @@ fn a_star_is_worth_five_to_eight_percent_of_everything() {
             ..Derived::default()
         },
         star: 0,
+        half_star: false,
         effect: None,
         name: Some("试剑".to_owned()),
         set: None,
@@ -3055,6 +3066,7 @@ fn a_star_costs_a_tenth_of_what_the_piece_sells_for() {
         attributes: Attributes::new(10, 0, 0, 10),
         bonus: Derived::default(),
         star: 0,
+        half_star: false,
         effect: None,
         name: None,
         set: None,
@@ -3108,10 +3120,15 @@ fn a_star_costs_a_tenth_of_what_the_piece_sells_for() {
         before - cost.stones * attempts,
         "a failed wager is still a wager"
     );
+    // A failure drops only a half step: from a whole star, the item keeps the
+    // star and steps half-way back (half_star set); from a half step, it
+    // drops to the whole floor; and from the first star's whole it stays
+    // — floor is the first star, half a step lighter than the worst the old
+    // forge took. The claim here is the narrow half-step: from a whole star
+    // the item did not walk a full star back.
     assert_eq!(
-        failed.to,
-        failed.from.saturating_sub(1).max(failed.from.min(1)),
-        "and it walked one star back, never past the first"
+        failed.to, failed.from,
+        "a failure dropped only a half step, not a whole star"
     );
 }
 
@@ -3127,6 +3144,7 @@ fn a_failure_never_walks_a_piece_past_its_first_star() {
         attributes: Attributes::new(0, 0, 0, 20),
         bonus: Derived::default(),
         star: 1,
+        half_star: false,
         effect: None,
         name: None,
         set: None,
@@ -3164,6 +3182,7 @@ fn a_star_the_purse_cannot_cover_is_refused() {
         attributes: Attributes::new(0, 30, 0, 30),
         bonus: Derived::default(),
         star: 0,
+        half_star: false,
         effect: None,
         name: None,
         set: None,
@@ -3199,6 +3218,7 @@ fn a_full_piece_refuses_the_wager() {
         attributes: Attributes::new(0, 10, 0, 0),
         bonus: Derived::default(),
         star: MAX_STAR,
+        half_star: false,
         effect: None,
         name: None,
         set: None,
@@ -3619,6 +3639,7 @@ fn a_divine_pieces_effect_reaches_the_other_side_of_the_fight() {
         attributes: Attributes::new(0, 200, 0, 0),
         bonus: Derived::default(),
         star: 0,
+        half_star: false,
         effect: Some(GearEffect::Frost),
         name: Some("寒霜剑【寒霜】".to_owned()),
         set: None,
@@ -3777,6 +3798,7 @@ fn two_worn_pieces_of_one_set_are_a_set_and_a_lone_piece_is_not() {
         attributes: Attributes::default(),
         bonus: Derived::default(),
         star: 0,
+        half_star: false,
         effect: None,
         name: None,
         set,
@@ -3842,6 +3864,7 @@ fn the_worn_set_views_add_up_to_the_set_bonus() {
         attributes: Attributes::default(),
         bonus: Derived::default(),
         star: 0,
+        half_star: false,
         effect: None,
         name: None,
         set,

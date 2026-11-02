@@ -17,6 +17,7 @@ use super::{
     duel::{DUEL_RECORD_CAP, DuelRecord},
     events::{EVENT_LOG_CAP, EventRecord},
     explore::WalkInProgress,
+    explore::Region,
     explore::WalkRecord,
     garden::rank_for_xp,
 };
@@ -372,6 +373,25 @@ pub struct CultivationDocument {
     /// is one thing and one thing only, and a session picks it before it starts.
     #[serde(default)]
     pub session_mode: super::SessionMode,
+    /// The furthest level cleared in each region, as a per-region array.
+    ///
+    /// The index is the region's [`Region::index`], and the value is the
+    /// furthest level the cultivator has reached — zero before any walk has
+    /// been taken in that region. A walk in a region starts one rung above the
+    /// cleared level, capped at [`LEVELS_PER_REGION`], so cleared levels gate
+    /// the road rather than requiring a progression ladder the player has to
+    /// walk in order.
+    #[serde(default)]
+    pub explored_levels: [u8; Region::ALL.len()],
+    /// The progress the walk has made through the current level of each region,
+    /// in parts per thousand of the level.
+    ///
+    /// A walk adds [`super::explore::walk_progress_permille(region)`] to the
+    /// region's slot each time it comes home; at a thousand the level is cleared
+    /// and the excess rolls over into the next. The deeper the region, the more
+    /// progress a walk makes — deeper realms walk faster.
+    #[serde(default)]
+    pub region_progress: [u32; Region::ALL.len()],
 }
 
 impl CultivationDocument {

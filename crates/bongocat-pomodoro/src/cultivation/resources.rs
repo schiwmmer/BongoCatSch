@@ -564,18 +564,20 @@ pub struct Cost {
 /// 采石 trade had to be trained to bring home.
 pub const STAR_IRON_FROM_STAR: u8 = 6;
 
-/// The 铁匠铺's discount on the 灵石 wager of one 升星 attempt, in parts per
-/// thousand.
+/// The 铁匠铺's discount on the 灵石 wager and the material tribute of one
+/// 升星 attempt, in parts per thousand.
 ///
-/// Multiplicative — 0.94^level — so a level-ten forge cuts the wager to about
-/// half instead of to nothing: a discount that reached zero would make the
-/// last stars free, and a 升星 that costs nothing is not a 升星. The resource
-/// tribute is the forge's raw material and does not get cheaper: what the
-/// smithy's craft saves is the 灵石, not the ore it has to have.
+/// Multiplicative — 0.93^level — so a level-ten forge cuts the attempt's
+/// stones and ore to about half instead of to nothing: a discount that
+/// reached zero would make the last stars free, and a 升星 that costs nothing
+/// is not a 升星. The material tribute is the forge's craft, and what it
+/// saves is everything — stone, wood, iron and coal — so the forge's level
+/// is the lever that makes the deep stars reachable rather than the wall
+/// they were when the wager alone was discounted.
 pub fn smithy_multiplier_permille(smithy_level: u8) -> u32 {
     let mut permille = 1_000u32;
     for _ in 0..smithy_level.min(MAX_BUILDING_LEVEL) {
-        permille = permille.saturating_mul(940) / 1_000;
+        permille = permille.saturating_mul(930) / 1_000;
     }
     permille
 }

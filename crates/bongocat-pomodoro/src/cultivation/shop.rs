@@ -179,7 +179,7 @@ pub fn seed_price(tier: u8, grade: SeedGrade) -> u32 {
         .max(1)
 }
 
-/// What one attempt at the next star costs: the 灵石 wager and the raw tribute
+/// What one attempt at the next star costs: the 灵石 wager and the tribute
 /// the forge burns.
 ///
 /// The wager is a tenth of what the piece sells for, read off the sell price
@@ -189,37 +189,46 @@ pub fn seed_price(tier: u8, grade: SeedGrade) -> u32 {
 /// what makes a run of failures readable as a run of the same bet rather than
 /// as an escalating one.
 ///
-/// The tribute climbs with the star: wood and stone rise two and one a star,
-/// and the rare finds join in — 煤 from the fourth star, 铁 from the sixth —
+/// The tribute climbs with the star: wood rises four a star, stone two, and
+/// the rare finds join in — 煤 from the fourth star, 铁 from the sixth —
 /// because a high star is a rare find's craft. The whole tribute is then
-/// scaled by the piece's tier ([`tier_multiplier_permille`]), so a tenth-tier
-/// piece costs 8.65 times a first-tier one's material. The 铁匠铺 discounts
-/// the 灵石 wager ([`smithy_multiplier_permille`]) but never the ore: what the
-/// smithy's craft saves is the money, not the material it has to have.
+/// scaled by the piece's tier ([`tier_multiplier_permille`]), so an
+/// eighth-tier piece costs about eight times a first-tier one's material. The
+/// 铁匠铺 discounts both the wager and the tribute (see
+/// [`smithy_multiplier_permille`]); the forge's craft saves the whole
+/// attempt, not the 灵石 alone, so the forge's level is what makes the deep
+/// stars reachable.
 ///
-/// Stars are a sink and never an investment: the sell price is the piece's
-/// tier and quality alone, so a ten-star piece sells for exactly what an
-/// unstarred one does. Buying stars back at a profit would make the 灵石 purse
-/// a slot machine.
+/// The tribute's base is the old curve doubled: a failure drops only a half
+/// star, so it costs half the attempts to reach a given star, and the tribute
+/// takes that back — the floor the forge's material asks for is the floor it
+/// always was, only the setback is kinder. Buying stars back at a profit is
+/// still a no: the sell price is the piece's tier and quality alone, so a
+/// ten-star piece sells exactly what an unstarred one does, and the 灵石 purse
+/// stays closed against the arbitrage.
 pub fn star_up_cost(item: &EquipmentRecord, smithy_level: u8) -> super::Cost {
     let star = u32::from(item.star.min(super::MAX_STAR));
     let target = star.saturating_add(1);
     let tier_m = tier_multiplier_permille(item.tier);
-    let scale = |base: u32| base.saturating_mul(tier_m) / 1_000;
+    let smithy_m = super::smithy_multiplier_permille(smithy_level);
+    // A star's tribute is the piece's tier scaled, then the forge's discount
+    // applied: the two multiply, and the result is what one attempt costs in
+    // raw coin. The base is the old curve doubled — see the doc comment above.
+    let scale = |base: u32| base.saturating_mul(tier_m).saturating_mul(smithy_m) / 1_000 / 1_000;
     let mut resources = super::ResourceBag::default();
-    resources.add(super::Resource::Wood, scale(2 + 2 * star));
-    resources.add(super::Resource::Stone, scale(1 + star));
+    resources.add(super::Resource::Wood, scale(4 + 4 * star));
+    resources.add(super::Resource::Stone, scale(2 + 2 * star));
     if target >= u32::from(super::STAR_IRON_FROM_STAR) {
         resources.add(
             super::Resource::Iron,
-            scale(1 + target - u32::from(super::STAR_IRON_FROM_STAR)),
+            scale(2 + 2 * (target - u32::from(super::STAR_IRON_FROM_STAR))),
         );
     }
     if target >= 4 {
-        resources.add(super::Resource::Coal, scale(1 + target - 4));
+        resources.add(super::Resource::Coal, scale(2 + 2 * (target - 4)));
     }
     let stones = ShopOffer::Equipment(item.clone()).sell_price() / 10
-        * super::smithy_multiplier_permille(smithy_level)
+        * smithy_m
         / 1_000;
     super::Cost { stones, resources }
 }

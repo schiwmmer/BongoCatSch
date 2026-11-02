@@ -132,6 +132,16 @@ pub fn realm_power(realm: Realm) -> u32 {
     base_attributes(realm.cap_level()).power()
 }
 
+/// The strength at the **base** of a region: a region covers two realms, and
+/// its base realm is the shallower of the two, so tier-base power is the
+/// shallower realm's own floor. Region drops are rolled against this (with the
+/// level lifting the band), so a region-one drop is a tier-one drop and a
+/// region-five drop is a tier-nine drop.
+pub fn tier_base_power(region: super::explore::Region) -> u32 {
+    let realm = super::Realm::from_index(region.base_realm_index());
+    realm_power(realm)
+}
+
 /// Roll one quality at a source of this strength, or nothing at all.
 ///
 /// The roll is read in the ladder's own domain. When the strength lifts the

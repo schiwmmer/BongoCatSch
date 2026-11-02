@@ -504,6 +504,13 @@ pub struct EquipmentRecord {
     /// first attempt is what puts the first star on.
     #[serde(default)]
     pub star: u8,
+    /// Half a star bought but not yet rounded up: a failure drops one star to
+    /// a half count rather than to the one below it, and the next success
+    /// completes the step. Zero for every piece that has never sat at a half
+    /// step; one for every piece the forge has only halfway failed back into.
+    /// A save written before Plan D has none, so `default` is right.
+    #[serde(default)]
+    pub half_star: bool,
     /// The effect a 神装 carries. `None` on every quality below 神装.
     #[serde(default)]
     pub effect: Option<GearEffect>,
@@ -659,7 +666,10 @@ impl EquipmentRecord {
             .saturating_add(bonus.inner / 8)
     }
 
-    /// How many stars this item holds.
+    /// How many stars this item holds: the full stars, half a step if a
+    /// failure only dropped the piece part-way is a single step rather than a
+    /// whole one. The ceiling is still the full star count — half a step is
+    /// progress, not the next full star.
     pub const fn star(&self) -> u8 {
         if self.star > MAX_STAR {
             MAX_STAR
@@ -668,7 +678,16 @@ impl EquipmentRecord {
         }
     }
 
-    /// Whether another star can be attempted.
+    /// Whether the half step, if the piece has one, makes a ten-star-plus-half
+    /// piece sit just under the cap. A ten-star piece with a half step is
+    /// still capped — the next attempt buys nothing more than a half-step
+    /// that is already owned.
+    pub const fn has_half_star(&self) -> bool {
+        self.half_star
+    }
+
+    /// Whether another star can be attempted: the piece has all the full
+    /// stars, or it sits at ten-and-a-half with nothing left to buy.
     pub const fn star_capped(&self) -> bool {
         self.star >= MAX_STAR
     }
@@ -781,13 +800,21 @@ pub(crate) fn base_points(tier: u8) -> u32 {
 /// thousand.
 ///
 /// The whole material cost of a star attempt is scaled by the piece's tier, so
-/// a tenth-tier piece costs 8.65 times as much to star as a first-tier one.
-/// Without this, the material a tier-ten piece asks for is a rounding error
-/// beside its own value — and the later realms' gathering, which is the only
-/// source of that material, would buy stars for nothing.
+/// a tenth-tier piece costs five times as much to star as a first-tier one —
+/// late realms still ask for the most, but the curve is a half-step of
+/// eight-and-three-quarter rather than the old one-and-seven-eighths, which
+/// was the axis that made the last two tiers' gathering an unending sink. The
+/// half-step regression ([`half_star`]) takes the other half of the old
+/// punishment: the forge still saves its craft for the stone, the deeper
+/// punishment that remains is the cost itself, not the setback.
 pub(crate) fn tier_multiplier_permille(tier: u8) -> u32 {
     let tier = u32::from(tier.clamp(1, 10));
-    1_000 + 850 * (tier - 1)
+    // 1_000 at tier 1, rising by seven-and-three-quarter to 8_000 at tier ten.
+    // The base curve has been doubled (see [`shop::star_up_cost`]) to bring
+    // the late realms' tribute back to the old floor now that a failure takes
+    // only a half step: the broader curve keeps the forge's material the main
+    // investment, the tighter tier keeps the stepping proportional.
+    1_000 + 777 * (tier - 1)
 }
 
 /// What one point of an attribute is worth in the power table, in tenths.
@@ -935,6 +962,7 @@ fn roll_equipment_with(
         attributes,
         bonus,
         star: 0,
+        half_star: false,
         effect,
         name: Some(equipment_display_name(slot, set, effect, rng)),
         set,

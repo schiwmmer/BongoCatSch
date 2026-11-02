@@ -95,6 +95,14 @@ const BUILDINGS = {
   dojo: '道场',
 };
 const MODES = { Study: '修习', Woodcut: '伐木', Mine: '采石', study: '修习', woodcut: '伐木', mine: '采石' };
+const REGIONS = [
+  ['azure_peaks', '青云山脉', '低阶妖兽盘踞的山脉，适合初入江湖的修士。'],
+  ['frozen_wastes', '玄冰荒漠', '千里冰封的荒芜之地，寒属性的法宝与药草藏于其间。'],
+  ['flame_caverns', '赤炎洞窟', '地火翻涌的炽热洞窟，锻造与火系功法的宝地。'],
+  ['shadow_realm', '幽冥鬼域', '鬼气弥漫的幽冥之地，诡异的法宝与阴属性材料在此诞生。'],
+  ['celestial_court', '天外仙境', '仙灵之气充盈的至高秘境，真正的仙家材料与神器现世。'],
+];
+
 const RESOURCES = [
   ['wood', '木'],
   ['stone', '石'],
@@ -728,10 +736,43 @@ function marketPage(c) {
 
 /* ---------- outing ---------- */
 
+function progressBar(percent, opts = {}) {
+  const { height = 8 } = opts;
+  const pct = Math.max(0, Math.min(100, percent));
+  return `<div class="progress" style="height:${height}px"><div class="progress-fill" style="width:${pct}%"></div></div>`;
+}
+
+function regionTitle(c) {
+  const idx = (c.explore_region_idx ?? c.region_idx ?? 0) | 0;
+  return REGIONS[idx]?.[1] ?? `区域 ${idx + 1}`;
+}
+
+function regionRow(c, idx) {
+  const def = REGIONS[idx] ?? ['', `区域 ${idx + 1}`, ''];
+  const cleared = c.explored_levels?.[idx] ?? 0;
+  const progress = c.region_progress?.[idx] ?? 0;
+  const pct = Math.max(0, Math.min(100, (progress / 1000) * 100));
+  const isCurrent = (c.explore_region_idx ?? c.region_idx ?? 0) === idx;
+  const currentLevel = isCurrent ? c.explore_level ?? 1 : null;
+  return `
+    <div class="region-card${isCurrent ? ' is-current' : ''}" data-region-idx="${idx}">
+      <div class="region-card-head">
+        <span class="region-card-name">${def[1]}</span>
+        <span class="region-card-level">层 ${cleared}/10</span>
+      </div>
+      ${isCurrent ? `<div class="region-card-sub">当前探索 · 层 ${currentLevel}</div>` : `<div class="region-card-sub">${def[2]}</div>`}
+      <div class="region-progress">${progressBar(pct, { height: 6 })}</div>
+    </div>
+  `;
+}
+
 function outingPage(c) {
   const expedition = c.resources?.expedition;
   const walk = c.last_walk;
   const work = c.work;
+  const idx = (c.explore_region_idx ?? c.region_idx ?? 0) | 0;
+  const regionLevel = c.explore_level ?? 1;
+  const regionProgress = c.region_progress?.[idx] ?? 0;
   return `
     <div class="card">
       <div class="card-head">
@@ -741,10 +782,11 @@ function outingPage(c) {
         </div>
       </div>
       <div class="rows">
-        <div class="row">
+        <div class="row region-row">
           <div class="row-main">
-            <div class="row-title">探索</div>
-            <div class="row-sub">带回装备、功法、草药和灵石；时长越久收获越多</div>
+            <div class="row-title">探索 · ${REGIONS[idx]?.[1] ?? `区域 ${idx + 1}`}</div>
+            <div class="row-sub">当前层 ${regionLevel}/10 · 层满 ${Math.round(regionProgress / 10)}% · 战斗几率更高，材料更好</div>
+            ${regionProgress > 0 ? `<div class="region-progress" style="margin-top:6px">${progressBar(regionProgress / 10, { height: 6 })}</div>` : ''}
           </div>
           <div class="row-actions">
             ${[4, 8, 12]
@@ -791,6 +833,16 @@ function outingPage(c) {
           ? `<div class="chips" style="margin-top:12px">${findChips(c.last_exploration_found)}</div>`
           : ''
       }
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">区域 · 五城十层</div>
+        <div class="card-hint">每个区域十层，层越深战越强、宝越好</div>
+      </div>
+      <div class="regions-grid">
+        ${(c.explored_levels ?? []).map((_, i) => regionRow(c, i)).join('')}
+      </div>
     </div>
 
     <div class="card">
