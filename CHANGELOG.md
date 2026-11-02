@@ -1,10 +1,21 @@
 # Changelog
 
-## Unreleased
+## 2.4.0 - 2026-11-01
 
+### ⚖️ Balance
+
+- 铁匠铺升星重做: 失败只降半级 (旧: 降 1 级), 铁匠铺折扣作用于全部材料 (旧: 仅灵石), 材料灵石消耗曲线 ×2 保持同等难度基线. tier 乘数调为 ~8×. 满级铁匠铺总材料消耗约为旧系统的 48%.
+- 探索系统重做: 5 区域 × 每区域 10 层, 每区域横跨 2 境界. 区域难度 = 境界基础 × 150 × level. 灵石收益 = 打工黄阶 × 60 × 层级系数. 战斗触发率 150-350‰ (旧 112‰), 装等掉落率 20-65‰ (层级越深越高). 探索进度 50-130‰/次 (境界越高越快, 深层区域每 8 次清空一层 vs 浅层 20 次).
 - Each 阶 of an 内功 now spends one fixed power budget, split by its 流派. A book used to pay the same flat magnitude into one attribute, so two arts of a grade printed identical numbers and the one that landed on 身法 was worth 58% of the one that landed on 力量 — one book in five was a trap. The budget is now the magnitude times the mean attribute weight, and the family decides which two attributes get it: 22 力量 a 阶 at 神阶, 31 根骨, 39 身法 — the same power, different numbers. Two books of one family and grade carry ±6% of 成色 on top, so no two arts print the same figure.
 - The hybrid shape no longer pays twice. The quarter of arts that paid both attributes and combat numbers used to take a full magnitude in each; the two halves now split one budget (all attributes, all combat, or half each).
 - Gear is differentiated per piece. Two pieces of one slot, tier and quality used to print the same two numbers; the budget is now read in power, with the slot's split swaying ±8% and the piece itself ±6% of 成色. A blade that leans on 力量 reads a smaller number than one that leans on 仙力 for the same worth. The guardian's allowance reads at the top of that band, or the rich-rolled piece would be dropped and the guardian would wear one slot.
+
+### ✨ Features
+
+- 探索区域 UI: 探索行显示当前区域名 / 层级 / 进度条. 新增 [区域·五城十层] 卡片网格展示 5 区域, 每区域显示通关层数 / 当前进度, 当前探索区域高亮标识.
+- 探索区域设计: 青云山脉 (炼气+筑基) / 玄冰荒漠 (金丹+元婴) / 赤炎洞窟 (化神+炼虚) / 幽冥鬼域 (合体+大乘) / 天外仙境 (渡劫+真仙). 层越深战越强、宝越好.
+- 测试: 打包测试中 13 处 PID 临时目录迁移到 tempfile::TempDir, 消除多进程压测竞态.
+
 ### ⚖️ Balance
 
 - A fight's turns now track the speeds instead of the banks: a tick pays at most one action a side, so when both speeds cleared the shared bar the banks — not the speeds — handed out the turns, and a 1.6-to-1 edge in 速度 compounded into a fourteen-to-one edge in turns (281 : 19 over three hundred rounds) while most short fights ended before the slower side swung at all. The bar a fight fills to is now the faster side's speed where that asks more than the shared pace, which puts the slower fighter back on the clock near the ratio of the speeds — the same edge now pays about 2.2 to 1 in turns, and slow fights are unchanged.
