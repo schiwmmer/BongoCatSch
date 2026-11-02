@@ -1,0 +1,10 @@
+{
+  "name": "game",
+  "version": "1.0.0",
+  "description": "BongoCat 番茄钟 + 修仙：唯一的服务端权威计算入口",
+  "main": "index.js",
+  "private": true,
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

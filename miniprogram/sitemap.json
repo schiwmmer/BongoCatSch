@@ -1,0 +1,9 @@
+{
+  "pages": ["pages/*"],
+  "rules": [
+    {
+      "action": "disallow",
+      "page": "*"
+    }
+  ]
+}

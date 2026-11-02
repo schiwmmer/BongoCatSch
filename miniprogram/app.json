@@ -1,0 +1,30 @@
+{
+  "pages": [
+    "pages/pomodoro/index",
+    "pages/cultivate/index",
+    "pages/arts/index",
+    "pages/me/index"
+  ],
+  "window": {
+    "backgroundTextStyle": "dark",
+    "navigationBarBackgroundColor": "#f6f4ef",
+    "navigationBarTitleText": "番茄钟",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f6f4ef"
+  },
+  "tabBar": {
+    "color": "#8b8578",
+    "selectedColor": "#2f7d6e",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/pomodoro/index", "text": "番茄钟" },
+      { "pagePath": "pages/cultivate/index", "text": "修仙" },
+      { "pagePath": "pages/arts/index", "text": "功法" },
+      { "pagePath": "pages/me/index", "text": "我的" }
+    ]
+  },
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents",
+  "sitemapLocation": "sitemap.json"
+}

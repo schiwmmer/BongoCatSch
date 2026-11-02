@@ -1,0 +1,178 @@
+<view class="page">
+  <block wx:if="{{loading}}">
+    <view class="loading">正在从云端取回你的存档…</view>
+  </block>
+
+  <block wx:elif="{{error}}">
+    <view class="loading">
+      {{error}}
+      <view><button class="btn primary" data-act="retry" bindtap="onAction">重试</button></view>
+    </view>
+  </block>
+
+  <block wx:else>
+    <view class="topbar">
+      <view class="stat" style="flex:1.7">
+        <text class="stat-label">境界</text>
+        <text class="stat-value">{{view.header.realm}}</text>
+      </view>
+      <view class="stat">
+        <text class="stat-label">战力</text>
+        <text class="stat-value jade">{{view.header.power}}</text>
+      </view>
+      <view class="stat">
+        <text class="stat-label">灵石</text>
+        <text class="stat-value gold">{{view.header.stones}}</text>
+      </view>
+      <view class="stat">
+        <text class="stat-label">已专注</text>
+        <text class="stat-value">{{view.header.total}}</text>
+      </view>
+    </view>
+
+    <view class="card timer-card">
+      <view class="timer-state">{{view.stateText}}</view>
+      <view class="timer-clock">{{view.clock}}</view>
+      <view class="bar">
+        <view class="bar-fill" style="width:{{view.ratio}}%"></view>
+      </view>
+      <view class="timer-task">{{view.taskName}}</view>
+
+      <view class="timer-actions" wx:if="{{view.actions.length}}">
+        <button
+          wx:for="{{view.actions}}"
+          wx:key="act"
+          class="btn {{item.kind}}"
+          data-act="{{item.act}}"
+          bindtap="onAction"
+        >{{item.label}}</button>
+      </view>
+      <view class="timer-actions" wx:else>
+        <text class="hint">从下面的任务里挑一个开始</text>
+      </view>
+
+      <view class="timer-meta">
+        <view class="stat">
+          <text class="stat-label">每次</text>
+          <text class="stat-value">{{view.minutes}} 分</text>
+        </view>
+        <view class="stat">
+          <text class="stat-label">今日</text>
+          <text class="stat-value jade">{{view.today}}</text>
+        </view>
+        <view class="stat">
+          <text class="stat-label">待完成</text>
+          <text class="stat-value">{{view.pending}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">每次专注时长</text>
+        <text class="card-hint">服务端校验，不得少于 25 分钟</text>
+      </view>
+      <view class="btn-row">
+        <button
+          wx:for="{{view.minuteOptions}}"
+          wx:key="value"
+          class="btn small {{item.active ? 'primary' : ''}}"
+          data-act="minutes"
+          data-value="{{item.value}}"
+          bindtap="onAction"
+        >{{item.value}} 分</button>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">新建任务</text>
+        <text class="card-hint">完成一次专注，修为涨一次</text>
+      </view>
+      <view class="field">
+        <text class="field-label">任务名</text>
+        <input
+          class="input"
+          value="{{newName}}"
+          maxlength="80"
+          placeholder="要专注的事，例如：写小程序"
+          bindinput="onNameInput"
+          confirm-type="done"
+        />
+      </view>
+      <view class="field">
+        <text class="field-label">预计番茄</text>
+        <picker class="input" range="{{estimateLabels}}" bindchange="onEstimateChange">
+          <view class="picker">{{estimate}} 个</view>
+        </picker>
+        <button class="btn primary" style="margin-left:16rpx" data-act="create" bindtap="onAction">添加</button>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">任务</text>
+        <text class="card-hint">{{view.tasks.length}} 个</text>
+      </view>
+
+      <view
+        wx:for="{{view.tasks}}"
+        wx:key="id"
+        class="task {{item.running ? 'running' : ''}} {{item.done ? 'done' : ''}}"
+      >
+        <view
+          class="check {{item.done ? 'on' : ''}}"
+          data-act="toggle"
+          data-id="{{item.id}}"
+          data-done="{{item.done}}"
+          bindtap="onAction"
+        >{{item.done ? '✓' : ''}}</view>
+        <view class="row-main">
+          <view class="task-name">{{item.name}}</view>
+          <view class="task-line">
+            <text>{{item.countText}} 番茄</text>
+            <view class="pips">
+              <view wx:for="{{item.pips}}" wx:for-item="pip" wx:key="key" class="pip {{pip.on ? 'on' : ''}}"></view>
+            </view>
+            <text wx:if="{{item.overflow}}" class="chip">+{{item.overflow}}</text>
+            <text wx:if="{{item.running}}" class="chip jade">进行中</text>
+          </view>
+        </view>
+        <view class="row-actions">
+          <button
+            class="btn small {{item.running ? '' : 'primary'}}"
+            data-act="start"
+            data-id="{{item.id}}"
+            bindtap="onAction"
+            disabled="{{item.running}}"
+          >开始</button>
+          <button class="btn small" data-act="more" data-id="{{item.id}}" bindtap="onAction">⋯</button>
+        </view>
+      </view>
+
+      <view wx:if="{{!view.tasks.length}}" class="empty">还没有任务，先添加一个。</view>
+    </view>
+
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">专注日历</text>
+        <view class="row-actions">
+          <button class="btn small" data-act="cal-prev" bindtap="onAction">‹</button>
+          <text class="card-hint">{{view.cal.title}} · {{view.cal.total}} 个</text>
+          <button class="btn small" data-act="cal-next" bindtap="onAction">›</button>
+        </view>
+      </view>
+      <view class="cal">
+        <view wx:for="{{view.cal.week}}" wx:key="*this" class="cal-head">{{item}}</view>
+        <view
+          wx:for="{{view.cal.cells}}"
+          wx:key="key"
+          class="cal-cell {{item.blank ? 'blank' : ''}} l{{item.level}} {{item.today ? 'today' : ''}}"
+        >
+          <text>{{item.day}}</text>
+          <text wx:if="{{item.count}}" class="count">{{item.count}}</text>
+        </view>
+      </view>
+    </view>
+  </block>
+</view>

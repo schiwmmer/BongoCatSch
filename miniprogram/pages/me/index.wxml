@@ -1,0 +1,122 @@
+<view class="page">
+  <block wx:if="{{loading}}">
+    <view class="loading">正在从云端取回你的存档…</view>
+  </block>
+
+  <block wx:elif="{{error}}">
+    <view class="loading">
+      {{error}}
+      <view><button class="btn primary" data-act="retry" bindtap="onAction">重试</button></view>
+    </view>
+  </block>
+
+  <block wx:else>
+    <view class="card">
+      <view class="profile">
+        <button class="avatar" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
+          <image wx:if="{{view.avatar}}" src="{{view.avatar}}" mode="aspectFill"></image>
+          <text wx:else>{{view.initial}}</text>
+        </button>
+        <view class="row-main">
+          <view class="row-title" style="font-size:34rpx">{{view.nickname}}</view>
+          <view class="row-sub">微信登录 · {{accountTail}}</view>
+          <view class="row-sub">{{joined}}</view>
+        </view>
+        <view class="row-actions">
+          <text class="sync-dot {{syncBusy ? 'busy' : ''}}">{{syncText}}</text>
+        </view>
+      </view>
+
+      <view class="field" style="margin-top:12rpx">
+        <text class="field-label">昵称</text>
+        <input
+          class="input"
+          type="nickname"
+          value="{{nicknameDraft}}"
+          placeholder="点这里改昵称"
+          bindinput="onNicknameInput"
+          bindblur="onNicknameConfirm"
+          confirm-type="done"
+          bindconfirm="onNicknameConfirm"
+        />
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">修行概况</text>
+        <text class="card-hint">{{view.realm}} · {{view.layer}} 层 {{view.rank}} 阶</text>
+      </view>
+      <view class="attr-grid">
+        <view class="attr">
+          <text class="attr-name">等级</text>
+          <text class="attr-value">{{view.level}}</text>
+        </view>
+        <view class="attr">
+          <text class="attr-name">战力</text>
+          <text class="attr-value">{{view.power}}</text>
+        </view>
+        <view class="attr">
+          <text class="attr-name">灵石</text>
+          <text class="attr-value">{{view.stones}}</text>
+        </view>
+        <view class="attr">
+          <text class="attr-name">塔层</text>
+          <text class="attr-value">{{view.floor}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">累计</text>
+      </view>
+      <view class="row">
+        <view class="row-main"><view class="row-title">完成番茄</view><view class="row-sub">每次 {{view.focusMinutes}} 分钟</view></view>
+        <view class="row-actions"><text class="stat-value jade">{{view.pomodoros}}</text></view>
+      </view>
+      <view class="row">
+        <view class="row-main"><view class="row-title">外出探索 / 试炼</view></view>
+        <view class="row-actions"><text class="stat-value">{{view.expeditions}} / {{view.provings}}</text></view>
+      </view>
+      <view class="row">
+        <view class="row-main"><view class="row-title">功法 / 圆满 / 装备</view></view>
+        <view class="row-actions"><text class="stat-value">{{view.arts}} / {{view.mastered}} / {{view.gear}}</text></view>
+      </view>
+      <view class="row">
+        <view class="row-main"><view class="row-title">灵田 / 机缘</view></view>
+        <view class="row-actions"><text class="stat-value">{{view.plots}} / {{view.events}}</text></view>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">账号与数据</text>
+      </view>
+      <view class="row">
+        <view class="row-main">
+          <view class="row-title">登录方式</view>
+          <view class="row-sub">微信账号自动登录，换手机也是同一份存档</view>
+        </view>
+      </view>
+      <view class="row">
+        <view class="row-main">
+          <view class="row-title">数据存放</view>
+          <view class="row-sub">全部存在云端数据库，手机上不留档</view>
+        </view>
+      </view>
+      <view class="row">
+        <view class="row-main">
+          <view class="row-title">结算方式</view>
+          <view class="row-sub">番茄钟本地走秒，结算与数值全部在服务端</view>
+        </view>
+        <view class="row-actions">
+          <button class="btn small" data-act="rule" bindtap="onAction">说明</button>
+        </view>
+      </view>
+      <view class="btn-row">
+        <button class="btn small" data-act="refresh" bindtap="onAction">立即同步</button>
+      </view>
+    </view>
+  </block>
+</view>

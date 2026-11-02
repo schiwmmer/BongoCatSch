@@ -135,6 +135,23 @@ web-sdk:
 web-serve: web
     python3 -m http.server 8099 --bind 127.0.0.1 --directory web
 
+# Copy the wasm kernel into the mini program's cloud function.
+#
+# The mini program settles everything on the server (that is the anti-cheat
+# rule), and the server runs exactly this binary — same Rust source as the
+# desktop app and the web page, so the three cannot drift apart.
+mp-kernel: web
+    cp web/bongocat_pomodoro_web.wasm miniprogram/cloudfunctions/game/kernel.wasm
+    echo "mp-kernel: miniprogram/cloudfunctions/game/kernel.wasm ($(wc -c < miniprogram/cloudfunctions/game/kernel.wasm) bytes)"
+
+# Local checks for the mini program. No AppID and no cloud environment needed:
+# the cloud function runs against an in-memory database, the view builders run
+# against a real kernel snapshot, and the WXML gets a tag/handler audit.
+mp-check:
+    node miniprogram/tools/selftest.js
+    node miniprogram/tools/views-smoke.js
+    node miniprogram/tools/wxml-check.js
+
 # Run all default workspace quality gates.
 check:
     # Windows support was removed in 77c92050; this gate keeps it gone. The

@@ -1,0 +1,635 @@
+/* 全局样式：纸感底色 + 玉色主色，卡片承载一切内容。 */
+
+page {
+  background: #f6f4ef;
+  color: #2c2a26;
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+  font-size: 28rpx;
+  line-height: 1.5;
+}
+
+.page {
+  padding: 20rpx 24rpx 40rpx;
+  box-sizing: border-box;
+}
+
+/* ---------- 顶部数据条 ---------- */
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  padding: 8rpx 8rpx 20rpx;
+}
+
+.topbar .stat {
+  flex: 1;
+  min-width: 0;
+}
+
+.stat-label {
+  display: block;
+  font-size: 22rpx;
+  color: #8b8578;
+  letter-spacing: 1rpx;
+}
+
+.stat-value {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 600;
+  margin-top: 4rpx;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stat-value.jade {
+  color: #2f7d6e;
+}
+
+.stat-value.gold {
+  color: #a8842c;
+}
+
+/* ---------- 卡片 ---------- */
+
+.card {
+  background: #ffffff;
+  border-radius: 24rpx;
+  padding: 26rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 2rpx 12rpx rgba(64, 56, 40, 0.05);
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12rpx;
+}
+
+.card-title {
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.card-hint {
+  font-size: 22rpx;
+  color: #8b8578;
+  text-align: right;
+  flex: 1;
+  margin-left: 16rpx;
+}
+
+.card-hint.left {
+  text-align: left;
+  margin-left: 0;
+}
+
+/* ---------- 行 ---------- */
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18rpx 0;
+  border-top: 1rpx solid #f2efe8;
+}
+
+.row:first-child {
+  border-top: none;
+}
+
+.row-main {
+  flex: 1;
+  min-width: 0;
+  padding-right: 16rpx;
+}
+
+.row-title {
+  font-size: 28rpx;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.row-title .name {
+  max-width: 340rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-sub {
+  font-size: 23rpx;
+  color: #8b8578;
+  margin-top: 6rpx;
+  line-height: 1.6;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.row-actions .btn + .btn {
+  margin-left: 12rpx;
+}
+
+/* ---------- 按钮 ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 64rpx;
+  padding: 0 24rpx;
+  border-radius: 14rpx;
+  border: 1rpx solid #e2ddd1;
+  background: #ffffff;
+  color: #3a362e;
+  font-size: 25rpx;
+  line-height: 1;
+}
+
+.btn::after {
+  border: none;
+}
+
+.btn.primary {
+  background: #2f7d6e;
+  border-color: #2f7d6e;
+  color: #ffffff;
+}
+
+.btn.jade {
+  background: #eaf2ef;
+  border-color: #cfe2db;
+  color: #2f7d6e;
+}
+
+.btn.danger {
+  color: #b4553f;
+  border-color: #ecd6ce;
+}
+
+.btn.small {
+  height: 56rpx;
+  padding: 0 18rpx;
+  font-size: 23rpx;
+}
+
+.btn.block {
+  width: 100%;
+}
+
+.btn[disabled] {
+  opacity: 0.4;
+}
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 8rpx;
+}
+
+.btn-row .btn {
+  margin: 8rpx 12rpx 0 0;
+}
+
+/* ---------- 小标签 ---------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4rpx 14rpx;
+  border-radius: 999rpx;
+  background: #f3f0e9;
+  color: #6f695c;
+  font-size: 21rpx;
+  margin-left: 8rpx;
+  white-space: nowrap;
+}
+
+.chip.jade {
+  background: #eaf2ef;
+  color: #2f7d6e;
+}
+
+.chip.gold {
+  background: #f6efdc;
+  color: #a8842c;
+}
+
+.chip.accent {
+  background: #fbeee9;
+  color: #b4553f;
+}
+
+.chip.muted {
+  background: #f4f2ed;
+  color: #9a9385;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 10rpx;
+}
+
+.chips .chip {
+  margin: 6rpx 8rpx 0 0;
+}
+
+/* ---------- 进度条 ---------- */
+
+.bar {
+  height: 12rpx;
+  border-radius: 999rpx;
+  background: #f1eee7;
+  overflow: hidden;
+  margin-top: 12rpx;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 999rpx;
+  background: #2f7d6e;
+  transition: width 0.4s ease;
+}
+
+.bar-fill.gold {
+  background: #c8a24a;
+}
+
+.bar-fill.violet {
+  background: #7a6cae;
+}
+
+.bar-fill.thin {
+  height: 8rpx;
+}
+
+/* ---------- 分段切换 ---------- */
+
+.seg {
+  display: flex;
+  background: #efece4;
+  border-radius: 999rpx;
+  padding: 6rpx;
+  margin-bottom: 20rpx;
+}
+
+.seg-item {
+  flex: 1;
+  text-align: center;
+  font-size: 24rpx;
+  color: #6f695c;
+  padding: 14rpx 0;
+  border-radius: 999rpx;
+}
+
+.seg-item.active {
+  background: #ffffff;
+  color: #2f7d6e;
+  font-weight: 600;
+  box-shadow: 0 2rpx 8rpx rgba(64, 56, 40, 0.08);
+}
+
+.seg.scroll {
+  display: block;
+  white-space: nowrap;
+}
+
+.seg.scroll .seg-item {
+  display: inline-block;
+  min-width: 140rpx;
+  padding: 14rpx 20rpx;
+}
+
+/* ---------- 空态与提示 ---------- */
+
+.empty {
+  text-align: center;
+  color: #a29b8d;
+  font-size: 24rpx;
+  padding: 40rpx 0;
+}
+
+.hint {
+  font-size: 22rpx;
+  color: #8b8578;
+  margin-top: 8rpx;
+}
+
+.center {
+  justify-content: center;
+}
+
+/* ---------- 番茄钟 ---------- */
+
+.timer-card {
+  text-align: center;
+  padding: 36rpx 26rpx 28rpx;
+}
+
+.timer-state {
+  font-size: 24rpx;
+  color: #8b8578;
+  letter-spacing: 2rpx;
+}
+
+.timer-clock {
+  font-size: 108rpx;
+  font-weight: 300;
+  letter-spacing: 4rpx;
+  margin: 12rpx 0 6rpx;
+  font-variant-numeric: tabular-nums;
+}
+
+.timer-task {
+  font-size: 25rpx;
+  color: #6f695c;
+  min-height: 36rpx;
+}
+
+.timer-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 22rpx;
+}
+
+.timer-actions .btn {
+  margin: 0 10rpx;
+  min-width: 180rpx;
+}
+
+.timer-meta {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 26rpx;
+  padding-top: 22rpx;
+  border-top: 1rpx solid #f2efe8;
+}
+
+/* ---------- 任务 ---------- */
+
+.task {
+  display: flex;
+  align-items: center;
+  padding: 18rpx 0;
+  border-top: 1rpx solid #f2efe8;
+}
+
+.task:first-child {
+  border-top: none;
+}
+
+.task.running .task-name {
+  color: #2f7d6e;
+  font-weight: 600;
+}
+
+.task.done .task-name {
+  color: #a29b8d;
+  text-decoration: line-through;
+}
+
+.task-name {
+  font-size: 28rpx;
+  max-width: 380rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-line {
+  display: flex;
+  align-items: center;
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #8b8578;
+}
+
+.pips {
+  display: flex;
+  align-items: center;
+  margin-left: 12rpx;
+}
+
+.pip {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: #ece8de;
+  margin-right: 6rpx;
+}
+
+.pip.on {
+  background: #2f7d6e;
+}
+
+.check {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  border: 2rpx solid #ddd7c9;
+  margin-right: 16rpx;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22rpx;
+  color: #ffffff;
+}
+
+.check.on {
+  background: #2f7d6e;
+  border-color: #2f7d6e;
+}
+
+/* ---------- 日历 ---------- */
+
+.cal {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 12rpx;
+}
+
+.cal-head {
+  width: 14.28%;
+  text-align: center;
+  font-size: 21rpx;
+  color: #a29b8d;
+  padding: 8rpx 0;
+}
+
+.cal-cell {
+  width: 14.28%;
+  height: 84rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 23rpx;
+  border-radius: 12rpx;
+  color: #4a453b;
+}
+
+.cal-cell.blank {
+  visibility: hidden;
+}
+
+.cal-cell.today {
+  outline: 1rpx solid #cfc7b6;
+}
+
+.cal-cell .count {
+  font-size: 18rpx;
+  color: #2f7d6e;
+  line-height: 1;
+}
+
+.cal-cell.l1 {
+  background: #eef5f2;
+}
+
+.cal-cell.l2 {
+  background: #dcece6;
+}
+
+.cal-cell.l3 {
+  background: #c2e0d6;
+}
+
+.cal-cell.l4 {
+  background: #a3d0c2;
+  color: #123f36;
+}
+
+/* ---------- 输入 ---------- */
+
+.field {
+  display: flex;
+  align-items: center;
+  padding: 14rpx 0;
+}
+
+.field-label {
+  font-size: 24rpx;
+  color: #8b8578;
+  width: 120rpx;
+  flex-shrink: 0;
+}
+
+.input {
+  flex: 1;
+  height: 68rpx;
+  background: #f7f5f0;
+  border-radius: 12rpx;
+  padding: 0 18rpx;
+  font-size: 26rpx;
+}
+
+.picker {
+  height: 68rpx;
+  line-height: 68rpx;
+  background: #f7f5f0;
+  border-radius: 12rpx;
+  padding: 0 18rpx;
+  font-size: 26rpx;
+  color: #3a362e;
+  min-width: 120rpx;
+}
+
+/* ---------- 属性网格 ---------- */
+
+.attr-grid {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.attr {
+  width: 25%;
+  padding: 12rpx 0;
+  text-align: center;
+}
+
+.attr.half {
+  width: 50%;
+  text-align: left;
+}
+
+.attr-name {
+  display: block;
+  font-size: 21rpx;
+  color: #8b8578;
+}
+
+.attr-value {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+  margin-top: 2rpx;
+}
+
+.attr-gain {
+  font-size: 20rpx;
+  color: #2f7d6e;
+  margin-left: 4rpx;
+}
+
+/* ---------- 我的 ---------- */
+
+.profile {
+  display: flex;
+  align-items: center;
+}
+
+.avatar {
+  width: 108rpx;
+  height: 108rpx;
+  border-radius: 50%;
+  background: #eaf2ef;
+  color: #2f7d6e;
+  font-size: 40rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-right: 20rpx;
+  flex-shrink: 0;
+  overflow: hidden;
+  line-height: 1;
+}
+
+.avatar::after {
+  border: none;
+}
+
+.avatar image {
+  width: 100%;
+  height: 100%;
+}
+
+.loading {
+  text-align: center;
+  color: #8b8578;
+  font-size: 25rpx;
+  padding: 120rpx 0;
+}
+
+.loading .btn {
+  margin-top: 24rpx;
+}
+
+.sync-dot {
+  font-size: 21rpx;
+  color: #a29b8d;
+}
+
+.sync-dot.busy {
+  color: #2f7d6e;
+}

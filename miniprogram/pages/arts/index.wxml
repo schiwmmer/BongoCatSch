@@ -1,0 +1,290 @@
+<view class="page">
+  <view class="topbar" wx:if="{{header}}">
+    <view class="stat" style="flex:1.7">
+      <text class="stat-label">境界</text>
+      <text class="stat-value">{{header.realm}}</text>
+    </view>
+    <view class="stat">
+      <text class="stat-label">战力</text>
+      <text class="stat-value jade">{{header.power}}</text>
+    </view>
+    <view class="stat">
+      <text class="stat-label">灵石</text>
+      <text class="stat-value gold">{{header.stones}}</text>
+    </view>
+    <view class="stat">
+      <text class="stat-label">已专注</text>
+      <text class="stat-value">{{header.total}}</text>
+    </view>
+  </view>
+
+  <view class="seg">
+    <view
+      wx:for="{{sections}}"
+      wx:key="key"
+      class="seg-item {{section === item.key ? 'active' : ''}}"
+      data-section="{{item.key}}"
+      bindtap="onSection"
+    >{{item.label}}</view>
+  </view>
+
+  <block wx:if="{{loading}}">
+    <view class="loading">正在从云端取回你的存档…</view>
+  </block>
+
+  <block wx:elif="{{error}}">
+    <view class="loading">
+      {{error}}
+      <view><button class="btn primary" data-act="retry" bindtap="onAction">重试</button></view>
+    </view>
+  </block>
+
+  <!-- ================= 状态 ================= -->
+  <block wx:elif="{{section === 'status'}}">
+    <view class="card">
+      <view class="row-title" style="font-size:38rpx;font-weight:600">{{view.realm}}</view>
+      <view class="row-sub">{{view.sub}}</view>
+      <view style="display:flex;align-items:baseline;margin:18rpx 0 6rpx">
+        <text style="font-size:56rpx;font-weight:600;color:#2f7d6e">{{view.power}}</text>
+        <text style="font-size:22rpx;color:#8b8578;margin-left:10rpx">战力</text>
+        <text wx:if="{{view.external}}" class="chip accent">外功 +{{view.external}}</text>
+      </view>
+      <view class="bar">
+        <view class="bar-fill violet" style="width:{{view.growthPercent}}%"></view>
+      </view>
+      <view style="display:flex;justify-content:space-between;font-size:21rpx;color:#8b8578;margin-top:8rpx">
+        <text>{{view.growthText}}</text>
+        <text>{{view.nextText}}</text>
+      </view>
+      <view class="chips">
+        <text class="chip gold">灵石 {{view.stones}}</text>
+        <text class="chip">潜质 {{view.aptitude}}</text>
+        <text class="chip">下次专注 +{{view.nextGrowth}}</text>
+        <text class="chip {{view.atHome ? 'jade' : 'accent'}}">{{view.atHome ? '在家' : '外出中'}}</text>
+      </view>
+
+      <view class="row" wx:if="{{view.guardian}}">
+        <view class="row-main">
+          <view class="row-title">境界守关者 · {{view.guardian.target}}</view>
+          <view class="row-sub">守关战力 {{view.guardian.power}} ｜ 你的 {{view.guardian.mine}}</view>
+        </view>
+        <view class="row-actions">
+          <button
+            class="btn small primary"
+            data-act="breakthrough"
+            bindtap="onAction"
+            disabled="{{!view.guardian.ready}}"
+          >{{view.guardian.actionText}}</button>
+        </view>
+      </view>
+      <view wx:else class="hint">本境界还没有走到最后一层。</view>
+
+      <view wx:if="{{view.cooldownText}}" class="hint">{{view.cooldownText}}</view>
+      <view wx:if="{{view.refusalText}}" class="hint">上次操作：{{view.refusalText}}</view>
+    </view>
+
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">四维与战力来源</text>
+      </view>
+      <view class="row-sub">{{view.breakdownText}}</view>
+      <view class="attr-grid" style="margin-top:12rpx">
+        <view wx:for="{{view.attributes}}" wx:key="key" class="attr">
+          <text class="attr-name">{{item.label}}</text>
+          <text class="attr-value">{{item.total}}<text wx:if="{{item.extra}}" class="attr-gain">{{item.extra}}</text></text>
+        </view>
+      </view>
+      <view class="card-head" style="margin-top:20rpx">
+        <text class="card-title">战斗数值</text>
+      </view>
+      <view class="attr-grid">
+        <view wx:for="{{view.derived}}" wx:key="key" class="attr">
+          <text class="attr-name">{{item.label}}</text>
+          <text class="attr-value">{{item.value}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">分配潜能</text>
+        <text class="card-hint">剩余 {{view.freePoints}} 点</text>
+      </view>
+      <view wx:for="{{view.alloc}}" wx:key="key" class="row">
+        <view class="row-main">
+          <view class="row-title">{{item.label}}</view>
+          <view class="row-sub">已分配 {{item.allocated}}</view>
+        </view>
+        <view class="row-actions">
+          <button class="btn small" data-act="alloc" data-attr="{{item.key}}" data-points="1" bindtap="onAction" disabled="{{!item.canOne}}">+1</button>
+          <button class="btn small" data-act="alloc" data-attr="{{item.key}}" data-points="10" bindtap="onAction" disabled="{{!item.canTen}}">+10</button>
+          <button class="btn small jade" data-act="alloc" data-attr="{{item.key}}" data-points="{{view.freePoints}}" bindtap="onAction" disabled="{{!item.canOne}}">全部</button>
+        </view>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">下次专注做什么</text>
+        <text class="card-hint">一次番茄只做一件事</text>
+      </view>
+      <view class="seg">
+        <view
+          wx:for="{{view.modes}}"
+          wx:key="key"
+          class="seg-item {{item.active ? 'active' : ''}}"
+          data-act="mode"
+          data-mode="{{item.key}}"
+          bindtap="onAction"
+        >{{item.label}}</view>
+      </view>
+
+      <view class="row">
+        <view class="row-main">
+          <view class="row-title">潜质与丹药</view>
+          <view class="row-sub">潜质 {{view.aptitude}}</view>
+        </view>
+        <view class="row-actions">
+          <text wx:for="{{view.herbs}}" wx:key="key" class="chip">{{item.label}} {{item.count}}</text>
+        </view>
+      </view>
+      <view class="row">
+        <view class="row-main">
+          <view class="row-title">丹药服用</view>
+          <view class="row-sub">{{view.marrowCost ? '开脉需要 ' + view.marrowCost + ' 颗洗髓丹' : '本段已到顶'}}</view>
+        </view>
+        <view class="row-actions">
+          <button class="btn small" data-act="herb" data-herb="insight" bindtap="onAction" disabled="{{!view.herbs[0].count}}">悟心</button>
+          <button class="btn small" data-act="herb" data-herb="wisdom" bindtap="onAction" disabled="{{!view.herbs[1].count}}">慧心</button>
+          <button class="btn small jade" data-act="marrow" bindtap="onAction" disabled="{{!view.marrowCost || !view.herbs[2].count}}">洗髓</button>
+        </view>
+      </view>
+      <view class="row">
+        <view class="row-main">
+          <view class="row-title">今日机缘</view>
+          <view class="row-sub">已发生 {{view.dailyEvents}} 次</view>
+        </view>
+        <view class="row-actions">
+          <button
+            wx:if="{{view.hasDailyEvent}}"
+            class="btn small"
+            data-act="ack"
+            data-day="{{view.dailyEventDay}}"
+            bindtap="onAction"
+          >收下</button>
+          <text wx:else class="chip muted">今日暂无</text>
+        </view>
+      </view>
+    </view>
+  </block>
+
+  <!-- ================= 功法 ================= -->
+  <block wx:elif="{{section === 'arts'}}">
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">功法</text>
+      </view>
+      <view class="row-sub">{{view.summary}}{{view.external ? ' · ' + view.external : ''}}</view>
+
+      <view wx:for="{{view.arts}}" wx:key="id" class="row">
+        <view class="row-main">
+          <view class="row-title">
+            <text class="chip gold">{{item.grade}}</text>
+            <text>{{item.name}}</text>
+            <text class="chip muted">{{item.kind}} · 第 {{item.rank}} 重</text>
+            <text wx:if="{{item.selected}}" class="chip accent">修习中</text>
+          </view>
+          <view class="row-sub">
+            成长 {{item.progressText}} · 突破率 {{item.rate}}%{{item.copies ? ' · ' + item.copies : ''}}
+          </view>
+          <view class="bar">
+            <view class="bar-fill gold" style="width:{{item.percent}}%"></view>
+          </view>
+        </view>
+        <view class="row-actions">
+          <button
+            class="btn small {{item.selected ? '' : 'jade'}}"
+            data-act="select-art"
+            data-art="{{item.selected ? 0 : item.id}}"
+            bindtap="onAction"
+          >{{item.selected ? '停止' : '修习'}}</button>
+          <button
+            class="btn small danger"
+            data-act="sell-art"
+            data-art="{{item.id}}"
+            bindtap="onAction"
+            disabled="{{item.selected}}"
+          >卖</button>
+        </view>
+      </view>
+      <view wx:if="{{!view.arts.length}}" class="empty">还没有功法。外出和集市会给，专注完成也会掉。</view>
+
+      <view class="chips" wx:if="{{view.sets.length}}">
+        <text wx:for="{{view.sets}}" wx:key="key" class="chip gold">{{item.text}}</text>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">已圆满</text>
+        <text class="card-hint">{{view.mastered.length}} 门</text>
+      </view>
+      <view wx:for="{{view.mastered}}" wx:key="key" class="row">
+        <view class="row-main">
+          <view class="row-title">{{item.name}} <text class="chip muted">{{item.kind}}</text></view>
+          <view class="row-sub">{{item.line}}</view>
+        </view>
+      </view>
+      <view wx:if="{{!view.mastered.length}}" class="empty">还没有练满的功法。</view>
+    </view>
+  </block>
+
+  <!-- ================= 装备 ================= -->
+  <block wx:elif="{{section === 'gear'}}">
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">穿戴</text>
+        <text class="card-hint">装备属性计入战力，套装另有加成</text>
+      </view>
+      <view wx:for="{{view.slots}}" wx:key="key" class="row">
+        <view class="row-main">
+          <view class="row-title">
+            {{item.label}}<text wx:if="{{!item.empty}}"> · {{item.name}}</text>
+            <text wx:if="{{item.rarity}}" class="chip gold">{{item.rarity}}</text>
+            <text wx:if="{{item.star}}" class="chip">{{item.star}}</text>
+          </view>
+          <view class="row-sub">{{item.empty ? '空置' : item.line}}</view>
+        </view>
+        <view class="row-actions" wx:if="{{!item.empty}}">
+          <button class="btn small" data-act="unequip" data-slot="{{item.key}}" bindtap="onAction">卸下</button>
+        </view>
+      </view>
+      <view class="chips" wx:if="{{view.sets.length}}">
+        <text wx:for="{{view.sets}}" wx:key="key" class="chip gold">{{item.text}}</text>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">背包</text>
+        <text class="card-hint">{{view.count}} 件 · 升星赌一半身价</text>
+      </view>
+      <view wx:for="{{view.inventory}}" wx:key="id" class="row">
+        <view class="row-main">
+          <view class="row-title">
+            <text class="chip gold">{{item.rarity}}</text>
+            <text>{{item.name}}</text>
+            <text class="chip muted">{{item.tierText}} {{item.star}}{{item.set}}</text>
+          </view>
+          <view class="row-sub">{{item.line}}</view>
+        </view>
+        <view class="row-actions">
+          <button class="btn small jade" data-act="equip" data-id="{{item.id}}" bindtap="onAction">穿戴</button>
+          <button class="btn small" data-act="star" data-id="{{item.id}}" bindtap="onAction" disabled="{{!item.canStar}}">升星 {{item.starCost}}</button>
+          <button class="btn small danger" data-act="sell-item" data-id="{{item.id}}" bindtap="onAction">卖 {{item.sellPrice}}</button>
+        </view>
+      </view>
+      <view wx:if="{{!view.count}}" class="empty">背包是空的。专注掉落、集市与外出都会带回装备。</view>
+    </view>
+  </block>
+</view>

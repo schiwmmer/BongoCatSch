@@ -58,7 +58,14 @@
 - 自动眨眼守卫：`expression_driven_parameter_ids` 每帧重写，眨眼跳过本帧表达式驱动的眼睛参数（wink/exp_1/exp_2/focus 不被覆盖）。
 
 ## 浏览器版（2026-11-01）
-- `crates/bongocat-pomodoro-web`（wasm 桥，无 wasm-bindgen）+ `web/`（原生 JS 页面）；`just web` 构建、`just web-serve` 预览。修仙逻辑零重写，直接复用 `bongocat-pomodoro`；`record_input` 不进站。细节见 daily log 2026-11-01。
+- `crates/bongocat-pomodoro-web`（wasm 桥，无 wasm-bindgen）+ `web/`（原生 JS 页面）；`just web` 构建、`just web-serve` 预览。修仙逻辑零重写，直接复用 `bongocat-pomodoro`；`record_input` 不进站；网页 `with_daily_stock_tasks(false)`（桌面默认仍生成）。
+- **已上线**：`https://pomodoro-36310.app.workbuddy.host`（应用 `wbapp_PAb06CARldeQ5eqHS2W9Jl`，重发布沿用同链接）。存档在云库 `pomodoro_saves`（`owner_id` PK DEFAULT `auth.uid()` + `document JSONB`，RLS 已 FORCE），邮箱 OTP 登录；localStorage 仅离线读缓存。SDK 自托管 `web/vendor/`（jsdelivr 国内不可达），`just web-sdk` 用 7890 拉 @dev。细节见 daily log 2026-11-01。
+
+## 小程序版（2026-11-02）
+- `miniprogram/`（微信原生，4 tab：番茄钟/修仙(外出·塔与试炼·洞府·灵草园·集市)/功法(状态·功法·装备)/我的）+ `cloudfunctions/game`（Node 云函数加载**同一份** `bongocat_pomodoro_web.wasm`；该 wasm imports 为空，可直接 `new WebAssembly.Instance` → 服务端权威计算零重写）。
+- 服务端硬规则：时间只取服务端 `Date.now()`、时区固定 UTC+8、`set_focus_minutes<25` 拒绝；调用序 `boot(now)→tick(now,0)→command→render→export`（**elapsed 必须 0**，boot 内 resume_live_session 已扣过）；`completed` 用存档 `total_completions` 前后差判定（tick 的 bit0 会漏关档期间完成的那次）。
+- 云开发集合 `saves`：`_id=OPENID`、`document`、`version`（乐观锁）、`profile`；权限必须「仅管理端可读写」。AppID 未申请，`project.config.json` 现为 `touristappid`。
+- 构建/校验：`just mp-kernel`（编译 wasm + 投放）、`just mp-check`（selftest 14 用例 / views-smoke / wxml-check，**无 AppID 可全跑**）。
 
 ## ARCHIVE 索引
 - 2026-10 → `archive/2026-10.md`：修仙全量数值口径、UI 要点坑清单、构建与磁盘细节。
