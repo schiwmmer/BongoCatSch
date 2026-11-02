@@ -2244,10 +2244,8 @@ mod tests {
     #[test]
     fn the_shipped_repair_command_is_valid_shell() {
         let script = super::repair_command("BongoCat.app");
-        let path = std::env::temp_dir().join(format!(
-            "bongocat-repair-command-check.sh-{}",
-            std::process::id()
-        ));
+        let _path_scratch = tempfile::TempDir::new().expect("create a scratch directory");
+        let path = _path_scratch.path().join("bongocat-repair-command-check.sh");
         std::fs::write(&path, &script).expect("write the repair command");
 
         let status = std::process::Command::new("bash")
@@ -2264,11 +2262,8 @@ mod tests {
     /// error, because that is the state every run ends in.
     #[test]
     fn the_resource_staging_area_does_not_survive_packaging() {
-        let root = std::env::temp_dir().join(format!(
-            "bongocat-packaging-staging-cleanup-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
+        let _root_scratch = tempfile::TempDir::new().expect("create a scratch directory");
+        let root = _root_scratch.path();
         let staging = super::resource_staging_directory(&root);
         let models = staging.join(MODEL_DIRECTORY).join(PRESET_MODELS[0]);
 
@@ -2367,11 +2362,8 @@ mod tests {
             "release",
             "arm64-apple-macosx/release",
         ] {
-            let root = std::env::temp_dir().join(format!(
-                "bongocat-packaging-swift-bundle-{}",
-                std::process::id()
-            ));
-            let _ = std::fs::remove_dir_all(&root);
+            let _root_scratch = tempfile::TempDir::new().expect("create a scratch directory");
+            let root = _root_scratch.path();
             let package = root
                 .join("target")
                 .join(ReleaseTarget::MacosAarch64.triple())
@@ -2396,11 +2388,8 @@ mod tests {
     /// rather than ship an app whose panel aborts the process on first use.
     #[test]
     fn a_build_without_the_swift_resource_bundle_fails_with_the_reason() {
-        let root = std::env::temp_dir().join(format!(
-            "bongocat-packaging-swift-bundle-missing-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
+        let _root_scratch = tempfile::TempDir::new().expect("create a scratch directory");
+        let root = _root_scratch.path();
         let package = root
             .join("target")
             .join(ReleaseTarget::MacosAarch64.triple())
@@ -2541,10 +2530,8 @@ mod tests {
     /// runtime cannot read fails here rather than on a user's machine.
     #[test]
     fn merging_fragments_produces_a_manifest_the_updater_can_read() {
-        let root =
-            std::env::temp_dir().join(format!("bongocat-packaging-merge-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("scratch directory");
+        let _root_scratch = tempfile::TempDir::new().expect("create a scratch directory");
+        let root = _root_scratch.path();
 
         let version = env!("CARGO_PKG_VERSION");
         let mut fragments = Vec::new();
@@ -2620,12 +2607,8 @@ mod tests {
     /// survive the merge and stay readable by the update library.
     #[test]
     fn merged_manifests_carry_the_release_notes_the_updater_reads() {
-        let root = std::env::temp_dir().join(format!(
-            "bongocat-packaging-merge-notes-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("scratch directory");
+        let _root_scratch = tempfile::TempDir::new().expect("create a scratch directory");
+        let root = _root_scratch.path();
 
         let version = env!("CARGO_PKG_VERSION");
         let fragment = root.join("macos-aarch64.json");
@@ -2665,12 +2648,8 @@ mod tests {
     /// An empty notes file is not a changelog, and the manifest must not pretend it is.
     #[test]
     fn blank_release_notes_are_not_announced() {
-        let root = std::env::temp_dir().join(format!(
-            "bongocat-packaging-merge-blank-notes-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("scratch directory");
+        let _root_scratch = tempfile::TempDir::new().expect("create a scratch directory");
+        let root = _root_scratch.path();
         let notes_path = root.join("notes.md");
         std::fs::write(&notes_path, "   \n\t\n").expect("write the release notes");
         assert_eq!(
@@ -2706,12 +2685,8 @@ mod tests {
     /// version its entries belong to, so the merge refuses them.
     #[test]
     fn merging_rejects_a_fragment_from_another_release() {
-        let root = std::env::temp_dir().join(format!(
-            "bongocat-packaging-merge-version-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("scratch directory");
+        let _root_scratch = tempfile::TempDir::new().expect("create a scratch directory");
+        let root = _root_scratch.path();
 
         let mut fragments = Vec::new();
         for (key, version) in [
@@ -2751,12 +2726,8 @@ mod tests {
     /// no host can ever match, so the merge refuses it.
     #[test]
     fn merging_rejects_a_fragment_that_is_not_a_shipped_platform() {
-        let root = std::env::temp_dir().join(format!(
-            "bongocat-packaging-merge-keyless-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("scratch directory");
+        let _root_scratch = tempfile::TempDir::new().expect("create a scratch directory");
+        let root = _root_scratch.path();
         let path = root.join("plan9-cris.json");
         std::fs::write(&path, b"{}").expect("write a fragment");
 
@@ -2779,10 +2750,8 @@ mod tests {
     /// signing path reads.
     #[test]
     fn generating_a_signing_key_produces_the_files_the_release_consumes() {
-        let root =
-            std::env::temp_dir().join(format!("bongocat-packaging-keygen-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("scratch directory");
+        let _root_scratch = tempfile::TempDir::new().expect("create a scratch directory");
+        let root = _root_scratch.path();
 
         let produced = super::generate_signing_key(&root.join("bongocat.key"))
             .expect("generate a signing key");
@@ -2845,12 +2814,8 @@ mod tests {
     /// installed copy, so an empty merge is a failure rather than an empty file.
     #[test]
     fn merging_needs_at_least_one_fragment() {
-        let root = std::env::temp_dir().join(format!(
-            "bongocat-packaging-merge-empty-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("scratch directory");
+        let _root_scratch = tempfile::TempDir::new().expect("create a scratch directory");
+        let root = _root_scratch.path();
 
         let error =
             super::merge_manifest(&root, &[], None).expect_err("an empty merge must be rejected");
@@ -2865,11 +2830,8 @@ mod tests {
     /// contents have to sit under it.
     #[test]
     fn the_bundle_archive_roots_at_the_bundle_directory() {
-        let root = std::env::temp_dir().join(format!(
-            "bongocat-packaging-bundle-archive-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
+        let _root_scratch = tempfile::TempDir::new().expect("create a scratch directory");
+        let root = _root_scratch.path();
         let bundle = root.join("BongoCat.app");
         std::fs::create_dir_all(bundle.join("Contents/MacOS")).expect("bundle directory");
         std::fs::write(bundle.join("Contents/MacOS/bongocat-app"), "binary").expect("write file");
@@ -3203,12 +3165,8 @@ See 9.9.8 for the previous notes.
     /// place only.
     #[test]
     fn a_missing_changelog_entry_names_the_documented_versions() {
-        let root = std::env::temp_dir().join(format!(
-            "bongocat-packaging-changelog-missing-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("scratch directory");
+        let _root_scratch = tempfile::TempDir::new().expect("create a scratch directory");
+        let root = _root_scratch.path();
         let path = root.join(super::RELEASE_CHANGELOG_NAME);
         std::fs::write(&path, "## 9.9.9 - 2026-09-16\n\n- notes\n").expect("write a changelog");
 
