@@ -1005,3 +1005,38 @@ jobs:
           path: ${{ runner.temp }}/bongocat-failure-evidence
           if-no-files-found: error
           retention-days: 7
+
+  # The browser build and the mini-program share one wasm kernel, but neither was
+  # reachable from `just check` or any job here: a broken kernel or a mini-program
+  # page could land on master with a green verification run.
+  web-miniprogram:
+    name: Check web and mini-program builds
+    if: needs.filter-paths.outputs.docs-only != 'true'
+    needs: filter-paths
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.97.1
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: taiki-e/install-action@just
+      - name: Build the wasm kernel both clients share
+        run: just web
+      - name: Run the mini-program contract checks
+        run: just mp-check
+      - name: Collect redacted failure evidence
+        if: ${{ failure() }}
+        shell: bash
+        run: python3 tools/collect-failure-evidence.py --input "$RUNNER_TEMP" --output "$RUNNER_TEMP/bongocat-failure-evidence" --platform "${{ runner.os }}"
+      - name: Upload redacted failure evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-evidence-web-miniprogram
+          path: ${{ runner.temp }}/bongocat-failure-evidence
+          if-no-files-found: error
+          retention-days: 7
