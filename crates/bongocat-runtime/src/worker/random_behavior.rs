@@ -9,6 +9,8 @@ use super::audio::{motion_audio_path, stop_motion_audio};
 use crate::owner::ShutdownSignal;
 use crate::*;
 
+// Above the workspace threshold of 10: each argument is a distinct owner or
+// capability crossing this boundary, not a parameter group to collapse.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn maybe_trigger_random_behavior(
     renderer: Option<&mut RuntimeRenderer>,
@@ -39,7 +41,6 @@ pub(crate) fn maybe_trigger_random_behavior(
     });
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn maybe_trigger_random_behavior_locked(
     renderer: Option<&mut RuntimeRenderer>,
     active_model: Option<&CommittedModel>,

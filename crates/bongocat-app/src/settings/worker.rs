@@ -15,7 +15,6 @@ use super::model_projection::*;
 use super::projection::*;
 use super::snapshot::*;
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn run_service(
     mut application: Application,
     endpoint: SettingsServiceEndpoint,

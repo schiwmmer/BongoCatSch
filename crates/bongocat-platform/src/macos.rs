@@ -1217,7 +1217,6 @@ fn input_event_mask() -> CGEventMask {
     .fold(0, |mask, event_type| mask | (1_u64 << event_type.0))
 }
 
-#[allow(clippy::too_many_arguments)]
 fn capture_callback_event(
     event_type: CGEventType,
     event: &CGEvent,

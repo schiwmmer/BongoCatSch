@@ -229,7 +229,6 @@ impl RuntimeOwner {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn start_internal(
         initial_overlay_visible: bool,
         initial_motion_audio_enabled: bool,

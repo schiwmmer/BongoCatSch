@@ -139,10 +139,6 @@ impl ChoicesSnapshot {
 type ToggleChoice = Rc<dyn Fn(&mut SettingsView, usize, bool, &mut Context<SettingsView>)>;
 type ConfirmChoices = Rc<dyn Fn(&mut SettingsView, Vec<usize>, &mut Context<SettingsView>)>;
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "shared dialog inputs and typed callbacks"
-)]
 pub(super) fn build_import_choices_dialog(
     choices: Vec<(String, bool)>,
     title: String,
@@ -167,10 +163,6 @@ pub(super) fn build_import_choices_dialog(
     )
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "shared dialog inputs and typed callbacks"
-)]
 fn build_choices_frame(
     snapshot: Rc<RefCell<ChoicesSnapshot>>,
     title: String,

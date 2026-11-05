@@ -1514,7 +1514,6 @@ fn date_tick_spans(count: usize, ticks: &[usize]) -> Vec<usize> {
 /// A cell is a button: clicking one selects that day (a future day refuses,
 /// since nothing can have happened there yet), the selection draws a ring, and
 /// clicking the selected cell again clears it back to "chart ends today".
-#[allow(clippy::too_many_arguments)]
 fn calendar_cell(
     view: &Entity<SettingsView>,
     tokens: Tokens,

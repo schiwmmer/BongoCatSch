@@ -9,7 +9,6 @@ use super::GamepadAxisValues;
 use crate::input_state::{InputState, ModelInputFilter};
 use crate::*;
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn consume_cursor(
     cursor_producer: &CursorProducer,
     snapshot: &SnapshotCell,
@@ -46,7 +45,6 @@ pub(crate) fn consume_cursor(
     });
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn consume_gamepad_axes(
     producer: &GamepadAxisProducer,
     snapshot: &SnapshotCell,

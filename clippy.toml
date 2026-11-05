@@ -1,0 +1,7 @@
+# Runtime worker consumers and settings constructors take their dependencies as
+# explicit arguments: injected capabilities, producers, clocks and snapshots are
+# passed rather than hidden behind a service locator. Measured spread across the
+# workspace is 8-10 arguments on 17 call sites, 11 on 2, 17 on 2. Ten is the
+# project-wide ceiling; the few call sites above it keep a local allow with a
+# reason instead of forcing 20 scattered blanket exemptions.
+too-many-arguments-threshold = 10

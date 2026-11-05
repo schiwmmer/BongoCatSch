@@ -228,7 +228,6 @@ impl ApplicationSettingsService {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn start_with_startup_item_and_shortcuts(
         application: Application,
         startup_item: Arc<dyn StartupItemCapability>,
@@ -346,7 +345,6 @@ impl ApplicationSettingsService {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn start_with_capabilities_and_shortcuts(
         application: Application,
         startup_item: Arc<dyn StartupItemCapability>,

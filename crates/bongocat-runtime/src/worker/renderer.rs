@@ -85,7 +85,6 @@ pub(crate) fn update_renderer_health(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn start_motion(
     renderer: &mut Option<RuntimeRenderer>,
     motion: MotionId,

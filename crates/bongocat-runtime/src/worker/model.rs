@@ -23,6 +23,8 @@ pub(crate) struct PendingModelActivation {
     pub(crate) audio_prepare_sequence: Option<u64>,
 }
 
+// Above the workspace threshold of 10: each argument is a distinct owner or
+// capability crossing this boundary, not a parameter group to collapse.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn begin_model_activation(
     sequence: u64,
@@ -104,6 +106,8 @@ pub(crate) fn begin_model_activation(
     }
 }
 
+// Above the workspace threshold of 10: each argument is a distinct owner or
+// capability crossing this boundary, not a parameter group to collapse.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn process_model_commit_feedback(
     renderer: Option<&mut RuntimeRenderer>,

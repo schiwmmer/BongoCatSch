@@ -312,7 +312,6 @@ pub(super) fn content(
 /// While the card is being edited the picker joins the cover as a child of this
 /// box, laid over the corner, rather than as a row under it — see
 /// [`model_cover_picker`].
-#[allow(clippy::too_many_arguments)]
 fn model_card_cover(
     cover: Option<PathBuf>,
     input_mode: Option<SettingsModelMode>,
@@ -567,6 +566,8 @@ fn model_card_title_field(
 /// cannot be undone, so its control owns a confirmation surface rather than
 /// acting on the first press — the row keeps all four controls either way, and
 /// the question appears next to the control that asked it.
+// Above the workspace threshold of 10: each argument is a distinct owner or
+// capability crossing this boundary, not a parameter group to collapse.
 #[allow(clippy::too_many_arguments)]
 fn model_card_actions(
     window: &Window,

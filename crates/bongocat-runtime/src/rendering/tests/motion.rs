@@ -245,7 +245,6 @@ fn hidden_motion_fade_becomes_settled_without_frame_evaluation() {
     ));
 }
 
-#[allow(clippy::too_many_arguments)]
 fn overlap_test_layer(
     group: &str,
     index: usize,

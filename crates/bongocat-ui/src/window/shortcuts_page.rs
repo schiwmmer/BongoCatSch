@@ -535,7 +535,6 @@ fn behavior_palette_chip(
         .into_any_element()
 }
 
-#[allow(clippy::too_many_arguments)]
 fn shortcut_row(
     view: &SettingsView,
     window: &Window,
@@ -808,7 +807,6 @@ fn shortcut_icon_button(
 /// The stop lives on a wrapper around the control rather than on the control
 /// itself, because stopping an event also stops the handlers that come after it
 /// — including the control's own click.
-#[allow(clippy::too_many_arguments)]
 fn shortcut_play_control(
     cx: &mut Context<SettingsView>,
     language: SettingsLanguage,
@@ -875,7 +873,6 @@ fn shortcut_play_control(
 /// and keeps the same two jobs: drop this row's binding, and put the row's
 /// keyboard focus back on the control it was pressed from. Like the play
 /// control's, its press is stopped by a wrapper so it cannot reach the frame.
-#[allow(clippy::too_many_arguments)]
 fn shortcut_clear_control(
     cx: &mut Context<SettingsView>,
     language: SettingsLanguage,

@@ -1,6 +1,5 @@
 use super::*;
 
-#[allow(clippy::too_many_arguments)]
 pub fn open_settings_window(
     client: SettingsClient,
     window_state: SettingsWindowState,
