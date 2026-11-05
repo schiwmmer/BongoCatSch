@@ -412,6 +412,9 @@ impl CultivationDocument {
         if self.curve_rev == 2 {
             self.growth = curve::migrate_growth_v2(self.growth);
         }
+        if self.curve_rev == 3 {
+            self.growth = curve::migrate_growth_v3(self.growth);
+        }
         self.curve_rev = curve::CURVE_REV;
     }
 
@@ -715,6 +718,21 @@ mod tests {
         .normalized();
         assert_eq!(document.equipped.len(), SLOT_COUNT);
         assert!(document.equipped.iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn a_document_on_the_third_ramp_moves_onto_the_current_one_keeping_its_level() {
+        // The shape of a document written on the rev-3 ramp: the early realms
+        // were still cheap. The level must survive the retune.
+        let parsed: CultivationDocument =
+            serde_json::from_str(r#"{"growth":10000,"realm":1,"curve_rev":3}"#)
+                .expect("the rev-3 shape loads");
+        assert_eq!(parsed.curve_rev, 3);
+        let document = parsed.normalized();
+        assert_eq!(document.growth, 50_000);
+        assert_eq!(level_for_growth(document.growth).level, 101);
+        assert_eq!(document.peak_level, 101);
+        assert_eq!(document.curve_rev, curve::CURVE_REV);
     }
 
     #[test]

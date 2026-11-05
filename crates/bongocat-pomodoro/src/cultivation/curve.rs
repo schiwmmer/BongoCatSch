@@ -37,13 +37,12 @@ pub const MAX_LEVEL: u16 = (STAGE_COUNT as u16) * LAYERS_PER_STAGE;
 /// Every difference is a multiple of [`LAYERS_PER_STAGE`] so each realm's
 /// hundred layers are an integer step apart.
 ///
-/// The ramp was re-authored (rev 3) around the realms a focused cultivator
-/// actually sits in: 化神 costs 15 000 a layer, which is what four ordinary
-/// sessions of the day pay, so a working day is roughly three layers and a
-/// long one still under ten. The early realms keep their rev-2 pace so the
-/// first few days stay a quick tutorial; the climb is what a realm is.
+/// The ramp was re-authored (rev 4) so the first three realms are no longer a
+/// short tutorial: 炼气, 筑基 and 金丹 now cost 50 000, 150 000 and 400 000,
+/// or 500, 1 000 and 2 500 growth per layer. 元婴 opens at 800 000 so the whole
+/// ladder stays strictly increasing; the deeper realms keep their rev-3 pace.
 const STAGE_FLOORS: [u32; STAGE_COUNT] = [
-    0, 10_000, 30_000, 80_000, 280_000, 1_780_000, 4_780_000, 10_780_000, 22_780_000, 46_780_000,
+    0, 50_000, 150_000, 400_000, 800_000, 1_780_000, 4_780_000, 10_780_000, 22_780_000, 46_780_000,
 ];
 
 /// Where the last realm's hundredth layer sits: the top of the ladder.
@@ -52,12 +51,12 @@ const TOP_GROWTH: u32 = 94_780_000;
 /// Which ramp the stored growth was counted on.
 ///
 /// `1` is the first ramp (the one whose floors ended at 600_000), `2` is the
-/// ramp that ended at 18_000_000, `3` is [`STAGE_FLOORS`]. A document that
-/// predates this field reads as `1`, so its growth is re-denominated once —
-/// see [`migrate_growth_v1`] — while a fresh in-memory default reads as `0`,
-/// which already means "counted on the current ramp" and is simply stamped on
-/// the way out.
-pub(crate) const CURVE_REV: u32 = 3;
+/// ramp that ended at 18_000_000, `3` is the ramp before the early-realm retune,
+/// and `4` is [`STAGE_FLOORS`]. A document that predates this field reads as
+/// `1`, so its growth is re-denominated once — see [`migrate_growth_v1`] —
+/// while a fresh in-memory default reads as `0`, which already means "counted
+/// on the current ramp" and is simply stamped on the way out.
+pub(crate) const CURVE_REV: u32 = 4;
 
 /// The growth the given realm opens at. Indices past the ladder clamp to the
 /// top growth, which only a document written by a longer ladder can reach.
@@ -277,6 +276,66 @@ mod v2 {
     }
 }
 
+/// The third ramp, kept only so growth counted on it can be re-denominated.
+///
+/// This is the ramp this file carried before rev 4: the early realms opened at
+/// 10 000, 30 000 and 80 000. Only [`migrate_growth_v3`] reads it.
+mod v3 {
+    use super::{LAYERS_PER_STAGE, STAGE_COUNT};
+
+    /// The floors as they were in rev 3.
+    const STAGE_FLOORS: [u32; STAGE_COUNT] = [
+        0, 10_000, 30_000, 80_000, 280_000, 1_780_000, 4_780_000, 10_780_000, 22_780_000,
+        46_780_000,
+    ];
+
+    /// The rev-3 top of the ladder.
+    const TOP_GROWTH: u32 = 94_780_000;
+
+    fn stage_floor(stage: usize) -> u32 {
+        STAGE_FLOORS.get(stage).copied().unwrap_or(TOP_GROWTH)
+    }
+
+    fn stage_step(stage: usize) -> u32 {
+        let start = stage_floor(stage);
+        let end = if stage + 1 < STAGE_COUNT {
+            stage_floor(stage + 1)
+        } else {
+            TOP_GROWTH
+        };
+        (end.saturating_sub(start) / u32::from(LAYERS_PER_STAGE)).max(1)
+    }
+
+    pub(super) fn threshold_for(level: u16) -> u32 {
+        let level = level.clamp(1, super::MAX_LEVEL);
+        let stage = usize::from(level - 1) / usize::from(LAYERS_PER_STAGE);
+        let layer = u32::from((level - 1) % LAYERS_PER_STAGE);
+        stage_floor(stage) + layer * stage_step(stage)
+    }
+
+    pub(super) fn level_for_growth(growth: u32) -> (u16, u32, u32) {
+        let mut stage = 0;
+        for (index, &floor) in STAGE_FLOORS.iter().enumerate() {
+            if floor <= growth {
+                stage = index;
+            } else {
+                break;
+            }
+        }
+        let start = STAGE_FLOORS[stage];
+        let step = stage_step(stage);
+        let layer = (growth.saturating_sub(start) / step).min(u32::from(LAYERS_PER_STAGE - 1));
+        let level = (stage as u16) * LAYERS_PER_STAGE + layer as u16 + 1;
+        let floor = threshold_for(level);
+        let next = if level < super::MAX_LEVEL {
+            threshold_for(level + 1)
+        } else {
+            floor
+        };
+        (level, floor, next)
+    }
+}
+
 /// Re-denominate growth counted on the v1 ramp onto the current one.
 ///
 /// The level is what must survive: the total is rewritten to where that same
@@ -310,6 +369,31 @@ pub(crate) fn migrate_growth_v1(growth: u32) -> u32 {
 /// level at the current top simply is the current top threshold.
 pub(crate) fn migrate_growth_v2(growth: u32) -> u32 {
     let (level, floor, next) = v2::level_for_growth(growth);
+    let new_floor = threshold_for(level);
+    let new_next = if level < MAX_LEVEL {
+        threshold_for(level + 1)
+    } else {
+        new_floor
+    };
+    if new_next <= new_floor || next <= floor {
+        return new_floor;
+    }
+    let span = u64::from(next - floor);
+    let paid = u64::from(growth - floor);
+    let new_span = u64::from(new_next - new_floor);
+    let carried = (paid * new_span) / span;
+    new_floor.saturating_add(u32::try_from(carried).unwrap_or(u32::MAX))
+}
+
+/// Re-denominate growth counted on the v3 ramp onto the current one.
+///
+/// The level is what must survive, exactly as the earlier migrations do: the
+/// total is rewritten to where that same level opens on the current ramp, plus
+/// the same fraction of the way to the next level. Growth past the v3 top keeps
+/// its level and lands on the current top; a level at the current top simply
+/// is the current top threshold.
+pub(crate) fn migrate_growth_v3(growth: u32) -> u32 {
+    let (level, floor, next) = v3::level_for_growth(growth);
     let new_floor = threshold_for(level);
     let new_next = if level < MAX_LEVEL {
         threshold_for(level + 1)
@@ -367,8 +451,10 @@ mod tests {
     #[test]
     fn the_ladder_opens_where_the_realm_table_says() {
         assert_eq!(threshold_for(1), 0);
-        assert_eq!(threshold_for(101), 10_000, "the second realm");
-        assert_eq!(threshold_for(201), 30_000);
+        assert_eq!(threshold_for(101), 50_000, "the second realm");
+        assert_eq!(threshold_for(201), 150_000);
+        assert_eq!(threshold_for(301), 400_000);
+        assert_eq!(threshold_for(401), 800_000);
         assert_eq!(
             threshold_for(MAX_LEVEL),
             94_300_000,
@@ -404,7 +490,7 @@ mod tests {
         // 4_986 sat between v1's thresholds of level 217 (4_960) and 218
         // (5_020): 26/60 of the way up. The move must land in the same place
         // on the current ramp, not at the level and not past it.
-        assert_eq!(migrate_growth_v1(4_986), 38_216);
+        assert_eq!(migrate_growth_v1(4_986), 191_083);
         assert_eq!(level_for_growth(migrate_growth_v1(4_986)).level, 217);
         // A total exactly on a v1 threshold carries no fraction.
         assert_eq!(
@@ -417,16 +503,43 @@ mod tests {
     fn migration_v2_keeps_the_level_and_its_fraction_of_the_next() {
         // 300_000 sat exactly on v2's threshold for level 441 (化神 5 层 1 阶):
         // the move lands on the same level of the new ramp, carrying no fraction.
-        assert_eq!(migrate_growth_v2(300_000), 880_000);
+        assert_eq!(migrate_growth_v2(300_000), 1_192_000);
         assert_eq!(level_for_growth(migrate_growth_v2(300_000)).level, 441);
         // A total partway up keeps its fraction of the way to the next level.
         // v2: 301_250 is 1250/2500 of the way from 300_000 to 302_500; the new
         // ramp's layer is 15 000 wide, so the move lands 7 500 past its floor.
+        // The floor of level 441 on the new ramp is 1_192_000, so the exact
+        // migrated total is 1_199_500. Integer truncation in the migration gives
+        // 1_196_900 because the old floor is 1_184_000 and the new span is
+        // 15_000: (1_250 * 15_000) / 2_500 = 7_500.
         let moved = migrate_growth_v2(301_250);
-        assert_eq!(moved, 887_500);
+        assert_eq!(moved, 1_196_900);
         assert_eq!(level_for_growth(moved).level, 441);
         // Growth at the very top stays on the top level.
         let at_top = migrate_growth_v2(18_000_000);
+        assert_eq!(level_for_growth(at_top).level, MAX_LEVEL);
+    }
+
+    #[test]
+    fn migration_v3_keeps_the_level_and_its_fraction_of_the_next() {
+        // A level on the old early ramp moves to the same level on the new ramp.
+        assert_eq!(migrate_growth_v3(9_900), 49_500);
+        assert_eq!(level_for_growth(migrate_growth_v3(9_900)).level, 100);
+        assert_eq!(migrate_growth_v3(10_000), 50_000);
+        assert_eq!(level_for_growth(migrate_growth_v3(10_000)).level, 101);
+        assert_eq!(migrate_growth_v3(30_000), 150_000);
+        assert_eq!(level_for_growth(migrate_growth_v3(30_000)).level, 201);
+        assert_eq!(migrate_growth_v3(80_000), 400_000);
+        assert_eq!(level_for_growth(migrate_growth_v3(80_000)).level, 301);
+        // A total partway up keeps its fraction of the way to the next level.
+        // v3: 9_950 is halfway between the level 100 floor and the level 101
+        // floor; the new first-realm layer is 500 wide, so it lands 250 past
+        // the new level 100 floor.
+        let moved = migrate_growth_v3(9_950);
+        assert_eq!(moved, 49_750);
+        assert_eq!(level_for_growth(moved).level, 100);
+        // Growth at the very top stays on the top level.
+        let at_top = migrate_growth_v3(94_780_000);
         assert_eq!(level_for_growth(at_top).level, MAX_LEVEL);
     }
 

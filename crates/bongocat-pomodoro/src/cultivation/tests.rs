@@ -7,7 +7,7 @@ use super::*;
 use crate::CalendarDay;
 
 /// The growth that fills the first realm: the last layer of 炼气.
-const FIRST_REALM_CAP: u32 = 9_900;
+const FIRST_REALM_CAP: u32 = 49_500;
 
 /// How far apart the tests take their walks: the longest length, so a walk
 /// taken at any of the three is owed again by the time the next one starts.
@@ -180,7 +180,7 @@ fn a_missed_day_costs_growth_and_every_following_one_escalates() {
 #[test]
 fn the_same_day_is_never_charged_twice() {
     let mut cultivation = Cultivation::new(CultivationDocument {
-        growth: 1_000,
+        growth: 10_000,
         last_active_day: Some(20_000),
         charged_through_day: Some(20_000),
         ..CultivationDocument::default()
@@ -198,7 +198,7 @@ fn the_same_day_is_never_charged_twice() {
     );
     assert_eq!(
         cultivation.document().growth,
-        1_000 - ABSENCE_LAYERS_PER_DAY * layer_growth(0)
+        10_000 - ABSENCE_LAYERS_PER_DAY * layer_growth(0)
     );
 }
 
@@ -340,7 +340,7 @@ fn the_power_breakdown_adds_up_to_the_power_it_explains() {
 #[test]
 fn a_penalty_never_takes_back_the_realm_already_entered() {
     let mut cultivation = Cultivation::new(CultivationDocument {
-        growth: 10_000,
+        growth: 50_000,
         realm: 1,
         last_active_day: Some(20_000),
         charged_through_day: Some(20_000),
@@ -353,7 +353,7 @@ fn a_penalty_never_takes_back_the_realm_already_entered() {
     assert_eq!(charge.days, 39);
     assert_eq!(
         cultivation.document().growth,
-        10_000,
+        50_000,
         "the floor of the entered realm holds"
     );
     assert_eq!(charge.charged, 0, "nothing was taken");
@@ -516,7 +516,7 @@ fn a_breakthrough_is_only_offered_at_the_realm_cap() {
 #[test]
 fn growth_beyond_the_cap_is_kept_but_buys_no_layers() {
     let cultivation = Cultivation::new(CultivationDocument {
-        growth: 12_000,
+        growth: 50_500,
         ..CultivationDocument::default()
     });
     assert_eq!(cultivation.level(), 100, "the cap holds the level down");
