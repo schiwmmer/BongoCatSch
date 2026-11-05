@@ -946,7 +946,10 @@
       "victory": "遭遇战胜利，小有斩获。",
       "hours": "%{hours} 小时 · ×%{mult}",
       "hint": "走满时长归来才有收获，提前回返一无所获",
-      "busy_gathering": "正在采集，归来后方可探索。"
+      "busy_gathering": "正在采集，归来后方可探索。",
+      "region_level": "第 %{level} 层",
+      "progress_pct": "%{pct}%",
+      "current_region": "当前区域"
     },
     "trial": {
       "title": "锁妖塔",
@@ -1133,6 +1136,13 @@
       "stone": "石",
       "iron": "铁",
       "coal": "煤"
+    },
+    "region": {
+      "azure_peaks": "青云山脉",
+      "frozen_wastes": "玄冰荒漠",
+      "flame_caverns": "赤炎洞窟",
+      "shadow_realm": "幽冥鬼域",
+      "celestial_court": "天外仙境"
     }
   }
 }

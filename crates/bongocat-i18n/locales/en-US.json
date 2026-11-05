@@ -946,7 +946,10 @@
       "victory": "The wanderer was beaten, and paid for it.",
       "hours": "%{hours}h · ×%{mult}",
       "hint": "Walk the hours out or come home with nothing.",
-      "busy_gathering": "Out gathering — explore once home."
+      "busy_gathering": "Out gathering — explore once home.",
+      "region_level": "Floor %{level}",
+      "progress_pct": "%{pct}%",
+      "current_region": "Current Region"
     },
     "trial": {
       "title": "Demon-Locking Tower",
@@ -1133,6 +1136,13 @@
       "stone": "stone",
       "iron": "iron",
       "coal": "coal"
+    },
+    "region": {
+      "azure_peaks": "Azure Peaks",
+      "frozen_wastes": "Frozen Wastes",
+      "flame_caverns": "Flame Caverns",
+      "shadow_realm": "Shadow Realm",
+      "celestial_court": "Celestial Court"
     }
   }
 }

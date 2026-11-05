@@ -178,6 +178,24 @@ pub(super) fn exploration_panel(
     // that was never taken. The gathering's own return lives on the status
     // line, which is where every outing is called home.
     let out_gathering = cultivation.resources.expedition.is_some();
+    let region_idx = (cultivation.exploration_region as usize).min(4);
+    let region_level = cultivation.exploration_level.max(1);
+    let region_progress = cultivation
+        .region_progress
+        .get(region_idx)
+        .copied()
+        .unwrap_or(0);
+    let region_pct = (region_progress as f32 / 1000.0 * 100.0).min(100.0);
+    let region_name = text(
+        locale,
+        match region_idx {
+            0 => "cultivation.region.azure_peaks",
+            1 => "cultivation.region.frozen_wastes",
+            2 => "cultivation.region.flame_caverns",
+            3 => "cultivation.region.shadow_realm",
+            _ => "cultivation.region.celestial_court",
+        },
+    );
     let mut button = if at_home {
         Button::new("cultivation-explore-attempt")
             .small()
@@ -276,11 +294,80 @@ pub(super) fn exploration_panel(
     // The rules of the road read beside the title rather than behind it: the page
     // used to hide four lines of prose under a hover nobody thought to seek, and
     // a rule nobody reads is a rule the walk keeps breaking.
+    //
+    // The region line sits at the top: the user always walks in the region their
+    // own realm lands in, and the level they are climbing through is the detail
+    // the hour chips pay for. The progress bar reads the level's remaining
+    // exploration, filling one level per a number of walks the deeper realms
+    // spend fewer of — the faster cadence the brief names.
     div()
         .id("cultivation-exploration")
         .flex()
         .flex_col()
         .gap_1()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_baseline()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(tokens.muted)
+                                .child(text(locale, "cultivation.explore.current_region")),
+                        )
+                        .child(region_name)
+                        .child(
+                            div()
+                                .id("cultivation-explore-region-level")
+                                .text_xs()
+                                .text_color(tokens.muted)
+                                .child(format_text(
+                                    locale,
+                                    "cultivation.explore.region_level",
+                                    &[("level", region_level.to_string())],
+                                ))
+                                .test_support(),
+                        ),
+                )
+                .child(
+                    div()
+                        .id("cultivation-explore-progress-pct")
+                        .text_xs()
+                        .text_color(tokens.muted)
+                        .child(format_text(
+                            locale,
+                            "cultivation.explore.progress_pct",
+                            &[("pct", format!("{:.0}", region_pct))],
+                        ))
+                        .test_support(),
+                ),
+        )
+        .child(
+            div()
+                .id("cultivation-explore-progress")
+                .w_full()
+                .h(px(6.0))
+                .rounded_full()
+                .bg(tokens.border)
+                .overflow_hidden()
+                .child(
+                    div()
+                        .id("cultivation-explore-progress-fill")
+                        .h_full()
+                        .w(px(((region_pct / 100.0) * 180.0).clamp(0.0, 180.0)))
+                        .rounded_full()
+                        .bg(tokens.accent),
+                )
+                .test_support(),
+        )
         .child(section_header(
             locale,
             "cultivation.explore.title",
