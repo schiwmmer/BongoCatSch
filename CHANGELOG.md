@@ -10,13 +10,6 @@
 - The hybrid shape no longer pays twice. The quarter of arts that paid both attributes and combat numbers used to take a full magnitude in each; the two halves now split one budget (all attributes, all combat, or half each).
 - Gear is differentiated per piece. Two pieces of one slot, tier and quality used to print the same two numbers; the budget is now read in power, with the slot's split swaying ±8% and the piece itself ±6% of 成色. A blade that leans on 力量 reads a smaller number than one that leans on 仙力 for the same worth. The guardian's allowance reads at the top of that band, or the rich-rolled piece would be dropped and the guardian would wear one slot.
 
-### ✨ Features
-
-- 探索区域 UI: 探索行显示当前区域名 / 层级 / 进度条. 新增 [区域·五城十层] 卡片网格展示 5 区域, 每区域显示通关层数 / 当前进度, 当前探索区域高亮标识.
-- 探索区域设计: 青云山脉 (炼气+筑基) / 玄冰荒漠 (金丹+元婴) / 赤炎洞窟 (化神+炼虚) / 幽冥鬼域 (合体+大乘) / 天外仙境 (渡劫+真仙). 层越深战越强、宝越好.
-- 测试: 打包测试中 13 处 PID 临时目录迁移到 tempfile::TempDir, 消除多进程压测竞态.
-
-### ⚖️ Balance
 
 - A fight's turns now track the speeds instead of the banks: a tick pays at most one action a side, so when both speeds cleared the shared bar the banks — not the speeds — handed out the turns, and a 1.6-to-1 edge in 速度 compounded into a fourteen-to-one edge in turns (281 : 19 over three hundred rounds) while most short fights ended before the slower side swung at all. The bar a fight fills to is now the faster side's speed where that asks more than the shared pace, which puts the slower fighter back on the clock near the ratio of the speeds — the same edge now pays about 2.2 to 1 in turns, and slow fights are unchanged.
 - A job's wage is a figure now, not a range: a range is something a roll opens, and a job is a wage — a number the user cannot read before taking it is not one. It now pays the **middle** of the road's own purse, a fifth over, times the grade, which is exactly the expectation the range carried (twelve hours at the fifth tier: 54 at 黄 and 291 at 神). No row on the board is a gamble any more.
@@ -36,6 +29,11 @@
 - A harvest now returns a spare seed at odds that climb with the garden: each garden rank adds 1% (ten per mille per rank), so a first-rank field pays a spare seed about one time in a hundred and a full fifteenth-rank field about one time in seven — exactly the flat rate the garden used to give. The spare rolls a random grade, the same pool a walk or the market rolls from, and it is settled the moment the crop is pulled.
 
 ### ✨ Features
+
+- 探索区域 UI: 探索行显示当前区域名 / 层级 / 进度条. 新增 [区域·五城十层] 卡片网格展示 5 区域, 每区域显示通关层数 / 当前进度, 当前探索区域高亮标识.
+- 探索区域设计: 青云山脉 (炼气+筑基) / 玄冰荒漠 (金丹+元婴) / 赤炎洞窟 (化神+炼虚) / 幽冥鬼域 (合体+大乘) / 天外仙境 (渡劫+真仙). 层越深战越强、宝越好.
+- 测试: 打包测试中 13 处 PID 临时目录迁移到 tempfile::TempDir, 消除多进程压测竞态.
+
 
 - 功法 and equipment sets: every piece of a set carries the same name prefix, and the name *is* the membership. Arts group by 流派 (the prefix a book's name leads with), and two books of one prefix are a family whose primary combat line deepens by "extra books × the grade's figure × 4" — a third book deepens it another step. Equipment groups by what is **worn**, not owned, and two pieces of one set are a set whose bonus is that set's own two combat lines per extra piece per tier (曜日 attack/spell, 寒渊 health/resist, 惊雷 speed/hit, …). The page adds a 套装 summary line to the equipment and 功法 panels, naming the set, its active count and what it pays.
 - 悟心草 and 慧心草 become plantable seeds: the two 潜质 herbs go from "bought and found, then eaten on the spot" to seeds with the five grades 黄 to 神, at fixed tiers (慧心草 grows at the sixth, 悟心草 at the eighth), grown in the garden and eaten automatically when they come up. The grade is what the body pays at (a low band rounds the tenth up to its point, a high band rounds to the nearest). The market and the walk no longer feed a herb the instant it is found — both hand over the seed, planted or lost on a failed sowing.

@@ -447,6 +447,20 @@ class ChangelogSectionVocabularyTests(unittest.TestCase):
             f"a section is listed twice: {emojis}",
         )
 
+    def test_no_release_repeats_a_section(self):
+        # Two batches of 2.4.0 entries were once appended under their own
+        # Balance and Features headings. The vocabulary test only inspects the
+        # table of allowed headings, so the published notes carried both
+        # sections twice without any gate noticing.
+        for path in (CHANGELOG, CHANGELOG_ZH):
+            for version, sections in section_entry_counts(path):
+                emojis = [emoji for emoji, _ in sections]
+                self.assertEqual(
+                    len(emojis),
+                    len(set(emojis)),
+                    f"{path} {version} repeats a section: {emojis}",
+                )
+
     def test_the_documented_vocabulary_is_the_enforced_one(self):
         # The conventions document shows the same table so a reader does not have to read
         # this test to learn the wording. That only stays true while the two agree, so
