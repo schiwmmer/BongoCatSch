@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.4.1 - 2026-11-06
+
+### ✨ Features
+
+- The walk row now prints the region, the layer and the exploration progress above it, so the road home is readable without opening the region grid.
+- A WeChat mini-program build of the pomodoro and cultivation core lands all four tabs on the same wasm kernel the browser version uses.
+- Upgrades no longer drop a save: every new field carries a `#[serde(default)]`, and the previous save is rotated through five backups before each write.
+
+### ⚖️ Balance
+
+- The first three realms are no longer a short tutorial: 炼气, 筑基 and 金丹 open at 50 000, 150 000 and 400 000 growth, with 元婴 at 800 000 to keep the ladder strictly increasing. Stored rev-3 growth is re-denominated by level and in-layer progress, so no earned progress is lost.
+
+### 🐛 Bug Fixes
+
+- The exploration purse multiplied a 黄 job by 60 instead of 0.6 and charged the tier twice; a twelve-hour walk paid 12 652 stones instead of 56. It now matches ADR-0100's 0.6:1.
+- The 2.4.0 notes described that same purse as × 60 and carried the Balance and Features sections twice; both changelogs now state the 0.6 ratio and merge sections per release.
+
+### 🧪 Testing
+
+- A contract test rejects any release that repeats a section heading, and the packaging tests use `TempDir` instead of PID-named scratch directories.
+
 ## 2.4.0 - 2026-11-01
 
 ### ⚖️ Balance
