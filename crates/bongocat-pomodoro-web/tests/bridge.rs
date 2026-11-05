@@ -169,3 +169,73 @@ fn the_browser_build_does_not_seed_weekday_stock_tasks() {
         "the desktop still seeds 股票复盘 / 股票上课 on a weekday"
     );
 }
+
+// The codes `web_command` answers with, from `Applied::code`.
+const COMMAND_APPLIED: i32 = 0;
+const COMMAND_UNKNOWN: i32 = 1;
+
+/// Write one command into the buffer the page writes into, then fold it in.
+fn send(payload: &str, now: f64) -> i32 {
+    let bytes = payload.as_bytes();
+    let input = bongocat_pomodoro_web::web_input_ptr();
+    // SAFETY: `web_input_ptr` hands out the module's own `INPUT` buffer, which is
+    // allocated once and never reallocated, so it is valid for the whole test. The
+    // payload is a few dozen bytes against a two-megabyte buffer.
+    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), input, bytes.len()) };
+    bongocat_pomodoro_web::web_command(bytes.len() as u32, now)
+}
+
+/// The snapshot the page would draw right now.
+fn snapshot_json(now: f64) -> serde_json::Value {
+    bongocat_pomodoro_web::web_render(now);
+    let pointer = bongocat_pomodoro_web::web_output_ptr();
+    let length = bongocat_pomodoro_web::web_output_len() as usize;
+    // SAFETY: `web_render` just wrote the snapshot into the module's own `OUTPUT`
+    // buffer and `web_output_len` is its length, so the range is exactly the bytes
+    // it produced. Nothing else runs on this test thread in between.
+    let bytes = unsafe { std::slice::from_raw_parts(pointer, length) };
+    serde_json::from_slice(bytes).expect("the snapshot is JSON")
+}
+
+#[test]
+fn the_page_cannot_credit_keyboard_or_mouse_input() {
+    // `RecordInput` is the desktop's growth source: the keys and clicks the OS
+    // delivered become cultivation credit. A browser page does not own the
+    // keyboard, so `parse_command` has no arm for the operation and the bridge
+    // answers `Unknown` instead of folding it in.
+    //
+    // Driven through the real exported boundary — the buffer the page writes and
+    // the code it reads — because a whitelist that only holds inside a private
+    // match arm is not the contract the page actually sees.
+    let now = 1_800_000_000.0;
+    assert_eq!(bongocat_pomodoro_web::web_boot(0, 8 * 3600, now, 7.0), 1);
+
+    let growth_before = snapshot_json(now)["cultivation"]["growth"]
+        .as_u64()
+        .expect("the snapshot carries the growth total");
+
+    let applied = send(
+        r#"{"op":"record_input","keys":64,"clicks":32,"distance":4096}"#,
+        now,
+    );
+    assert_eq!(
+        applied, COMMAND_UNKNOWN,
+        "record_input must not be an operation the page can send"
+    );
+
+    let growth_after = snapshot_json(now)["cultivation"]["growth"]
+        .as_u64()
+        .expect("the snapshot carries the growth total");
+    assert_eq!(
+        growth_after, growth_before,
+        "a rejected command must not move the growth total"
+    );
+
+    // Control: the same buffer and the same entry point do accept an operation the
+    // page owns, so the rejection above is about the operation rather than a
+    // bridge that refuses everything.
+    assert_eq!(
+        send(r#"{"op":"set_focus_minutes","minutes":30}"#, now),
+        COMMAND_APPLIED
+    );
+}

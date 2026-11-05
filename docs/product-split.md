@@ -60,9 +60,14 @@ cloud  : growth = Σ(完成会话)
 
 | 层 | crate | 约定 |
 | --- | --- | --- |
-| 共享内核 | `bongocat-pomodoro`、`bongocat-i18n` | 不得依赖任何平台 / UI / 网络 crate |
-| 云桥 | `bongocat-pomodoro-web` | 只依赖共享内核 + serde |
-| 桌面专属 | `bongocat-app`、`-overlay`、`-live2d`、`-live2d-playback`、`-live2d-render`、`-input`、`-platform`、`-ui`、`-ui-protocol`、`-render`、`-runtime`、`-update`、`-config`、`-storage`、`-log`、`-model`、`-model-store`、`-audio`、`-packaging` | 云侧禁止引用 |
+| 共享内核 | `bongocat-pomodoro` | 只允许 `serde` / `serde_json` / `thiserror`，外加 `bongocat-storage`（见下） |
+| 云桥 | `bongocat-pomodoro-web` | 只依赖内核 + `serde` / `serde_json` |
+| 桌面专属 | `bongocat-app`、`-overlay`、`-live2d`、`-live2d-playback`、`-live2d-render`、`-input`、`-platform`、`-ui`、`-ui-protocol`、`-render`、`-runtime`、`-update`、`-config`、`-storage`、`-log`、`-model`、`-model-store`、`-audio`、`-packaging`、`-i18n` | 云侧禁止引用 |
+
+两个已登记的事实，别假装它们不存在：
+
+1. **内核依赖 `bongocat-storage`。** `crates/bongocat-pomodoro/src/document.rs` 自己写桌面存档文件，所以内核能摸到一个桌面 crate。这是当前唯一允许的越界；把写盘移到调用方是另一件事，改之前契约测试把这条钉住。
+2. **`bongocat-i18n` 属于桌面侧。** 它只被 GPUI 界面链接（依赖 `rust-i18n`），wasm 不加载它；云端文案由页面与小程序的 `app.json`/JS 自己维护。
 
 ### 4.2 新增 crate 的前缀
 
@@ -87,11 +92,20 @@ cloud  : growth = Σ(完成会话)
 
 ## 6. 落地顺序
 
-| 优先级 | 动作 | 成本 |
+| 优先级 | 动作 | 状态 |
 | --- | --- | --- |
-| P1 | 本文件为边界事实源；`AGENTS.md` 增一节指向它 | 零 |
-| P2 | 加契约测试：断言 cloud 侧（`bongocat-pomodoro-web`、`web/`、`miniprogram/`）不引用 §4.1 桌面专属 crate | 小，仿 `tools/tests/test_supported_platform_cfg.py` |
-| P3 | 可选改名 `bongocat-pomodoro-web` → `bongocat-cloud-wasm` | 小，独立 commit |
+| P1 | 本文件为边界事实源；`AGENTS.md` 增一节指向它 | 文档就位（AGENTS.md 未改） |
+| P2 | 边界契约测试：依赖方向 + 成员归属 + 云端不得接受输入折算 | ✅ 已落地，见下 |
+| P3 | 可选改名 `bongocat-pomodoro-web` → `bongocat-cloud-wasm` | 未做，非必需 |
+
+### P2 落地的两道闸
+
+| 闸 | 文件 | 抓住什么 |
+| --- | --- | --- |
+| Rust 依赖方向 + 成员归属 | `tools/tests/test_product_boundary.py` | 内核只认白名单、云桥只认内核、桌面入口不得反向依赖云桥、每个 workspace 成员必须归类 |
+| 行为：页面拿不到输入加成 | `crates/bongocat-pomodoro-web/tests/bridge.rs` → `the_page_cannot_credit_keyboard_or_mouse_input` | 通过真实的 `web_input_ptr` / `web_command` 边界发 `record_input`，断言返回 `Unknown` 且快照 `growth` 不变，再用 `set_focus_minutes` 做对照 |
+
+两道闸都做过变异验证：往内核依赖里塞 `bongocat-overlay`、往 `parse_command` 里加 `record_input` 分支，测试各自变红；改动回退后复绿。
 
 ## 7. 明确不做
 
