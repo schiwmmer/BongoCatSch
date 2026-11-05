@@ -35,3 +35,10 @@ miniprogram/**/node_modules/
 
 # 应用卡标记文件（本地记录，不入库）
 .wbapp_*.genie
+
+# Python 契约测试的字节码缓存：不带斜杠才能匹配任意层级目录
+__pycache__
+*.pyc
+
+# 本地执行 `just release-notes` 生成的发布说明产物，CI 发版时自行生成
+/release-notes.md
