@@ -3624,7 +3624,11 @@ fn a_bulk_building_buy_stops_early_but_never_pays_more_than_it_can() {
         .expect("two ranks, a partial buy");
     assert_eq!(bought.len(), 2);
     assert_eq!(partial.document().workshop_level, 2);
-    assert_eq!(partial.document().resources.wood, 0, "both ranks paid in wood");
+    assert_eq!(
+        partial.document().resources.wood,
+        0,
+        "both ranks paid in wood"
+    );
 }
 
 /// A 神装's effect is a debuff the other side walks in with, read when the

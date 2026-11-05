@@ -280,9 +280,10 @@ fn building_row(
                         let view = view.clone();
                         move |_, _, cx| {
                             view.update(cx, |view, cx| {
-                                let _ = view.pomodoro.try_publish(PomodoroCommand::UpgradeBuilding {
-                                    building: kind,
-                                });
+                                let _ =
+                                    view.pomodoro.try_publish(PomodoroCommand::UpgradeBuilding {
+                                        building: kind,
+                                    });
                                 view.poll_pomodoro(cx);
                             });
                         }
@@ -302,10 +303,11 @@ fn building_row(
                     move |_, _, cx| {
                         view.update(cx, |view, cx| {
                             let _ =
-                                view.pomodoro.try_publish(PomodoroCommand::UpgradeBuildingMany {
-                                    building: kind,
-                                    times: 5,
-                                });
+                                view.pomodoro
+                                    .try_publish(PomodoroCommand::UpgradeBuildingMany {
+                                        building: kind,
+                                        times: 5,
+                                    });
                             view.poll_pomodoro(cx);
                         });
                     }

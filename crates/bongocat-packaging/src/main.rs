@@ -2245,7 +2245,9 @@ mod tests {
     fn the_shipped_repair_command_is_valid_shell() {
         let script = super::repair_command("BongoCat.app");
         let _path_scratch = tempfile::TempDir::new().expect("create a scratch directory");
-        let path = _path_scratch.path().join("bongocat-repair-command-check.sh");
+        let path = _path_scratch
+            .path()
+            .join("bongocat-repair-command-check.sh");
         std::fs::write(&path, &script).expect("write the repair command");
 
         let status = std::process::Command::new("bash")

@@ -710,13 +710,21 @@ pub fn region_seed_permille(level: u8) -> u64 {
 /// region-five walk pays a purse the way a region-five fight always has.
 pub fn walk_purse(region: Region, hours: ExplorationHours, level: u8) -> StonePurse {
     let tier = region.tier();
-    let job = u64::from(super::jobs::job_stones(tier, 4, super::arts::ArtGrade::Yellow));
+    let job = u64::from(super::jobs::job_stones(
+        tier,
+        4,
+        super::arts::ArtGrade::Yellow,
+    ));
     let scaled = job * 60;
     // The level re-purses the band: a level-ten walk pays a third again more
     // than a level-one, so a deep walk reads as a real step up inside the band.
     let level_factor = 1_000 + 30 * level as u64;
     let purse = (scaled * level_factor / 1_000) as u32;
-    StonePurse { min: purse, max: purse }.scaled(hours.multiplier_permille())
+    StonePurse {
+        min: purse,
+        max: purse,
+    }
+    .scaled(hours.multiplier_permille())
 }
 
 /// The purse a victorious fight opens: the purse of the clear walk, plus a half
@@ -731,8 +739,8 @@ pub fn combat_purse(region: Region, hours: ExplorationHours, level: u8) -> Stone
 
 #[cfg(test)]
 mod tests {
+    use super::super::{Realm, arts, jobs};
     use super::*;
-    use super::super::{Realm, jobs, arts};
 
     // --- Old flat-walk tests (removed with roll_walk) ---------------------
     // Replaced by region-level tests below.
@@ -917,13 +925,8 @@ mod tests {
             assert_eq!(region.base_realm_index(), i * realms_per);
             let from_realm = Region::from_realm(Realm::ALL[i * realms_per]);
             assert_eq!(from_realm.index(), i, "region of realm {i:?}");
-            let from_realm_upper =
-                Region::from_realm(Realm::ALL[i * realms_per + realms_per - 1]);
-            assert_eq!(
-                from_realm_upper.index(),
-                i,
-                "region of upper realm {i:?}"
-            );
+            let from_realm_upper = Region::from_realm(Realm::ALL[i * realms_per + realms_per - 1]);
+            assert_eq!(from_realm_upper.index(), i, "region of upper realm {i:?}");
         }
     }
 
@@ -946,7 +949,10 @@ mod tests {
         let l4 = encounter_permille(Region::AzurePeaks, 1, ExplorationHours::Four);
         let l12 = encounter_permille(Region::AzurePeaks, 1, ExplorationHours::Twelve);
         assert!(l12 > l4, "a longer walk meets more often");
-        assert!(l12 <= 1_000, "the encounter rate stays below the whole roll");
+        assert!(
+            l12 <= 1_000,
+            "the encounter rate stays below the whole roll"
+        );
     }
 
     /// A gear find is more likely than at the old flat rate when the level is

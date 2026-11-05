@@ -285,10 +285,9 @@ mod tests {
 
     #[test]
     fn parses_auto_recover_time() {
-        let persistent = ExpressionClip::from_slice(
-            br#"{"Type":"Live2D Expression","Parameters":[]}"#,
-        )
-        .expect("persistent expression");
+        let persistent =
+            ExpressionClip::from_slice(br#"{"Type":"Live2D Expression","Parameters":[]}"#)
+                .expect("persistent expression");
         assert_eq!(persistent.auto_recover_duration(), None);
 
         let one_shot = ExpressionClip::from_slice(
@@ -311,7 +310,8 @@ mod tests {
         // how a missing field is treated, so a malformed hold never makes the
         // model flicker back the instant an expression starts.
         for raw in [
-            b"{\"Type\":\"Live2D Expression\",\"AutoRecoverTime\":null,\"Parameters\":[]}".as_slice(),
+            b"{\"Type\":\"Live2D Expression\",\"AutoRecoverTime\":null,\"Parameters\":[]}"
+                .as_slice(),
             b"{\"Type\":\"Live2D Expression\",\"AutoRecoverTime\":-1,\"Parameters\":[]}".as_slice(),
         ] {
             let clip = ExpressionClip::from_slice(raw).expect("tolerated hold");

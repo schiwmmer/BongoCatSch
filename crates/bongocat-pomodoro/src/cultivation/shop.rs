@@ -227,9 +227,7 @@ pub fn star_up_cost(item: &EquipmentRecord, smithy_level: u8) -> super::Cost {
     if target >= 4 {
         resources.add(super::Resource::Coal, scale(2 + 2 * (target - 4)));
     }
-    let stones = ShopOffer::Equipment(item.clone()).sell_price() / 10
-        * smithy_m
-        / 1_000;
+    let stones = ShopOffer::Equipment(item.clone()).sell_price() / 10 * smithy_m / 1_000;
     super::Cost { stones, resources }
 }
 

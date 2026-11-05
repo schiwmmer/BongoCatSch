@@ -16,8 +16,8 @@ use super::{
     curve::{self, level_for_growth, stage_floor},
     duel::{DUEL_RECORD_CAP, DuelRecord},
     events::{EVENT_LOG_CAP, EventRecord},
-    explore::WalkInProgress,
     explore::Region,
+    explore::WalkInProgress,
     explore::WalkRecord,
     garden::rank_for_xp,
 };

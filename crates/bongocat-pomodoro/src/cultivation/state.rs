@@ -40,8 +40,8 @@ use super::{
     events::{BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind},
     expedition_yield,
     explore::{
-        BONUS_STONES, GUARDIAN_STONES, PROVING_STONES, TRIAL_STONES,
-        WalkRecord, breakthrough_ready, roll_stones, roll_victory,
+        BONUS_STONES, GUARDIAN_STONES, PROVING_STONES, TRIAL_STONES, WalkRecord,
+        breakthrough_ready, roll_stones, roll_victory,
     },
     garden::{
         CropRecord, MAX_GARDEN_RANK, PlotRecord, SeedGrade, harvest_points, plant_permille,
@@ -3559,10 +3559,14 @@ impl Cultivation {
         // and starts one level above whatever they have already cleared in it —
         // capped at the region's top, so a walk never over-levels the band.
         let region = super::explore::Region::from_realm(self.realm());
-        let cleared = self.document.explored_levels.get(region.index()).copied().unwrap_or(0);
+        let cleared = self
+            .document
+            .explored_levels
+            .get(region.index())
+            .copied()
+            .unwrap_or(0);
         let level = (cleared + 1).min(super::explore::MAX_LEVEL);
-        let walk =
-            super::WalkInProgress::started(now_unix, hours, region.index() as u8, level);
+        let walk = super::WalkInProgress::started(now_unix, hours, region.index() as u8, level);
         self.document.last_exploration_unix = Some(now_unix);
         // The length is written down beside the instant, because the page draws
         // the chip the user picked last: a four-hour walk read back as a
@@ -4790,14 +4794,11 @@ impl Cultivation {
             exploration_region: super::explore::Region::from_realm(self.realm()).index() as u8,
             exploration_level: {
                 let region = super::explore::Region::from_realm(self.realm());
-                self.cleared_level(region.index()).saturating_add(1)
+                self.cleared_level(region.index())
+                    .saturating_add(1)
                     .min(super::explore::MAX_LEVEL)
             },
-            walk_level: self
-                .document
-                .walk
-                .as_ref()
-                .map_or(0, |walk| walk.level),
+            walk_level: self.document.walk.as_ref().map_or(0, |walk| walk.level),
             explored_levels: self.document.explored_levels,
             region_progress: self.document.region_progress,
             resources: self.resources_view(),
