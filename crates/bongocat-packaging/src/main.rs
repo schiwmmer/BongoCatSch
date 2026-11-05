@@ -2266,11 +2266,11 @@ mod tests {
     fn the_resource_staging_area_does_not_survive_packaging() {
         let _root_scratch = tempfile::TempDir::new().expect("create a scratch directory");
         let root = _root_scratch.path();
-        let staging = super::resource_staging_directory(&root);
+        let staging = super::resource_staging_directory(root);
         let models = staging.join(MODEL_DIRECTORY).join(PRESET_MODELS[0]);
 
         // Nothing staged yet: this is the state of a run that already cleaned up.
-        super::discard_staged_resources(&root);
+        super::discard_staged_resources(root);
         assert!(
             !staging.exists(),
             "cleaning up an absent staging area must succeed and leave nothing behind"
@@ -2278,7 +2278,7 @@ mod tests {
 
         std::fs::create_dir_all(&models).expect("staged models");
         std::fs::write(models.join("cat.model3.json"), b"{}").expect("staged file");
-        super::discard_staged_resources(&root);
+        super::discard_staged_resources(root);
         assert!(
             !staging.exists(),
             "the staging area must be gone once the packager has copied from it"
@@ -2292,7 +2292,7 @@ mod tests {
                 .join(super::RESOURCE_STAGING_DIRECTORY)
         );
 
-        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     /// The preset models are the one packaged tree that is also a working
@@ -2376,13 +2376,13 @@ mod tests {
             std::fs::create_dir_all(&expected).expect("products directory");
 
             assert_eq!(
-                super::swift_resource_bundle(&root, ReleaseTarget::MacosAarch64)
+                super::swift_resource_bundle(root, ReleaseTarget::MacosAarch64)
                     .expect("the bundle is present"),
                 expected,
                 "the {products} layout must be searched"
             );
 
-            let _ = std::fs::remove_dir_all(&root);
+            let _ = std::fs::remove_dir_all(root);
         }
     }
 
@@ -2401,7 +2401,7 @@ mod tests {
         // The build script's own `build` entry exists and carries no Swift output.
         std::fs::create_dir_all(&package).expect("build directory");
 
-        let error = super::swift_resource_bundle(&root, ReleaseTarget::MacosAarch64)
+        let error = super::swift_resource_bundle(root, ReleaseTarget::MacosAarch64)
             .expect_err("a build without the bundle must not package")
             .to_string();
 
@@ -2410,7 +2410,7 @@ mod tests {
             "the failure has to name the bundle it could not find: {error}"
         );
 
-        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     /// Every published file name carries its target's architecture token, and no other
@@ -2560,7 +2560,7 @@ mod tests {
             fragments.push(path);
         }
 
-        let merged = super::merge_manifest(&root, &fragments, None).expect("merge the fragments");
+        let merged = super::merge_manifest(root, &fragments, None).expect("merge the fragments");
         assert_eq!(
             merged,
             vec![root.join(super::UPDATE_MANIFEST_NAME)],
@@ -2632,7 +2632,7 @@ mod tests {
         std::fs::write(&notes_path, "## What's new\n\n- fixed the thing\n")
             .expect("write the release notes");
 
-        let merged = super::merge_manifest(&root, &[fragment], Some(&notes_path))
+        let merged = super::merge_manifest(root, &[fragment], Some(&notes_path))
             .expect("merge with release notes");
         let manifest: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&merged[0]).expect("read the manifest"))
@@ -2713,7 +2713,7 @@ mod tests {
             fragments.push(path);
         }
 
-        let error = super::merge_manifest(&root, &fragments, None)
+        let error = super::merge_manifest(root, &fragments, None)
             .expect_err("fragments from different releases must be rejected");
         assert!(
             error.to_string().contains(&format!(
@@ -2733,7 +2733,7 @@ mod tests {
         let path = root.join("plan9-cris.json");
         std::fs::write(&path, b"{}").expect("write a fragment");
 
-        let error = super::merge_manifest(&root, &[path], None)
+        let error = super::merge_manifest(root, &[path], None)
             .expect_err("a fragment for an unshipped platform must be rejected");
         assert!(
             error
@@ -2820,7 +2820,7 @@ mod tests {
         let root = _root_scratch.path();
 
         let error =
-            super::merge_manifest(&root, &[], None).expect_err("an empty merge must be rejected");
+            super::merge_manifest(root, &[], None).expect_err("an empty merge must be rejected");
         assert!(
             error.to_string().contains("needs at least one fragment"),
             "unexpected error: {error}"
