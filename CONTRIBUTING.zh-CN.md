@@ -26,6 +26,17 @@ just build
 just schema
 ```
 
+fixture、schema 与本地化校验脚本，以及 `tools/tests` 下的契约测试，需要仓库锁定的 Python 依赖。
+`just check` 只覆盖 Rust 工作区，所以这些依赖要装一次，Python 侧要自己跑：
+
+```text
+python3 -m pip install -r tools/requirements.txt
+python3 -m unittest discover -s tools/tests -p 'test_*.py'
+```
+
+CI 把四个校验脚本和这套测试作为独立步骤执行；只改 `shared/config`、`shared/fixtures` 或语言文件的
+改动可能通过 `just check`，却在那里失败。
+
 在 macOS 上构建需要 Xcode Swift 工具链，因为引导式 Input Monitoring 授权流程需要它。
 
 在 macOS 上构建还需要 Xcode 自带的 Swift 工具链，因为「输入监控」引导流程链接了一个 Swift 静态

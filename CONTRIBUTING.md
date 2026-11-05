@@ -31,6 +31,18 @@ just build
 just schema
 ```
 
+The fixture, schema, and locale validators and the `tools/tests` contract suite need the pinned
+packages. `just check` covers the Rust workspace only, so install them once and run the Python side
+yourself:
+
+```text
+python3 -m pip install -r tools/requirements.txt
+python3 -m unittest discover -s tools/tests -p 'test_*.py'
+```
+
+CI runs the four validators and the suite as separate steps; a change that only touches
+`shared/config`, `shared/fixtures`, or the locale files can pass `just check` and still fail there.
+
 Building on macOS needs an Xcode Swift toolchain, because the guided Input Monitoring flow
 links a Swift static library (ADR-0078). SwiftPM refuses to load a package whose manifest declares a
 newer tools version than the installed toolchain, and that package asks for 6.1. The Rust toolchain
