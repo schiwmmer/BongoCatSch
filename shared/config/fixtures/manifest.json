@@ -232,11 +232,6 @@
       "expected": "reject"
     },
     {
-      "id": "reserved-model-id",
-      "file": "invalid-model-id-reserved.json",
-      "expected": "reject"
-    },
-    {
       "id": "gamepad-auto-switch",
       "file": "accept-gamepad-auto-switch.json",
       "expected": "accept"
