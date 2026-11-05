@@ -702,20 +702,20 @@ pub fn region_seed_permille(level: u8) -> u64 {
     REGION_SEED_PERMILLE_BASE.saturating_add_signed(-drop)
 }
 
-/// The purse a clear walk opens: the region tier's own `黄阶 × sixty` purse.
+/// The purse a clear walk opens: the first tier's `黄阶 × 0.6` purse.
 ///
-/// Every region carries the sixty-to-one ratio the brief names, and the purse
-/// is the tier's 黄阶 job scaled by a hundred-and-twenty so the quiet road of
-/// a deep region is a deep road — a region-one walk pays a handful, a
-/// region-five walk pays a purse the way a region-five fight always has.
-pub fn walk_purse(region: Region, hours: ExplorationHours, level: u8) -> StonePurse {
-    let tier = region.tier();
-    let job = u64::from(super::jobs::job_stones(
-        tier,
-        4,
-        super::arts::ArtGrade::Yellow,
-    ));
-    let scaled = job * 60;
+/// The walk is the safe counterpart to a job, and its purse is the job's at
+/// sixty percent — the brief's 0.6:1 ratio. The purse is built from the first
+/// tier's 黄阶 job so that [`StonePurse::at`] can scale it by the region's tier
+/// exactly once; a purse built at the region's own tier would be scaled again
+/// when it is opened, and the walk would pay double.
+///
+/// The level re-purses the band: a level-ten walk pays a third again more than
+/// a level-one, so a deep walk reads as a real step up inside the band.
+pub fn walk_purse(_region: Region, hours: ExplorationHours, level: u8) -> StonePurse {
+    let job = u64::from(super::jobs::job_stones(1, 4, super::arts::ArtGrade::Yellow));
+    // The brief's 0.6:1 — the walk pays the job's own purse at sixty percent.
+    let scaled = job * 600 / 1_000;
     // The level re-purses the band: a level-ten walk pays a third again more
     // than a level-one, so a deep walk reads as a real step up inside the band.
     let level_factor = 1_000 + 30 * level as u64;
@@ -964,14 +964,30 @@ mod tests {
         assert!(deep > shallow, "level ten finds more gear than level one");
     }
 
-    /// The purse carries the 黄阶-times-sixty ratio the brief names.
+    /// The purse carries the brief's 0.6:1 ratio against the same tier's 黄阶 job.
     #[test]
-    fn walk_purse_runs_sixty_times_the_yellow_job() {
-        let purse = walk_purse(Region::AzurePeaks, ExplorationHours::Four, 1);
-        let art_grade = arts::ArtGrade::Yellow;
-        let job = jobs::job_stones(2, 4, art_grade);
-        // The purse is at least sixty times the tier's 黄阶 job base.
-        assert!(purse.min >= job * 60, "purse is 黄阶×60 at the band floor");
+    fn walk_purse_runs_sixty_percent_of_the_yellow_job() {
+        // A first-region, level-one, four-hour walk is priced against the first
+        // tier's own 黄阶 job, and the purse is scaled by the region's tier when
+        // it is opened — so the pocket is the job's at sixty percent. The purse
+        // is built from the first tier's job and scaled by the region's tier,
+        // so the ratio is exact up to the integer truncation at each step.
+        let region = Region::AzurePeaks;
+        let purse = walk_purse(region, ExplorationHours::Four, 1);
+        let (min, max) = purse.at(region.tier());
+        let job = jobs::job_stones(region.tier(), 4, arts::ArtGrade::Yellow);
+        // The level factor at level one is 1.03, so the pocket is a little over
+        // the sixty percent the brief names — but never under it by more than
+        // the truncation the intermediate steps leave behind.
+        let expected = job * 600 / 1_000;
+        assert!(
+            min + 2 >= expected,
+            "purse {min} is under 黄阶×0.6 ({job} × 0.6 = {expected})"
+        );
+        assert!(
+            max <= expected + 2,
+            "purse {max} is far over 黄阶×0.6 ({job} × 0.6 = {expected})"
+        );
     }
 
     /// A victory opens the combat purse, and the combat purse outpays the quiet
