@@ -42,7 +42,6 @@ cargo-packager = { version = "=0.11.8", default-features = false, features = ["r
 cargo-packager-updater = { version = "=0.2.3", default-features = false, features = ["rustls-tls"] }
 clap = { version = "=4.6.7", default-features = false, features = ["std", "help", "usage", "error-context", "derive"] }
 dirs = "=7.0.0"
-embed-resource = "=3.0.12"
 flate2 = "=1.1.10"
 global-hotkey = "=0.8.0"
 gpui-kit = "=0.7.3"

@@ -785,7 +785,6 @@ dependencies = [
  "bongocat-ui-protocol",
  "bongocat-update",
  "clap",
- "embed-resource",
  "gpui-kit",
  "serde",
  "serde_json",
