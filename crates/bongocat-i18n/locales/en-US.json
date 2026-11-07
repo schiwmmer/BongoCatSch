@@ -728,6 +728,7 @@
     "inner": "inner force %{value}",
     "spell": "spell power %{value}",
     "resist": "spell resist %{value}",
+    "defense": "defense %{value}",
     "speed": "speed %{value}",
     "hit": "hit %{value}",
     "evade": "evade %{value}",
@@ -1090,7 +1091,7 @@
       "mastered": "Learned"
     },
     "hint": {
-      "derived_title": "The eight combat numbers: what the four attributes turn into, not points you can spend",
+      "derived_title": "The nine combat numbers: what the four attributes turn into, not points you can spend",
       "derived_hint_each": "Read off the four attributes above; only changing those moves this.",
       "power_hint": "Power is the single number a breakthrough is decided by, and it follows from the four attributes, the arts and the gear together.",
       "aptitude_hint": "Aptitude sets how reliably and how fast arts are learned — 50% (黄) / 42% (玄) / 35% (地) / 20% (天) / 5% (神) at zero, and each point multiplies the rate by 1.01 and the cost by 0.99. Every failed attempt multiplies the rate by another 1.01, and those failures belong to the whole art: they carry past a 阶 rather than resetting with it. It joins no fight."

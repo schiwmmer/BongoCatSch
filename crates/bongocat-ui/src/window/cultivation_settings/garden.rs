@@ -1032,18 +1032,24 @@ fn plot_cell(
                 .text_color(tokens.muted)
                 .child(growing_line(locale, remaining)),
         );
-        // A growing crop can be given up before its day is up. The loss is real
-        // and the garden cannot undo it, so the click asks twice: the first
-        // surface says what digging costs, the second says it cannot be undone,
-        // and only the second sends the command.
-        cell = cell.child(dig_unripe_button(
-            view,
-            index,
-            dig_confirm,
-            dig_confirm_final,
-            locale,
-            tokens,
-        ));
+        // A growing crop can be given up before its day is up, but the way to
+        // do it is not on the bed by default: the dig is a decision that costs
+        // the crop, so it waits for the bed to be opened first. The button
+        // appears with the detail the click reveals, rather than sitting under
+        // every growing crop from the moment it is planted.
+        if open {
+            // The loss is real and the garden cannot undo it, so the click asks
+            // twice: the first surface says what digging costs, the second says
+            // it cannot be undone, and only the second sends the command.
+            cell = cell.child(dig_unripe_button(
+                view,
+                index,
+                dig_confirm,
+                dig_confirm_final,
+                locale,
+                tokens,
+            ));
+        }
     }
     cell.into_any_element()
 }

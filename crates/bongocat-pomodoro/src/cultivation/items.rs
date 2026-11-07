@@ -770,6 +770,7 @@ fn scale_derived(bonus: Derived, permille: u32) -> Derived {
         inner: scale(bonus.inner),
         spell: scale(bonus.spell),
         resist: scale(bonus.resist),
+        defense: scale(bonus.defense),
         speed: scale(bonus.speed),
         hit: scale(bonus.hit),
         evade: scale(bonus.evade),

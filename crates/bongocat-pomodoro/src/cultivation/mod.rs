@@ -611,6 +611,9 @@ pub struct Derived {
     pub spell: u32,
     /// 法抗: subtracted from incoming 法术强度.
     pub resist: u32,
+    /// 防御值: what blunts the physical half of an incoming blow, read against
+    /// the attacker's 攻击力.
+    pub defense: u32,
     /// 速度: how often the cultivator acts.
     pub speed: u32,
     /// 命中: how hard the fighter's blows are to slip, as a plain number the
@@ -680,7 +683,7 @@ pub struct DerivedBreakdown {
 /// only place a derived number's arithmetic is written down: the values, the
 /// recipes and the breakdowns all come from it, so the page cannot show one
 /// number and another set of numbers behind it.
-const DERIVED_SPECS: [DerivedSpec; 9] = [
+const DERIVED_SPECS: [DerivedSpec; 10] = [
     DerivedSpec {
         key: "cultivation.attack",
         slot: DerivedSlot::Attack,
@@ -723,6 +726,15 @@ const DERIVED_SPECS: [DerivedSpec; 9] = [
         attribute: Attribute::Mana,
         base: 0,
         per_point: RESIST_PER_MANA,
+        cap: None,
+        per_mille: false,
+    },
+    DerivedSpec {
+        key: "cultivation.defense",
+        slot: DerivedSlot::Defense,
+        attribute: Attribute::Root,
+        base: 0,
+        per_point: DEFENSE_PER_ROOT,
         cap: None,
         per_mille: false,
     },
@@ -780,6 +792,7 @@ pub enum DerivedSlot {
     Inner,
     Spell,
     Resist,
+    Defense,
     Speed,
     Hit,
     Evade,
@@ -795,14 +808,15 @@ impl DerivedSlot {
             Self::Inner => 2,
             Self::Spell => 3,
             Self::Resist => 4,
-            Self::Speed => 5,
-            Self::Hit => 6,
-            Self::Evade => 7,
-            Self::Aptitude => 8,
+            Self::Defense => 5,
+            Self::Speed => 6,
+            Self::Hit => 7,
+            Self::Evade => 8,
+            Self::Aptitude => 9,
         }
     }
 
-    /// This line's value in a set of the nine numbers.
+    /// This line's value in a set of the ten numbers.
     const fn of(self, derived: Derived) -> u32 {
         match self {
             Self::Attack => derived.attack,
@@ -810,6 +824,7 @@ impl DerivedSlot {
             Self::Inner => derived.inner,
             Self::Spell => derived.spell,
             Self::Resist => derived.resist,
+            Self::Defense => derived.defense,
             Self::Speed => derived.speed,
             Self::Hit => derived.hit,
             Self::Evade => derived.evade,
@@ -842,6 +857,7 @@ impl DerivedSlot {
             Self::Inner => &mut derived.inner,
             Self::Spell => &mut derived.spell,
             Self::Resist => &mut derived.resist,
+            Self::Defense => &mut derived.defense,
             Self::Speed => &mut derived.speed,
             Self::Hit => &mut derived.hit,
             Self::Evade => &mut derived.evade,
@@ -892,6 +908,7 @@ impl Derived {
             inner: self.inner.saturating_add(other.inner),
             spell: self.spell.saturating_add(other.spell),
             resist: self.resist.saturating_add(other.resist),
+            defense: self.defense.saturating_add(other.defense),
             speed: self.speed.saturating_add(other.speed),
             hit: self.hit.saturating_add(other.hit),
             evade: self.evade.saturating_add(other.evade),
@@ -917,8 +934,9 @@ impl Derived {
         let resist = i64::from(self.resist) * MANA_WEIGHT * 1_000 / RESIST_PER_MANA;
         let inner = i64::from(self.inner) * ROOT_WEIGHT * 1_000 / INNER_PER_ROOT;
         let aptitude = i64::from(self.aptitude) * ROOT_WEIGHT * 1_000 / APTITUDE_PER_ROOT;
+        let defense = i64::from(self.defense) * ROOT_WEIGHT * 1_000 / DEFENSE_PER_ROOT;
         let martial = attack + health + speed + footwork;
-        let spell_half = spell + resist + inner + aptitude;
+        let spell_half = spell + resist + inner + aptitude + defense;
         scaled_power((martial + spell_half) / 1_000)
     }
 
@@ -930,7 +948,7 @@ impl Derived {
     /// the page prints are the same arithmetic, read in the same place. There is
     /// no second set of constants to drift.
     fn from_table(attributes: Attributes) -> Self {
-        let mut values = [0u32; 9];
+        let mut values = [0u32; 10];
         for spec in DERIVED_SPECS.iter() {
             values[spec.slot.index()] = spec.value(attributes);
         }
@@ -940,6 +958,7 @@ impl Derived {
             inner: values[DerivedSlot::Inner.index()],
             spell: values[DerivedSlot::Spell.index()],
             resist: values[DerivedSlot::Resist.index()],
+            defense: values[DerivedSlot::Defense.index()],
             speed: values[DerivedSlot::Speed.index()],
             hit: values[DerivedSlot::Hit.index()],
             evade: values[DerivedSlot::Evade.index()],
@@ -1036,6 +1055,47 @@ const EVADE_PER_AGILITY: i64 = 10;
 /// points gear and 功法 pay outright: the herb-fed band has no attribute behind
 /// it, so the conversion exists only for what is added on top.
 const APTITUDE_PER_ROOT: i64 = 2;
+
+/// What one point of 根骨 is worth to 防御值.
+///
+/// Three, the same rate 力量 pays 攻击力: a body whose 根骨 and 力量 stand
+/// level — which is what the ladder's own curve gives — therefore meets an
+/// equal attacker at an even 攻击/防御, and the mitigation is zero. 根骨 above
+/// the level's 力量 is what buys the reduction, so the attribute a cultivator
+/// leans on decides how much of the physical fight they can shrug off.
+pub const DEFENSE_PER_ROOT: i64 = 3;
+
+/// What one point of 防御 above the attacker's 攻击力 is worth, in parts per
+/// thousand of damage taken off: two, so a hundred points of 防御 is twenty
+/// percent less physical damage.
+///
+/// Read against [`DEFENSE_PER_ROOT`]: a body leaning on 根骨 stands about a
+/// hundred and thirty points of 防御 above an even attacker at the depth the
+/// free points reach, which is a quarter of the mitigation cap — a clear
+/// advantage without being a wall.
+pub const DEFENSE_MITIGATION_PER_POINT: u32 = 2;
+
+/// The most 防御 can take off one physical blow: eighty percent, so a blow
+/// always lands for something and stacking 根骨 is a soft answer rather than an
+/// immune one.
+pub const DEFENSE_MITIGATION_CAP_PERMILLE: u32 = 800;
+
+/// How much of an incoming physical blow 防御 takes off, in parts per thousand.
+///
+/// Read off the *difference* between the defender's 防御 and the attacker's
+/// 攻击力, linear and one-directional: 防御 at or under 攻击 buys nothing (a
+/// blow is never amplified), and every point above it buys
+/// [`DEFENSE_MITIGATION_PER_POINT`] of the reduction up to
+/// [`DEFENSE_MITIGATION_CAP_PERMILLE`]. The cap is the promise "不会完全不破防" —
+/// the worst-armed attacker still lands a fifth of their blow.
+pub fn mitigation_permille(defense: u32, attack: u32) -> u32 {
+    if defense <= attack {
+        return 0;
+    }
+    let over = defense - attack;
+    over.saturating_mul(DEFENSE_MITIGATION_PER_POINT)
+        .min(DEFENSE_MITIGATION_CAP_PERMILLE)
+}
 
 /// Turn a weighted sum into a whole non-negative number.
 fn scaled(value: i64) -> u32 {

@@ -898,6 +898,7 @@ fn walk_report() -> DuelReport {
             inner: 120,
             spell: 240,
             resist: 160,
+            defense: 200,
             speed: 40,
             hit: 800,
             evade: 100,
@@ -910,6 +911,7 @@ fn walk_report() -> DuelReport {
             inner: 0,
             spell: 0,
             resist: 0,
+            defense: 0,
             speed: 32,
             hit: 800,
             evade: 100,
@@ -2193,8 +2195,9 @@ fn clicking_plant_all_asks_the_worker_to_plant_by_grade(cx: &mut TestAppContext)
     );
 }
 
-/// A growing crop offers a 铲除 button, and the click asks twice: the first
-/// confirm opens the second, and only the second sends the dig.
+/// A growing crop offers a 铲除 button once the bed is opened, and the click
+/// asks twice: the first confirm opens the second, and only the second sends
+/// the dig.
 #[gpui_kit::test]
 fn digging_a_growing_crop_asks_twice_before_the_command(cx: &mut TestAppContext) {
     // A crop whose ready instant is far in the future: the bed is still growing.
@@ -2220,9 +2223,20 @@ fn digging_a_growing_crop_asks_twice_before_the_command(cx: &mut TestAppContext)
     let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
     let (view, visual) = cultivation_page_with(cx, pomodoro);
     visual.update(|window, cx| window.render_frame(cx));
+    // The dig is not on the bed by default: it waits for the bed to be opened.
+    assert!(
+        !painted(visual, "cultivation-dig-unripe-0"),
+        "a growing crop does not offer the dig until the bed is opened"
+    );
+    scroll_until_visible(visual, "cultivation-plot-name-0");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-plot-name-0", cx);
+    });
+    visual.update(|window, cx| window.render_frame(cx));
     assert!(
         painted(visual, "cultivation-dig-unripe-0"),
-        "a growing crop offers the dig button"
+        "opening the bed offers the dig button"
     );
     // The first click opens the first confirmation; no command is sent yet.
     scroll_until_visible(visual, "cultivation-dig-unripe-0");

@@ -13,7 +13,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{Attributes, Derived, Rng, arts::StrikeEffect, arts::external_damage};
+use super::{
+    Attributes, Derived, Rng, arts::StrikeEffect, arts::external_damage, mitigation_permille,
+};
 
 /// How many blows the longest fight runs to before it is called.
 ///
@@ -90,6 +92,9 @@ pub struct Fighter {
     pub inner: u32,
     pub spell: u32,
     pub resist: u32,
+    /// 防御值: what blunts the physical half of an incoming blow, read against
+    /// the attacker's 攻击力. Zero on a fighter whose body carries none.
+    pub defense: u32,
     pub speed: u32,
     /// 命中, a plain number read against the other side's 闪避.
     pub hit: u32,
@@ -109,6 +114,7 @@ impl Fighter {
             inner: derived.inner,
             spell: derived.spell,
             resist: derived.resist,
+            defense: derived.defense,
             speed: derived.speed,
             hit: derived.hit,
             evade: derived.evade,
@@ -298,12 +304,24 @@ pub fn duel(player: Fighter, guardian: Fighter, rng: &mut Rng) -> DuelReport {
 ///
 /// 法术强度 is spent against 法抗, but never for nothing: a tenth of it always
 /// gets through, so stacking 法抗 is a soft answer rather than an immune one.
+#[cfg(test)]
 fn blow(attacker: &Fighter, defender: &Fighter) -> u32 {
+    let (physical, spell) = blow_parts(attacker, defender);
+    physical.saturating_add(spell)
+}
+
+/// The two halves of one blow: the physical part [`mitigation_permille`] reads
+/// against the defender's 防御, and the spell part 法抗 has already blunted.
+///
+/// Split rather than one number because 防御 takes a share off the physical
+/// half alone: a spell that lands is answered by 法抗, not by 根骨, so the two
+/// halves have to travel separately through the blow.
+fn blow_parts(attacker: &Fighter, defender: &Fighter) -> (u32, u32) {
     let spell = attacker
         .spell
         .saturating_sub(defender.resist)
         .max(attacker.spell / 10);
-    attacker.attack.saturating_add(spell)
+    (attacker.attack, spell)
 }
 
 /// The chance one blow lands between even fighters, in parts per thousand.
@@ -402,7 +420,12 @@ fn strike(attacker: &mut Fighter, defender: &mut Fighter, rng: &mut Rng) -> Duel
     // the blow is thrown, because a move that misses carries nothing with it.
     let chance = hit_chance_permille(attacker.hit, defender.evade);
     let dodged = rng.below(1_000) >= chance as u64;
-    let mut damage = blow(attacker, defender);
+    // The two halves travel separately: 防御 takes a share off the physical one
+    // alone, so the blow has to say how much of it was physical.
+    let (physical, spell) = blow_parts(attacker, defender);
+    let base = physical.saturating_add(spell);
+    let mut physical_damage = physical;
+    let mut damage = base;
     let mut art = None;
     // An 外功 is spent whenever it can be paid for: the choice to save 内力 for
     // later is not the fighter's to make, and a fighter who cannot pay falls
@@ -416,7 +439,6 @@ fn strike(attacker: &mut Fighter, defender: &mut Fighter, rng: &mut Rng) -> Duel
         // 攻击力 alone plus thirteen percent, and not 攻击力 plus the whole
         // spell half with only its excess multiplied. Multi-blow shapes still
         // split that up by drawing each segment's worth from the same base.
-        let base = damage;
         let mut total = 0_u32;
         for _ in 0..strike.hits.max(1) {
             // The worth is drawn per blow rather than read off the row: two 玄阶
@@ -425,12 +447,22 @@ fn strike(attacker: &mut Fighter, defender: &mut Fighter, rng: &mut Rng) -> Duel
             let rolled = strike_multiplier(&strike, rng);
             total = total.saturating_add(external_damage(base, rolled));
         }
-        damage = total;
         // A completed 外功 adds its mastery share of 攻击力 to every blow it
         // lands: the multiplier is what the 阶 bought, this is what finishing
         // the last one bought.
         let mastered = attacker.attack.saturating_mul(strike.mastery_permille) / 1_000;
-        damage = damage.saturating_add(mastered);
+        total = total.saturating_add(mastered);
+        // How much of the swung blow was physical, so 防御 can take its share
+        // off that part alone: the swing is split in the same proportion the
+        // bare blow was, and the mastery share — which is 攻击力 outright —
+        // counts as physical whole.
+        let swung = total.saturating_sub(mastered);
+        physical_damage = swung
+            .saturating_mul(physical)
+            .checked_div(base)
+            .unwrap_or(0)
+            .saturating_add(mastered);
+        damage = total;
         // The effect rides on the first blow that gets through, and stays. A
         // blow that slipped carries nothing: an art that laid its mark on a
         // miss would be an art that could not be dodged out of.
@@ -444,6 +476,16 @@ fn strike(attacker: &mut Fighter, defender: &mut Fighter, rng: &mut Rng) -> Duel
     }
     if dodged {
         damage = 0;
+    } else {
+        // 防御 reads the defender's 防御 against the attacker's 攻击力 and takes
+        // its share off the physical half alone — never off the spell half
+        // (法抗 already answered that), never amplifying a blow the defender
+        // cannot stop, and never past the cap that keeps a fifth of it landing.
+        let reduction = mitigation_permille(defender.defense, attacker.attack);
+        if reduction > 0 {
+            let blunted = physical_damage.saturating_mul(reduction) / 1_000;
+            damage = damage.saturating_sub(blunted);
+        }
     }
     defender.health = defender.health.saturating_sub(damage);
     DuelRound {
@@ -468,6 +510,7 @@ mod tests {
             inner: 0,
             spell: 0,
             resist: 0,
+            defense: 0,
             speed,
             hit: 950,
             evade: 0,
@@ -700,6 +743,74 @@ mod tests {
             10,
             "a tenth of 法术强度 always gets through"
         );
+    }
+
+    /// 防御 reads the difference between the defender's 防御 and the attacker's
+    /// 攻击力, linear and one-directional: even is zero, every point above buys
+    /// two tenths of a percent, and the cap holds a fifth of the blow on.
+    #[test]
+    fn defense_reads_the_gap_and_never_below_a_fifth() {
+        // Even: no reduction.
+        assert_eq!(mitigation_permille(100, 100), 0);
+        // 防御 under 攻击: nothing, and never a negative (a blow is never
+        // amplified by a defender who cannot stop it).
+        assert_eq!(mitigation_permille(50, 100), 0);
+        // Every point above buys two tenths of a percent.
+        assert_eq!(mitigation_permille(150, 100), 100);
+        assert_eq!(mitigation_permille(200, 100), 200);
+        // The cap: a hundred points of 防御 over 攻击 is the most it can take.
+        assert_eq!(mitigation_permille(500, 100), 800);
+        assert_eq!(
+            mitigation_permille(u32::MAX, 0),
+            800,
+            "a mountain of 防御 still lands a fifth"
+        );
+    }
+
+    /// 防御 takes its share off the physical half alone: the spell half a 法抗
+    /// already answered is untouched, and a blow that slips is no blow at all.
+    #[test]
+    fn defense_blunts_the_physical_half_and_leaves_the_spell_alone() {
+        // A pure physical blow: 攻击力 100 against 防御 200 is 200‰ off.
+        let mut attacker = brute("attacker", 1_000, 100, 10);
+        let mut defender = brute("defender", 1_000, 0, 10);
+        defender.defense = 200;
+        let round = strike(&mut attacker, &mut defender, &mut Rng::seeded(21));
+        assert!(!round.dodged, "the probe needs a blow that lands");
+        assert_eq!(round.damage, 80, "200‰ of a hundred is eighty");
+        // The same attacker against an unarmoured body: the full blow.
+        let mut naked = brute("naked", 1_000, 0, 10);
+        let round = strike(&mut attacker, &mut naked, &mut Rng::seeded(22));
+        assert_eq!(round.damage, 100);
+        // A pure spell blow: 防御 does not touch it. The hit chance tops out
+        // at 950‰, so a seed can slip the blow; walk the seeds to the first one
+        // that lands rather than trusting a single roll.
+        let mut caster = brute("caster", 1_000, 0, 10);
+        caster.spell = 100;
+        let mut warded = brute("warded", 1_000, 0, 10);
+        warded.defense = 1_000;
+        let mut landed = None;
+        for seed in 0..100_u64 {
+            let mut caster = caster.clone();
+            let mut warded = warded.clone();
+            let round = strike(&mut caster, &mut warded, &mut Rng::seeded(seed));
+            if !round.dodged {
+                landed = Some(round.damage);
+                break;
+            }
+        }
+        assert_eq!(
+            landed,
+            Some(100),
+            "防御 answers the physical half, not the spell half"
+        );
+        // A mixed blow: only the physical part is blunted.
+        let mut mixed = brute("mixed", 1_000, 100, 10);
+        mixed.spell = 100;
+        let mut armoured = brute("armoured", 1_000, 0, 10);
+        armoured.defense = 200;
+        let round = strike(&mut mixed, &mut armoured, &mut Rng::seeded(24));
+        assert_eq!(round.damage, 180, "eighty of physical and the full spell");
     }
 
     #[test]

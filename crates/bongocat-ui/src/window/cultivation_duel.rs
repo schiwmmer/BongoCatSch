@@ -1114,6 +1114,7 @@ mod tests {
             inner: 0,
             spell: 0,
             resist: 0,
+            defense: 0,
             speed: 10,
             hit: 900,
             evade: 0,

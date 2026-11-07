@@ -175,12 +175,6 @@ pub(super) fn content(
             locale,
             tokens,
         ))
-        .child(resources::resources_panel(
-            &view,
-            &cultivation,
-            locale,
-            tokens,
-        ))
         .children(breakthrough_panel(&view, &cultivation, locale, tokens))
         .child(exploration_panel(
             &view,
@@ -192,6 +186,12 @@ pub(super) fn content(
         .child(jobs_panel(&view, &cultivation, locale, tokens))
         .child(proving_panel(&view, &cultivation, locale, tokens))
         .child(trial_panel(&view, &cultivation, locale, tokens))
+        .child(resources::resources_panel(
+            &view,
+            &cultivation,
+            locale,
+            tokens,
+        ))
         .child(shop_panel(&view, &cultivation, open_offer, locale, tokens))
         .into_any_element()
 }
@@ -1033,6 +1033,7 @@ pub(super) fn bonus_lines(locale: &str, bonus: &Derived) -> Vec<String> {
         ("cultivation.inner", bonus.inner),
         ("cultivation.spell", bonus.spell),
         ("cultivation.resist", bonus.resist),
+        ("cultivation.defense", bonus.defense),
         ("cultivation.speed", bonus.speed),
         ("cultivation.hit", bonus.hit),
         ("cultivation.evade", bonus.evade),

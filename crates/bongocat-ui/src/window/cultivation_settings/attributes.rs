@@ -151,7 +151,7 @@ pub(super) fn attributes_panel(
     )
 }
 
-/// The seven numbers the four attributes turn into, and the two schools they
+/// The nine numbers the four attributes turn into, and the two schools they
 /// fight in.
 ///
 /// Shown as read-only chips rather than rows with a "+" beside them: these are
@@ -218,6 +218,7 @@ pub(in crate::window) struct CombatStats {
     pub inner: u32,
     pub spell: u32,
     pub resist: u32,
+    pub defense: u32,
     pub speed: u32,
     /// 命中, in parts per thousand.
     pub hit: u32,
@@ -226,7 +227,7 @@ pub(in crate::window) struct CombatStats {
 }
 
 impl CombatStats {
-    /// The eight numbers a set of attributes is worth.
+    /// The nine numbers a set of attributes is worth.
     pub(super) fn of_derived(derived: Derived) -> Self {
         Self {
             attack: derived.attack,
@@ -234,13 +235,14 @@ impl CombatStats {
             inner: derived.inner,
             spell: derived.spell,
             resist: derived.resist,
+            defense: derived.defense,
             speed: derived.speed,
             hit: derived.hit,
             evade: derived.evade,
         }
     }
 
-    /// The eight numbers a fighter stood up with.
+    /// The nine numbers a fighter stood up with.
     pub(in crate::window) fn of_fighter(fighter: &Fighter) -> Self {
         Self {
             attack: fighter.attack,
@@ -248,6 +250,7 @@ impl CombatStats {
             inner: fighter.inner,
             spell: fighter.spell,
             resist: fighter.resist,
+            defense: fighter.defense,
             speed: fighter.speed,
             hit: fighter.hit,
             evade: fighter.evade,
@@ -255,7 +258,7 @@ impl CombatStats {
     }
 }
 
-/// The eight numbers as the page says them, each with the catalog key it is
+/// The nine numbers as the page says them, each with the catalog key it is
 /// read through.
 ///
 /// The keys are spelled out rather than built from a name: the catalog test
@@ -272,6 +275,7 @@ pub(in crate::window) fn derived_rows(
         ("cultivation.inner", stats.inner),
         ("cultivation.spell", stats.spell),
         ("cultivation.resist", stats.resist),
+        ("cultivation.defense", stats.defense),
         ("cultivation.speed", stats.speed),
         ("cultivation.hit", stats.hit),
         ("cultivation.evade", stats.evade),
@@ -703,7 +707,7 @@ mod tests {
     /// The popup reads a fighter through the same rows the page reads its
     /// derived numbers through, so the two cannot drift apart.
     #[test]
-    fn a_fighter_reads_the_same_eight_numbers() {
+    fn a_fighter_reads_the_same_nine_numbers() {
         let fighter = Fighter {
             name: PLAYER_NAME.to_owned(),
             health: 900,
@@ -711,6 +715,7 @@ mod tests {
             inner: 120,
             spell: 240,
             resist: 160,
+            defense: 200,
             speed: 40,
             hit: 800,
             evade: 100,
@@ -719,18 +724,23 @@ mod tests {
         let stats = CombatStats::of_fighter(&fighter);
         assert_eq!(stats.health, 900);
         let rows = derived_rows(&stats, "zh-CN");
-        assert_eq!(rows.len(), 8, "the eight the fight uses");
+        assert_eq!(rows.len(), 9, "the nine the fight uses");
         assert!(rows[1].1.contains("900"), "生命值 reads its number");
+        assert!(
+            rows[5].1.contains("200"),
+            "防御值 reads its number: {}",
+            rows[5].1
+        );
         // 命中 and 闪避 are held in parts per thousand and printed as percent.
         assert!(
-            rows[6].1.contains("80"),
+            rows[7].1.contains("80"),
             "命中 reads as percent: {}",
-            rows[6].1
+            rows[7].1
         );
         assert!(
-            rows[7].1.contains("10"),
+            rows[8].1.contains("10"),
             "闪避 reads as percent: {}",
-            rows[7].1
+            rows[8].1
         );
     }
 }
