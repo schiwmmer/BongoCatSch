@@ -2127,3 +2127,161 @@ fn a_learned_art_has_no_price_on_the_shelf(cx: &mut TestAppContext) {
         "the 已有 mark belongs to a book still on the shelf"
     );
 }
+
+/// The garden offers a one-click harvest while any bed is ripe, and the click
+/// asks the worker for the whole harvest rather than one plot at a time.
+#[gpui_kit::test]
+fn clicking_harvest_all_asks_the_worker_for_the_whole_harvest(cx: &mut TestAppContext) {
+    // A ripe crop: planted at the epoch, so its ready instant is long past.
+    let ripe = CropRecord::planted(Attribute::Mana, 1, SeedGrade::Earth, None, 1, 0);
+    let cultivation = Cultivation::new(CultivationDocument {
+        plots: vec![PlotRecord { crop: Some(ripe) }, PlotRecord { crop: None }],
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-harvest-all"),
+        "a ripe bed offers the one-click harvest"
+    );
+    scroll_until_visible(visual, "cultivation-harvest-all");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-harvest-all", cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(commands.as_slice(), [PomodoroCommand::HarvestAllReady]),
+        "the click asks for the whole harvest: {commands:?}"
+    );
+}
+
+/// The garden offers a one-click planting while a bed is empty and the satchel
+/// holds a seed, and the click asks the worker to plant by grade.
+#[gpui_kit::test]
+fn clicking_plant_all_asks_the_worker_to_plant_by_grade(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        seeds: vec![SeedStack {
+            attribute: Attribute::Root,
+            herb: None,
+            tier: 1,
+            grade: SeedGrade::Earth,
+            count: 2,
+            name: None,
+        }],
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-plant-all"),
+        "an empty bed and a seed offer the one-click planting"
+    );
+    scroll_until_visible(visual, "cultivation-plant-all");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-plant-all", cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(commands.as_slice(), [PomodoroCommand::PlantAllByGrade]),
+        "the click asks for a planting run: {commands:?}"
+    );
+}
+
+/// A growing crop offers a 铲除 button, and the click asks twice: the first
+/// confirm opens the second, and only the second sends the dig.
+#[gpui_kit::test]
+fn digging_a_growing_crop_asks_twice_before_the_command(cx: &mut TestAppContext) {
+    // A crop whose ready instant is far in the future: the bed is still growing.
+    let growing = CropRecord {
+        attribute: Attribute::Mana,
+        herb: None,
+        tier: 2,
+        grade: SeedGrade::Earth,
+        name: None,
+        withered: false,
+        revealed_at_unix: 0,
+        settled: false,
+        planted_at_unix: 0,
+        ready_at_unix: i64::MAX,
+    };
+    let cultivation = Cultivation::new(CultivationDocument {
+        plots: vec![PlotRecord {
+            crop: Some(growing),
+        }],
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-dig-unripe-0"),
+        "a growing crop offers the dig button"
+    );
+    // The first click opens the first confirmation; no command is sent yet.
+    scroll_until_visible(visual, "cultivation-dig-unripe-0");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-dig-unripe-0", cx);
+    });
+    assert!(published(&sink).is_empty(), "the first click must not dig");
+    let confirm_state = view.read_with(visual, |view, _| view.cultivation_dig_confirm);
+    assert_eq!(
+        confirm_state,
+        Some(0),
+        "the first click must open the first confirmation"
+    );
+    // The popover surface is drawn in a deferred pass: one frame to capture
+    // the trigger's bounds, a second to paint the panel on top of them.
+    visual.update(|window, cx| window.render_frame(cx));
+    visual.update(|window, cx| window.render_frame(cx));
+    let first_confirm_id = ElementId::from((
+        ElementId::from("cultivation-dig-unripe-confirm-0"),
+        "confirm",
+    ));
+    assert!(
+        painted(visual, first_confirm_id.clone()),
+        "the first confirmation offers its accept"
+    );
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click(first_confirm_id, cx);
+    });
+    assert!(
+        published(&sink).is_empty(),
+        "the first accept must not dig either"
+    );
+    // The second surface is deferred the same way.
+    visual.update(|window, cx| window.render_frame(cx));
+    visual.update(|window, cx| window.render_frame(cx));
+    let second_confirm_id = ElementId::from((
+        ElementId::from("cultivation-dig-unripe-confirm-final-0"),
+        "confirm",
+    ));
+    assert!(
+        painted(visual, second_confirm_id.clone()),
+        "the second confirmation offers its accept"
+    );
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click(second_confirm_id.clone(), cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(commands.as_slice(), [PomodoroCommand::DigPlot { plot: 0 }]),
+        "the second accept digs: {commands:?}"
+    );
+    // The confirmation state is cleared once the command is sent, so a later
+    // frame does not reopen the second surface.
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        !painted(visual, second_confirm_id),
+        "the second confirmation closes after the dig"
+    );
+}

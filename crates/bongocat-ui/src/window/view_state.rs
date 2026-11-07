@@ -411,6 +411,8 @@ impl SettingsView {
             cultivation_open_offer: None,
             cultivation_open_seed: None,
             cultivation_open_plot: None,
+            cultivation_dig_confirm: None,
+            cultivation_dig_confirm_final: None,
             // The event history starts closed: the page's five lines are the
             // record until the user asks for more.
             cultivation_events_open: false,

@@ -791,7 +791,12 @@
       "refuse_xp": "too little mastery banked for the next rank",
       "plant_odds": "%{percent}% to take",
       "withered": "Did not take",
-      "dig": "Dig out"
+      "dig": "Dig out",
+      "harvest_all": "Harvest all",
+      "plant_all": "Plant all",
+      "dig_unripe": "Dig out",
+      "dig_confirm_title": "Dig out this herb? Nothing will be harvested and no seed comes back.",
+      "dig_confirm_final_title": "Really dig it out? This cannot be undone. The seed will be gone for good."
     },
     "resources": {
       "title": "Resources & Gathering",

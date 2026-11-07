@@ -113,6 +113,8 @@ pub(super) fn content(
     let open_offer = view.read(cx).cultivation_open_offer;
     let open_seed = view.read(cx).cultivation_open_seed;
     let open_plot = view.read(cx).cultivation_open_plot;
+    let dig_confirm = view.read(cx).cultivation_dig_confirm;
+    let dig_confirm_final = view.read(cx).cultivation_dig_confirm_final;
     let mastered_open = view.read(cx).cultivation_mastered_open;
     let seeds_open = view.read(cx).cultivation_seeds_open;
 
@@ -164,7 +166,15 @@ pub(super) fn content(
             locale,
             tokens,
         ))
-        .child(garden_panel(&view, &cultivation, open_plot, locale, tokens))
+        .child(garden_panel(
+            &view,
+            &cultivation,
+            open_plot,
+            dig_confirm,
+            dig_confirm_final,
+            locale,
+            tokens,
+        ))
         .child(resources::resources_panel(
             &view,
             &cultivation,

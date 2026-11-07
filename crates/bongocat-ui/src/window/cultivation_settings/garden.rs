@@ -750,10 +750,21 @@ pub(super) fn garden_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
     open_plot: Option<usize>,
+    dig_confirm: Option<usize>,
+    dig_confirm_final: Option<usize>,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
     let now = now_unix();
+    // A harvest-all is offered while any bed is ripe, and a plant-all while any
+    // bed is empty and the satchel holds a seed: a button that cannot do its
+    // one thing is a button the user has to wonder about.
+    let any_ready = cultivation.plots.iter().any(|plot| {
+        plot.crop
+            .as_ref()
+            .is_some_and(|crop| crop.ready_at_unix <= now)
+    });
+    let any_empty = cultivation.plots.iter().any(|plot| plot.crop.is_none());
     let mut panel = div()
         .id("cultivation-garden")
         .flex()
@@ -761,6 +772,12 @@ pub(super) fn garden_panel(
         .gap_1()
         .child(section_title(locale, "cultivation.garden.title", tokens))
         .child(garden_rank_row(view, cultivation, locale, tokens))
+        .child(garden_actions_row(
+            view,
+            any_ready,
+            any_empty && !cultivation.seeds.is_empty(),
+            locale,
+        ))
         .test_support();
     for (row_index, chunk) in cultivation.plots.chunks(4).enumerate() {
         let mut row = div()
@@ -775,6 +792,8 @@ pub(super) fn garden_panel(
                 index,
                 plot,
                 open_plot == Some(index),
+                dig_confirm,
+                dig_confirm_final,
                 now,
                 locale,
                 tokens,
@@ -809,6 +828,63 @@ pub(super) fn garden_panel(
     panel
 }
 
+/// The one-click actions above the beds: harvest everything ripe, and plant
+/// everything the satchel holds weakest-grade first.
+///
+/// Each button is drawn only while it has something to do, and each is a single
+/// click whose result the domain settles — the page does not stage a run of
+/// single-plot commands, so a one-click action and a row of clicks cannot
+/// disagree about what happened.
+fn garden_actions_row(
+    view: &Entity<SettingsView>,
+    any_ready: bool,
+    any_seed_plantable: bool,
+    locale: &str,
+) -> gpui_kit::AnyElement {
+    let mut row = div()
+        .id("cultivation-garden-actions")
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .test_support();
+    if any_ready {
+        row = row.child(
+            Button::new("cultivation-harvest-all")
+                .ghost()
+                .small()
+                .label(text(locale, "cultivation.garden.harvest_all"))
+                .on_click({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            let _ = view.pomodoro.try_publish(PomodoroCommand::HarvestAllReady);
+                            view.poll_pomodoro(cx);
+                        });
+                    }
+                }),
+        );
+    }
+    if any_seed_plantable {
+        row = row.child(
+            Button::new("cultivation-plant-all")
+                .ghost()
+                .small()
+                .label(text(locale, "cultivation.garden.plant_all"))
+                .on_click({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            let _ = view.pomodoro.try_publish(PomodoroCommand::PlantAllByGrade);
+                            view.poll_pomodoro(cx);
+                        });
+                    }
+                }),
+        );
+    }
+    row.into_any_element()
+}
+
 /// One plot as a cell a row of four can hold: the herb's name on top, and
 /// what the plot is doing under it.
 fn plot_cell(
@@ -816,6 +892,8 @@ fn plot_cell(
     index: usize,
     plot: &PlotView,
     open: bool,
+    dig_confirm: Option<usize>,
+    dig_confirm_final: Option<usize>,
     now: i64,
     locale: &str,
     tokens: Tokens,
@@ -954,6 +1032,133 @@ fn plot_cell(
                 .text_color(tokens.muted)
                 .child(growing_line(locale, remaining)),
         );
+        // A growing crop can be given up before its day is up. The loss is real
+        // and the garden cannot undo it, so the click asks twice: the first
+        // surface says what digging costs, the second says it cannot be undone,
+        // and only the second sends the command.
+        cell = cell.child(dig_unripe_button(
+            view,
+            index,
+            dig_confirm,
+            dig_confirm_final,
+            locale,
+            tokens,
+        ));
     }
     cell.into_any_element()
+}
+
+/// The 铲除 button for a crop still growing, guarded by two confirmations.
+///
+/// The first surface says what the dig costs — no harvest, no seed back — and
+/// its accept closes it and opens the second, which says the loss cannot be
+/// undone and only its accept sends the command. A press outside either
+/// surface, or on either decline, leaves the crop exactly where it was.
+fn dig_unripe_button(
+    view: &Entity<SettingsView>,
+    index: usize,
+    dig_confirm: Option<usize>,
+    dig_confirm_final: Option<usize>,
+    locale: &str,
+    tokens: Tokens,
+) -> gpui_kit::AnyElement {
+    let first_open = dig_confirm == Some(index);
+    let second_open = dig_confirm_final == Some(index);
+    let trigger = Button::new(format!("cultivation-dig-unripe-{index}"))
+        .ghost()
+        .small()
+        .label(text(locale, "cultivation.garden.dig_unripe"));
+    // The first surface names the plot it is about to cost, so a gardener with
+    // several beds can tell which one the click is asking about.
+    let first = PopConfirm::new(
+        format!("cultivation-dig-unripe-confirm-{index}"),
+        format_text(locale, "cultivation.garden.dig_confirm_title", &[]),
+    )
+    .anchor(gpui_kit::Anchor::TopLeft)
+    .arrow(true)
+    .icon(gpui_kit::assets::IconName::TriangleAlert, tokens.danger)
+    .confirm_label(text(locale, "actions.confirm"))
+    .cancel_label(text(locale, "actions.cancel"))
+    .trigger(trigger)
+    .open(first_open)
+    .on_open_change({
+        let view = view.clone();
+        move |open, _, cx| {
+            view.update(cx, |view, cx| {
+                // The surface reports every transition — the trigger's press,
+                // Escape, a press outside — and the page's own `open` value is
+                // what it is written back to, so the surface stays open while
+                // the page says it is. A decline closes the first surface
+                // without opening the second; an accept is the only path
+                // forward, and it is handled by `on_confirm` below.
+                view.cultivation_dig_confirm = open.then_some(index);
+                cx.notify();
+            });
+        }
+    })
+    .on_confirm({
+        let view = view.clone();
+        move |_, cx| {
+            view.update(cx, |view, cx| {
+                // The first surface closes and the second opens: the accept is
+                // the hand-off, not a second press on the same surface.
+                view.cultivation_dig_confirm = None;
+                view.cultivation_dig_confirm_final = Some(index);
+                cx.notify();
+            });
+        }
+    });
+    // The second surface is mounted beside the first so its open state is the
+    // page's own; it is what actually sends the dig.
+    let second = PopConfirm::new(
+        format!("cultivation-dig-unripe-confirm-final-{index}"),
+        format_text(locale, "cultivation.garden.dig_confirm_final_title", &[]),
+    )
+    .anchor(gpui_kit::Anchor::TopLeft)
+    .arrow(true)
+    .icon(gpui_kit::assets::IconName::TriangleAlert, tokens.danger)
+    .confirm_label(text(locale, "actions.confirm"))
+    .cancel_label(text(locale, "actions.cancel"))
+    // The second surface hangs off the same trigger, so the pair reads as one
+    // control asked twice rather than two controls a click could miss.
+    .trigger(
+        div()
+            .id(format!("cultivation-dig-unripe-trigger-{index}"))
+            .w_0()
+            .h_0(),
+    )
+    .open(second_open)
+    .on_open_change({
+        let view = view.clone();
+        move |open, _, cx| {
+            view.update(cx, |view, cx| {
+                if !*open {
+                    view.cultivation_dig_confirm_final = None;
+                }
+                cx.notify();
+            });
+        }
+    })
+    .on_confirm({
+        let view = view.clone();
+        move |_, cx| {
+            view.update(cx, |view, cx| {
+                view.cultivation_dig_confirm_final = None;
+                let _ = view
+                    .pomodoro
+                    .try_publish(PomodoroCommand::DigPlot { plot: index });
+                view.poll_pomodoro(cx);
+            });
+        }
+    });
+    div()
+        .id(format!("cultivation-dig-unripe-cell-{index}"))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .child(first)
+        .child(second)
+        .test_support()
+        .into_any_element()
 }

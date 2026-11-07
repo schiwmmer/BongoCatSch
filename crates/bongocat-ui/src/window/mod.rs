@@ -329,6 +329,14 @@ pub struct SettingsView {
     /// apart from the seed above because a plot is addressed by its index, not
     /// by what is growing in it: two plots can hold the same herb.
     pub(crate) cultivation_open_plot: Option<usize>,
+    /// The plot the gardener has asked to dig out, waiting on the first
+    /// confirmation. Digging an unripe crop is a loss the garden cannot undo,
+    /// so it asks twice: this is the first ask, and
+    /// [`Self::cultivation_dig_confirm_final`] is the second.
+    pub(crate) cultivation_dig_confirm: Option<usize>,
+    /// The plot the gardener has confirmed once and is being asked about a
+    /// second time. Only a press on this second surface sends the dig.
+    pub(crate) cultivation_dig_confirm_final: Option<usize>,
     /// Whether the cultivation page's full event history is open over the
     /// page. The page carries the click, the window frame carries the popup,
     /// so this is all the state there is.
