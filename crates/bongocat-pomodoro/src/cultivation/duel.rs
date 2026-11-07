@@ -411,13 +411,19 @@ fn strike(attacker: &mut Fighter, defender: &mut Fighter, rng: &mut Rng) -> Duel
         && attacker.inner >= strike.cost
     {
         attacker.inner -= strike.cost;
+        // The printed 威力 is the share of this blow's own worth the art pays.
+        // A 113% move is the base blow plus thirteen percent of it — not the
+        // 攻击力 alone plus thirteen percent, and not 攻击力 plus the whole
+        // spell half with only its excess multiplied. Multi-blow shapes still
+        // split that up by drawing each segment's worth from the same base.
+        let base = damage;
         let mut total = 0_u32;
         for _ in 0..strike.hits.max(1) {
             // The worth is drawn per blow rather than read off the row: two 玄阶
             // 外功 of the same worth are two different swings, and a 蓄力 is the
             // same 外功 being a different swing every time it is thrown.
             let rolled = strike_multiplier(&strike, rng);
-            total = total.saturating_add(external_damage(damage, rolled));
+            total = total.saturating_add(external_damage(base, rolled));
         }
         damage = total;
         // A completed 外功 adds its mastery share of 攻击力 to every blow it
@@ -754,8 +760,8 @@ mod tests {
             &mut Rng::seeded(11),
         );
         assert!(!plain.dodged, "the probe needs a blow that lands");
-        // 1,000 攻击力 through a 120% art is 1,200; the mastery share adds
-        // fifteen percent of the 攻击力 behind it.
+        // A 120% move pays one and a fifth times the whole base blow; the
+        // mastery share adds fifteen percent of 攻击力 on top.
         assert_eq!(plain.damage, 1_200);
         assert_eq!(mastered.damage, 1_350, "the completed art hits harder");
         // Out of 内力 the art — and its mastery share with it — is not spent.
@@ -766,6 +772,47 @@ mod tests {
         let bare = strike(&mut spent, &mut plain_target, &mut Rng::seeded(12));
         assert_eq!(bare.art, None, "no 内力, no art");
         assert_eq!(bare.damage, 1_000, "and no mastery share either");
+    }
+
+    /// 外功的基准威力乘的是整次基础伤害，而不是只乘攻击力。
+    ///
+    /// 本例就是“攻击力和法术强度都更高，伤害反而更低”的守卫战：基础伤害为
+    /// 攻击力 2,005 + 有效法术 574，九宫掌法 113% 应为 2,913；旧算法只把 2,005
+    /// 交给倍率，再单独加 574，结果只有 2,854。外功的乘区必须与日志的基础
+    /// 伤害一致，否则面板上的高属性会在出手时被悄悄丢掉。
+    #[test]
+    fn an_external_art_multiplies_the_whole_base_blow() {
+        let mut attacker = Fighter {
+            inner: 100,
+            art: Some(ArtStrike {
+                name: "九宫掌法".to_owned(),
+                multiplier_permille: 1_135,
+                cost: 10,
+                hits: 1,
+                band_permille: (0, 0),
+                effect: None,
+                marked: false,
+                mastery_permille: 0,
+            }),
+            ..brute("fighter", 100_000, 2_005, 10)
+        };
+        attacker.spell = 1_722;
+        let mut target = brute("target", 100_000, 0, 10);
+        target.resist = 1_148;
+        let round = strike(&mut attacker, &mut target, &mut Rng::seeded(13));
+        assert!(!round.dodged, "the probe needs a blow that lands");
+        assert_eq!(blow(&attacker, &target), 2_579);
+        assert_eq!(
+            round.damage, 2_927,
+            "113.5% of the whole base blow, not only its 攻击力 part"
+        );
+        // The same move against a defender with no 法抗 keeps its full spell
+        // half inside the multiplier too.
+        let mut unwarded = brute("target", 100_000, 0, 10);
+        let round = strike(&mut attacker, &mut unwarded, &mut Rng::seeded(14));
+        assert!(!round.dodged);
+        assert_eq!(blow(&attacker, &unwarded), 3_727);
+        assert_eq!(round.damage, 4_230);
     }
 
     #[test]
