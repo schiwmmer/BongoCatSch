@@ -680,6 +680,22 @@ mod tests {
     }
 
     #[test]
+    fn a_document_written_before_defense_existed_still_loads() {
+        // A save written before the 防御值 field was added to `Derived` must
+        // still load: the field defaults to zero rather than refusing the
+        // document, which would otherwise reset the whole save to empty.
+        let parsed: CultivationDocument = serde_json::from_str(
+            r#"{"growth":1500,"realm":1,"job_bonus":{"attack":0,"health":0,"inner":0,"spell":0,"resist":0,"speed":0,"hit":0,"evade":0,"aptitude":0}}"#,
+        )
+        .expect("the older shape loads");
+        assert_eq!(parsed.growth, 1_500);
+        assert_eq!(
+            parsed.job_bonus.defense, 0,
+            "the missing field defaults to zero rather than refusing the save"
+        );
+    }
+
+    #[test]
     fn a_realm_past_the_ladder_is_clamped() {
         let document = CultivationDocument {
             realm: 200,

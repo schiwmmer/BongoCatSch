@@ -613,6 +613,10 @@ pub struct Derived {
     pub resist: u32,
     /// 防御值: what blunts the physical half of an incoming blow, read against
     /// the attacker's 攻击力.
+    ///
+    /// Defaults to zero on load so a save written before the field existed
+    /// still loads rather than being refused as an empty document.
+    #[serde(default)]
     pub defense: u32,
     /// 速度: how often the cultivator acts.
     pub speed: u32,
