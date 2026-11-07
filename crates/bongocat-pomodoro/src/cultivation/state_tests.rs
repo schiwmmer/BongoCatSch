@@ -894,10 +894,13 @@ fn the_door_is_home_the_moment_the_job_in_hand_comes_due() {
 /// ladder that drops.
 #[test]
 fn a_win_moves_the_frontier_and_a_loss_holds_it() {
-    let mut climbing = a_bare_save_at(30);
+    let mut climbing = a_dressed_save_at(30);
     let won = climbing.trial(1_000, 9).expect("the first floor is owed");
     assert_eq!(won.floor, 1, "the climb starts at the first floor");
-    assert!(won.duel.won, "a level thirty save clears the first floor");
+    assert!(
+        won.duel.won,
+        "a dressed level thirty save clears the first floor"
+    );
     assert_eq!(climbing.document.trial_floor, 1);
     assert_eq!(climbing.trial_next_floor(), 2);
 
@@ -907,7 +910,7 @@ fn a_win_moves_the_frontier_and_a_loss_holds_it() {
     assert_eq!(lost.floor, TRIAL_MAX_FLOOR);
     assert!(
         !lost.duel.won,
-        "the top of the tower is not cleared by level 30"
+        "the top of the tower is not cleared by a bare level 30 save"
     );
     assert_eq!(
         walled.document.trial_floor,
@@ -1016,7 +1019,7 @@ fn a_dressed_save_at(level: u16) -> Cultivation {
 }
 
 /// The tower is the ladder read sideways: a floor stands for a level, and
-/// the warden is that level's cultivator softened, dressed, and swinging what
+/// the warden is that level's cultivator hardened, dressed, and swinging what
 /// it carries. This is the number that makes "how far can I climb" a question
 /// gear answers, so it is locked here — a retune of the attributes or the
 /// duel that moves the frontier a whole realm away from the save's own level
@@ -1053,6 +1056,51 @@ fn a_dressed_save_holds_its_own_level_and_not_much_past_it() {
         assert!(
             past_rate <= 30,
             "level {level} clears floor {past} a quarter past it {past_rate}% of the time"
+        );
+    }
+}
+
+/// A bare same-level cultivator is not enough: the tower asks for the small
+/// edge that a few pieces of gear, some harvested attribute points, or a
+/// trained 功法 provide. The bare body wins clearly less often than the dressed
+/// one, and the tower never offers it the skip — the climb is a fight, not a
+/// formality.
+#[test]
+fn a_bare_same_level_save_cannot_sweep_the_tower() {
+    for level in [10_u16, 30, 100, 500, 1_000] {
+        let bare_rate = (0..200)
+            .filter(|attempt: &usize| {
+                let mut cultivation = a_bare_save_at(level);
+                cultivation.document.trial_floor = level - 1;
+                cultivation
+                    .trial(1_000 + (*attempt as i64) * 977, 9)
+                    .is_some_and(|outcome| outcome.duel.won)
+            })
+            .count();
+        let dressed_rate = (0..200)
+            .filter(|attempt: &usize| {
+                let mut cultivation = a_dressed_save_at(level);
+                cultivation.document.trial_floor = level - 1;
+                cultivation
+                    .trial(2_000 + (*attempt as i64) * 977, 9)
+                    .is_some_and(|outcome| outcome.duel.won)
+            })
+            .count();
+        let mut bare = a_bare_save_at(level);
+        bare.document.trial_floor = level - 1;
+        assert!(
+            !bare.trial_sweepable(),
+            "a bare level {level} save is offered the sweep"
+        );
+        println!("level {level}: bare {bare_rate}/200, dressed {dressed_rate}/200");
+        assert!(
+            bare_rate + 40 <= dressed_rate,
+            "at level {level} a bare save holds {bare_rate} of two hundred against a dressed save's {dressed_rate}: gear is not the edge the tower asks for"
+        );
+        assert!(
+            bare_rate <= 130,
+            "a bare level {level} save clears its own floor {}% of the time",
+            bare_rate / 2
         );
     }
 }

@@ -1958,8 +1958,10 @@ impl Cultivation {
     }
 
     /// Whether the next floor would be a sweep rather than a fight: the
-    /// cultivator is overwhelmingly stronger than the warden — more than half
-    /// again — so the floor is no contest and the tower offers the skip.
+    /// cultivator is overwhelmingly stronger than the warden — twice the
+    /// rung — so the floor is no contest and the tower offers the skip. A
+    /// save merely dressed at its own level is not offered it: the sweep is
+    /// for a body that has outgrown the ladder, not for one that stands on it.
     pub fn trial_sweepable(&self) -> bool {
         let floor = self.trial_next_floor();
         if floor > TRIAL_MAX_FLOOR {
@@ -1969,7 +1971,7 @@ impl Cultivation {
         // fight: a save far above the rung is offered the skip even though the
         // band would have made the floor a contest — the rung is the ladder the
         // tower is named for, and the skip is for a save that has outgrown it.
-        self.power() > opponent::floor_rung_power(floor).saturating_mul(3) / 2
+        self.power() > opponent::floor_rung_power(floor).saturating_mul(2)
     }
 
     /// Sweep the next stretch of the tower: one overwhelmingly strong

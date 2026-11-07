@@ -181,10 +181,10 @@ pub(crate) fn guardian(current: Realm, target: Realm) -> Opponent {
 /// per thousand.
 ///
 /// Two draws averaged, so the middle is common and the ends are the rare, sharp
-/// fights: 800‰ (an easy floor), 1250‰ (a real wall), 1025‰ on average. Two
+/// fights: 1000‰ (an easy floor), 1200‰ (a real wall), 1100‰ on average. Two
 /// uniforms are the cheapest way to a triangular spread that still has ends.
 pub(crate) fn challenge_band_permille(rng: &mut Rng) -> u32 {
-    (800 + (rng.below(451) + rng.below(451)) / 2) as u32
+    (1_000 + (rng.below(201) + rng.below(201)) / 2) as u32
 }
 
 /// The floor's own rung: what a naked cultivator of that level is worth,
@@ -274,8 +274,8 @@ pub(crate) fn wanderer(realm: Realm, seed: u64) -> Opponent {
 /// The someone a 试炼 sends: rolled per meeting, and levelled to the
 /// cultivator rather than to the realm's ceiling.
 ///
-/// A 试炼 is a fight, not a wall: the tower's warden stands on a rung of the
-/// ladder, while this one stands where the cultivator stands, so a mid-realm
+/// A 试炼 is a fight, not a wall: the tower's warden stands above the rung of
+/// the ladder, while this one stands where the cultivator stands, so a mid-realm
 /// save is not sent the realm's last layer for asking.
 pub(crate) fn challenger(level: u16, tier: u8, seed: u64) -> Opponent {
     opponent(

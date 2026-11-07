@@ -33,12 +33,12 @@ pub const TRIAL_MAX_FLOOR: u16 = MAX_LEVEL;
 /// What a floor's warden is worth against a naked cultivator of that level, in
 /// parts per thousand.
 ///
-/// Nine tenths: a cultivator standing on their own level wins most floors and
-/// loses the ones at the frontier, which is what turns "how far can I climb"
-/// into a question the next piece of gear answers. Scaling it with the floor
-/// instead would make the tower a second growth curve to balance; holding it
-/// flat keeps one number to tune.
-pub const TRIAL_OPPONENT_PERMILLE: u32 = 900;
+/// 930: a cultivator standing on their own level cannot sweep the floor.  At
+/// this height a bare body loses most attempts, while a body carrying a few
+/// pieces of gear, harvested attribute points, or a trained 功法 has the edge it
+/// needs.  The tower therefore stays a real wall at the frontier instead of a
+/// formality that same-level saves clear without preparation.
+pub const TRIAL_OPPONENT_PERMILLE: u32 = 930;
 
 /// What a cleared floor turns up, in parts per thousand, rolled once: a seed
 /// most often, gear sometimes, a 功法 almost never. The four outcomes are
@@ -77,7 +77,7 @@ pub fn floor_realm(floor: u16) -> Realm {
 /// spread, and the page reads its middle.
 pub fn warden_power(floor: u16) -> u32 {
     // The midpoint of the band the floor's own rung is drawn from.
-    super::opponent::floor_rung_power(floor).saturating_mul(1025) / 1_000
+    super::opponent::floor_rung_power(floor).saturating_mul(1_100) / 1_000
 }
 
 /// What clearing a floor turned up.
@@ -120,7 +120,7 @@ mod tests {
 
     /// The band is drawn as two uniforms averaged, so the middle is common and
     /// the ends are the rare, sharp fights — and it never leaves the chosen
-    /// window around the cultivator: a fifth below, a quarter above.
+    /// window around the cultivator.
     #[test]
     fn the_challenge_band_keeps_its_edges_and_its_middle() {
         let mut seen_min = u32::MAX;
@@ -130,7 +130,7 @@ mod tests {
         for seed in 0..count {
             let band = challenge_band_permille(&mut Rng::seeded(seed));
             assert!(
-                (800..=1250).contains(&band),
+                (1_000..=1_200).contains(&band),
                 "seed {seed}: the band {band} left the chosen window"
             );
             seen_min = seen_min.min(band);
@@ -139,21 +139,21 @@ mod tests {
         }
         // The ends are the rare draws: approached across a long run.
         assert!(
-            seen_min <= 810,
+            seen_min <= 1_010,
             "the easy end was never reached: {seen_min}"
         );
         assert!(
-            seen_max >= 1240,
+            seen_max >= 1_190,
             "the hard end was never reached: {seen_max}"
         );
-        // Two uniforms averaged centre on 1025: the middle is the common draw.
+        // Two uniforms averaged centre on 1100: the middle is the common draw.
         let mean = sum / count;
-        assert!((1_000..=1_050).contains(&mean), "mean {mean} not centred");
+        assert!((1_080..=1_120).contains(&mean), "mean {mean} not centred");
     }
 
     /// A floor reads the same against any save: the warden is the floor's own
-    /// softened rung, drawn through the band, so the tower stays a benchmark —
-    /// the fight is a draw, not a formality, but the floor does not move with
+    /// hardened rung, drawn through the band, so the tower stays a benchmark —
+    /// the fight is a contest, not a formality, but the floor does not move with
     /// who is climbing it.
     #[test]
     fn the_warden_is_drawn_around_the_floors_own_rung() {
@@ -163,8 +163,8 @@ mod tests {
                 let draw = challenge_power(floor, &mut Rng::seeded(seed));
                 // The draw never leaves the band around the floor's own rung.
                 assert!(
-                    (rung * 800 / 1_000..=rung * 1250 / 1_000).contains(&draw),
-                    "floor {floor} seed {seed}: draw {draw} left [0.8, 1.25] of the rung {rung}"
+                    (rung * 1_000 / 1_000..=rung * 1_200 / 1_000).contains(&draw),
+                    "floor {floor} seed {seed}: draw {draw} left [1.00, 1.20] of the rung {rung}"
                 );
                 // The warden the duel settles against is levelled to that draw,
                 // within a rung's own width — the ladder is the coarsest step
@@ -173,8 +173,8 @@ mod tests {
                 let slack = rung / 5;
                 let w = warden.attributes.power();
                 assert!(
-                    w >= rung.saturating_mul(800) / 1_000 - slack
-                        && w <= rung.saturating_mul(1250) / 1_000 + slack,
+                    w >= rung.saturating_mul(1_000) / 1_000 - slack
+                        && w <= rung.saturating_mul(1_200) / 1_000 + slack,
                     "floor {floor} seed {seed}: warden {w} left the band around the rung {rung}"
                 );
                 assert!(warden.fighter.health > 0);
@@ -215,7 +215,7 @@ mod tests {
         // band's hard end over the rung is the ceiling.
         let rung = floor_rung_power(1);
         let warden = super::super::opponent::warden(1, &mut Rng::seeded(0));
-        let ceiling = rung * 1250 / 1_000 + rung / 10;
+        let ceiling = rung * 1_200 / 1_000 + rung / 10;
         assert!(
             warden.attributes.power() <= ceiling,
             "floor one is a wall rather than an on-ramp: {}",
