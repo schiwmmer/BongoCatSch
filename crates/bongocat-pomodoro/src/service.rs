@@ -122,6 +122,11 @@ struct Inner {
     document_writes: u64,
     document_write_failures: u64,
     last_error: Option<PomodoroErrorCode>,
+    /// The instant of the last periodic autosave, so a document that has not
+    /// changed since the last write is still flushed to disk every two hours.
+    /// Without this, a long idle session (a countdown running, or the machine
+    /// asleep) could leave the on-disk copy stale by days.
+    last_autosave: Instant,
 }
 
 impl Inner {
@@ -144,6 +149,15 @@ impl Inner {
         if !self.domain.document_is_dirty(&self.written) {
             return;
         }
+        self.write_document_force(path);
+    }
+
+    /// Write the document even when nothing has changed since the last write.
+    ///
+    /// The periodic autosave calls this so a countdown that has been running
+    /// for two hours, or a machine that has been asleep, still leaves the
+    /// current state on disk. A failed write is recorded the same way.
+    fn write_document_force(&mut self, path: &Path) {
         let document = self.domain.document().clone();
         match write_document(path, &document) {
             Ok(()) => {
@@ -191,6 +205,7 @@ impl PomodoroClient {
                     document_writes: 0,
                     document_write_failures: 0,
                     last_error: Some(PomodoroErrorCode::WorkerUnavailable),
+                    last_autosave: Instant::now(),
                     snapshot,
                 }),
                 changed: Condvar::new(),
@@ -237,6 +252,7 @@ impl PomodoroClient {
             document_writes: 0,
             document_write_failures: 0,
             last_error: None,
+            last_autosave: Instant::now(),
             snapshot: PomodoroState::empty().snapshot(0),
         };
         inner.snapshot.worker = PomodoroWorkerState::Ready;
@@ -430,6 +446,7 @@ impl PomodoroService {
                 document_writes: 0,
                 document_write_failures: 0,
                 last_error: None,
+                last_autosave: Instant::now(),
                 snapshot,
             }),
             changed: Condvar::new(),
@@ -561,6 +578,12 @@ fn run_worker(receiver: Receiver<PomodoroCommand>, shared: Arc<SharedState>, pat
         if !tick(&shared, &path, elapsed) {
             carried = Duration::ZERO;
         }
+        // The periodic autosave flushes the document every two hours even when
+        // nothing changed: a countdown that has been running for two hours, or
+        // a machine that has been asleep, still leaves the current state on
+        // disk. The tick above already writes when the document is dirty, so
+        // this only fires when the worker has been idle since the last write.
+        maybe_autosave(&shared, &path, AUTOSAVE_INTERVAL);
     }
     set_worker_state(&shared, PomodoroWorkerState::Stopping);
     while receiver.try_recv().is_ok() {}
@@ -569,6 +592,34 @@ fn run_worker(receiver: Receiver<PomodoroCommand>, shared: Arc<SharedState>, pat
     // the next launch recomputes the remainder from that instant, and whatever
     // the last durable command changed was already written.
     set_worker_state(&shared, PomodoroWorkerState::Stopped);
+}
+
+/// How often the worker flushes the document to disk even when nothing changed.
+///
+/// A countdown that has been running for two hours, or a machine that has been
+/// asleep, leaves the on-disk copy stale by hours. The autosave bounds that
+/// staleness: the document is written every two hours whether or not a command
+/// moved it, so a crash loses at most two hours of progress.
+const AUTOSAVE_INTERVAL: Duration = Duration::from_secs(2 * 60 * 60);
+
+/// Write the document when the autosave interval has elapsed since the last
+/// flush, even if nothing changed since the last write.
+///
+/// The tick already writes when the document is dirty, so this only fires when
+/// the worker has been idle since the last write. A failed write is recorded by
+/// `write_document_force` and the next interval tries again. The interval is a
+/// parameter so a test can exercise the behavior without waiting two hours.
+fn maybe_autosave(shared: &Arc<SharedState>, path: &Path, interval: Duration) {
+    let mut inner = shared
+        .inner
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let elapsed = inner.last_autosave.elapsed();
+    if elapsed < interval {
+        return;
+    }
+    inner.write_document_force(path);
+    inner.last_autosave = Instant::now();
 }
 
 /// How long the worker may sleep before folding in elapsed time.
@@ -728,6 +779,7 @@ fn now_unix() -> i64 {
 mod tests {
     use super::*;
     use crate::DEFAULT_FOCUS_MINUTES;
+    use std::fs;
 
     const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -933,6 +985,52 @@ mod tests {
                 .timer
                 .is_some_and(|timer| timer.remaining_seconds < started)
         });
+        service.shutdown(TIMEOUT).expect("clean shutdown");
+    }
+
+    /// The autosave flushes the document after the interval even when nothing
+    /// changed since the last write. A countdown that has been running for two
+    /// hours, or a machine that has been asleep, still leaves the current state
+    /// on disk rather than a stale copy.
+    #[test]
+    fn the_autosave_writes_after_the_interval_even_when_nothing_changed() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let path = directory.path().join("pomodoro-tasks.json");
+        let service = PomodoroService::start(path.clone()).expect("pomodoro service");
+        let client = service.client();
+        wait_for(&client, |snapshot| {
+            snapshot.worker == PomodoroWorkerState::Ready
+        });
+
+        // Create a task so the document has content, then wait for the write.
+        client
+            .try_publish(PomodoroCommand::CreateTask {
+                name: "focus".into(),
+                estimated_pomodoros: 2,
+            })
+            .expect("create the task");
+        wait_for(&client, |snapshot| {
+            snapshot.tasks.iter().any(|t| t.name == "focus")
+        });
+
+        // The document is now on disk. Delete it to prove the autosave rewrites.
+        fs::remove_file(&path).expect("remove the document");
+
+        // A short interval exercises the same code path without waiting hours.
+        maybe_autosave(&client.shared, &path, Duration::ZERO);
+
+        // The autosave should have rewritten the document.
+        assert!(path.exists(), "the autosave rewrote the document");
+        let bytes = fs::read(&path).expect("read the autosaved document");
+        let document: Document =
+            serde_json::from_slice(&bytes).expect("the autosaved document parses");
+        assert_eq!(
+            document.schema_version,
+            crate::POMODORO_TASKS_SCHEMA_VERSION
+        );
+        assert_eq!(document.tasks.len(), 1);
+        assert_eq!(document.tasks[0].name, "focus");
+
         service.shutdown(TIMEOUT).expect("clean shutdown");
     }
 }
