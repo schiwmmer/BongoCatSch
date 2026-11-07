@@ -298,6 +298,8 @@ fn parse_command(value: &Value) -> Option<PomodoroCommand> {
         "harvest_plot" => PomodoroCommand::HarvestPlot {
             plot: usize_value(value, "plot")?,
         },
+        "harvest_all_ready" => PomodoroCommand::HarvestAllReady,
+        "plant_all_by_grade" => PomodoroCommand::PlantAllByGrade,
         "dig_plot" => PomodoroCommand::DigPlot {
             plot: usize_value(value, "plot")?,
         },

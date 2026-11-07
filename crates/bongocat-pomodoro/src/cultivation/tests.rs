@@ -713,7 +713,7 @@ fn a_planting_that_does_not_take_keeps_the_bed_until_the_halfway_mark() {
         }
         cultivation.harvest(0, at + grown).expect("a ripe crop");
     }
-    let (at, half, before, settled) = found.expect("sixty-four tries find one failure");
+    let (_at, half, before, settled) = found.expect("sixty-four tries find one failure");
     assert!(
         settled,
         "the tick that reaches the halfway mark does the work"
@@ -766,20 +766,18 @@ fn a_planting_that_does_not_take_keeps_the_bed_until_the_halfway_mark() {
         cultivation.view_on(half, 0).plots[0].crop.is_none(),
         "and the bed is free for the next seed"
     );
-    // A live crop cannot be dug: the odds already spared it, and throwing it away
-    // would be a way to burn a seed for nothing.
+    // A live crop can be dug too: the gardener may give up on a seed before it
+    // matures. The dig pays nothing and returns no seed — the odds already
+    // spared it, and throwing it away is the gardener's own choice.
     document_seed(&mut cultivation, Attribute::Root, 1, SeedGrade::Earth);
     cultivation.plant(Attribute::Root, 1, SeedGrade::Earth, half);
     assert!(
-        cultivation.dig_plot(0, half + 1).is_none(),
-        "只有枯死的作物可以铲除"
+        cultivation.dig_plot(0, half + 1).is_some(),
+        "a growing crop can be dug out before it matures"
     );
     assert!(
-        cultivation.view_on(at + grown, 0).plots[0]
-            .crop
-            .as_ref()
-            .is_some(),
-        "a live crop keeps its bed"
+        cultivation.view_on(half + 1, 0).plots[0].crop.is_none(),
+        "and the bed is free for the next seed"
     );
 }
 
@@ -3921,5 +3919,236 @@ fn the_art_set_views_add_up_to_the_set_bonus() {
     assert!(
         family.bonus.power() > 0,
         "the 前缀-0 family pays its primary line"
+    );
+}
+
+/// A one-click harvest pulls every ripe bed and leaves every growing one alone.
+///
+/// The garden holds two first-tier crops and one still growing; the ripe pair
+/// is pulled in one command, the growing bed is untouched, and the gardener is
+/// told which plots came up.
+#[test]
+fn a_one_click_harvest_pulls_every_ripe_bed() {
+    let mut cultivation = tended(Cultivation::default());
+    document_seed(&mut cultivation, Attribute::Root, 1, SeedGrade::Earth);
+    document_seed(&mut cultivation, Attribute::Mana, 1, SeedGrade::Earth);
+    document_seed(&mut cultivation, Attribute::Root, 2, SeedGrade::Earth);
+    let at = 1_000;
+    assert!(
+        cultivation
+            .plant(Attribute::Root, 1, SeedGrade::Earth, at)
+            .is_some(),
+        "the first-tier 黄阶 comes up in a top-rank garden"
+    );
+    assert!(
+        cultivation
+            .plant(Attribute::Mana, 1, SeedGrade::Earth, at)
+            .is_some(),
+        "the second first-tier seed comes up too"
+    );
+    assert!(
+        cultivation
+            .plant(Attribute::Root, 2, SeedGrade::Earth, at)
+            .is_some(),
+        "the third seed takes the third bed"
+    );
+    let ripe = at + grow_seconds_at(MAX_GARDEN_RANK, 1);
+    // The first-tier pair is ripe at the same instant the second-tier crop is
+    // still growing, which is the whole case the one-click harvest is for.
+    let picked = cultivation.harvest_all_ready(ripe);
+    assert_eq!(picked, vec![0, 1], "the two ripe beds are pulled in order");
+    assert!(
+        cultivation.view().plots[2].crop.is_some(),
+        "the growing bed is left alone"
+    );
+    assert_eq!(cultivation.view().plots[0].crop, None);
+    assert_eq!(cultivation.view().plots[1].crop, None);
+    // A second click with nothing ripe is a no-op rather than a refusal: the
+    // garden has nothing to give, and a button that did nothing is not a click
+    // that failed.
+    assert!(cultivation.harvest_all_ready(ripe).is_empty());
+}
+
+/// A one-click planting fills the beds weakest-grade first, and stops at the
+/// first bed it cannot fill.
+#[test]
+fn a_one_click_planting_fills_the_beds_weakest_grade_first() {
+    let mut cultivation = Cultivation::default();
+    // A top-rank garden so every seed comes up, and a satchel holding three
+    // grades of the same attribute: the order has to be 黄, 玄, 地.
+    let mut document = cultivation.document().clone();
+    document.garden_rank = MAX_GARDEN_RANK;
+    document.seeds.push(SeedStack {
+        attribute: Attribute::Root,
+        herb: None,
+        tier: 1,
+        grade: SeedGrade::Earth,
+        count: 1,
+        name: None,
+    });
+    document.seeds.push(SeedStack {
+        attribute: Attribute::Root,
+        herb: None,
+        tier: 1,
+        grade: SeedGrade::Yellow,
+        count: 1,
+        name: None,
+    });
+    document.seeds.push(SeedStack {
+        attribute: Attribute::Root,
+        herb: None,
+        tier: 1,
+        grade: SeedGrade::Profound,
+        count: 1,
+        name: None,
+    });
+    cultivation = Cultivation::new(document);
+    let planted = cultivation.plant_all_by_grade(1_000);
+    assert_eq!(planted, 3, "every seed went into a bed");
+    let grades: Vec<SeedGrade> = cultivation
+        .view()
+        .plots
+        .iter()
+        .filter_map(|plot| plot.crop.as_ref().map(|crop| crop.grade))
+        .collect();
+    assert_eq!(
+        grades,
+        vec![SeedGrade::Yellow, SeedGrade::Profound, SeedGrade::Earth],
+        "the beds are filled weakest grade first"
+    );
+    assert!(cultivation.view().seeds.is_empty(), "the satchel is spent");
+}
+
+/// A one-click planting stops when the garden runs out of beds, leaving the
+/// rest of the satchel in hand.
+#[test]
+fn a_one_click_planting_stops_when_the_garden_is_full() {
+    let mut cultivation = Cultivation::default();
+    let mut document = cultivation.document().clone();
+    document.garden_rank = MAX_GARDEN_RANK;
+    document.seeds.push(SeedStack {
+        attribute: Attribute::Root,
+        herb: None,
+        tier: 1,
+        grade: SeedGrade::Yellow,
+        count: 8,
+        name: None,
+    });
+    cultivation = Cultivation::new(document);
+    let planted = cultivation.plant_all_by_grade(1_000);
+    assert_eq!(
+        planted,
+        u32::try_from(FREE_PLOT_COUNT).unwrap(),
+        "the four beds are the limit"
+    );
+    assert_eq!(
+        cultivation
+            .view()
+            .seeds
+            .iter()
+            .map(|seed| seed.count)
+            .sum::<u32>(),
+        4,
+        "four seeds are left in the satchel"
+    );
+}
+
+/// Digging an unripe crop frees the bed and pays nothing: no attribute, no
+/// 造化, no seed back.
+#[test]
+fn digging_an_unripe_crop_frees_the_bed_and_pays_nothing() {
+    let mut cultivation = tended(Cultivation::default());
+    document_seed(&mut cultivation, Attribute::Root, 1, SeedGrade::Earth);
+    let at = 1_000;
+    assert!(
+        cultivation
+            .plant(Attribute::Root, 1, SeedGrade::Earth, at)
+            .is_some()
+    );
+    let before = cultivation.view().garden_xp;
+    let before_attribute = cultivation.crop_attributes().root;
+    // Dig at a moment the crop is still growing.
+    assert!(
+        cultivation.dig_plot(0, at + 60).is_some(),
+        "an unripe crop can be dug out"
+    );
+    assert_eq!(cultivation.view().plots[0].crop, None, "the bed is free");
+    assert_eq!(cultivation.view().garden_xp, before, "digging pays no 造化");
+    assert_eq!(
+        cultivation.crop_attributes().root,
+        before_attribute,
+        "digging pays no attribute"
+    );
+    assert!(
+        cultivation.view().seeds.is_empty(),
+        "the seed is gone for good"
+    );
+}
+
+/// A ripe crop cannot be dug: it is a harvest waiting to be picked, and the
+/// surface asks for its bed with the harvest button instead.
+#[test]
+fn a_ripe_crop_cannot_be_dug() {
+    let mut cultivation = tended(Cultivation::default());
+    document_seed(&mut cultivation, Attribute::Root, 1, SeedGrade::Earth);
+    let at = 1_000;
+    assert!(
+        cultivation
+            .plant(Attribute::Root, 1, SeedGrade::Earth, at)
+            .is_some()
+    );
+    let ripe = at + grow_seconds(1);
+    assert!(
+        cultivation.dig_plot(0, ripe).is_none(),
+        "a ripe crop is not dug"
+    );
+    assert!(
+        cultivation.view().plots[0].crop.is_some(),
+        "the crop is still there to be harvested"
+    );
+}
+
+/// A one-click planting skips a pill in the satchel: the pill opens a gate from
+/// the satchel rather than a bed, so it is not a planting and must not stop the
+/// run at the weakest grade.
+#[test]
+fn a_one_click_planting_skips_the_pill_in_the_satchel() {
+    let mut cultivation = Cultivation::default();
+    let mut document = cultivation.document().clone();
+    document.garden_rank = MAX_GARDEN_RANK;
+    // The pill is the weakest grade, so a run that read it as a planting would
+    // stop before the seed beside it.
+    document.seeds.push(SeedStack {
+        attribute: Attribute::Strength,
+        herb: Some(AptitudeHerb::Marrow),
+        tier: 1,
+        grade: SeedGrade::Yellow,
+        count: 1,
+        name: None,
+    });
+    document.seeds.push(SeedStack {
+        attribute: Attribute::Root,
+        herb: None,
+        tier: 1,
+        grade: SeedGrade::Earth,
+        count: 1,
+        name: None,
+    });
+    cultivation = Cultivation::new(document);
+    let planted = cultivation.plant_all_by_grade(1_000);
+    assert_eq!(planted, 1, "the seed is planted, the pill is left alone");
+    assert_eq!(
+        cultivation
+            .view()
+            .seeds
+            .iter()
+            .map(|seed| seed.count)
+            .sum::<u32>(),
+        1,
+        "the pill is still in the satchel"
+    );
+    assert!(
+        cultivation.view().seeds[0].herb == Some(AptitudeHerb::Marrow),
+        "and it is the pill that stayed"
     );
 }

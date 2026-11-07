@@ -221,8 +221,15 @@ pub enum PomodoroCommand {
     },
     /// Pick a ripe crop out of a plot.
     HarvestPlot { plot: usize },
-    /// Dig a dead crop out of its plot before its day is up, freeing the bed for
-    /// the next seed. Refused on a live or an empty plot.
+    /// Pick every ripe crop the garden is holding, in one command. The plots
+    /// that are not ripe are left alone.
+    HarvestAllReady,
+    /// Plant every seed the satchel holds, weakest grade first, until the
+    /// garden runs out of beds or the satchel runs out of seeds.
+    PlantAllByGrade,
+    /// Dig a crop out of its plot before its day is up, freeing the bed for the
+    /// next seed. Refused on a ripe crop — that one is a harvest — and on an
+    /// empty plot. Nothing is paid and nothing comes back.
     DigPlot { plot: usize },
     /// Buy one more garden plot with 灵石, past the four the garden starts
     /// with. Refused once the garden holds its ninth.
@@ -377,6 +384,8 @@ impl PomodoroCommand {
             Self::PlantSeed { .. }
             | Self::PlantHerbSeed { .. }
             | Self::HarvestPlot { .. }
+            | Self::HarvestAllReady
+            | Self::PlantAllByGrade
             | Self::DigPlot { .. }
             | Self::BuyPlot
             | Self::UpgradeGarden
@@ -647,6 +656,12 @@ impl PomodoroState {
             }
             PomodoroCommand::HarvestPlot { plot } => {
                 self.cultivation.harvest(plot, now_unix);
+            }
+            PomodoroCommand::HarvestAllReady => {
+                self.cultivation.harvest_all_ready(now_unix);
+            }
+            PomodoroCommand::PlantAllByGrade => {
+                self.cultivation.plant_all_by_grade(now_unix);
             }
             PomodoroCommand::DigPlot { plot } => {
                 self.cultivation.dig_plot(plot, now_unix);

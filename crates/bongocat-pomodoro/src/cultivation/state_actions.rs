@@ -183,21 +183,117 @@ impl Cultivation {
         moved
     }
 
-    /// Dig a dead crop out of its bed, freeing the plot for the next seed.
+    /// Dig a crop out of its bed before its day is up, freeing the plot for the
+    /// next seed. Nothing is paid and nothing comes back: the seed is gone, the
+    /// crop is gone, and the bed is what the gardener keeps.
     ///
-    /// Only a dead crop can be dug: a live one is a harvest in progress, and
-    /// clearing it would be a way to throw away a seed the odds already spared.
+    /// Any crop can be dug — a dead one the gardener was always allowed to clear,
+    /// and a live one the gardener may now give up. A ripe crop cannot: it is a
+    /// harvest waiting to be picked, and digging it would throw away the one
+    /// thing the bed was for. The surface asks for a ripe crop's bed with the
+    /// harvest button instead.
     pub fn dig_plot(&mut self, plot: usize, now_unix: i64) -> Option<()> {
         let held = self
             .document
             .plots
             .get(plot)
             .and_then(|plot| plot.crop.as_ref())?;
-        if !held.stands_dead(now_unix) {
+        if held.is_ready(now_unix) {
             return None;
         }
         self.document.plots.get_mut(plot)?.crop = None;
         Some(())
+    }
+
+    /// Pick every ripe crop the garden is holding, in one command.
+    ///
+    /// The same harvest [`Self::harvest`] pays, plot by plot, and the plots that
+    /// are not ripe are left exactly as they were: a gardener who pressed the
+    /// one-click harvest on a garden of half-grown beds gets the ripe ones
+    /// pulled and the rest left alone, which is the difference between a button
+    /// that does the obvious thing and a button that waits for a garden to be
+    /// all-or-nothing.
+    ///
+    /// Returns the plots that were picked, in the order they stand in the
+    /// garden, so a surface can say how many came up rather than only that
+    /// something did.
+    pub fn harvest_all_ready(&mut self, now_unix: i64) -> Vec<usize> {
+        let mut picked = Vec::new();
+        for index in 0..self.document.plots.len() {
+            if self
+                .document
+                .plots
+                .get(index)
+                .and_then(|plot| plot.crop.as_ref())
+                .is_some_and(|crop| crop.is_ready(now_unix))
+                && self.harvest(index, now_unix).is_some()
+            {
+                picked.push(index);
+            }
+        }
+        picked
+    }
+
+    /// Plant every seed the satchel holds, weakest grade first, until the garden
+    /// runs out of beds or the satchel runs out of seeds.
+    ///
+    /// The order is the grade ladder the shelf and the satchel both read: 黄、
+    /// 玄、地、天、神, the cheapest herb first. A stack is planted one seed at a
+    /// time — [`Self::plant_one`] spends a single seed and the stack keeps the
+    /// rest — so a stack of six first-tier 黄阶 seeds fills six beds, and a
+    /// garden of four fills with the first four and leaves the rest in hand.
+    ///
+    /// A stack the odds refuse is still spent: the roll is made when the seed
+    /// goes in, and a seed that did not come up has still taken its bed. That
+    /// is the rule every planting follows, and a one-click planting is a run of
+    /// plantings rather than a different kind.
+    ///
+    /// Returns how many seeds went into the ground, so a surface can say what
+    /// the click did rather than leaving the gardener to count beds.
+    pub fn plant_all_by_grade(&mut self, now_unix: i64) -> u32 {
+        let mut planted = 0_u32;
+        // The loop runs until a pass plants nothing: a stack of eight seeds is
+        // eight plantings, not one, and a satchel of several stacks is read
+        // again after every bed because planting spends the stacks it reads.
+        loop {
+            // The weakest stack still holding a seed is planted next. The
+            // satchel is re-read every pass because the previous planting may
+            // have spent the stack the last pass read. A pill is skipped: it
+            // opens a gate from the satchel rather than a bed, so it is not a
+            // planting and must not stop the run.
+            let next = self
+                .document
+                .seeds
+                .iter()
+                .filter(|stack| stack.count > 0)
+                .filter(|stack| stack.herb != Some(super::super::AptitudeHerb::Marrow))
+                .min_by(|left, right| {
+                    left.grade
+                        .cmp(&right.grade)
+                        .then_with(|| left.tier.cmp(&right.tier))
+                        .then_with(|| left.herb.is_some().cmp(&right.herb.is_some()))
+                        .then_with(|| left.attribute.index().cmp(&right.attribute.index()))
+                })
+                .map(|stack| (stack.attribute, stack.herb, stack.tier, stack.grade));
+            let Some((attribute, herb, tier, grade)) = next else {
+                break;
+            };
+            let outcome = match herb {
+                Some(herb) => self.plant_herb_seed(herb, grade, now_unix).is_some(),
+                None => self.plant(attribute, tier, grade, now_unix).is_some(),
+            };
+            if !outcome {
+                // No bed left: the run is over, and a planting that did not
+                // happen is not a reason to keep reading a satchel that
+                // cannot give.
+                break;
+            }
+            planted = planted.saturating_add(1);
+            if self.document.plots.iter().all(|plot| !plot.is_empty()) {
+                break;
+            }
+        }
+        planted
     }
 
     /// Raise the garden one rank, paid in 灵石 and earned in harvests.
