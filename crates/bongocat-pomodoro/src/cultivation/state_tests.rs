@@ -1092,7 +1092,6 @@ fn a_bare_same_level_save_cannot_sweep_the_tower() {
             !bare.trial_sweepable(),
             "a bare level {level} save is offered the sweep"
         );
-        println!("level {level}: bare {bare_rate}/200, dressed {dressed_rate}/200");
         assert!(
             bare_rate + 40 <= dressed_rate,
             "at level {level} a bare save holds {bare_rate} of two hundred against a dressed save's {dressed_rate}: gear is not the edge the tower asks for"
