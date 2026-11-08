@@ -948,7 +948,10 @@
       "busy_gathering": "正在采集，归来后方可探索。",
       "region_level": "第 %{level} 层",
       "progress_pct": "%{pct}%",
-      "current_region": "当前区域"
+      "current_region": "当前区域",
+      "region_line": "第 %{level} 层 · 要求战力 %{power}",
+      "region_cleared": "已探明",
+      "refuse_region": "该区域尚未开启：先提升境界"
     },
     "trial": {
       "title": "锁妖塔",
@@ -1044,6 +1047,7 @@
       "bonus_stones": "%{stones} 灵石",
       "with_effect": "%{what}（%{effect}）",
       "trial_sweep": "横扫第 %{from}~%{to} 层",
+      "region_cleared": "首次探明 %{region} · 灵石 +%{stones} · %{gear}",
       "sweep_seed": "仙草 ×%{count}",
       "sweep_gear": "装备 ×%{count}",
       "sweep_art": "功法 ×%{count}",
@@ -1140,7 +1144,12 @@
       "frozen_wastes": "玄冰荒漠",
       "flame_caverns": "赤炎洞窟",
       "shadow_realm": "幽冥鬼域",
-      "celestial_court": "天外仙境"
+      "celestial_court": "天外仙境",
+      "starfall_plains": "星陨古原",
+      "blood_sea": "九幽血海",
+      "void_sanctum": "太虚秘境",
+      "thunder_abyss": "雷罚天渊",
+      "chaos_palace": "混沌天宫"
     }
   }
 }

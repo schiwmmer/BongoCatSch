@@ -169,33 +169,23 @@ pub(super) fn exploration_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
     chosen: ExplorationHours,
+    selected: usize,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
     let at_home = cultivation.exploration_ready;
-    // An expedition is not a walk, but it closes the road the same way: the
-    // page draws the walk as closed rather than offering to "return" a walk
-    // that was never taken. The gathering's own return lives on the status
-    // line, which is where every outing is called home.
+    // An expedition is not a walk, but it closes the road the same way: the page
+    // draws the walk as closed rather than offering to "return" a walk that was
+    // never taken. The gathering's own return lives on the status line, which is
+    // where every outing is called home.
     let out_gathering = cultivation.resources.expedition.is_some();
-    let region_idx = (cultivation.exploration_region as usize).min(4);
-    let region_level = cultivation.exploration_level.max(1);
-    let region_progress = cultivation
-        .region_progress
-        .get(region_idx)
-        .copied()
-        .unwrap_or(0);
-    let region_pct = (region_progress as f32 / 1000.0 * 100.0).min(100.0);
-    let region_name = text(
-        locale,
-        match region_idx {
-            0 => "cultivation.region.azure_peaks",
-            1 => "cultivation.region.frozen_wastes",
-            2 => "cultivation.region.flame_caverns",
-            3 => "cultivation.region.shadow_realm",
-            _ => "cultivation.region.celestial_court",
-        },
-    );
+    let current = cultivation
+        .regions
+        .get(selected)
+        .or_else(|| cultivation.regions.first());
+    let region_pct = current.map_or(0, |region| region.percent);
+    let fraction = current.map_or(0.0, |region| region.fraction());
+    let region_level = current.map_or(1, |region| region.level);
     let mut button = if at_home {
         Button::new("cultivation-explore-attempt")
             .small()
@@ -218,12 +208,14 @@ pub(super) fn exploration_panel(
     if at_home {
         button = button.on_click({
             let view = view.clone();
+            let region = selected as u8;
             move |_, _, cx| {
                 view.update(cx, |view, cx| {
                     view.ask_cultivation(
                         CultivationDuelSource::Exploration,
                         PomodoroCommand::Explore {
                             hours: ExplorationHours::from_hours(chosen.hours()),
+                            region: Some(region),
                         },
                         cx,
                     );
@@ -257,7 +249,7 @@ pub(super) fn exploration_panel(
         cooldown_line(cultivation.exploration_ready_at, key, locale)
     };
     let chips = ExplorationHours::ALL.into_iter().map(move |hours| {
-        let selected = hours == chosen;
+        let selected_chip = hours == chosen;
         let mut chip = div()
             .id(format!("cultivation-explore-hours-{}", hours.hours()))
             .px_2()
@@ -282,7 +274,7 @@ pub(super) fn exploration_panel(
                 }
             })
             .test_support();
-        chip = if selected {
+        chip = if selected_chip {
             chip.bg(tokens.overlay)
                 .text_color(tokens.accent)
                 .font_semibold()
@@ -291,15 +283,99 @@ pub(super) fn exploration_panel(
         };
         chip
     });
+    // One row per region the realm has reached: the road is walked down the
+    // ladder, so the list is the save's own realm and every one below it. A row
+    // carries the three numbers the choice is made on — how far it has been
+    // walked, the level it stands at, and what that level asks — and clicking it
+    // is what points the next walk there.
+    let rows = cultivation
+        .regions
+        .iter()
+        .enumerate()
+        .filter(|(_, region)| region.unlocked)
+        .map(|(index, region)| {
+            let is_current = index == selected;
+            let mut row = div()
+                .id(format!("cultivation-region-{index}"))
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_baseline()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(if is_current {
+                                    tokens.accent
+                                } else {
+                                    tokens.text
+                                })
+                                .child(text(locale, region_key(region.region))),
+                        )
+                        .child(
+                            div()
+                                .id(format!("cultivation-region-{index}-line"))
+                                .text_xs()
+                                .text_color(tokens.muted)
+                                .child(format_text(
+                                    locale,
+                                    "cultivation.explore.region_line",
+                                    &[
+                                        ("level", region.level.to_string()),
+                                        ("power", group_thousands(region.requirement)),
+                                    ],
+                                ))
+                                .test_support(),
+                        )
+                        .children(region.cleared.then(|| {
+                            div()
+                                .text_xs()
+                                .text_color(tokens.accent)
+                                .child(text(locale, "cultivation.explore.region_cleared"))
+                        })),
+                )
+                .child(
+                    div()
+                        .id(format!("cultivation-region-{index}-pct"))
+                        .text_xs()
+                        .text_color(if is_current {
+                            tokens.accent
+                        } else {
+                            tokens.muted
+                        })
+                        .child(format_text(
+                            locale,
+                            "cultivation.explore.progress_pct",
+                            &[("pct", region.percent.to_string())],
+                        ))
+                        .test_support(),
+                )
+                .on_click({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            view.cultivation_explore_region = Some(index);
+                            cx.notify();
+                        });
+                    }
+                })
+                .test_support();
+            if is_current {
+                row = row.bg(tokens.overlay).font_semibold();
+            }
+            row
+        });
     // The rules of the road read beside the title rather than behind it: the page
     // used to hide four lines of prose under a hover nobody thought to seek, and
     // a rule nobody reads is a rule the walk keeps breaking.
-    //
-    // The region line sits at the top: the user always walks in the region their
-    // own realm lands in, and the level they are climbing through is the detail
-    // the hour chips pay for. The progress bar reads the level's remaining
-    // exploration, filling one level per a number of walks the deeper realms
-    // spend fewer of — the faster cadence the brief names.
     div()
         .id("cultivation-exploration")
         .flex()
@@ -323,7 +399,6 @@ pub(super) fn exploration_panel(
                                 .text_color(tokens.muted)
                                 .child(text(locale, "cultivation.explore.current_region")),
                         )
-                        .child(region_name)
                         .child(
                             div()
                                 .id("cultivation-explore-region-level")
@@ -345,7 +420,7 @@ pub(super) fn exploration_panel(
                         .child(format_text(
                             locale,
                             "cultivation.explore.progress_pct",
-                            &[("pct", format!("{:.0}", region_pct))],
+                            &[("pct", region_pct.to_string())],
                         ))
                         .test_support(),
                 ),
@@ -362,7 +437,7 @@ pub(super) fn exploration_panel(
                     div()
                         .id("cultivation-explore-progress-fill")
                         .h_full()
-                        .w(px(((region_pct / 100.0) * 180.0).clamp(0.0, 180.0)))
+                        .w(gpui_kit::relative(fraction))
                         .rounded_full()
                         .bg(tokens.accent),
                 )
@@ -374,6 +449,15 @@ pub(super) fn exploration_panel(
             "cultivation.explore.hint",
             tokens,
         ))
+        .child(
+            div()
+                .id("cultivation-region-list")
+                .flex()
+                .flex_col()
+                .gap_1()
+                .children(rows)
+                .test_support(),
+        )
         .child(div().flex().flex_row().gap_2().children(chips))
         .child(
             div()
@@ -391,6 +475,22 @@ pub(super) fn exploration_panel(
                 )
                 .child(button),
         )
+}
+
+/// The catalog key naming a region.
+pub(super) fn region_key(region: Region) -> &'static str {
+    match region {
+        Region::AzurePeaks => "cultivation.region.azure_peaks",
+        Region::FrozenWastes => "cultivation.region.frozen_wastes",
+        Region::FlameCaverns => "cultivation.region.flame_caverns",
+        Region::ShadowRealm => "cultivation.region.shadow_realm",
+        Region::CelestialCourt => "cultivation.region.celestial_court",
+        Region::StarfallPlains => "cultivation.region.starfall_plains",
+        Region::BloodSea => "cultivation.region.blood_sea",
+        Region::VoidSanctum => "cultivation.region.void_sanctum",
+        Region::ThunderAbyss => "cultivation.region.thunder_abyss",
+        Region::ChaosPalace => "cultivation.region.chaos_palace",
+    }
 }
 
 /// A length's multiplier as the chip prints it: "1.0", "2.1", "3.2".

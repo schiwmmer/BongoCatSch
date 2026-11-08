@@ -381,17 +381,99 @@ pub struct CultivationDocument {
     /// cleared level, capped at [`LEVELS_PER_REGION`], so cleared levels gate
     /// the road rather than requiring a progression ladder the player has to
     /// walk in order.
-    #[serde(default)]
+    ///
+    /// A document written before the regions became one per realm stored five
+    /// entries; [`expand_levels`] reads that shape and spreads each old region
+    /// across the two realms it used to cover, so a save keeps the ground it
+    /// had already walked.
+    #[serde(default, deserialize_with = "levels_from_stored")]
     pub explored_levels: [u8; Region::ALL.len()],
     /// The progress the walk has made through the current level of each region,
     /// in parts per thousand of the level.
     ///
-    /// A walk adds [`super::explore::walk_progress_permille(region)`] to the
-    /// region's slot each time it comes home; at a thousand the level is cleared
-    /// and the excess rolls over into the next. The deeper the region, the more
-    /// progress a walk makes — deeper realms walk faster.
-    #[serde(default)]
+    /// A walk adds what the body earns — see
+    /// [`super::explore::walk_gain_permille`] — to the region's slot each time
+    /// it comes home; at a thousand the level is cleared and the excess rolls
+    /// over into the next.
+    #[serde(default, deserialize_with = "progress_from_stored")]
     pub region_progress: [u32; Region::ALL.len()],
+    /// How far the last settled walk moved its region, in parts per thousand.
+    /// Zero on a save that has never walked; the page prints it beside the
+    /// purse so "this walk moved three percent" is a number the user can read.
+    #[serde(default)]
+    pub last_walk_gain: u32,
+    /// The region the next walk sets out for, by ladder position. Zero — the
+    /// shallowest — until the user picks one.
+    #[serde(default)]
+    pub exploration_region: u8,
+    /// Whether a region has ever been walked to its end. The first clear of a
+    /// region pays a one-off haul; a region that has been cleared once can be
+    /// walked again, paying the ordinary purses and nothing extra.
+    #[serde(default)]
+    pub cleared_regions: [bool; Region::ALL.len()],
+}
+
+/// Read a per-region level array from either shape: the ten-slot one written
+/// now, or the five-slot one written when a region covered two realms.
+fn levels_from_stored<'de, D>(deserializer: D) -> Result<[u8; Region::ALL.len()], D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let stored = Vec::<u8>::deserialize(deserializer)?;
+    Ok(expand_levels(&stored))
+}
+
+/// Read a per-region progress array from either shape.
+fn progress_from_stored<'de, D>(deserializer: D) -> Result<[u32; Region::ALL.len()], D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let stored = Vec::<u32>::deserialize(deserializer)?;
+    Ok(expand_progress(&stored))
+}
+
+/// Whether a stored array is the five-region shape a save written before the
+/// regions became one per realm carries.
+const LEGACY_REGION_COUNT: usize = 5;
+
+/// The ten-region view of a stored level array.
+///
+/// A legacy region held ten levels across two realms, so each old level is two
+/// new ones: region one's five cleared levels become region one cleared and
+/// region two untouched.
+fn expand_levels(stored: &[u8]) -> [u8; Region::ALL.len()] {
+    let mut out = [0u8; Region::ALL.len()];
+    if stored.len() == LEGACY_REGION_COUNT {
+        for (old_index, cleared) in stored.iter().enumerate() {
+            let levels = u32::from(*cleared) * 2;
+            out[old_index * 2] = levels.min(u32::from(super::explore::MAX_LEVEL)) as u8;
+            out[old_index * 2 + 1] =
+                levels.saturating_sub(u32::from(super::explore::MAX_LEVEL)) as u8;
+        }
+        return out;
+    }
+    for (slot, value) in out.iter_mut().zip(stored) {
+        *slot = *value;
+    }
+    out
+}
+
+/// The ten-region view of a stored progress array.
+fn expand_progress(stored: &[u32]) -> [u32; Region::ALL.len()] {
+    let mut out = [0u32; Region::ALL.len()];
+    if stored.len() == LEGACY_REGION_COUNT {
+        for (old_index, progress) in stored.iter().enumerate() {
+            // The old slot's in-level progress rides on the first of the two
+            // realms it used to cover: the second only exists once the first is
+            // cleared, and a save that had cleared it keeps its levels above.
+            out[old_index * 2] = *progress;
+        }
+        return out;
+    }
+    for (slot, value) in out.iter_mut().zip(stored) {
+        *slot = *value;
+    }
+    out
 }
 
 impl CultivationDocument {

@@ -203,6 +203,18 @@ pub enum EventDetail {
         #[serde(default)]
         stones: u32,
     },
+    /// A region was walked end to end for the first time, and paid the one-off
+    /// haul: a purse worth twenty long walks and a piece of the realm's finest
+    /// gear. Walking it again pays the ordinary purses and nothing extra.
+    RegionCleared {
+        /// The region, by ladder position.
+        region: u8,
+        /// The piece of gear the haul carried, by name.
+        #[serde(default)]
+        gear: Option<String>,
+        /// The 灵石 it carried.
+        stones: u32,
+    },
     /// A 试炼 was fought with a banked chance. A loss finds nothing but the
     /// lesson, so the three names are only ever filled by a win.
     Proving {

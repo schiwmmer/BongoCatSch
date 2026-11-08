@@ -357,13 +357,11 @@ pub fn roll_region_walk(
 /// wanderer's drops are of the region's own tier band, and the tier step is what
 /// makes the difficulty feel like `base * 150` rung by rung.
 pub fn region_wanderer(region: Region, level: u8, seed: u64) -> super::opponent::Opponent {
-    let base_realm = super::Realm::from_index(region.base_realm_index());
-    let tier_step = (level.saturating_sub(1) / 3) as usize;
-    let band_realm = super::Realm::ALL
-        .get(region.base_realm_index().saturating_add(tier_step))
-        .copied()
-        .unwrap_or(base_realm);
-    super::opponent::wanderer(band_realm, seed)
+    // The level's own middle: level one is the first tenth of the region, so
+    // its wanderer stands at five percent of it, not at its first rung.
+    let progress = (u32::from(level.clamp(1, MAX_LEVEL)) * 100).saturating_sub(50);
+    let rung = region_level_at(region, progress);
+    super::opponent::challenger(rung, region.tier(), seed)
 }
 
 /// How many 灵石 an outing turns up.
@@ -564,12 +562,12 @@ pub fn breakthrough_ready(blocked_until: Option<i64>, now_unix: i64) -> bool {
 // vacuum — it is a rung on a five-rung ladder.
 // ---------------------------------------------------------------------------
 
-/// The five exploration regions, shallowest first.
+/// The ten exploration regions, shallowest first.
 ///
-/// Each region owns two realms and ten levels, and a region's tier is the band
-/// its drops are rolled at — a walk in the fifth region drops tier-nine and
-/// tier-ten gear, not tier-one. The ladder reads `ALL` as the page lists the
-/// regions, left to right.
+/// One region per realm: region one is 炼气, region ten is 真仙, and the region's
+/// tier is the realm it stands in — a walk in the fifth region drops 化神 goods,
+/// not tier-one. Ten levels split the realm's hundred rungs, so a region read at
+/// fifty percent is that realm's fiftieth level.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Region {
@@ -578,16 +576,26 @@ pub enum Region {
     FlameCaverns,
     ShadowRealm,
     CelestialCourt,
+    StarfallPlains,
+    BloodSea,
+    VoidSanctum,
+    ThunderAbyss,
+    ChaosPalace,
 }
 
 impl Region {
     /// Every region, shallowest first.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 10] = [
         Self::AzurePeaks,
         Self::FrozenWastes,
         Self::FlameCaverns,
         Self::ShadowRealm,
         Self::CelestialCourt,
+        Self::StarfallPlains,
+        Self::BloodSea,
+        Self::VoidSanctum,
+        Self::ThunderAbyss,
+        Self::ChaosPalace,
     ];
 
     /// The region's position on the ladder, zero-based.
@@ -598,6 +606,11 @@ impl Region {
             Self::FlameCaverns => 2,
             Self::ShadowRealm => 3,
             Self::CelestialCourt => 4,
+            Self::StarfallPlains => 5,
+            Self::BloodSea => 6,
+            Self::VoidSanctum => 7,
+            Self::ThunderAbyss => 8,
+            Self::ChaosPalace => 9,
         }
     }
 
@@ -606,40 +619,34 @@ impl Region {
         Self::ALL[index.min(Self::ALL.len() - 1)]
     }
 
-    /// The region whose band holds this realm — a walk taken at a realm picks
-    /// the region rather than the realm itself, so the ladder is always five.
+    /// The region a realm walks: one region per realm, so the ladder of regions
+    /// and the ladder of realms are the same ladder read twice.
     pub fn from_realm(realm: super::Realm) -> Self {
-        Self::from_index(realm.index() / 2)
+        Self::from_index(realm.index())
     }
 
-    /// The shallower realm this region covers, as a ladder position.
+    /// The realm this region stands in, as a ladder position.
     pub const fn base_realm_index(self) -> usize {
-        self.index() * 2
+        self.index()
     }
 
-    /// The region's tier band, one-based: region one sits on tier one and two,
-    /// region five on tier nine and ten.
+    /// The region's tier, one-based: region one sits on tier one, region ten on
+    /// tier ten.
     pub const fn tier_base(self) -> u8 {
-        (self.index() as u8) * 2 + 1
+        (self.index() as u8) + 1
     }
 
-    /// The region's tier as a single roll tier — between the band's bottom and
-    /// its top.
+    /// The region's tier as a single roll tier — the realm it stands in.
     pub const fn tier(self) -> u8 {
-        self.tier_base() + 1
+        self.tier_base()
     }
 
-    /// The realm-layer baseline this region's power is built from: the cap of
-    /// the band's base realm, in raw power. Shared with the wanderer scale — a
-    /// region walk's wanderer stands at 150× this floor, deepening with level.
+    /// The raw power the region's wanderers are built around: the realm's own
+    /// floor, which the region's levels climb from.
     #[cfg(test)]
     fn base_power_permille(self) -> u32 {
         let realm = super::Realm::from_index(self.base_realm_index());
-        let power = super::drop::realm_power(realm);
-        // *150 as designed: a region-one level-one walk meets a wanderer worth
-        // a hundred-and-fifty times the band's floor, and the scale climbs from
-        // there.
-        power.saturating_mul(150)
+        super::drop::realm_power(realm).saturating_mul(150)
     }
 }
 
@@ -650,17 +657,60 @@ pub const LEVELS_PER_REGION: u8 = 10;
 /// The deepest level clear a save can hold in one region, as a one-based index.
 pub const MAX_LEVEL: u8 = LEVELS_PER_REGION;
 
-/// How far one walk advances in a level, in parts per ten thousand of the level.
+/// The level a region's progress stands at.
 ///
-/// Five percent plus the region's index times two — the region one walk
-/// advances five percent, region five advances thirteen percent — so a walk
-/// clears a level in twenty trips at the shallow end and about eight at the
-/// deep. The depth is what buys the faster cadence.
-pub const WALK_PROGRESS_PERMILLE_BASE: u32 = 50;
-pub const WALK_PROGRESS_PER_PER_REGION: u32 = 20;
+/// A region covers one realm's hundred rungs and reads them as ten levels:
+/// zero percent is the realm's first level, fifty percent its fiftieth, and a
+/// hundred percent its last. The tower and the road then speak the same scale —
+/// a floor's warden and a region's requirement are the same body, read twice.
+pub fn region_level_at(region: Region, progress_permille: u32) -> u16 {
+    let first = (region.base_realm_index() as u16) * super::LAYERS_PER_STAGE + 1;
+    let span = u32::from(super::LAYERS_PER_STAGE - 1);
+    let step = (progress_permille.min(1_000) * span / 1_000) as u16;
+    first.saturating_add(step)
+}
 
-pub fn walk_progress_permille(region: Region) -> u32 {
-    WALK_PROGRESS_PERMILLE_BASE + WALK_PROGRESS_PER_PER_REGION * region.index() as u32
+/// What a region's progress asks of a body, as power: nine tenths of the
+/// tower's warden at the level that progress stands at.
+///
+/// The road is the tower's softer counterpart by design — the tower is the
+/// benchmark and the road is where a save grinds — so the same level costs a
+/// tenth less to walk than to climb.
+pub const REGION_REQUIREMENT_PERMILLE: u32 = 900;
+
+pub fn region_requirement(region: Region, progress_permille: u32) -> u32 {
+    let level = region_level_at(region, progress_permille);
+    super::trial::warden_power(level).saturating_mul(REGION_REQUIREMENT_PERMILLE) / 1_000
+}
+
+/// What one walk advances, in parts per thousand of the region: a base draw of
+/// half a percent to two percent at four hours, multiplied by how far the body
+/// stands past what the floor asks.
+///
+/// The factor is clamped to [200, 5_000]‰ — a fifth to five times — so the
+/// weakest body still crawls forward and the strongest cannot buy more than
+/// five walks in one. A twelve-hour walk triples the base before the factor is
+/// applied, which is what makes the longer outings worth the wait.
+pub const REGION_GAIN_BASE_MIN: u32 = 5;
+pub const REGION_GAIN_BASE_MAX: u32 = 20;
+pub const REGION_GAIN_FACTOR_MIN: u32 = 200;
+pub const REGION_GAIN_FACTOR_MAX: u32 = 5_000;
+
+pub fn walk_gain_permille(
+    rng: &mut Rng,
+    hours: ExplorationHours,
+    power: u32,
+    requirement: u32,
+) -> u32 {
+    let span = u64::from(REGION_GAIN_BASE_MAX - REGION_GAIN_BASE_MIN + 1);
+    let base = REGION_GAIN_BASE_MIN + rng.below(span) as u32;
+    // How far past the floor the body stands, as a multiplier in per mille.
+    let factor = (u64::from(power) * 1_000 / u64::from(requirement.max(1))).clamp(
+        u64::from(REGION_GAIN_FACTOR_MIN),
+        u64::from(REGION_GAIN_FACTOR_MAX),
+    ) as u32;
+    let base = base.saturating_mul(hours.multiplier_permille() as u32) / 1_000;
+    base.saturating_mul(factor) / 1_000
 }
 
 /// The chance a walk meets someone, in parts per thousand.
@@ -916,18 +966,83 @@ mod tests {
 
     // --- Region tests --------------------------------------------------------
 
-    /// Five regions map two realms each, in order.
+    /// Ten regions map one realm each, in order.
     #[test]
-    fn five_regions_cover_two_realms_each() {
-        let realms_per = 2;
+    fn ten_regions_cover_one_realm_each() {
+        assert_eq!(Region::ALL.len(), Realm::ALL.len());
         for (i, region) in Region::ALL.iter().enumerate() {
             assert_eq!(region.index(), i);
-            assert_eq!(region.base_realm_index(), i * realms_per);
-            let from_realm = Region::from_realm(Realm::ALL[i * realms_per]);
+            assert_eq!(region.base_realm_index(), i);
+            assert_eq!(region.tier(), (i + 1) as u8);
+            let from_realm = Region::from_realm(Realm::ALL[i]);
             assert_eq!(from_realm.index(), i, "region of realm {i:?}");
-            let from_realm_upper = Region::from_realm(Realm::ALL[i * realms_per + realms_per - 1]);
-            assert_eq!(from_realm_upper.index(), i, "region of upper realm {i:?}");
         }
+    }
+
+    /// Fifty percent of a region is that realm's fiftieth level, and the ends
+    /// are the realm's first and last rungs.
+    #[test]
+    fn a_regions_percent_reads_the_realms_own_levels() {
+        for (i, region) in Region::ALL.iter().enumerate() {
+            let first = (i as u16) * super::super::LAYERS_PER_STAGE + 1;
+            assert_eq!(region_level_at(*region, 0), first);
+            assert_eq!(region_level_at(*region, 500), first + 49);
+            assert_eq!(region_level_at(*region, 1_000), first + 99);
+        }
+    }
+
+    /// The requirement is nine tenths of what the tower asks at the same level,
+    /// so the road is the tower's softer counterpart.
+    #[test]
+    fn a_regions_requirement_is_nine_tenths_of_the_tower() {
+        let region = Region::FlameCaverns;
+        for progress in [0_u32, 250, 500, 750, 1_000] {
+            let level = region_level_at(region, progress);
+            let tower = super::super::trial::warden_power(level);
+            let requirement = region_requirement(region, progress);
+            assert_eq!(requirement, tower * REGION_REQUIREMENT_PERMILLE / 1_000);
+        }
+    }
+
+    /// The gain is the base draw times the body's advantage, clamped at both
+    /// ends: a body five times the floor cannot buy more than five walks, and a
+    /// body a tenth of the floor still moves a fifth of the base.
+    #[test]
+    fn the_gain_follows_the_body_and_stops_at_the_clamps() {
+        let requirement = 10_000_u32;
+        let (mut low, mut high) = (u32::MAX, 0);
+        for seed in 0..500u64 {
+            let gain = walk_gain_permille(
+                &mut Rng::seeded(seed),
+                ExplorationHours::Four,
+                10_000,
+                requirement,
+            );
+            low = low.min(gain);
+            high = high.max(gain);
+        }
+        // A body at the floor draws the base band: half a percent to two.
+        assert!((REGION_GAIN_BASE_MIN..=REGION_GAIN_BASE_MAX).contains(&low));
+        assert!((REGION_GAIN_BASE_MIN..=REGION_GAIN_BASE_MAX).contains(&high));
+
+        let weak = walk_gain_permille(
+            &mut Rng::seeded(1),
+            ExplorationHours::Four,
+            requirement / 10,
+            requirement,
+        );
+        let strong = walk_gain_permille(
+            &mut Rng::seeded(1),
+            ExplorationHours::Twelve,
+            requirement * 50,
+            requirement,
+        );
+        assert!(weak >= 1, "a hopeless body still crawls forward: {weak}");
+        assert!(strong <= 320, "the strongest walk is capped: {strong}");
+        assert!(
+            strong > weak * 10,
+            "the strong walk pays far more: {strong} vs {weak}"
+        );
     }
 
     /// A region's floor scales with its tier band: the deeper the region, the

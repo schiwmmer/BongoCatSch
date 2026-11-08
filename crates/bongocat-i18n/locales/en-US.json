@@ -948,7 +948,10 @@
       "busy_gathering": "Out gathering — explore once home.",
       "region_level": "Floor %{level}",
       "progress_pct": "%{pct}%",
-      "current_region": "Current Region"
+      "current_region": "Current Region",
+      "region_line": "level %{level} · needs %{power}",
+      "region_cleared": "cleared",
+      "refuse_region": "That region is not open yet — climb a realm first."
     },
     "trial": {
       "title": "Demon-Locking Tower",
@@ -1044,6 +1047,7 @@
       "bonus_stones": "%{stones} stones",
       "with_effect": "%{what} (%{effect})",
       "trial_sweep": "Swept floors %{from}–%{to}",
+      "region_cleared": "Walked %{region} end to end · stones +%{stones} · %{gear}",
       "sweep_seed": "herbs ×%{count}",
       "sweep_gear": "gear ×%{count}",
       "sweep_art": "arts ×%{count}",
@@ -1140,7 +1144,12 @@
       "frozen_wastes": "Frozen Wastes",
       "flame_caverns": "Flame Caverns",
       "shadow_realm": "Shadow Realm",
-      "celestial_court": "Celestial Court"
+      "celestial_court": "Celestial Court",
+      "starfall_plains": "Starfall Plains",
+      "blood_sea": "Blood Sea",
+      "void_sanctum": "Void Sanctum",
+      "thunder_abyss": "Thunder Abyss",
+      "chaos_palace": "Chaos Palace"
     }
   }
 }

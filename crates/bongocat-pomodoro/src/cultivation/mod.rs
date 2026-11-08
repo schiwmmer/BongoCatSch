@@ -94,7 +94,7 @@ pub use duel::{
 pub use events::{BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind};
 pub use explore::{
     BREAKTHROUGH_COOLDOWN_SECONDS, ExpeditionInProgress, ExplorationHours, ExplorationOutcome,
-    VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkInProgress, WalkRecord,
+    Region, VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkInProgress, WalkRecord,
 };
 pub use garden::{
     CropRecord, FREE_PLOT_COUNT, MAX_GARDEN_RANK, MAX_PLOT_COUNT, MAX_SEED_TIER, PlotRecord,
@@ -130,8 +130,8 @@ pub use state::{
     AbsenceCharge, AptitudeUse, BreakthroughOutcome, BuildingOutcome, BuildingView, CollectOutcome,
     CropView, Cultivation, CultivationView, DailyOutcome, Drop, DropView, ExpeditionView,
     ExplorationFindView, GuardianView, HarvestOutcome, ItemView, JobView, PlantOutcome, PlotView,
-    PowerBreakdown, ProvingBlocked, ResourcesView, SeedView, SessionReward, StarOutcome, TradeView,
-    TrainingView, TrialBlocked, TrialOutcome, TrialSweepOutcome, WorkPaid,
+    PowerBreakdown, ProvingBlocked, RegionView, ResourcesView, SeedView, SessionReward,
+    StarOutcome, TradeView, TrainingView, TrialBlocked, TrialOutcome, TrialSweepOutcome, WorkPaid,
 };
 pub use trade::{TradeRefusal, session_earnings};
 pub use trial::{
@@ -187,6 +187,9 @@ pub enum Refusal {
     /// A 试炼 was asked for while the cultivator is still out on a walk: the
     /// courtyard is fought in, so an unreturned walk closes it too.
     ProvingOut,
+    /// A region was chosen that the cultivator's realm has not reached: the
+    /// road is walked down the ladder, never up it.
+    RegionLocked,
 }
 
 impl Refusal {
@@ -203,6 +206,7 @@ impl Refusal {
             Self::TrialNotSweepable => "cultivation.trial.refuse_not_sweepable",
             Self::ProvingSpent => "cultivation.proving.refuse_empty",
             Self::ProvingOut => "cultivation.proving.refuse_out",
+            Self::RegionLocked => "cultivation.explore.refuse_region",
             Self::Working => "cultivation.jobs.refuse_working",
             Self::JobGone => "cultivation.jobs.refuse_gone",
         }

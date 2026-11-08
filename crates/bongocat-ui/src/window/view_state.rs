@@ -420,6 +420,7 @@ impl SettingsView {
             cultivation_seeds_open: false,
             cultivation_ladder_open: false,
             cultivation_explore_hours: 8,
+            cultivation_explore_region: None,
             cultivation_daily_seen_day: None,
             // No fight is being replayed when the window opens, and none is
             // waiting on the worker either.

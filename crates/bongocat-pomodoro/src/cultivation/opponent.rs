@@ -253,6 +253,7 @@ pub(crate) fn deep_band_middle_permille(floor: u16) -> u32 {
 
 /// The lowest and highest draw a floor's band can produce: the edges the odds
 /// are spread between. The guards read these rather than restating them.
+#[cfg(test)]
 pub(crate) fn challenge_band_bounds(floor: u16) -> (u32, u32) {
     if floor < TRIAL_DEEP_START {
         (1_000, 1_200)

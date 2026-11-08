@@ -1905,10 +1905,66 @@ fn picking_a_walk_length_is_what_the_click_asks_for(cx: &mut TestAppContext) {
         matches!(
             commands.as_slice(),
             [PomodoroCommand::Explore {
-                hours: bongocat_pomodoro::ExplorationHours::Four
+                hours: bongocat_pomodoro::ExplorationHours::Four,
+                ..
             }]
         ),
         "the click carries the length that was picked: {commands:?}"
+    );
+}
+
+/// The road is a menu: every region the realm has reached is listed, the ones
+/// ahead are not, and clicking a row is what points the next walk at it.
+#[gpui_kit::test]
+fn the_region_list_points_the_walk_at_the_region_picked(cx: &mut TestAppContext) {
+    // 金丹: three realms reached, so three rows and no fourth.
+    let cultivation = Cultivation::new(CultivationDocument {
+        growth: threshold_for(250),
+        realm: 2,
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+
+    let row = |visual: &mut VisualTestContext, index: usize| {
+        painted(visual, format!("cultivation-region-{index}"))
+    };
+    for index in 0..3 {
+        assert!(row(visual, index), "region {index} must be listed");
+    }
+    assert!(
+        !row(visual, 3),
+        "a region past the realm must not be listed"
+    );
+
+    scroll_until_visible(visual, "cultivation-region-1");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-region-1", cx);
+    });
+    assert_eq!(
+        visual.update(|_, cx| view.read(cx).cultivation_explore_region),
+        Some(1),
+        "the clicked row is the region the page points at"
+    );
+
+    scroll_until_visible(visual, "cultivation-explore-attempt");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-explore-attempt", cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(
+            commands.as_slice(),
+            [PomodoroCommand::Explore {
+                region: Some(1),
+                ..
+            }]
+        ),
+        "the walk sets out for the region that was picked: {commands:?}"
     );
 }
 
@@ -2251,20 +2307,27 @@ fn clicking_a_module_button_brings_that_module_into_view(cx: &mut TestAppContext
         let visual = open_settings_on_cultivation(cx);
         visual.update(|window, cx| window.click(format!("cultivation-nav-{index}"), cx));
         visual.update(|window, cx| window.render_frame(cx));
-        let (on_screen, offset) = visual.update(|window, _| {
+        let (top, viewport, at_end) = visual.update(|window, _| {
             let anchor = window
                 .try_find(ElementId::from(format!("cultivation-anchor-{index}")))
                 .map(|snapshot| snapshot.bounds())
                 .expect("the module anchor is painted");
             let viewport = window.bounds();
-            (
-                anchor.origin.y < viewport.bottom() && anchor.bottom() > viewport.top(),
-                anchor.origin.y,
-            )
+            // The page cannot scroll past its own end: the last module is pinned
+            // to the bottom rather than to the quarter mark.
+            let at_end = window
+                .try_find(ElementId::from("cultivation-anchor-14"))
+                .is_some_and(|shop| shop.bounds().bottom() <= viewport.bottom() + px(2.));
+            (anchor.origin.y, viewport, at_end)
         });
         assert!(
-            on_screen,
-            "clicking {label} left its module off screen (top at {offset:?})"
+            top < viewport.bottom(),
+            "clicking {label} left its module off screen (top at {top:?})"
+        );
+        let aim = viewport.size.height / 4.0;
+        assert!(
+            at_end || (top - aim).abs() <= viewport.size.height * 0.15,
+            "clicking {label} put its module at {top:?}, away from the quarter mark {aim:?}"
         );
     }
 }

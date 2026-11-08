@@ -1164,6 +1164,103 @@ fn a_same_level_save_is_never_offered_the_sweep() {
     );
 }
 
+/// A save written when a region covered two realms stores five entries per
+/// array; the ten-region read spreads each old region across the two realms it
+/// used to cover, so a walker keeps the ground it had already walked.
+#[test]
+fn a_five_region_save_spreads_across_ten() {
+    let stored = r#"{"explored_levels":[5,2,0,0,0],"region_progress":[400,0,0,0,0]}"#;
+    let document: CultivationDocument =
+        serde_json::from_str(stored).expect("the five-region shape still loads");
+    assert_eq!(
+        document.explored_levels[..4],
+        [10, 0, 4, 0],
+        "five old levels are ten new ones, and two old levels are four"
+    );
+    assert_eq!(
+        document.region_progress[0], 400,
+        "the old slot's progress rides the first realm"
+    );
+    assert_eq!(document.explored_levels.len(), 10);
+}
+
+/// The road is walked down the ladder, never up it: a region ahead of the
+/// cultivator's own realm is refused, and one at or below it is offered.
+#[test]
+fn a_region_ahead_of_the_realm_is_closed() {
+    let mut save = a_bare_save_at(10);
+    let ahead = super::super::explore::Region::from_index(3);
+    assert!(
+        save.explore_region(1_000, ExplorationHours::Four, ahead)
+            .is_none(),
+        "a 炼气 save walked into 元婴's region"
+    );
+    assert_eq!(
+        save.view_on(1_000, 9).last_refusal,
+        Some(Refusal::RegionLocked),
+        "the refusal names the reason"
+    );
+    let own = super::super::explore::Region::from_index(0);
+    assert!(
+        save.explore_region(2_000, ExplorationHours::Four, own)
+            .is_some(),
+        "the save's own region must stay open"
+    );
+}
+
+/// Walking a region end to end pays its one-off haul once: a purse worth
+/// twenty long walks and one piece of the realm's finest gear. Walking it again
+/// pays the ordinary purses and no second haul, which is what makes a cleared
+/// region worth returning to rather than a chest that refills.
+#[test]
+fn a_region_pays_its_haul_once() {
+    let mut save = a_bare_save_at(100);
+    let region = super::super::explore::Region::AzurePeaks;
+    let mut at = 1_000_i64;
+    for _ in 0..400 {
+        let _ = save.explore_region(at, ExplorationHours::Twelve, region);
+        save.settle_walk(at + ExplorationHours::Twelve.seconds());
+        at += ExplorationHours::Twelve.seconds() + 10;
+        if save.document.cleared_regions[0] {
+            break;
+        }
+    }
+    assert!(
+        save.document.cleared_regions[0],
+        "the region never reached its end"
+    );
+    assert_eq!(save.cleared_level(0), super::super::explore::MAX_LEVEL);
+    let hauls = |save: &Cultivation| {
+        save.document
+            .events
+            .iter()
+            .filter(|event| matches!(event.detail, EventDetail::RegionCleared { .. }))
+            .count()
+    };
+    assert_eq!(hauls(&save), 1, "the haul is paid once");
+    let divine = save
+        .document
+        .equipment
+        .iter()
+        .filter(|item| item.rarity.is_divine())
+        .count();
+    assert_eq!(divine, 1, "the haul carried exactly one 神装");
+
+    // Walking it again still works, and pays no second haul.
+    let before = save.document.stones;
+    for _ in 0..5 {
+        let _ = save.explore_region(at, ExplorationHours::Twelve, region);
+        save.settle_walk(at + ExplorationHours::Twelve.seconds());
+        at += ExplorationHours::Twelve.seconds() + 10;
+    }
+    assert_eq!(hauls(&save), 1, "a cleared region pays its haul only once");
+    assert!(
+        save.document.explorations > 0,
+        "the cleared region stays walkable"
+    );
+    let _ = before;
+}
+
 /// The day opens once, and once only: a relaunch the same afternoon is still
 /// the same morning.
 #[test]
@@ -1369,38 +1466,26 @@ fn every_fight_pays_a_purse_of_its_own_size() {
     );
 }
 
-/// The same road pays more once the road is a deeper one: a 化神 walk is
-/// worth several 炼气 walks, because the shelf it is spent on costs several
+/// The same road pays more once the road is a deeper one: a 化神 region's purse
+/// is worth several 炼气 ones, because the shelf it is spent on costs several
 /// times as much there.
+///
+/// Read off the purse rather than off a walk's takings: what a walk actually
+/// pockets is the purse times how far the body's advantage carried it, and a
+/// fresh save in a shallow region is always at the top of that multiplier. The
+/// purse itself is what "the deep road pays more" means.
 #[test]
 fn a_deeper_realm_pays_a_bigger_purse() {
-    let walked = |realm: Realm| {
-        let mut paid = Vec::new();
-        for step in 0..40_i64 {
-            let mut cultivation = Cultivation::new(CultivationDocument {
-                growth: threshold_for(realm.cap_level()),
-                realm: realm.index() as u8,
-                ..CultivationDocument::default()
-            });
-            let at = 1_000 + step * 100_000;
-            let _ = cultivation.explore(at, ExplorationHours::Twelve);
-            cultivation.settle_walk(at + ExplorationHours::Twelve.seconds());
-            if let Some(stones) = cultivation
-                .view()
-                .last_exploration_found
-                .and_then(|found| found.stones)
-            {
-                paid.push(stones);
-            }
-        }
-        assert!(!paid.is_empty(), "no walk in {realm:?} paid a purse");
-        paid.iter().sum::<u32>() / paid.len() as u32
+    let purse = |region: super::super::explore::Region| {
+        let (min, max) = super::super::explore::walk_purse(region, ExplorationHours::Twelve, 1)
+            .at(region.tier());
+        (min, max)
     };
-    let shallow = walked(Realm::QiRefining);
-    let deep = walked(Realm::VoidRefinement);
+    let shallow = purse(super::super::explore::Region::AzurePeaks);
+    let deep = purse(super::super::explore::Region::VoidSanctum);
     assert!(
-        deep >= shallow * 3,
-        "a 化神 walk paid {deep} against a 炼气 {shallow}"
+        deep.0 >= shallow.0 * 3,
+        "a 化神 region pays {deep:?} against a 炼气 {shallow:?}"
     );
 }
 

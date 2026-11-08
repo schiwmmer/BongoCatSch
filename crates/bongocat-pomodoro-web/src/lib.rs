@@ -319,6 +319,10 @@ fn parse_command(value: &Value) -> Option<PomodoroCommand> {
         },
         "explore" => PomodoroCommand::Explore {
             hours: hours(value)?,
+            region: value
+                .get("region")
+                .and_then(Value::as_u64)
+                .map(|index| index.min(u64::from(u8::MAX)) as u8),
         },
         "return_early" => PomodoroCommand::ReturnEarly,
         "accept_job" => PomodoroCommand::AcceptJob {

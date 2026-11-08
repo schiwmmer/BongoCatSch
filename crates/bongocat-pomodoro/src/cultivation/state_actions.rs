@@ -1304,6 +1304,23 @@ impl Cultivation {
         now_unix: i64,
         hours: super::super::ExplorationHours,
     ) -> Option<super::super::WalkInProgress> {
+        let region = super::super::explore::Region::from_realm(self.realm());
+        self.explore_region(now_unix, hours, region)
+    }
+
+    /// Set out for a chosen region.
+    ///
+    /// The road is open to the realm the cultivator stands in and every realm
+    /// below it: a save that has climbed to 金丹 may still walk 炼气's road for
+    /// its goods, and a save cannot walk ahead of itself. A cleared region stays
+    /// open — walking it again pays the ordinary purses, and the one-off haul
+    /// for first clearing it has already been taken.
+    pub fn explore_region(
+        &mut self,
+        now_unix: i64,
+        hours: super::super::ExplorationHours,
+        region: super::super::explore::Region,
+    ) -> Option<super::super::WalkInProgress> {
         self.settle_walk(now_unix);
         if self.document.walk.is_some() {
             self.note_refusal(Refusal::ExploreCooldown);
@@ -1321,10 +1338,14 @@ impl Cultivation {
             self.note_refusal(Refusal::Working);
             return None;
         }
-        // A walk always belongs to the region of the cultivator's own realm,
-        // and starts one level above whatever they have already cleared in it —
-        // capped at the region's top, so a walk never over-levels the band.
-        let region = super::super::explore::Region::from_realm(self.realm());
+        // A region ahead of the cultivator's own realm is a road they have not
+        // reached: the ladder is climbed, not skipped.
+        if region.index() > self.realm().index() {
+            self.note_refusal(Refusal::RegionLocked);
+            return None;
+        }
+        // The walk starts one level above whatever is already cleared in the
+        // region, capped at the region's top, so a walk never over-levels it.
         let cleared = self
             .document
             .explored_levels
@@ -1339,6 +1360,9 @@ impl Cultivation {
         // the chip the user picked last: a four-hour walk read back as a
         // twelve-hour one would draw the wrong chip under the right countdown.
         self.document.last_exploration_hours = hours.hours();
+        // The choice is remembered: the page reopens on the road last walked,
+        // and the next walk offers it again.
+        self.document.exploration_region = region.index() as u8;
         self.document.walk = Some(walk);
         Some(walk)
     }
@@ -1487,6 +1511,20 @@ impl Cultivation {
         ) {
             self.roll_marrow_from_fortune(&mut rng, now_unix);
         }
+        // How far this walk moves the region: the body read against what the
+        // floor asks where the region currently stands. A defeat moves nothing.
+        let progress_before = self
+            .document
+            .region_progress
+            .get(region.index())
+            .copied()
+            .unwrap_or(0);
+        let requirement = super::super::explore::region_requirement(region, progress_before);
+        let gain = if outcome == ExplorationOutcome::Defeat {
+            0
+        } else {
+            super::super::explore::walk_gain_permille(&mut rng, hours, self.power(), requirement)
+        };
         // 灵石 are rolled beside the finding rather than in place of it: an
         // outing can come back with a herb and a handful of stones both, and
         // the purse is fed by the region and level the walk was taken at.
@@ -1495,11 +1533,18 @@ impl Cultivation {
         // the region's own purse, and beating a wanderer pays the combat purse
         // sitting above it. A walk that was beaten pays nothing at all — a purse
         // that filled up on a defeat would make being beaten a way of earning.
+        //
+        // The purse then follows the ground covered: a standard walk — ten per
+        // mille of the region — pays one purse, and a walk that moved five times
+        // as far pays five. The floor is one purse, so a body that barely
+        // cleared the floor still comes home with something.
+        let share = u64::from(gain.max(10) / 10);
         let purse = if outcome == ExplorationOutcome::Victory {
             super::super::explore::combat_purse(region, hours, level)
         } else {
             super::super::explore::walk_purse(region, hours, level)
-        };
+        }
+        .scaled(share * 1_000);
         let stones = if outcome == ExplorationOutcome::Defeat {
             None
         } else {
@@ -1514,11 +1559,12 @@ impl Cultivation {
                 outcome = ExplorationOutcome::Stones;
             }
         }
-        // The walk adds its progress to the region's slot: a walk is a step
-        // forward in the level, and deeper realms walk faster.
+        // The walk moves the region by what the body earned. Crossing the last
+        // level pays the one-off haul for having walked the road end to end.
+        self.document.last_walk_gain = gain;
         if outcome != ExplorationOutcome::Defeat {
-            let gain = super::super::explore::walk_progress_permille(region);
             self.accumulate_progress(region.index(), gain);
+            self.first_clear_haul(region, &mut rng, now_unix);
         }
         // The settlement is written before the popup is shown and outlives it: the
         // popup is forgotten on quit, the page's record is not.
@@ -1598,6 +1644,99 @@ impl Cultivation {
                 self.advance_explored_level(region_index, level + 1);
             }
         }
+    }
+
+    /// The one-off haul for walking a region end to end, the first time.
+    ///
+    /// A cleared region stays open: walking it again pays its ordinary purses,
+    /// which is what a region below one's realm is for. What is paid once is
+    /// the haul for having walked the road to its end — a purse worth twenty
+    /// long walks, and one piece of the realm's finest gear at the region's own
+    /// tier, so the haul matches the road it came from.
+    fn first_clear_haul(
+        &mut self,
+        region: super::super::explore::Region,
+        rng: &mut Rng,
+        now_unix: i64,
+    ) {
+        let index = region.index();
+        if self.cleared_level(index) < super::super::explore::MAX_LEVEL {
+            return;
+        }
+        if self
+            .document
+            .cleared_regions
+            .get(index)
+            .copied()
+            .unwrap_or(false)
+        {
+            return;
+        }
+        if let Some(slot) = self.document.cleared_regions.get_mut(index) {
+            *slot = true;
+        }
+        let purse = super::super::explore::walk_purse(
+            region,
+            super::super::ExplorationHours::Twelve,
+            super::super::explore::MAX_LEVEL,
+        )
+        .scaled(20_000);
+        let stones = roll_stones(rng, purse, region.tier());
+        self.document.stones = self.document.stones.saturating_add(stones);
+        let id = self.next_id();
+        let item = roll_equipment(id, region.tier(), super::super::Rarity::Divine, rng);
+        let gear = item.name.clone();
+        self.document.equipment.push(item);
+        self.push_event(
+            now_unix,
+            EventDetail::RegionCleared {
+                region: index as u8,
+                gear,
+                stones,
+            },
+        );
+    }
+
+    /// Every region the page lists, shallowest first.
+    ///
+    /// A region is listed once the realm has reached it: the road is walked down
+    /// the ladder, so a save sees the region it stands in and every one below.
+    /// The rows carry what the walk needs — the completion, the level it stands
+    /// at and what that level asks — because the page prints all three and a
+    /// surface that computed them itself could disagree with the walk.
+    fn region_views(&self) -> Vec<super::RegionView> {
+        let reached = self.realm().index();
+        super::super::explore::Region::ALL
+            .into_iter()
+            .enumerate()
+            .map(|(index, region)| {
+                let cleared_levels = self.cleared_level(index);
+                let level_progress = self
+                    .document
+                    .region_progress
+                    .get(index)
+                    .copied()
+                    .unwrap_or(0)
+                    .min(1_000);
+                let walked = u32::from(cleared_levels) * 1_000 + level_progress;
+                super::RegionView {
+                    region,
+                    cleared_levels,
+                    level_progress,
+                    percent: (walked / 100).min(100),
+                    level: super::super::explore::region_level_at(region, level_progress),
+                    requirement: super::super::explore::region_requirement(region, level_progress),
+                    cleared: self
+                        .document
+                        .cleared_regions
+                        .get(index)
+                        .copied()
+                        .unwrap_or(false),
+                    unlocked: index <= reached,
+                    current: usize::from(self.document.exploration_region) == index,
+                }
+            })
+            .collect()
     }
 
     /// The furthest level cleared in a region. A zero means the region has not
@@ -2571,7 +2710,8 @@ impl Cultivation {
             last_star: self.last_star.clone(),
             last_collect: self.last_collect.clone(),
             last_building: self.last_building.clone(),
-            exploration_region: super::super::explore::Region::from_realm(self.realm()).index()
+            exploration_region: usize::from(self.document.exploration_region)
+                .min(super::super::explore::Region::ALL.len() - 1)
                 as u8,
             exploration_level: {
                 let region = super::super::explore::Region::from_realm(self.realm());
@@ -2582,6 +2722,8 @@ impl Cultivation {
             walk_level: self.document.walk.as_ref().map_or(0, |walk| walk.level),
             explored_levels: self.document.explored_levels,
             region_progress: self.document.region_progress,
+            regions: self.region_views(),
+            walk_gain: self.document.last_walk_gain,
             resources: self.resources_view(),
             session_mode: self.session_mode(),
             next_session_growth: self.next_session_growth(day),

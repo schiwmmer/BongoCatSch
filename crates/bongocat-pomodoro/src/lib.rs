@@ -79,7 +79,7 @@ pub use cultivation::{
     MarrowSource, MasteredArtView, OwnedArt, PLAYER_NAME, POWER_FACTOR_MAX_PERMILLE,
     POWER_FACTOR_MIN_PERMILLE, PlantOutcome, PlotRecord, PlotView, PowerBreakdown, ProvingBlocked,
     ProvingOutcome, QUALITY_BASE_PER_BILLION, QUALITY_STEP_DIVISOR, RANKS_PER_LAYER, Rarity, Realm,
-    Refusal, ResourcesView, SEED_DROP_PERMILLE, SEED_RETURN_PERMILLE_PER_RANK,
+    Refusal, Region, RegionView, ResourcesView, SEED_DROP_PERMILLE, SEED_RETURN_PERMILLE_PER_RANK,
     SEED_STONES_PER_POINT, SESSION_BASE_GROWTH, SESSION_BONUS_PERMILLE, SESSION_EARNINGS,
     SHOP_MAX_OFFERS, SHOP_MIN_OFFERS, SLOT_COUNT, STAR_SUCCESS_PERMILLE, SaleKind, SeedGrade,
     SeedStack, SeedView, SessionReward, ShopOffer, ShopOfferView, StarOutcome, StrikeEffect,

@@ -19,10 +19,10 @@ use bongocat_pomodoro::{
     BonusFind, Building, BuildingView, Cost, CultivationView, DailyKind, Derived, DropView,
     EquipSlot, EventDetail, EventRecord, ExplorationHours, ExplorationOutcome, GatherSite,
     GatherSkill, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR, MarrowSource, PlotView,
-    PomodoroCommand, Rarity, Realm, Resource, ResourceBag, ResourcesView, SaleKind, SeedGrade,
-    SeedView, SessionMode, ShopOffer, ShopOfferView, StrikeEffect, TRIAL_ATTEMPTS_PER_DAY,
-    TradeView, TrialBlocked, blueprint, grow_seconds_at, harvest_points, herb_tier, plant_permille,
-    star_multiplier_permille,
+    PomodoroCommand, Rarity, Realm, Region, Resource, ResourceBag, ResourcesView, SaleKind,
+    SeedGrade, SeedView, SessionMode, ShopOffer, ShopOfferView, StrikeEffect,
+    TRIAL_ATTEMPTS_PER_DAY, TradeView, TrialBlocked, blueprint, grow_seconds_at, harvest_points,
+    herb_tier, plant_permille, star_multiplier_permille,
 };
 
 use gpui_kit::component::Sizable as _;
@@ -206,6 +206,10 @@ pub(super) fn content(
                 &view,
                 &cultivation,
                 ExplorationHours::from_hours(view.read(cx).cultivation_explore_hours),
+                view.read(cx)
+                    .cultivation_explore_region
+                    .unwrap_or(usize::from(cultivation.exploration_region))
+                    .min(cultivation.regions.len().saturating_sub(1)),
                 locale,
                 tokens,
             ),
@@ -328,10 +332,13 @@ fn module_navigation_bar(
 /// Scroll the settings list so the panel at `index` is in view.
 ///
 /// The panel's bounds were recorded during its prepaint, in window
-/// coordinates. The delta is the panel's centre read against the viewport's
-/// centre — positive when the panel sits below the middle (scroll down, a
-/// negative wheel delta) and negative when it sits above (scroll up). A panel
-/// already in view asks for no scroll at all.
+/// coordinates. The panel's *top* is aimed at a quarter of the viewport down
+/// rather than at the middle: a module lands near the top of what the eye takes
+/// in, with the page above it as context and three quarters of the screen for
+/// the module itself. The delta is that gap — positive when the panel sits
+/// below the mark (scroll down, a negative wheel delta) and negative when it
+/// sits above (scroll up). A panel already at the mark asks for no scroll, and
+/// the list clamps a panel near either end to the end.
 ///
 /// The dispatch is deferred rather than sent from the click handler: a click
 /// handler runs inside the list's own mouse dispatch, whose listeners have been
@@ -348,9 +355,10 @@ fn scroll_to_panel(
         return;
     };
     let viewport = window.bounds();
-    let panel_center = bounds.origin.y + bounds.size.height / 2.0;
-    let viewport_center = viewport.origin.y + viewport.size.height / 2.0;
-    let delta_y = panel_center - viewport_center;
+    // A quarter of the way down: the target panel's first line sits there, so
+    // the module reads from its heading rather than from its middle.
+    let aim = viewport.origin.y + viewport.size.height / 4.0;
+    let delta_y = bounds.origin.y - aim;
     if delta_y.abs() < px(1.) {
         return;
     }
@@ -360,7 +368,7 @@ fn scroll_to_panel(
     // and the event goes nowhere — so it is aimed at the middle of the page.
     let position = point(
         viewport.origin.x + viewport.size.width / 2.0,
-        viewport_center,
+        viewport.origin.y + viewport.size.height / 2.0,
     );
     let delta = ScrollDelta::Pixels(point(px(0.), -delta_y));
     window.defer(cx, move |window, cx| {

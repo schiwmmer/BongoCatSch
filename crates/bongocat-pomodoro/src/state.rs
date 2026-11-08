@@ -259,7 +259,15 @@ pub enum PomodoroCommand {
     /// longer, finds more and holds the cultivator longer — four, eight or
     /// twelve, and anything else is read as eight. The walk pays nothing until
     /// it is back: see [`Self::ReturnEarly`].
-    Explore { hours: crate::ExplorationHours },
+    ///
+    /// `region` is the road it sets out on, by ladder position. `None` walks the
+    /// region the save's own realm stands in, which is what a surface that has
+    /// no menu sends; anything past the realm is refused by the domain.
+    Explore {
+        hours: crate::ExplorationHours,
+        #[serde(default)]
+        region: Option<u8>,
+    },
     /// Call the outing under way home early — a walk or a shift at a job.
     ///
     /// It pays nothing, and the trip back is a third of the time already spent.
@@ -695,9 +703,15 @@ impl PomodoroState {
             PomodoroCommand::SelectArt { art_id } => {
                 self.cultivation.select_art(art_id);
             }
-            PomodoroCommand::Explore { hours } => {
-                self.cultivation.explore(now_unix, hours);
-            }
+            PomodoroCommand::Explore { hours, region } => match region {
+                Some(index) => {
+                    let region = crate::Region::from_index(usize::from(index));
+                    self.cultivation.explore_region(now_unix, hours, region);
+                }
+                None => {
+                    self.cultivation.explore(now_unix, hours);
+                }
+            },
             PomodoroCommand::ReturnEarly => {
                 self.cultivation.return_early(now_unix);
             }

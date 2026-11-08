@@ -110,6 +110,11 @@ const REGIONS = [
   ['flame_caverns', '赤炎洞窟'],
   ['shadow_realm', '幽冥鬼域'],
   ['celestial_court', '天外仙境'],
+  ['starfall_plains', '星陨古原'],
+  ['blood_sea', '九幽血海'],
+  ['void_sanctum', '太虚秘境'],
+  ['thunder_abyss', '雷罚天渊'],
+  ['chaos_palace', '混沌天宫'],
 ];
 
 const RESOURCES = [

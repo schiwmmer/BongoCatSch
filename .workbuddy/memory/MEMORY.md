@@ -32,6 +32,7 @@
 ## 修仙体系（全量数值口径/UI坑/构建细节 → archive/2026-10.md）
 - 纯值状态机（时间由 PomodoroState 注入）；**日界必须用本地日**；等级=（境界−1）×100+层×10+阶，total_levels=1000；铁律①level=level_for_growth(growth).min(cap_level()) ②spell=根骨×19+仙力×26、martial=力量×26+身法×15。
 - 关键不变量（采集链只除一次 / normalized 须 MAX_WAREHOUSE_LEVEL clamp / 技能经验总量 6,400 / 探索 0.6:1 / 锁妖塔 floor 锚定）→ archive/2026-10.md。
+- 锁妖塔分带（2026-11-08）：≤100 层三角带 1000–1200‰；≥101 层宽带逆 CDF（101/300 两行按层插值，`deep_band_at`），同等级裸体~3 成、白装~5 成、紫以上~8 成；横扫 = 打印 `warden_power` ×1.3。细节见 memory/2026-11-08.md。
 
 ## 预置模型行为绑定（三模型一致）
 - 绑定完全相同：`ParamEyeL/ROpen` 各1、`ParamAngleX/Y` 各10；`ParamAngleZ`/`ParamMouth*`/`ParamCheek`/`ParamBrow*` 全0 → tilt/smile/surprised/angry 物理不可呈现（非 bug）。帧顺序铁律：motion 声明的参数归 motion，其余归指针；用「指针精确为0」做守卫等于没写。

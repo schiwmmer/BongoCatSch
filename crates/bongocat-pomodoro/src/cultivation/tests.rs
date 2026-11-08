@@ -2177,11 +2177,14 @@ fn a_walk_can_turn_up_stones() {
         let level = (cleared + 1).min(super::explore::MAX_LEVEL);
         let purse = super::explore::walk_purse(region, ExplorationHours::Twelve, level);
         // The purse is opened at the region's tier, so the pocket is the purse
-        // multiplied by that tier — a deep region's pocket is a deep one.
+        // multiplied by that tier — and then by how far the body's advantage
+        // carried the walk: ten per mille of the region is one purse.
+        let share = cultivation.view().walk_gain.max(10) / 10;
         let (min, max) = purse.at(region.tier());
+        let (min, max) = (min * share, max * share);
         assert!(
             (min..=max).contains(&amount),
-            "a walk pays a handful, not a fortune: {amount}"
+            "a walk pays a handful, not a fortune: {amount} outside {min}..={max}"
         );
         assert_eq!(cultivation.stones(), amount, "the stones land in the purse");
         if outcome == ExplorationOutcome::Stones {

@@ -364,6 +364,12 @@ pub struct SettingsView {
     /// the middle of the three and the closest to the ten hours the road used to
     /// take, which is why it is where a fresh page starts.
     pub(crate) cultivation_explore_hours: u8,
+    /// The region the next walk is pointed at, by ladder position.
+    ///
+    /// `None` leaves the choice to the save: the domain remembers the last road
+    /// walked, so a page that has never picked one shows that road rather than a
+    /// region of its own invention.
+    pub(crate) cultivation_explore_region: Option<usize>,
     /// Whether the realm ladder is unfolded under the realm line.
     ///
     /// Closed by default: the page is one scrolling column, and the ten-realm

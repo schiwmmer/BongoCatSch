@@ -436,6 +436,41 @@ pub struct AptitudeUse {
 
 /// What one finished job paid.
 ///
+/// One region of the road, as the page lists it.
+///
+/// The page draws every region the cultivator's realm has reached — the one they
+/// stand in and every one below it — with how far it has been walked and what it
+/// asks of a body at the point it stands on. A region is picked from this list,
+/// so the walk's target is a choice rather than a consequence of the realm.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct RegionView {
+    /// Which region this row is.
+    pub region: super::explore::Region,
+    /// Levels cleared in it, zero to [`super::explore::MAX_LEVEL`].
+    pub cleared_levels: u8,
+    /// Progress through the level being walked, in parts per thousand.
+    pub level_progress: u32,
+    /// The whole region's completion, in percent.
+    pub percent: u32,
+    /// The level the region's progress stands at.
+    pub level: u16,
+    /// What the next walk there asks of a body, in power.
+    pub requirement: u32,
+    /// Whether the region has been walked end to end once.
+    pub cleared: bool,
+    /// Whether the realm has reached it.
+    pub unlocked: bool,
+    /// Whether this is the region the next walk will be taken in.
+    pub current: bool,
+}
+
+impl RegionView {
+    /// The region's completion as a fraction, for a progress bar.
+    pub fn fraction(&self) -> f32 {
+        (self.percent as f32 / 100.0).clamp(0.0, 1.0)
+    }
+}
+
 /// Kept beside the walk's record for the same reason: the popup is a moment and
 /// the quit forgets it, and a page that could not say what the last job paid is a
 /// page whose money has no history.
@@ -920,6 +955,10 @@ pub struct CultivationView {
     pub explored_levels: [u8; super::explore::Region::ALL.len()],
     /// Progress through each region's current level, in parts per thousand.
     pub region_progress: [u32; super::explore::Region::ALL.len()],
+    /// Every region the page lists, shallowest first: the walk's menu.
+    pub regions: Vec<RegionView>,
+    /// How far the last settled walk moved its region, in parts per thousand.
+    pub walk_gain: u32,
     /// The resource economy as the page reads it: the purse, the two trades and
     /// the four buildings, each with what the page says about it.
     pub resources: ResourcesView,

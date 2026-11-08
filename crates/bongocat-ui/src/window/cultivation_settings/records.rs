@@ -475,6 +475,26 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             *stones,
             locale,
         ),
+        EventDetail::RegionCleared {
+            region,
+            gear,
+            stones,
+        } => format_text(
+            locale,
+            "cultivation.event.region_cleared",
+            &[
+                (
+                    "region",
+                    text(
+                        locale,
+                        super::explore::region_key(Region::from_index(usize::from(*region))),
+                    )
+                    .to_string(),
+                ),
+                ("gear", gear.clone().unwrap_or_default()),
+                ("stones", group_thousands(*stones)),
+            ],
+        ),
         EventDetail::Aptitude {
             herb,
             gained_tenths,
