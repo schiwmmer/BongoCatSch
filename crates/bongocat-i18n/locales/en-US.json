@@ -795,10 +795,11 @@
     "resources": {
       "title": "Resources & Gathering",
       "bag_entry": "%{resource} %{count}/%{cap}",
-      "trade": "Lv %{level} · %{xp}/%{next} xp",
+      "trade": "%{skill} Lv %{level} · %{xp}/%{next} xp",
       "building": "%{building} Lv %{level}/%{max}",
       "cost": "%{stones} stones %{tribute}",
-      "upgrade_five": "×5"
+      "upgrade_five": "×5",
+      "length": "Length"
     },
     "mode": {
       "study": "Study",

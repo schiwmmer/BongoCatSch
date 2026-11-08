@@ -2,19 +2,28 @@
 //! four buildings — the half of the page that turns a finished pomodoro's
 //! spare time into the ore and timber the forge and the estate need.
 //!
-//! The panel is one column of rows, the way every panel on this page is: the
-//! purse's four counts in one line, the three sites as three buttons, the two
-//! trades as two rows, and the four buildings as four rows with their upgrade
-//! buttons. Nothing here owns state — a gathering is one click whose result is
+//! The panel is packed rather than stacked, unlike the panels whose content is
+//! a sentence per row: the purse's four counts in one line, one length spent by
+//! the three sites, the two trades on one line, and the four buildings two to a
+//! row. Nothing here owns state — a gathering is one click whose result is
 //! already in the snapshot.
 
 use super::explore::cooldown_line;
 use super::*;
 
 /// The panel: the purse, the sites to gather at, and the buildings to raise.
+///
+/// Seven rows rather than eleven. Every line here used to own a row of its own,
+/// which made the panel the longest on the page for the least information: the
+/// three trades were one line each, the three sites one row each with three
+/// lengths repeated on every row, and the four buildings one row each. The
+/// information is the same now, packed into the rows that were mostly empty —
+/// the mode buttons share a line with the trades, the length is chosen once for
+/// the sites below it, and the buildings sit two to a row.
 pub(super) fn resources_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
+    hours: ExplorationHours,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
@@ -25,40 +34,21 @@ pub(super) fn resources_panel(
         .flex_col()
         .gap_1()
         .child(section_title(locale, "cultivation.resources.title", tokens))
-        .child(mode_row(view, cultivation.session_mode, locale))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .child(mode_row(view, cultivation.session_mode, locale))
+                .child(trades_line(resources, locale)),
+        )
         .child(bag_row(resources, locale))
         .child(expedition_status(resources, locale))
-        .child(expedition_rows(view, resources, locale))
-        .child(trade_row(resources.woodcut, GatherSkill::Woodcut, locale))
-        .child(trade_row(resources.stonecut, GatherSkill::Stonecut, locale))
-        .child(building_row(
-            view,
-            resources.workshop.clone(),
-            Building::Workshop,
-            locale,
-            tokens,
-        ))
-        .child(building_row(
-            view,
-            resources.warehouse.clone(),
-            Building::Warehouse,
-            locale,
-            tokens,
-        ))
-        .child(building_row(
-            view,
-            resources.smithy.clone(),
-            Building::Smithy,
-            locale,
-            tokens,
-        ))
-        .child(building_row(
-            view,
-            resources.dojo.clone(),
-            Building::Dojo,
-            locale,
-            tokens,
-        ))
+        .child(gather_row(view, resources, hours, locale, tokens))
+        .child(building_grid(view, resources, locale, tokens))
         .test_support()
 }
 
@@ -70,7 +60,7 @@ fn mode_row(view: &Entity<SettingsView>, current: SessionMode, locale: &str) -> 
         .id("cultivation-resources-modes")
         .flex()
         .flex_row()
-        .gap_2();
+        .gap_1();
     for mode in [SessionMode::Study, SessionMode::Woodcut, SessionMode::Mine] {
         let armed = mode == current;
         row = row.child(
@@ -143,81 +133,159 @@ fn expedition_status(resources: &ResourcesView, locale: &str) -> impl IntoElemen
         .test_support()
 }
 
-/// The three sites, each with its three lengths: one expedition is one outing,
-/// so clicking a length sets the cultivator out for that many hours and the
-/// yield is settled on the clock. The lengths are closed while an expedition is
-/// under way — one at a time — and a surface that knows the cultivator is out
-/// says so above the rows.
-fn expedition_rows(
+/// The gathering line: one length, then the three sites.
+///
+/// The length used to be repeated as three buttons on each of the three site
+/// rows — nine buttons where the choice was really "how long, then where". Now
+/// it is picked once and the three sites spend it, so the row is two decisions
+/// instead of nine buttons and the picked length is the one every site uses.
+fn gather_row(
     view: &Entity<SettingsView>,
     resources: &ResourcesView,
+    chosen: ExplorationHours,
     locale: &str,
+    tokens: Tokens,
 ) -> impl IntoElement {
     let out = resources.expedition.is_some();
-    let mut column = div()
+    let chips = ExplorationHours::ALL.into_iter().map(move |hours| {
+        let selected = hours == chosen;
+        let mut chip = div()
+            .id(format!("cultivation-gather-hours-{}", hours.hours()))
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .text_xs()
+            .child(format_text(
+                locale,
+                "cultivation.expedition.hours",
+                &[("hours", hours.hours().to_string())],
+            ))
+            .on_click({
+                let view = view.clone();
+                move |_, _, cx| {
+                    view.update(cx, |view, cx| {
+                        view.cultivation_gather_hours = hours.hours();
+                        cx.notify();
+                    });
+                }
+            })
+            .test_support();
+        chip = if selected {
+            chip.bg(tokens.overlay)
+                .text_color(tokens.accent)
+                .font_semibold()
+        } else {
+            chip.text_color(tokens.muted)
+        };
+        chip
+    });
+    // One button per site, each labelled with the trade it works: the site and
+    // the length together are the whole command.
+    let sites = [GatherSite::Forest, GatherSite::Mountain, GatherSite::Mine]
+        .into_iter()
+        .map(|site| {
+            Button::new(format!("cultivation-expedition-{site:?}"))
+                .ghost()
+                .small()
+                .label(text(locale, site.key()))
+                .disabled(out)
+                .on_click({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |view, cx| {
+                            let _ = view.pomodoro.try_publish(PomodoroCommand::StartExpedition {
+                                site,
+                                hours: chosen,
+                            });
+                            view.poll_pomodoro(cx);
+                        });
+                    }
+                })
+        })
+        .collect::<Vec<_>>();
+    div()
         .id("cultivation-resources-sites")
         .flex()
-        .flex_col()
-        .gap_1();
-    for site in [GatherSite::Forest, GatherSite::Mountain, GatherSite::Mine] {
-        let mut row = div()
-            .id(format!("cultivation-expedition-{site:?}"))
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_between()
-            .gap_2()
-            .child(div().text_sm().child(text(locale, site.key())));
-        let mut chips = div().flex().flex_row().gap_1();
-        for hours in ExplorationHours::ALL {
-            chips = chips.child(
-                Button::new(format!("cultivation-expedition-{site:?}-{}", hours.hours()))
-                    .ghost()
-                    .small()
-                    .label(format_text(
-                        locale,
-                        "cultivation.expedition.hours",
-                        &[("hours", hours.hours().to_string())],
-                    ))
-                    .disabled(out)
-                    .on_click({
-                        let view = view.clone();
-                        move |_, _, cx| {
-                            view.update(cx, |view, cx| {
-                                let _ = view
-                                    .pomodoro
-                                    .try_publish(PomodoroCommand::StartExpedition { site, hours });
-                                view.poll_pomodoro(cx);
-                            });
-                        }
-                    }),
-            );
-        }
-        row = row.child(chips);
-        column = column.child(row);
-    }
-    column
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .gap_2()
+        .child(
+            div()
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(text(locale, "cultivation.resources.length")),
+        )
+        .child(div().flex().flex_row().gap_1().children(chips))
+        .child(div().flex().flex_row().gap_1().children(sites))
+        .test_support()
 }
 
-/// One trade: its level, and the xp banked toward the next one.
-fn trade_row(trade: TradeView, skill: GatherSkill, locale: &str) -> impl IntoElement {
-    div()
-        .id(format!("cultivation-trade-{skill:?}"))
-        .flex()
-        .flex_row()
-        .items_center()
-        .justify_between()
-        .gap_2()
-        .child(div().text_sm().child(text(locale, skill.key())))
-        .child(div().text_xs().child(format_text(
+/// The two trades on one line: each level and the xp banked toward the next.
+fn trades_line(resources: &ResourcesView, locale: &str) -> impl IntoElement {
+    let trade = |trade: TradeView, skill: GatherSkill| {
+        format_text(
             locale,
             "cultivation.resources.trade",
             &[
+                ("skill", text(locale, skill.key()).to_string()),
                 ("level", trade.level.to_string()),
                 ("xp", trade.xp.to_string()),
                 ("next", trade.xp_to_next.to_string()),
             ],
-        )))
+        )
+    };
+    div()
+        .id("cultivation-trades")
+        .text_xs()
+        .child(format!(
+            "{} · {}",
+            trade(resources.woodcut, GatherSkill::Woodcut),
+            trade(resources.stonecut, GatherSkill::Stonecut)
+        ))
+        .test_support()
+}
+
+/// The four buildings, two to a row.
+///
+/// The ladder is long — the 仓库 alone runs to fifty ranks — and four full-width
+/// rows of "name — price — ×5" spent the page's height on two words and a
+/// number each. Two per row keeps the name, the rank and both buttons and halves
+/// the height.
+fn building_grid(
+    view: &Entity<SettingsView>,
+    resources: &ResourcesView,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    let cell = |building: BuildingView, kind: Building| {
+        div()
+            .flex_1()
+            .min_w_0()
+            .child(building_row(view, building, kind, locale, tokens))
+    };
+    div()
+        .id("cultivation-buildings")
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .gap_3()
+                .child(cell(resources.workshop.clone(), Building::Workshop))
+                .child(cell(resources.warehouse.clone(), Building::Warehouse)),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .gap_3()
+                .child(cell(resources.smithy.clone(), Building::Smithy))
+                .child(cell(resources.dojo.clone(), Building::Dojo)),
+        )
+        .test_support()
 }
 
 /// One building: its name and level, and the upgrade button while it has a
@@ -267,7 +335,8 @@ fn building_row(
                 )
                 .open_delay(Duration::from_millis(120))
                 .content(move |_, _, _| building_hint(kind, hint_name, hint_body, tokens)),
-        );
+        )
+        .test_support();
     if building.upgrade_cost.is_some() {
         let mut buttons = div().flex().flex_row().gap_1();
         if let Some(cost) = building.upgrade_cost.as_ref() {

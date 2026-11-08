@@ -1657,13 +1657,22 @@ impl Render for SettingsView {
         // pomodoro page whose finished sessions feed it. It is one custom
         // element like the pomodoro body: the ladder is a column of rows, not
         // a stack of labeled settings cards.
+        // The cultivation page's header carries the module bar beside its title.
+        // The header is the one row the settings list does not scroll, so the
+        // bar stays on screen while the page's body travels under it — the bar
+        // used to be the body's first child and left the screen as soon as the
+        // user scrolled past it.
         let cultivation_page =
             SettingPage::new(SettingsNavigationPage::Cultivation.title(language))
                 .icon(SettingsNavigationPage::Cultivation.icon())
-                .title_suffix(page_reporter(
-                    SettingsNavigationPage::Cultivation,
-                    navigation_memory.clone(),
-                ))
+                .title_suffix({
+                    let view = view_entity.clone();
+                    let memory = navigation_memory.clone();
+                    move |_window, cx| {
+                        report_navigation_page(SettingsNavigationPage::Cultivation, &memory);
+                        div().child(cultivation_settings::header_navigation(&view, language, cx))
+                    }
+                })
                 .group(
                     SettingGroup::new().item(
                         SettingItem::render({

@@ -795,10 +795,11 @@
     "resources": {
       "title": "资源与采集",
       "bag_entry": "%{resource} %{count}/%{cap}",
-      "trade": "Lv %{level} · 经验 %{xp}/%{next}",
+      "trade": "%{skill} Lv %{level} · 经验 %{xp}/%{next}",
       "building": "%{building} Lv %{level}/%{max}",
       "cost": "%{stones} 灵石 %{tribute}",
-      "upgrade_five": "×5"
+      "upgrade_five": "×5",
+      "length": "时长"
     },
     "mode": {
       "study": "修习",

@@ -113,7 +113,6 @@ pub(super) fn content(
     // per panel that exists, and a button that jumps nowhere is worse than no
     // button.
     let breakthrough = breakthrough_panel(&view, &cultivation, locale, tokens);
-    let has_breakthrough = breakthrough.is_some();
     let open_item = view.read(cx).cultivation_open_item;
     let open_offer = view.read(cx).cultivation_open_offer;
     let open_seed = view.read(cx).cultivation_open_seed;
@@ -121,12 +120,10 @@ pub(super) fn content(
     let dig_confirm = view.read(cx).cultivation_dig_confirm;
     let dig_confirm_final = view.read(cx).cultivation_dig_confirm_final;
     let seeds_open = view.read(cx).cultivation_seeds_open;
-    // One slot per panel, filled during prepaint with the panel's own bounds in
-    // window coordinates. The navigation bar reads them to scroll the settings
-    // list — whose `ListState` is private — by dispatching a scroll-wheel event
-    // at the panel's position.
-    let panel_bounds: Rc<RefCell<Vec<Option<Bounds<Pixels>>>>> =
-        Rc::new(RefCell::new(vec![None; MODULE_COUNT]));
+    // The slots the panels fill during prepaint. The store belongs to the
+    // window, because the bar that reads it is drawn in the page header rather
+    // than in this body.
+    let panel_bounds = view.read(cx).cultivation_panel_bounds.clone();
 
     div()
         .id("cultivation-settings")
@@ -134,13 +131,6 @@ pub(super) fn content(
         .flex_col()
         .gap_3()
         .p_3()
-        .child(module_navigation_bar(
-            &view,
-            &panel_bounds,
-            has_breakthrough,
-            locale,
-            tokens,
-        ))
         .children(breakthrough_banner(&cultivation, locale, tokens))
         .child(realm_header(
             &view,
@@ -232,7 +222,13 @@ pub(super) fn content(
         .child(panel_anchor(
             13,
             &panel_bounds,
-            resources::resources_panel(&view, &cultivation, locale, tokens),
+            resources::resources_panel(
+                &view,
+                &cultivation,
+                ExplorationHours::from_hours(view.read(cx).cultivation_gather_hours),
+                locale,
+                tokens,
+            ),
         ))
         .child(panel_anchor(
             14,
@@ -244,7 +240,40 @@ pub(super) fn content(
 
 /// The number of modules the navigation bar jumps between. Must match the
 /// number of `panel_anchor` calls in [`content`].
-const MODULE_COUNT: usize = 15;
+pub(super) const MODULE_COUNT: usize = 15;
+
+/// One slot per panel, filled during prepaint with the panel's own bounds in
+/// window coordinates.
+///
+/// The window owns the store rather than the page: the navigation bar lives in
+/// the page header, outside the scrolling body, so the two halves of the jump —
+/// the panels writing their bounds and the buttons reading them — no longer
+/// share a render pass. Keeping the store on the view lets both reach it.
+pub(super) fn panel_bounds_store() -> Rc<RefCell<Vec<Option<Bounds<Pixels>>>>> {
+    Rc::new(RefCell::new(vec![None; MODULE_COUNT]))
+}
+
+/// The module bar, mounted by the window in the page header.
+///
+/// The header is the one part of the page that does not scroll, which is what
+/// makes the bar stay at the top while the body moves under it: the page is one
+/// tall item inside the settings list, and anything drawn in the body travels
+/// with it.
+pub(super) fn header_navigation(
+    view: &Entity<SettingsView>,
+    language: SettingsLanguage,
+    cx: &mut App,
+) -> impl gpui_kit::IntoElement {
+    let tokens = Tokens::from_theme(cx);
+    let bounds = view.read(cx).cultivation_panel_bounds.clone();
+    let guardian = view.read(cx).pomodoro.snapshot().cultivation.guardian;
+    module_navigation_bar(
+        bounds,
+        guardian.is_some(),
+        language.catalog_locale(),
+        tokens,
+    )
+}
 
 /// Wrap a panel in an id'd div that records its bounds during prepaint.
 ///
@@ -268,21 +297,25 @@ fn panel_anchor(
         .child(panel.into_any_element())
 }
 
-/// The navigation bar at the top of the cultivation page.
+/// The navigation bar that rides in the page header.
 ///
 /// One button per module, in the order the modules appear on the page. A click
 /// scrolls the page to that module.
 ///
-/// The page is one tall item inside the settings list, so the list is the
-/// scroll container — and the list keeps its `ListState` private. The button
-/// therefore asks the list to scroll by dispatching a scroll-wheel event at the
-/// target panel's own position: the event hit-tests to the panel and bubbles to
-/// the list's handler, and the delta is the distance the panel sits from the
-/// viewport's centre. The list clamps the scroll to its bounds, so a target
-/// near either end lands exactly there.
+/// Where the bar sits is the whole point: it is drawn in the page *header*, the
+/// one part of the page that does not scroll, so it stays at the top while the
+/// body travels under it. The page body is one tall item inside the settings
+/// list, and anything drawn there — the bar used to be its first child — leaves
+/// the screen as soon as the user scrolls, which made jumping between modules a
+/// walk back to the top.
+///
+/// The list is the scroll container and keeps its `ListState` private, so a
+/// button asks it to scroll by dispatching a scroll-wheel event: the event
+/// hit-tests to what sits at the pointer and bubbles to the list's handler, and
+/// the delta is the distance the panel sits from where it should land. The list
+/// clamps the scroll to its bounds, so a target near either end lands there.
 fn module_navigation_bar(
-    _view: &Entity<SettingsView>,
-    panel_bounds: &Rc<RefCell<Vec<Option<Bounds<Pixels>>>>>,
+    panel_bounds: Rc<RefCell<Vec<Option<Bounds<Pixels>>>>>,
     breakthrough: bool,
     _locale: &str,
     tokens: Tokens,
@@ -305,7 +338,7 @@ fn module_navigation_bar(
         // 破境面板只在能破境时出现；按钮跟着面板走，不指一个不存在的位置。
         .filter(move |(_, index)| breakthrough || *index != 8)
         .map(|(label, index)| {
-            let store = Rc::clone(panel_bounds);
+            let store = Rc::clone(&panel_bounds);
             Button::new(format!("cultivation-nav-{index}"))
                 .ghost()
                 .small()
@@ -320,13 +353,15 @@ fn module_navigation_bar(
         .id("cultivation-module-navigation")
         .flex()
         .flex_row()
-        .gap_2()
         .flex_wrap()
-        .py_2()
-        .px_3()
+        .items_center()
+        .gap_1()
+        .py_1()
+        .px_2()
         .bg(tokens.canvas)
-        .rounded_lg()
+        .rounded_md()
         .children(buttons)
+        .test_support()
 }
 
 /// Scroll the settings list so the panel at `index` is in view.

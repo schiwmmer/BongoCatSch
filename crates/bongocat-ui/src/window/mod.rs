@@ -310,6 +310,15 @@ pub struct SettingsView {
     /// this is what lets the poll repaint the garden when a plot turns pickable
     /// without cloning the snapshot on every idle tick.
     pub(crate) cultivation_minute_observed: Option<i64>,
+    /// Where each cultivation module sits on screen, one slot per panel, filled
+    /// during the page body's prepaint.
+    ///
+    /// The module bar lives in the page header rather than in the body, so the
+    /// panels that record these bounds and the buttons that read them are in
+    /// different parts of the frame. The store lives on the view for that
+    /// reason: it is allocated once per window instead of once per render, and
+    /// both sides reach the same slots.
+    pub(crate) cultivation_panel_bounds: Rc<RefCell<Vec<Option<Bounds<gpui_kit::Pixels>>>>>,
     /// Which item's attribute breakdown the cultivation page has open, if any.
     /// Clicking an item's name toggles it; only one stays open at a time so a
     /// long satchel stays scannable.
@@ -370,6 +379,9 @@ pub struct SettingsView {
     /// walked, so a page that has never picked one shows that road rather than a
     /// region of its own invention.
     pub(crate) cultivation_explore_region: Option<usize>,
+    /// The length the next gathering expedition is taken for, in hours. Picked
+    /// once on the 资源 row and spent by whichever of the three sites is clicked.
+    pub(crate) cultivation_gather_hours: u8,
     /// Whether the realm ladder is unfolded under the realm line.
     ///
     /// Closed by default: the page is one scrolling column, and the ten-realm

@@ -407,6 +407,7 @@ impl SettingsView {
             pomodoro_editor_sessions,
             pomodoro_observed_revision: 0,
             cultivation_minute_observed: None,
+            cultivation_panel_bounds: cultivation_settings::panel_bounds_store(),
             cultivation_open_item: None,
             cultivation_open_offer: None,
             cultivation_open_seed: None,
@@ -421,6 +422,7 @@ impl SettingsView {
             cultivation_ladder_open: false,
             cultivation_explore_hours: 8,
             cultivation_explore_region: None,
+            cultivation_gather_hours: 8,
             cultivation_daily_seen_day: None,
             // No fight is being replayed when the window opens, and none is
             // waiting on the worker either.

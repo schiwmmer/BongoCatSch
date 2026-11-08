@@ -687,14 +687,37 @@ pub fn region_requirement(region: Region, progress_permille: u32) -> u32 {
 /// half a percent to two percent at four hours, multiplied by how far the body
 /// stands past what the floor asks.
 ///
-/// The factor is clamped to [200, 5_000]‰ — a fifth to five times — so the
-/// weakest body still crawls forward and the strongest cannot buy more than
-/// five walks in one. A twelve-hour walk triples the base before the factor is
-/// applied, which is what makes the longer outings worth the wait.
+/// The factor is the body's own ratio between a fifth and five times, so the
+/// strongest cannot buy more than five walks in one. A twelve-hour walk triples
+/// the base before the factor is applied, which is what makes the longer
+/// outings worth the wait.
 pub const REGION_GAIN_BASE_MIN: u32 = 5;
 pub const REGION_GAIN_BASE_MAX: u32 = 20;
+/// What a body that has not reached the road earns: a fifth of the base draw.
 pub const REGION_GAIN_FACTOR_MIN: u32 = 200;
 pub const REGION_GAIN_FACTOR_MAX: u32 = 5_000;
+/// Where the floor stops applying, in parts per thousand of the requirement.
+///
+/// A body at or below two fifths of what the road asks is not walking it — it
+/// is being dragged along — so it earns the flat floor and nothing more, however
+/// weak it actually is. Above that line the body's own ratio is what pays, so
+/// four tenths of the requirement reads as four tenths of a walk. The step at
+/// the line is deliberate: the floor exists to keep a hopeless body crawling,
+/// not to pay it a share of a road it cannot walk.
+pub const REGION_GAIN_FLOOR_CEILING: u32 = 400;
+
+/// How far this body's advantage carries a walk, in parts per thousand: the
+/// ratio itself once it is past [`REGION_GAIN_FLOOR_CEILING`], the floor below
+/// it, and five times at the top.
+pub fn walk_gain_factor(power: u32, requirement: u32) -> u32 {
+    let ratio = u64::from(power).saturating_mul(1_000) / u64::from(requirement.max(1));
+    let ratio = u32::try_from(ratio).unwrap_or(u32::MAX);
+    if ratio <= REGION_GAIN_FLOOR_CEILING {
+        REGION_GAIN_FACTOR_MIN
+    } else {
+        ratio.min(REGION_GAIN_FACTOR_MAX)
+    }
+}
 
 pub fn walk_gain_permille(
     rng: &mut Rng,
@@ -704,11 +727,7 @@ pub fn walk_gain_permille(
 ) -> u32 {
     let span = u64::from(REGION_GAIN_BASE_MAX - REGION_GAIN_BASE_MIN + 1);
     let base = REGION_GAIN_BASE_MIN + rng.below(span) as u32;
-    // How far past the floor the body stands, as a multiplier in per mille.
-    let factor = (u64::from(power) * 1_000 / u64::from(requirement.max(1))).clamp(
-        u64::from(REGION_GAIN_FACTOR_MIN),
-        u64::from(REGION_GAIN_FACTOR_MAX),
-    ) as u32;
+    let factor = walk_gain_factor(power, requirement);
     let base = base.saturating_mul(hours.multiplier_permille() as u32) / 1_000;
     base.saturating_mul(factor) / 1_000
 }
@@ -1042,6 +1061,33 @@ mod tests {
         assert!(
             strong > weak * 10,
             "the strong walk pays far more: {strong} vs {weak}"
+        );
+    }
+
+    /// The floor is for the bodies that cannot walk the road at all: at or below
+    /// four tenths of what it asks, the walk pays the flat fifth. One part per
+    /// thousand past that line the body's own ratio pays, and the cap holds it
+    /// at five.
+    #[test]
+    fn the_floor_stops_at_four_tenths_of_the_requirement() {
+        let requirement = 1_000_u32;
+        for ratio in [0_u32, 100, 300, 400] {
+            assert_eq!(
+                walk_gain_factor(requirement * ratio / 1_000, requirement),
+                REGION_GAIN_FACTOR_MIN,
+                "a body at {ratio} per mille of the requirement must earn the floor"
+            );
+        }
+        assert_eq!(
+            walk_gain_factor(requirement * 401 / 1_000, requirement),
+            401,
+            "one part past the line and the body's own ratio pays"
+        );
+        assert_eq!(walk_gain_factor(requirement * 3, requirement), 3_000);
+        assert_eq!(
+            walk_gain_factor(requirement * 50, requirement),
+            REGION_GAIN_FACTOR_MAX,
+            "the cap holds at five"
         );
     }
 

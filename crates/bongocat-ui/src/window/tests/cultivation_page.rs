@@ -21,7 +21,7 @@ use bongocat_pomodoro::{
     PomodoroState, ProvingBlocked, Rarity, Realm, ResourceBag, SeedGrade, SeedStack, SessionMode,
     ShopOffer, TrainingView, TrialBlocked, WANDERER_NAME, threshold_for,
 };
-use gpui_kit::{ScrollDelta, point, px};
+use gpui_kit::{PlatformInput, ScrollDelta, ScrollWheelEvent, point, px};
 
 /// The page mounted on its own.
 ///
@@ -2203,61 +2203,10 @@ fn digging_a_growing_crop_asks_twice_before_the_command(cx: &mut TestAppContext)
     );
 }
 
-/// The navigation bar jumps to a module.
-///
-/// The page is one tall column inside the settings list, so a nav button has to
-/// scroll the list — not a scroll container of the page's own — to bring its
-/// module into view. The test asserts the click moved the target panel, which
-/// is the only observable that distinguishes a working jump from a button that
-/// paints and does nothing.
-#[gpui_kit::test]
-fn a_navigation_button_scrolls_its_module_into_view(cx: &mut TestAppContext) {
-    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(
-        Cultivation::new(CultivationDocument::default()).view(),
-    ));
-    let (_view, visual) = cultivation_page_with(cx, pomodoro);
-    visual.update(|window, cx| window.render_frame(cx));
-
-    // The shop is the last module and starts below the fold.
-    let shop = ElementId::from("cultivation-anchor-14");
-    let before = visual.update(|window, _| {
-        window
-            .try_find(shop.clone())
-            .expect("the shop panel is on the page")
-            .bounds()
-    });
-
-    // Click the 坊市 button. The nav bar is at the top of the page, so the
-    // button is on screen before the click.
-    visual.update(|window, cx| {
-        window.render_frame(cx);
-        window.click("cultivation-nav-14", cx);
-    });
-    visual.run_until_parked();
-    // `on_next_frame` has no platform frame loop in tests, so the pending
-    // callback has to be delivered by hand before the scroll can land.
-    visual.update(|window, cx| {
-        window.simulate_next_frame(cx);
-        window.render_frame(cx);
-    });
-
-    let after = visual.update(|window, _| {
-        window
-            .try_find(shop)
-            .expect("the shop panel is still on the page")
-            .bounds()
-    });
-    assert!(
-        after.origin.y < before.origin.y,
-        "the shop moved up the page: before={before:?} after={after:?}"
-    );
-}
-
 /// The whole settings frame, on the cultivation page.
 ///
-/// A fresh window per jump: the module bar rides with the page, so a second jump
-/// would have to scroll back to the top first — and what this test is about is
-/// the jump itself, not the walk back.
+/// A fresh window per jump: every jump is measured from the top of the page, so
+/// one test cannot leave the list scrolled for the next one.
 fn open_settings_on_cultivation(cx: &mut TestAppContext) -> &mut VisualTestContext {
     cx.update(gpui_kit::init);
     let (client, endpoint) = crate::SettingsClient::bounded(4);
@@ -2330,4 +2279,140 @@ fn clicking_a_module_button_brings_that_module_into_view(cx: &mut TestAppContext
             "clicking {label} put its module at {top:?}, away from the quarter mark {aim:?}"
         );
     }
+}
+
+/// The bar has to stay on screen while the page scrolls: it rides in the page
+/// header, which the settings list does not scroll, so a user three screens down
+/// can still jump without dragging the scrollbar back to the top first.
+///
+/// This is the regression the header placement exists for — as the body's first
+/// child the bar left the screen with the first flick of the wheel.
+#[gpui_kit::test]
+fn the_module_bar_stays_at_the_top_while_the_page_scrolls(cx: &mut TestAppContext) {
+    let visual = open_settings_on_cultivation(cx);
+    let bar_top = |visual: &mut VisualTestContext| {
+        visual.update(|window, _| {
+            window
+                .try_find(ElementId::from("cultivation-module-navigation"))
+                .map(|snapshot| snapshot.bounds().origin.y)
+                .expect("the module bar is painted")
+        })
+    };
+    let before = bar_top(visual);
+    // Three screens down, the way a reader arrives at the 坊市.
+    visual.update(|window, cx| {
+        window.dispatch_event(
+            PlatformInput::ScrollWheel(ScrollWheelEvent {
+                position: point(px(1_000.), px(400.)),
+                delta: ScrollDelta::Pixels(point(px(0.), px(-3_000.))),
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+    });
+    let after = bar_top(visual);
+    assert_eq!(
+        before, after,
+        "the bar moved with the page: it has to stay pinned at the top"
+    );
+
+    // And a jump made from down there still lands the module at the quarter
+    // mark: the walk is one click, not a click plus a scroll back.
+    visual.update(|window, cx| window.click("cultivation-nav-4", cx));
+    visual.update(|window, cx| window.render_frame(cx));
+    let (top, viewport) = visual.update(|window, _| {
+        let anchor = window
+            .try_find(ElementId::from("cultivation-anchor-4"))
+            .map(|snapshot| snapshot.bounds())
+            .expect("the satchel anchor is painted");
+        (anchor.origin.y, window.bounds())
+    });
+    let aim = viewport.size.height / 4.0;
+    assert!(
+        (top - aim).abs() <= viewport.size.height * 0.15,
+        "a jump made from down the page landed at {top:?}, not the quarter mark {aim:?}"
+    );
+}
+
+/// 资源与采集 is the panel a user keeps open while a pomodoro runs, so it is
+/// packed rather than stacked: one length spent by the three sites, the two
+/// trades on one line, the four buildings two to a row.
+///
+/// The walk here is the one the panel exists for — pick a length once, then
+/// pick a site — plus the geometry that makes it short: the buildings share
+/// rows instead of owning one each.
+#[gpui_kit::test]
+fn the_resources_panel_is_packed_and_still_works(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        growth: threshold_for(120),
+        realm: 1,
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+
+    // One length control for all three sites, not three buttons on each of the
+    // three rows.
+    scroll_until_visible(visual, "cultivation-gather-hours-12");
+    for hours in [
+        "cultivation-gather-hours-4",
+        "cultivation-gather-hours-8",
+        "cultivation-gather-hours-12",
+    ] {
+        assert!(painted(visual, hours), "{hours} is missing");
+    }
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-gather-hours-12", cx);
+    });
+    assert_eq!(
+        visual.update(|_, cx| view.read(cx).cultivation_gather_hours),
+        12,
+        "the picked length is what the sites below it will spend"
+    );
+
+    scroll_until_visible(visual, "cultivation-expedition-Forest");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-expedition-Forest", cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(
+            commands.as_slice(),
+            [PomodoroCommand::StartExpedition {
+                site: bongocat_pomodoro::GatherSite::Forest,
+                hours: bongocat_pomodoro::ExplorationHours::Twelve,
+            }]
+        ),
+        "the site spends the length that was picked: {commands:?}"
+    );
+
+    // Two buildings to a row: the pair shares a line, and the second pair sits
+    // below it.
+    let bounds = |visual: &mut VisualTestContext, id: &'static str| {
+        visual.update(|window, _| {
+            window
+                .try_find(ElementId::from(id))
+                .map(|snapshot| snapshot.bounds())
+        })
+    };
+    let workshop = bounds(visual, "cultivation-building-Workshop").expect("工坊 is drawn");
+    let warehouse = bounds(visual, "cultivation-building-Warehouse").expect("仓库 is drawn");
+    let smithy = bounds(visual, "cultivation-building-Smithy").expect("铁匠铺 is drawn");
+    assert_eq!(
+        workshop.origin.y, warehouse.origin.y,
+        "工坊 and 仓库 must share a row: {workshop:?} vs {warehouse:?}"
+    );
+    assert!(
+        smithy.origin.y > workshop.origin.y,
+        "铁匠铺 must sit on the second row: {smithy:?} vs {workshop:?}"
+    );
+    assert!(
+        painted(visual, "cultivation-trades"),
+        "the two trades share one line"
+    );
 }
