@@ -482,17 +482,31 @@ fn shop_offer_label(offer: &ShopOffer, locale: &str) -> String {
             grade,
             name,
         } => seed_label(locale, *attribute, *tier, *grade, name.as_deref()),
-        ShopOffer::Art { art_id } => blueprint(*art_id).name.clone(),
+        ShopOffer::Art { art_id } => art_shelf_label(*art_id, locale),
         ShopOffer::Herb { herb, grade } => herb_seed_label(locale, *herb, herb_tier(*herb), *grade),
     }
 }
 
+/// What a 功法 is called on the shelf.
+///
+/// The name alone is what the inventory calls it, but the shelf is where the
+/// buyer decides: the grade is the first fact about a book, and a row whose name
+/// carried it in the name colour only would be a row a reader had to parse.
+/// The grade rides in the name the way a seed's 品阶 does, so the two shelves
+/// read alike; the tag below stays out of the way because there is no second
+/// number competing with it here.
+fn art_shelf_label(art_id: u64, locale: &str) -> String {
+    let art = blueprint(art_id);
+    format!("{} · {}", art.name, text(locale, art.grade.name_key()))
+}
+
 /// The grade a shelf row tags, when it carries one.
 ///
-/// Seeds and the two 潜质 herbs: gear is tagged by its quality and a 功法 has no
-/// grade a row could print. A bought row tags nothing — it is struck through and
-/// priced "已购", and a grade on it would read as a grade still on sale. The pill
-/// carries no grade, so it tags nothing either.
+/// Seeds and the two 潜质 herbs: gear is tagged by its quality, and a 功法
+/// carries its grade in the name the way a seed carries its 品阶. A bought row
+/// tags nothing — it is struck through and priced "已购", and a grade on it
+/// would read as a grade still on sale. The pill carries no grade, so it tags
+/// nothing either.
 pub(super) fn seed_tag_grade(offer: &ShopOffer, bought: bool) -> Option<SeedGrade> {
     match offer {
         ShopOffer::Seed { grade, .. } if !bought => Some(*grade),
@@ -555,6 +569,16 @@ mod tests {
             None,
             "the 洗髓丹 has no grade, so it tags nothing"
         );
+    }
+
+    /// A 功法 on the shelf names its grade, the way the seed rows name their
+    /// 品阶 and the herb rows name their tier. The screenshot shows the bug:
+    /// 蛇行吐纳 beside rows that all said 阶 and 品阶 and itself said neither.
+    #[test]
+    fn an_art_row_names_its_grade() {
+        let label = shop_offer_label(&ShopOffer::Art { art_id: 299 }, "zh-CN");
+        assert!(label.contains("蛇行吐纳"), "{label}");
+        assert!(label.contains("玄阶"), "{label}");
     }
 
     /// A 潜质 herb on the shelf names its 品阶 and its grade, the way the seed
