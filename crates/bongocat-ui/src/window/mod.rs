@@ -350,11 +350,6 @@ pub struct SettingsView {
     /// read for, and the domain writes the same day down when the popup is
     /// acknowledged, so a relaunch the same afternoon stays quiet.
     pub(crate) cultivation_daily_seen_day: Option<i64>,
-    /// Whether the learned 功法 panel has been unfolded past the three it shows.
-    ///
-    /// A save can know a hundred 功法 and still be working on three: the panel
-    /// answers "what am I training", and the full list is one click away.
-    pub(crate) cultivation_mastered_open: bool,
     /// Whether the seed panel has been unfolded past the five it shows.
     ///
     /// Five is what the panel shows by default, lowest grade first: a satchel of
@@ -375,9 +370,6 @@ pub struct SettingsView {
     /// list is reference material rather than something to read every launch.
     /// Clicking the realm line opens it, and the same click closes it.
     pub(crate) cultivation_ladder_open: bool,
-    /// The scroll handle for the cultivation page, so the module navigation
-    /// bar can scroll to a panel without a per-panel index.
-    pub(crate) cultivation_scroll_handle: gpui_kit::ScrollHandle,
     /// The fight the cultivation page is replaying over the page, if any.
     pub(crate) cultivation_duel: Option<CultivationDuel>,
     /// A fight or a walk the user asked for that the worker has not answered

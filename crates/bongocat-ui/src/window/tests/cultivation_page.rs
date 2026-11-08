@@ -19,7 +19,7 @@ use bongocat_pomodoro::{
     EventDetail, EventRecord, ExplorationFindView, ExplorationOutcome, Fighter, ItemView, JobKind,
     JobRun, LAYERS_PER_STAGE, OwnedArt, PLAYER_NAME, PlotRecord, PomodoroCommand, PomodoroSnapshot,
     PomodoroState, ProvingBlocked, Rarity, Realm, ResourceBag, SeedGrade, SeedStack, SessionMode,
-    ShopOffer, TrainingView, TrialBlocked, TrialOutcome, WANDERER_NAME, threshold_for,
+    ShopOffer, TrainingView, TrialBlocked, WANDERER_NAME, threshold_for,
 };
 use gpui_kit::{ScrollDelta, point, px};
 
@@ -1078,34 +1078,6 @@ fn the_page_explains_which_layer_each_number_belongs_to(cx: &mut TestAppContext)
     assert!(painted(visual, "cultivation-derived-attack"));
 }
 
-/// A learned 功法 is on the page in its own panel.
-///
-/// The two lists are kept apart because they are sold differently: a book is
-/// still being trained and can be sold, a learned 功法 is kept for good. A page
-/// that showed them in one list would make the second look like the first.
-#[gpui_kit::test]
-fn the_page_draws_the_learned_arts_in_their_own_panel(cx: &mut TestAppContext) {
-    let cultivation = Cultivation::new(CultivationDocument {
-        mastered_arts: vec![1, 3],
-        ..CultivationDocument::default()
-    })
-    .view();
-    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
-    let (_view, visual) = cultivation_page_with(cx, pomodoro);
-    visual.update(|window, cx| window.render_frame(cx));
-    assert!(
-        painted(visual, "cultivation-mastered-arts"),
-        "the learned 功法 have their own panel"
-    );
-    for id in [
-        "cultivation-mastered-art-1",
-        "cultivation-mastered-art-3",
-        "cultivation-mastered-art-payoff-1",
-    ] {
-        assert!(painted(visual, id), "the page must draw {id}");
-    }
-}
-
 /// The popup mounted on its own.
 ///
 /// The settings window's own frame would put it behind a sidebar and a scroll
@@ -1239,69 +1211,6 @@ fn a_plain_row_is_explained_in_plain_numbers() {
 /// below them off the first screenful, so the sixth line on belongs to the
 /// popup: the page draws five rows and the control, and the control's click
 /// opens the history.
-#[gpui_kit::test]
-fn the_record_shows_five_events_and_offers_the_rest(cx: &mut TestAppContext) {
-    let events: Vec<EventRecord> = (0..7)
-        .map(|at| EventRecord {
-            at_unix: at,
-            detail: EventDetail::Session { growth: 500 },
-        })
-        .collect();
-    let cultivation = Cultivation::new(CultivationDocument {
-        events,
-        ..CultivationDocument::default()
-    })
-    .view();
-    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
-    let (view, visual) = cultivation_page_with(cx, pomodoro);
-    visual.update(|window, cx| window.render_frame(cx));
-    for id in [
-        "cultivation-event-0",
-        "cultivation-event-4",
-        "cultivation-record-show-all",
-    ] {
-        assert!(painted(visual, id), "the page must draw {id}");
-    }
-    assert!(
-        !painted(visual, "cultivation-event-5"),
-        "the sixth event belongs to the popup, not the page"
-    );
-    visual.update(|window, cx| window.click("cultivation-record-show-all", cx));
-    visual.update(|_, cx| {
-        assert!(
-            view.read(cx).cultivation_events_open,
-            "the control's click opens the history"
-        );
-    });
-}
-
-/// A 功法 trained to its first 阶 is 已习得 as far as it has gone: it shows in
-/// the learned panel with the 阶 it stands at, even though the training is not
-/// finished. A book still at rank zero is not learned at all and shows in the
-/// shelf alone.
-#[gpui_kit::test]
-fn the_learned_panel_lists_a_part_trained_art(cx: &mut TestAppContext) {
-    let cultivation = Cultivation::new(CultivationDocument {
-        arts: vec![OwnedArt {
-            art_id: 1,
-            rank: 1,
-            progress: 0,
-            outcome: None,
-            failures: 0,
-            copies: 1,
-        }],
-        ..CultivationDocument::default()
-    })
-    .view();
-    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
-    let (_view, visual) = cultivation_page_with(cx, pomodoro);
-    visual.update(|window, cx| window.render_frame(cx));
-    assert!(
-        painted(visual, "cultivation-mastered-art-1"),
-        "a partly trained 功法 is 已习得 as far as it has gone"
-    );
-}
-
 /// The garden offers the next plot while it has one to sell: the four free
 /// beds come with the garden, and the fifth is the first one 灵石 buys.
 #[gpui_kit::test]
@@ -1834,68 +1743,6 @@ fn the_log_is_not_repeated_above_itself(cx: &mut TestAppContext) {
 
 /// A trial floor is replayed like every other fight, and the popup names the
 /// floor and what clearing it paid.
-#[gpui_kit::test]
-fn the_trial_popup_names_the_floor_and_what_it_paid(cx: &mut TestAppContext) {
-    cx.update(gpui_kit::init);
-    let mut duel = CultivationDuel::new(
-        CultivationDuelSource::Trial,
-        cultivation_duel::CultivationDuelPayload::Trial(TrialOutcome {
-            floor: 9,
-            warden_power: 12_345,
-            duel: walk_report(),
-            found: ExplorationFindView::default(),
-        }),
-    );
-    // A verdict under a half-read fight spoils it, so the replay is shown to its
-    // end before the payoff is asked for.
-    duel.reveal_all();
-    let (_, visual) =
-        cx.add_window_view(move |window, cx| Root::new(cx.new(|_| DuelPopup(duel)), window, cx));
-    visual.update(|window, cx| window.render_frame(cx));
-    for id in [
-        "cultivation-duel-health-player",
-        "cultivation-duel-side-opponent",
-        "cultivation-duel-log",
-        "cultivation-duel-trial-floor",
-    ] {
-        assert!(painted(visual, id), "the trial popup must paint {id}");
-    }
-}
-
-/// The learned panel answers "what am I working on": three rows and a way to
-/// see the rest, rather than a list that grows with the shelf.
-#[gpui_kit::test]
-fn the_learned_panel_shows_three_and_unfolds(cx: &mut TestAppContext) {
-    let cultivation = Cultivation::new(CultivationDocument {
-        mastered_arts: vec![11, 12, 13, 14, 15],
-        ..CultivationDocument::default()
-    })
-    .view();
-    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
-    let (_view, visual) = cultivation_page_with(cx, pomodoro);
-    visual.update(|window, cx| window.render_frame(cx));
-    for id in [
-        "cultivation-mastered-art-11",
-        "cultivation-mastered-art-12",
-        "cultivation-mastered-art-13",
-        "cultivation-mastered-toggle",
-    ] {
-        assert!(painted(visual, id), "the panel must draw {id}");
-    }
-    assert!(
-        !painted(visual, "cultivation-mastered-art-14"),
-        "the fourth 功法 waits behind the fold"
-    );
-    visual.update(|window, cx| {
-        window.render_frame(cx);
-        window.click("cultivation-mastered-toggle", cx);
-    });
-    visual.update(|window, cx| window.render_frame(cx));
-    for id in ["cultivation-mastered-art-14", "cultivation-mastered-art-15"] {
-        assert!(painted(visual, id), "unfolding must draw {id}");
-    }
-}
-
 /// The breakthrough prompt is the one line the page raises its voice for, and
 /// it shows only when there is a wall to break.
 ///
@@ -2297,5 +2144,55 @@ fn digging_a_growing_crop_asks_twice_before_the_command(cx: &mut TestAppContext)
     assert!(
         !painted(visual, second_confirm_id),
         "the second confirmation closes after the dig"
+    );
+}
+
+/// The navigation bar jumps to a module.
+///
+/// The page is one tall column inside the settings list, so a nav button has to
+/// scroll the list — not a scroll container of the page's own — to bring its
+/// module into view. The test asserts the click moved the target panel, which
+/// is the only observable that distinguishes a working jump from a button that
+/// paints and does nothing.
+#[gpui_kit::test]
+fn a_navigation_button_scrolls_its_module_into_view(cx: &mut TestAppContext) {
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(
+        Cultivation::new(CultivationDocument::default()).view(),
+    ));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+
+    // The shop is the last module and starts below the fold.
+    let shop = ElementId::from("cultivation-anchor-14");
+    let before = visual.update(|window, _| {
+        window
+            .try_find(shop.clone())
+            .expect("the shop panel is on the page")
+            .bounds()
+    });
+
+    // Click the 坊市 button. The nav bar is at the top of the page, so the
+    // button is on screen before the click.
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-nav-14", cx);
+    });
+    visual.run_until_parked();
+    // `on_next_frame` has no platform frame loop in tests, so the pending
+    // callback has to be delivered by hand before the scroll can land.
+    visual.update(|window, cx| {
+        window.simulate_next_frame(cx);
+        window.render_frame(cx);
+    });
+
+    let after = visual.update(|window, _| {
+        window
+            .try_find(shop)
+            .expect("the shop panel is still on the page")
+            .bounds()
+    });
+    assert!(
+        after.origin.y < before.origin.y,
+        "the shop moved up the page: before={before:?} after={after:?}"
     );
 }

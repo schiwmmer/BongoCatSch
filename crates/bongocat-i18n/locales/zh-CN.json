@@ -650,13 +650,6 @@
       "title": "功法书",
       "empty": "还没有功法书。闯关成功必得，探索亦有几率。"
     },
-    "mastered": {
-      "title": "已习得功法",
-      "empty": "尚无圆满之功法。修习圆满后即已习得，永久生效，也可售出。",
-      "progress": "已至 %{rank}/%{total} 阶",
-      "show_all": "展开全部 %{count} 部",
-      "show_less": "收起"
-    },
     "art": {
       "kind": {
         "internal": "内功",
@@ -1074,7 +1067,6 @@
       "refuse_equipped": "身上的装备不能卖",
       "refuse_training": "正在修炼的功法不能卖",
       "refuse_already": "此功法已圆满，书中无页可读",
-      "sold": "已售",
       "refuse_sold": "这本功法之书已售过，不可再卖",
       "refuse_star_capped": "这件装备已满 10 星，无法再升",
       "refuse_resources": "资源不足，无法升星（需要 %{tribute}）",

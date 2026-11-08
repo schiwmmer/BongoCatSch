@@ -18,12 +18,11 @@ use bongocat_pomodoro::{
     AptitudeHerb, ArtGrade, ArtKind, ArtOutcome, ArtOwnership, ArtView, Attribute, Attributes,
     BonusFind, Building, BuildingView, Cost, CultivationView, DailyKind, Derived, DropView,
     EquipSlot, EventDetail, EventRecord, ExplorationHours, ExplorationOutcome, GatherSite,
-    GatherSkill, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR, MarrowSource, MasteredArtView,
-    PlotView, PomodoroCommand, Rarity, Realm, Resource, ResourceBag, ResourcesView, SaleKind,
-    SeedGrade, SeedView, SessionMode, ShopOffer, ShopOfferView, StrikeEffect,
-    TRIAL_ATTEMPTS_PER_DAY, TradeView, TrialBlocked, art_bonus_at, art_payout_at, blueprint,
-    grow_seconds_at, harvest_points, herb_tier, mastered_art_bonus_payout, mastered_art_payout,
-    plant_permille, star_multiplier_permille,
+    GatherSkill, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR, MarrowSource, PlotView,
+    PomodoroCommand, Rarity, Realm, Resource, ResourceBag, ResourcesView, SaleKind, SeedGrade,
+    SeedView, SessionMode, ShopOffer, ShopOfferView, StrikeEffect, TRIAL_ATTEMPTS_PER_DAY,
+    TradeView, TrialBlocked, blueprint, grow_seconds_at, harvest_points, herb_tier, plant_permille,
+    star_multiplier_permille,
 };
 
 use gpui_kit::component::Sizable as _;
@@ -31,6 +30,7 @@ use gpui_kit::component::hover_card::HoverCard;
 // `test_support()` marks the elements the headless window tests observe; without
 // `gpui-kit`'s `test-support` feature it is the identity function.
 use gpui_kit::base::TestSupportExt as _;
+use gpui_kit::{PlatformInput, ScrollDelta, ScrollWheelEvent};
 use std::time::Duration;
 
 mod arts;
@@ -52,7 +52,7 @@ pub(super) use attributes::{CombatStats, derived_rows};
 pub(super) use garden::SeedKey;
 // Only the headless page tests read the formula directly; the lib itself
 // reaches it through the page render.
-use arts::{arts_panel, mastered_panel};
+use arts::arts_panel;
 #[cfg(test)]
 pub(super) use attributes::derived_formula;
 use attributes::{attributes_panel, derived_panel};
@@ -115,15 +115,13 @@ pub(super) fn content(
     let open_plot = view.read(cx).cultivation_open_plot;
     let dig_confirm = view.read(cx).cultivation_dig_confirm;
     let dig_confirm_final = view.read(cx).cultivation_dig_confirm_final;
-    let mastered_open = view.read(cx).cultivation_mastered_open;
     let seeds_open = view.read(cx).cultivation_seeds_open;
-    let scroll_handle = view.read(cx).cultivation_scroll_handle.clone();
-
-    // One anchor per panel, so the navigation bar can scroll to a section
-    // without knowing the panel's index in the child list.
-    let anchors: Vec<gpui_kit::ScrollAnchor> = (0..MODULE_COUNT)
-        .map(|_| gpui_kit::ScrollAnchor::for_handle(scroll_handle.clone()))
-        .collect();
+    // One slot per panel, filled during prepaint with the panel's own bounds in
+    // window coordinates. The navigation bar reads them to scroll the settings
+    // list — whose `ListState` is private — by dispatching a scroll-wheel event
+    // at the panel's position.
+    let panel_bounds: Rc<RefCell<Vec<Option<Bounds<Pixels>>>>> =
+        Rc::new(RefCell::new(vec![None; MODULE_COUNT]));
 
     div()
         .id("cultivation-settings")
@@ -131,8 +129,7 @@ pub(super) fn content(
         .flex_col()
         .gap_3()
         .p_3()
-        .track_scroll(&scroll_handle)
-        .child(module_navigation_bar(&view, &anchors, locale, tokens))
+        .child(module_navigation_bar(&view, &panel_bounds, locale, tokens))
         .children(breakthrough_banner(&cultivation, locale, tokens))
         .child(realm_header(
             &view,
@@ -142,49 +139,44 @@ pub(super) fn content(
             tokens,
         ))
         .children(notices(&cultivation, locale, tokens))
-        .child(anchored_panel(
-            &anchors,
+        .child(panel_anchor(
             0,
+            &panel_bounds,
             record_section(&view, &cultivation, locale, tokens),
         ))
-        .child(anchored_panel(
-            &anchors,
+        .child(panel_anchor(
             1,
+            &panel_bounds,
             attributes_panel(&view, &cultivation, locale, tokens),
         ))
-        .child(anchored_panel(
-            &anchors,
+        .child(panel_anchor(
             2,
+            &panel_bounds,
             derived_panel(&cultivation, locale, tokens),
         ))
-        .child(anchored_panel(
-            &anchors,
+        .child(panel_anchor(
             3,
+            &panel_bounds,
             equipment_panel(&view, &cultivation, locale, tokens, open_item),
         ))
-        .child(anchored_panel(
-            &anchors,
+        .child(panel_anchor(
             4,
+            &panel_bounds,
             inventory_panel(&view, &cultivation, locale, tokens, open_item),
         ))
-        .child(anchored_panel(
-            &anchors,
+        .child(panel_anchor(
             5,
+            &panel_bounds,
             arts_panel(&view, &cultivation, locale, tokens),
         ))
-        .child(anchored_panel(
-            &anchors,
+        .child(panel_anchor(
             6,
-            mastered_panel(&view, &cultivation, mastered_open, locale, tokens),
-        ))
-        .child(anchored_panel(
-            &anchors,
-            7,
+            &panel_bounds,
             seed_panel(&view, &cultivation, open_seed, seeds_open, locale, tokens),
         ))
-        .child(anchored_panel(
-            &anchors,
-            8,
+        .child(panel_anchor(
+            7,
+            &panel_bounds,
             garden_panel(
                 &view,
                 &cultivation,
@@ -197,11 +189,11 @@ pub(super) fn content(
         ))
         .children(
             breakthrough_panel(&view, &cultivation, locale, tokens)
-                .map(|panel| anchored_panel(&anchors, 9, panel)),
+                .map(|panel| panel_anchor(8, &panel_bounds, panel)),
         )
-        .child(anchored_panel(
-            &anchors,
-            10,
+        .child(panel_anchor(
+            9,
+            &panel_bounds,
             exploration_panel(
                 &view,
                 &cultivation,
@@ -210,78 +202,104 @@ pub(super) fn content(
                 tokens,
             ),
         ))
-        .child(anchored_panel(
-            &anchors,
-            11,
+        .child(panel_anchor(
+            10,
+            &panel_bounds,
             jobs_panel(&view, &cultivation, locale, tokens),
         ))
-        .child(anchored_panel(
-            &anchors,
-            12,
+        .child(panel_anchor(
+            11,
+            &panel_bounds,
             proving_panel(&view, &cultivation, locale, tokens),
         ))
-        .child(anchored_panel(
-            &anchors,
-            13,
+        .child(panel_anchor(
+            12,
+            &panel_bounds,
             trial_panel(&view, &cultivation, locale, tokens),
         ))
-        .child(anchored_panel(
-            &anchors,
-            14,
+        .child(panel_anchor(
+            13,
+            &panel_bounds,
             resources::resources_panel(&view, &cultivation, locale, tokens),
         ))
-        .child(anchored_panel(
-            &anchors,
-            15,
+        .child(panel_anchor(
+            14,
+            &panel_bounds,
             shop_panel(&view, &cultivation, open_offer, locale, tokens),
         ))
         .into_any_element()
 }
 
 /// The number of modules the navigation bar jumps between. Must match the
-/// number of `anchored_panel` calls in [`content`].
-const MODULE_COUNT: usize = 16;
+/// number of `panel_anchor` calls in [`content`].
+const MODULE_COUNT: usize = 15;
 
-/// Wrap a panel in a scroll anchor so the navigation bar can scroll to it.
+/// Wrap a panel in an id'd div that records its bounds during prepaint.
 ///
-/// The wrapper is a plain `div`: it adds no visual chrome, only the anchor
-/// that the navigation bar's buttons scroll to.
-fn anchored_panel(
-    anchors: &[gpui_kit::ScrollAnchor],
+/// The wrapper is a plain `div`: it adds no visual chrome. The id lets a test
+/// find the panel, and the prepaint listener fills the shared bounds slot the
+/// navigation bar reads when its buttons scroll.
+fn panel_anchor(
     index: usize,
+    panel_bounds: &Rc<RefCell<Vec<Option<Bounds<Pixels>>>>>,
     panel: impl gpui_kit::IntoElement,
 ) -> impl gpui_kit::IntoElement {
+    let store = Rc::clone(panel_bounds);
     div()
+        .on_children_prepainted(move |bounds, _, _| {
+            if let (Some(slot), Some(first)) = (store.borrow_mut().get_mut(index), bounds.first()) {
+                *slot = Some(*first);
+            }
+        })
         .id(SharedString::from(format!("cultivation-anchor-{}", index)))
-        .anchor_scroll(Some(anchors[index].clone()))
+        .test_support()
         .child(panel.into_any_element())
 }
 
 /// The navigation bar at the top of the cultivation page.
 ///
 /// One button per module, in the order the modules appear on the page. A click
-/// scrolls the page to that module; the bar itself stays at the top because it
-/// is rendered before the scrolling column's first child.
+/// scrolls the page to that module.
+///
+/// The page is one tall item inside the settings list, so the list is the
+/// scroll container — and the list keeps its `ListState` private. The button
+/// therefore asks the list to scroll by dispatching a scroll-wheel event at the
+/// target panel's own position: the event hit-tests to the panel and bubbles to
+/// the list's handler, and the delta is the distance the panel sits from the
+/// viewport's centre. The list clamps the scroll to its bounds, so a target
+/// near either end lands exactly there.
 fn module_navigation_bar(
     _view: &Entity<SettingsView>,
-    anchors: &[gpui_kit::ScrollAnchor],
+    panel_bounds: &Rc<RefCell<Vec<Option<Bounds<Pixels>>>>>,
     _locale: &str,
     tokens: Tokens,
 ) -> impl gpui_kit::IntoElement {
     // 只保留需要导航的模块：境界、最近事件、属性、外显属性、装备已在页面上方，
     // 种子和仙草园合并为一个「种子」，试炼和锁妖塔合并为一个「试炼」。
-    let modules = [
-        ("储物袋", 4),
-        ("功法", 5),
-        ("已学", 6),
-        ("种子", 7),
-        ("破境", 9),
-        ("探索", 10),
-        ("打工", 11),
-        ("试炼", 12),
-        ("资源", 14),
-        ("坊市", 15),
+    let modules: [(SharedString, usize); 9] = [
+        (SharedString::from("储物袋"), 4),
+        (SharedString::from("功法"), 5),
+        (SharedString::from("种子"), 6),
+        (SharedString::from("破境"), 8),
+        (SharedString::from("探索"), 9),
+        (SharedString::from("打工"), 10),
+        (SharedString::from("试炼"), 11),
+        (SharedString::from("资源"), 13),
+        (SharedString::from("坊市"), 14),
     ];
+    let buttons = modules
+        .into_iter()
+        .map(|(label, index)| {
+            let store = Rc::clone(panel_bounds);
+            Button::new(format!("cultivation-nav-{index}"))
+                .ghost()
+                .small()
+                .label(label)
+                .on_click(move |_, window, _cx| {
+                    scroll_to_panel(index, &store, window);
+                })
+        })
+        .collect::<Vec<_>>();
 
     div()
         .id("cultivation-module-navigation")
@@ -293,16 +311,54 @@ fn module_navigation_bar(
         .px_3()
         .bg(tokens.canvas)
         .rounded_lg()
-        .children(modules.iter().map(|(label, index)| {
-            let anchor = anchors[*index].clone();
-            Button::new(format!("cultivation-nav-{index}"))
-                .ghost()
-                .small()
-                .label(*label)
-                .on_click(move |_, window, cx| {
-                    anchor.scroll_to(window, cx);
-                })
-        }))
+        .children(buttons)
+}
+
+/// Scroll the settings list so the panel at `index` is in view.
+///
+/// The panel's bounds were recorded during its prepaint, in window
+/// coordinates. The delta is the panel's centre read against the viewport's
+/// centre — positive when the panel sits below the middle (scroll down, a
+/// negative wheel delta) and negative when it sits above (scroll up). A panel
+/// already in view asks for no scroll at all.
+fn scroll_to_panel(
+    index: usize,
+    panel_bounds: &Rc<RefCell<Vec<Option<Bounds<Pixels>>>>>,
+    window: &mut Window,
+) {
+    let Some(bounds) = panel_bounds.borrow().get(index).copied().flatten() else {
+        return;
+    };
+    let viewport = window.bounds();
+    let panel_center = bounds.origin.y + bounds.size.height / 2.0;
+    let viewport_center = viewport.origin.y + viewport.size.height / 2.0;
+    let delta_y = panel_center - viewport_center;
+    if delta_y.abs() < px(1.) {
+        return;
+    }
+    // The event's position only decides which element it hit-tests to; the
+    // delta is what scrolls. It has to land inside the viewport — a position
+    // at the target panel is often below the fold, where the hit-test finds
+    // nothing and the event goes nowhere.
+    //
+    // The dispatch waits for the next frame: a click handler runs inside the
+    // list's own mouse-event dispatch, whose listeners are already taken, so a
+    // scroll event raised right there would reach no one.
+    let position = point(
+        viewport.origin.x + viewport.size.width / 2.0,
+        viewport_center,
+    );
+    let delta = ScrollDelta::Pixels(point(px(0.), -delta_y));
+    window.on_next_frame(move |window, cx| {
+        window.dispatch_event(
+            PlatformInput::ScrollWheel(ScrollWheelEvent {
+                position,
+                delta,
+                ..Default::default()
+            }),
+            cx,
+        );
+    });
 }
 
 /// The realm line, the power, and how far through the realm the growth is.
