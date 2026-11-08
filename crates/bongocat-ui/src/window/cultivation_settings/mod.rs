@@ -255,7 +255,6 @@ fn anchored_panel(
         .id(SharedString::from(format!("cultivation-anchor-{}", index)))
         .anchor_scroll(Some(anchors[index].clone()))
         .child(panel.into_any_element())
-        .into_any_element()
 }
 
 /// The navigation bar at the top of the cultivation page.
@@ -296,7 +295,6 @@ fn module_navigation_bar(
         .rounded_lg()
         .children(modules.iter().map(|(label, index)| {
             let anchor = anchors[*index].clone();
-            let view = _view.clone();
             div()
                 .id(SharedString::from(format!("cultivation-nav-{}", index)))
                 .px_3()
@@ -306,7 +304,6 @@ fn module_navigation_bar(
                 .cursor_pointer()
                 .on_click(move |_, window, cx| {
                     anchor.scroll_to(window, cx);
-                    view.update(cx, |_, _| {});
                 })
                 .child(*label)
         }))
