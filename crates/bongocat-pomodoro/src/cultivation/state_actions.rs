@@ -1177,8 +1177,19 @@ impl Cultivation {
         // lifts the level ceiling and pays a trophy, so a report read afterwards
         // would credit the win to the reward rather than to the gear.
         let player_power = self.power();
+        // A cultivator who held the realm back keeps the growth they earned,
+        // but the part that was banked past the old realm's cap is only half
+        // carried into the new one. The cap is the last level of the realm
+        // they just left; anything above it is surplus, and surplus is taxed
+        // at 50%. The new floor is the realm they just opened, so the final
+        // growth is the greater of that floor and the old cap plus half the
+        // surplus.
+        let old_cap = threshold_for(self.realm().cap_level());
+        let new_floor = stage_floor(target.index());
+        let surplus = self.document.growth.saturating_sub(old_cap);
+        let inherited = surplus / 2;
+        self.document.growth = new_floor.max(old_cap + inherited);
         self.document.realm = target.index() as u8;
-        self.document.growth = self.document.growth.max(stage_floor(target.index()));
         self.document.breakthrough_failures = 0;
         // The realm lifts the level ceiling, so the layers the growth already
         // bought become real levels — and real free points — now.

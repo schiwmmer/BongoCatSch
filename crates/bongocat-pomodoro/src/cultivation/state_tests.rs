@@ -1383,6 +1383,40 @@ fn a_won_breakthrough_hands_over_what_the_guardian_carried() {
     );
 }
 
+/// A cultivator who held the realm back keeps the growth they earned, but the
+/// part that was banked past the old realm's cap is only half carried into the
+/// new one. The cap is the last level of the realm they just left; anything
+/// above it is surplus, and surplus is taxed at 50%.
+#[test]
+fn a_breakthrough_taxs_surplus_growth_at_fifty_percent() {
+    // Start at the first realm's cap with a surplus of growth above the cap.
+    let first_cap_growth = threshold_for(LAYERS_PER_STAGE);
+    let surplus = 2_000_u32;
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        growth: first_cap_growth.saturating_add(surplus),
+        ..CultivationDocument::default()
+    });
+
+    let old_cap = threshold_for(LAYERS_PER_STAGE);
+    let new_floor = stage_floor(1);
+    let guardian = cultivation.guardian().expect("a guardian at the cap");
+    let current = cultivation.realm();
+    let rival = opponent::guardian(current, guardian.target);
+    let mut rng = Rng::seeded(11);
+    let fighter = cultivation.fighter(&mut rng);
+    let report = duel(fighter, rival.fighter.clone(), &mut rng);
+    cultivation.enter_realm(guardian, &rival, report, 1_000);
+
+    // The surplus is taxed at 50%: half of 2_000 is 1_000, added to the old
+    // cap. The new floor is the realm they just opened, so the final growth
+    // is the greater of the old cap plus half the surplus and the new floor.
+    let expected = old_cap.saturating_add(surplus / 2).max(new_floor);
+    assert_eq!(
+        cultivation.document.growth, expected,
+        "half the surplus is inherited, not all of it"
+    );
+}
+
 /// A beaten wanderer's gear is its own: whatever a walk hands over is one of
 /// the pieces the loser was wearing.
 #[test]

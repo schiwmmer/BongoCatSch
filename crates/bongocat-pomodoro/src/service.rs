@@ -122,11 +122,12 @@ struct Inner {
     document_writes: u64,
     document_write_failures: u64,
     last_error: Option<PomodoroErrorCode>,
-    /// The instant of the last periodic autosave, so a document that has not
-    /// changed since the last write is still flushed to disk every two hours.
-    /// Without this, a long idle session (a countdown running, or the machine
-    /// asleep) could leave the on-disk copy stale by days.
-    last_autosave: Instant,
+    /// The instant at which the next delayed save should fire, if one is
+    /// pending. A command that changed the document schedules a save five
+    /// minutes from now; a second command within that window resets the
+    /// deadline rather than writing again. A `None` value means no save is
+    /// pending, so the worker does not write on every tick.
+    save_deadline: Option<Instant>,
 }
 
 impl Inner {
@@ -145,18 +146,27 @@ impl Inner {
     /// A failed write is recorded and the state stays ahead of the file: the
     /// next write carries the same change, so a full disk or a read-only
     /// directory costs one missed write rather than the work it was recording.
+    ///
+    /// A command that changed the document also schedules a delayed save five
+    /// minutes from now. The delayed save is the safety net for a session that
+    /// keeps changing — a countdown that runs for an hour, or a machine that
+    /// sleeps with the app open — so the on-disk copy never lags by more than
+    /// five minutes. A second command within that window resets the deadline
+    /// rather than writing again, so a burst of activity costs one write, not
+    /// one per command.
     fn write_document(&mut self, path: &Path) {
         if !self.domain.document_is_dirty(&self.written) {
             return;
         }
         self.write_document_force(path);
+        self.save_deadline = Some(Instant::now() + SAVE_DEBOUNCE);
     }
 
     /// Write the document even when nothing has changed since the last write.
     ///
-    /// The periodic autosave calls this so a countdown that has been running
-    /// for two hours, or a machine that has been asleep, still leaves the
-    /// current state on disk. A failed write is recorded the same way.
+    /// The delayed save calls this when the deadline fires, so a document that
+    /// has been idle for five minutes is flushed to disk. A failed write is
+    /// recorded the same way.
     fn write_document_force(&mut self, path: &Path) {
         let document = self.domain.document().clone();
         match write_document(path, &document) {
@@ -205,7 +215,7 @@ impl PomodoroClient {
                     document_writes: 0,
                     document_write_failures: 0,
                     last_error: Some(PomodoroErrorCode::WorkerUnavailable),
-                    last_autosave: Instant::now(),
+                    save_deadline: None,
                     snapshot,
                 }),
                 changed: Condvar::new(),
@@ -252,7 +262,7 @@ impl PomodoroClient {
             document_writes: 0,
             document_write_failures: 0,
             last_error: None,
-            last_autosave: Instant::now(),
+            save_deadline: None,
             snapshot: PomodoroState::empty().snapshot(0),
         };
         inner.snapshot.worker = PomodoroWorkerState::Ready;
@@ -446,7 +456,7 @@ impl PomodoroService {
                 document_writes: 0,
                 document_write_failures: 0,
                 last_error: None,
-                last_autosave: Instant::now(),
+                save_deadline: None,
                 snapshot,
             }),
             changed: Condvar::new(),
@@ -578,12 +588,14 @@ fn run_worker(receiver: Receiver<PomodoroCommand>, shared: Arc<SharedState>, pat
         if !tick(&shared, &path, elapsed) {
             carried = Duration::ZERO;
         }
-        // The periodic autosave flushes the document every two hours even when
-        // nothing changed: a countdown that has been running for two hours, or
-        // a machine that has been asleep, still leaves the current state on
-        // disk. The tick above already writes when the document is dirty, so
-        // this only fires when the worker has been idle since the last write.
-        maybe_autosave(&shared, &path, AUTOSAVE_INTERVAL);
+        // The delayed save fires when its deadline arrives. A command that
+        // changed the document scheduled a save five minutes from now; a
+        // second command within that window reset the deadline rather than
+        // writing again. This is the safety net for a session that keeps
+        // changing — a countdown that runs for an hour, or a machine that
+        // sleeps with the app open — so the on-disk copy never lags by more
+        // than five minutes.
+        maybe_autosave(&shared, &path);
     }
     set_worker_state(&shared, PomodoroWorkerState::Stopping);
     while receiver.try_recv().is_ok() {}
@@ -594,32 +606,37 @@ fn run_worker(receiver: Receiver<PomodoroCommand>, shared: Arc<SharedState>, pat
     set_worker_state(&shared, PomodoroWorkerState::Stopped);
 }
 
-/// How often the worker flushes the document to disk even when nothing changed.
+/// How long after the last change the document is written to disk.
 ///
-/// A countdown that has been running for two hours, or a machine that has been
-/// asleep, leaves the on-disk copy stale by hours. The autosave bounds that
-/// staleness: the document is written every two hours whether or not a command
-/// moved it, so a crash loses at most two hours of progress.
-const AUTOSAVE_INTERVAL: Duration = Duration::from_secs(2 * 60 * 60);
+/// A command that changed the document schedules a save five minutes from now.
+/// A second command within that window resets the deadline rather than writing
+/// again, so a burst of activity costs one write, not one per command. The
+/// delayed save is the safety net for a session that keeps changing — a
+/// countdown that runs for an hour, or a machine that sleeps with the app
+/// open — so the on-disk copy never lags by more than five minutes.
+const SAVE_DEBOUNCE: Duration = Duration::from_secs(5 * 60);
 
-/// Write the document when the autosave interval has elapsed since the last
-/// flush, even if nothing changed since the last write.
+/// Write the document when its delayed-save deadline has arrived.
 ///
-/// The tick already writes when the document is dirty, so this only fires when
-/// the worker has been idle since the last write. A failed write is recorded by
-/// `write_document_force` and the next interval tries again. The interval is a
-/// parameter so a test can exercise the behavior without waiting two hours.
-fn maybe_autosave(shared: &Arc<SharedState>, path: &Path, interval: Duration) {
+/// A command that changed the document scheduled a save five minutes from now.
+/// A second command within that window reset the deadline rather than writing
+/// again. When the deadline arrives, the document is written even if nothing
+/// changed since the last write — this is the safety net for a session that
+/// has been idle for five minutes. A failed write is recorded by
+/// `write_document_force` and the next command reschedules the save.
+fn maybe_autosave(shared: &Arc<SharedState>, path: &Path) {
     let mut inner = shared
         .inner
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let elapsed = inner.last_autosave.elapsed();
-    if elapsed < interval {
+    let Some(deadline) = inner.save_deadline else {
+        return;
+    };
+    if Instant::now() < deadline {
         return;
     }
     inner.write_document_force(path);
-    inner.last_autosave = Instant::now();
+    inner.save_deadline = None;
 }
 
 /// How long the worker may sleep before folding in elapsed time.
@@ -988,12 +1005,13 @@ mod tests {
         service.shutdown(TIMEOUT).expect("clean shutdown");
     }
 
-    /// The autosave flushes the document after the interval even when nothing
-    /// changed since the last write. A countdown that has been running for two
-    /// hours, or a machine that has been asleep, still leaves the current state
-    /// on disk rather than a stale copy.
+    /// The delayed save flushes the document five minutes after the last change
+    /// even when nothing changed since the last write. A command that changed
+    /// the document schedules a save; a second command within that window resets
+    /// the deadline rather than writing again, so a burst of activity costs one
+    /// write, not one per command.
     #[test]
-    fn the_autosave_writes_after_the_interval_even_when_nothing_changed() {
+    fn the_delayed_save_writes_after_the_debounce_even_when_nothing_changed() {
         let directory = tempfile::tempdir().expect("a temporary directory");
         let path = directory.path().join("pomodoro-tasks.json");
         let service = PomodoroService::start(path.clone()).expect("pomodoro service");
@@ -1013,14 +1031,24 @@ mod tests {
             snapshot.tasks.iter().any(|t| t.name == "focus")
         });
 
-        // The document is now on disk. Delete it to prove the autosave rewrites.
+        // The document is now on disk. Delete it to prove the delayed save
+        // rewrites it.
         fs::remove_file(&path).expect("remove the document");
 
-        // A short interval exercises the same code path without waiting hours.
-        maybe_autosave(&client.shared, &path, Duration::ZERO);
+        // A save deadline in the past exercises the same code path without
+        // waiting five minutes.
+        {
+            let mut inner = client
+                .shared
+                .inner
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            inner.save_deadline = Some(Instant::now() - Duration::from_secs(1));
+        }
+        maybe_autosave(&client.shared, &path);
 
-        // The autosave should have rewritten the document.
-        assert!(path.exists(), "the autosave rewrote the document");
+        // The delayed save should have rewritten the document.
+        assert!(path.exists(), "the delayed save rewrote the document");
         let bytes = fs::read(&path).expect("read the autosaved document");
         let document: Document =
             serde_json::from_slice(&bytes).expect("the autosaved document parses");
@@ -1030,6 +1058,49 @@ mod tests {
         );
         assert_eq!(document.tasks.len(), 1);
         assert_eq!(document.tasks[0].name, "focus");
+
+        service.shutdown(TIMEOUT).expect("clean shutdown");
+    }
+
+    /// A second command within the debounce window resets the deadline rather
+    /// than writing again. A burst of activity costs one write, not one per
+    /// command.
+    #[test]
+    fn a_second_command_within_the_window_resets_the_deadline() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let path = directory.path().join("pomodoro-tasks.json");
+        let service = PomodoroService::start(path.clone()).expect("pomodoro service");
+        let client = service.client();
+        wait_for(&client, |snapshot| {
+            snapshot.worker == PomodoroWorkerState::Ready
+        });
+
+        // Create two tasks in quick succession. The first schedules a save; the
+        // second resets the deadline.
+        client
+            .try_publish(PomodoroCommand::CreateTask {
+                name: "first".into(),
+                estimated_pomodoros: 1,
+            })
+            .expect("create the first task");
+        client
+            .try_publish(PomodoroCommand::CreateTask {
+                name: "second".into(),
+                estimated_pomodoros: 1,
+            })
+            .expect("create the second task");
+        wait_for(&client, |snapshot| snapshot.tasks.len() == 2);
+
+        // The document should have been written twice (once per command), but
+        // only one delayed save should be pending.
+        {
+            let inner = client
+                .shared
+                .inner
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            assert!(inner.save_deadline.is_some(), "a save is pending");
+        }
 
         service.shutdown(TIMEOUT).expect("clean shutdown");
     }
