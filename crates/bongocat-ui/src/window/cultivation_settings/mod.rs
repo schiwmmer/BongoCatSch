@@ -109,6 +109,11 @@ pub(super) fn content(
     let tokens = Tokens::from_theme(cx);
     let snapshot = view.read(cx).pomodoro.snapshot();
     let cultivation = snapshot.cultivation.clone();
+    // Whether the page has a 破境 panel at all: the module bar draws a button
+    // per panel that exists, and a button that jumps nowhere is worse than no
+    // button.
+    let breakthrough = breakthrough_panel(&view, &cultivation, locale, tokens);
+    let has_breakthrough = breakthrough.is_some();
     let open_item = view.read(cx).cultivation_open_item;
     let open_offer = view.read(cx).cultivation_open_offer;
     let open_seed = view.read(cx).cultivation_open_seed;
@@ -129,7 +134,13 @@ pub(super) fn content(
         .flex_col()
         .gap_3()
         .p_3()
-        .child(module_navigation_bar(&view, &panel_bounds, locale, tokens))
+        .child(module_navigation_bar(
+            &view,
+            &panel_bounds,
+            has_breakthrough,
+            locale,
+            tokens,
+        ))
         .children(breakthrough_banner(&cultivation, locale, tokens))
         .child(realm_header(
             &view,
@@ -187,10 +198,7 @@ pub(super) fn content(
                 tokens,
             ),
         ))
-        .children(
-            breakthrough_panel(&view, &cultivation, locale, tokens)
-                .map(|panel| panel_anchor(8, &panel_bounds, panel)),
-        )
+        .children(breakthrough.map(|panel| panel_anchor(8, &panel_bounds, panel)))
         .child(panel_anchor(
             9,
             &panel_bounds,
@@ -271,6 +279,7 @@ fn panel_anchor(
 fn module_navigation_bar(
     _view: &Entity<SettingsView>,
     panel_bounds: &Rc<RefCell<Vec<Option<Bounds<Pixels>>>>>,
+    breakthrough: bool,
     _locale: &str,
     tokens: Tokens,
 ) -> impl gpui_kit::IntoElement {
@@ -289,14 +298,16 @@ fn module_navigation_bar(
     ];
     let buttons = modules
         .into_iter()
+        // 破境面板只在能破境时出现；按钮跟着面板走，不指一个不存在的位置。
+        .filter(move |(_, index)| breakthrough || *index != 8)
         .map(|(label, index)| {
             let store = Rc::clone(panel_bounds);
             Button::new(format!("cultivation-nav-{index}"))
                 .ghost()
                 .small()
                 .label(label)
-                .on_click(move |_, window, _cx| {
-                    scroll_to_panel(index, &store, window);
+                .on_click(move |_, window, cx| {
+                    scroll_to_panel(index, &store, window, cx);
                 })
         })
         .collect::<Vec<_>>();
@@ -321,10 +332,17 @@ fn module_navigation_bar(
 /// centre — positive when the panel sits below the middle (scroll down, a
 /// negative wheel delta) and negative when it sits above (scroll up). A panel
 /// already in view asks for no scroll at all.
+///
+/// The dispatch is deferred rather than sent from the click handler: a click
+/// handler runs inside the list's own mouse dispatch, whose listeners have been
+/// taken off the frame for the duration, so a scroll event raised there reaches
+/// nobody. A deferred callback runs after the frame has been laid out and its
+/// listeners are back, which is what lets the event hit the list at all.
 fn scroll_to_panel(
     index: usize,
     panel_bounds: &Rc<RefCell<Vec<Option<Bounds<Pixels>>>>>,
     window: &mut Window,
+    cx: &mut App,
 ) {
     let Some(bounds) = panel_bounds.borrow().get(index).copied().flatten() else {
         return;
@@ -337,19 +355,15 @@ fn scroll_to_panel(
         return;
     }
     // The event's position only decides which element it hit-tests to; the
-    // delta is what scrolls. It has to land inside the viewport — a position
-    // at the target panel is often below the fold, where the hit-test finds
-    // nothing and the event goes nowhere.
-    //
-    // The dispatch waits for the next frame: a click handler runs inside the
-    // list's own mouse-event dispatch, whose listeners are already taken, so a
-    // scroll event raised right there would reach no one.
+    // delta is what scrolls. It has to land inside the list — a position at the
+    // target panel is often below the fold, where the hit-test finds nothing
+    // and the event goes nowhere — so it is aimed at the middle of the page.
     let position = point(
         viewport.origin.x + viewport.size.width / 2.0,
         viewport_center,
     );
     let delta = ScrollDelta::Pixels(point(px(0.), -delta_y));
-    window.on_next_frame(move |window, cx| {
+    window.defer(cx, move |window, cx| {
         window.dispatch_event(
             PlatformInput::ScrollWheel(ScrollWheelEvent {
                 position,

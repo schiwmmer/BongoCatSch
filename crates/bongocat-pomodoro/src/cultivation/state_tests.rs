@@ -989,9 +989,8 @@ fn a_sweep_clears_ten_floors_and_pays_each() {
     );
 }
 
-/// A save at `level` wearing the four pieces a player of that realm would be
-/// wearing.
-fn a_dressed_save_at(level: u16) -> Cultivation {
+/// A save at `level` wearing the four pieces of one quality, or nothing at all.
+fn a_save_at(level: u16, gear: Option<Rarity>) -> Cultivation {
     let realm = Realm::from_level(level);
     let mut document = CultivationDocument {
         growth: threshold_for(level),
@@ -999,14 +998,17 @@ fn a_dressed_save_at(level: u16) -> Cultivation {
         equipped: vec![None; SLOT_COUNT],
         ..CultivationDocument::default()
     };
-    let mut rng = Rng::seeded(u64::from(level));
+    let Some(rarity) = gear else {
+        return Cultivation::new(document);
+    };
+    let mut rng = Rng::seeded(u64::from(level) * 31 + rarity.index() as u64);
     let mut slots = std::collections::BTreeSet::new();
     let mut id = 1;
     while slots.len() < SLOT_COUNT {
         let item = crate::cultivation::items::roll_equipment(
             id,
             realm.index() as u8 + 1,
-            crate::cultivation::Rarity::Common,
+            rarity,
             &mut rng,
         );
         if slots.insert(item.slot.index()) {
@@ -1018,19 +1020,28 @@ fn a_dressed_save_at(level: u16) -> Cultivation {
     Cultivation::new(document)
 }
 
-/// The tower is the ladder read sideways: a floor stands for a level, and
-/// the warden is that level's cultivator hardened, dressed, and swinging what
-/// it carries. This is the number that makes "how far can I climb" a question
-/// gear answers, so it is locked here — a retune of the attributes or the
-/// duel that moves the frontier a whole realm away from the save's own level
-/// fails this.
+/// A save at `level` in a set of common cloth: the four pieces a player of that
+/// realm would be wearing.
+fn a_dressed_save_at(level: u16) -> Cultivation {
+    a_save_at(level, Some(Rarity::Common))
+}
+
+/// The tower is the ladder read sideways: a floor stands for a level, and its
+/// warden is drawn from the band around that level's rung. Past floor 101 the
+/// band is wide, and that width is what makes gear a slope rather than a cliff:
+/// at its own level a naked body clears about three floors in ten, a body in
+/// common cloth about five, a body in earth-grade cloth or better about eight.
+///
+/// These three numbers are the product requirement, so they are locked here: a
+/// retune of the attributes, the band or the duel that drifts one of them out
+/// of its window fails this.
 #[test]
-fn a_dressed_save_holds_its_own_level_and_not_much_past_it() {
-    let win_rate = |level: u16, floor: u16| {
+fn the_deep_tower_reads_gear_as_three_steps() {
+    let rate = |level: u16, floor: u16, gear: Option<Rarity>| {
         let runs = 200;
         let wins = (0..runs)
             .filter(|attempt: &usize| {
-                let mut cultivation = a_dressed_save_at(level);
+                let mut cultivation = a_save_at(level, gear);
                 cultivation.document.trial_floor = floor - 1;
                 cultivation
                     .trial(1_000 + (*attempt as i64) * 977, 9)
@@ -1039,69 +1050,118 @@ fn a_dressed_save_holds_its_own_level_and_not_much_past_it() {
             .count();
         wins * 100 / runs
     };
-    for level in [10_u16, 100, 500, 1_000] {
-        let own = win_rate(level, level);
+    for level in [101_u16, 200, 500, 700] {
+        let bare = rate(level, level, None);
+        let common = rate(level, level, Some(Rarity::Common));
+        let elite = rate(level, level, Some(Rarity::Immortal));
         assert!(
-            own >= 60,
-            "level {level} holds its own floor only {own}% of the time"
+            (22..=42).contains(&bare),
+            "a bare level {level} save clears its own floor {bare}% of the time"
+        );
+        assert!(
+            (40..=70).contains(&common),
+            "a white-clad level {level} save clears its own floor {common}% of the time"
+        );
+        assert!(
+            (62..=92).contains(&elite),
+            "an earth-clad level {level} save clears its own floor {elite}% of the time"
+        );
+        assert!(
+            bare < common && common < elite,
+            "level {level}: gear stopped being a slope ({bare} / {common} / {elite})"
         );
     }
-    // A quarter past the save is a wall — a floor the save mostly cannot
-    // hold. The band's easy end lets a lucky draw through, so the wall is
-    // not absolute: a quarter past reads as "usually a loss", and the band
-    // is what the randomness is for.
-    for level in [100_u16, 500, 800] {
-        let past = (u32::from(level) * 125 / 100).min(u32::from(TRIAL_MAX_FLOOR)) as u16;
-        let past_rate = win_rate(level, past);
+    // The first deep floor is the one the three numbers are quoted on, so it is
+    // held tighter than the ladder as a whole.
+    let bare = rate(101, 101, None);
+    let common = rate(101, 101, Some(Rarity::Common));
+    let elite = rate(101, 101, Some(Rarity::Immortal));
+    assert!((18..=42).contains(&bare), "floor 101 bare {bare}%");
+    assert!((38..=62).contains(&common), "floor 101 common {common}%");
+    assert!((68..=92).contains(&elite), "floor 101 earth {elite}%");
+
+    // A tenth past the save is already a bad bet: the tower's frontier is the
+    // save's own level, and the floor above it is where the climb stops.
+    for level in [300_u16, 700] {
+        let past = (u32::from(level) * 110 / 100).min(u32::from(TRIAL_MAX_FLOOR)) as u16;
+        let bare = rate(level, past, None);
+        let common = rate(level, past, Some(Rarity::Common));
         assert!(
-            past_rate <= 30,
-            "level {level} clears floor {past} a quarter past it {past_rate}% of the time"
+            bare <= 32,
+            "a bare level {level} save clears floor {past} a tenth past it {bare}% of the time"
+        );
+        assert!(
+            common <= 55,
+            "a white-clad level {level} save clears floor {past} a tenth past it {common}% of the time"
         );
     }
 }
 
-/// A bare same-level cultivator is not enough: the tower asks for the small
-/// edge that a few pieces of gear, some harvested attribute points, or a
-/// trained 功法 provide. The bare body wins clearly less often than the dressed
-/// one, and the tower never offers it the skip — the climb is a fight, not a
-/// formality.
+/// The first hundred floors are the on-ramp and keep the odds they were tuned
+/// with: a naked body there loses most of its own floors, and a body in cloth
+/// clears its own floor almost every time. That is the tutorial, and the deep
+/// band must not leak into it.
 #[test]
-fn a_bare_same_level_save_cannot_sweep_the_tower() {
-    for level in [10_u16, 30, 100, 500, 1_000] {
-        let bare_rate = (0..200)
+fn the_shallow_tower_keeps_its_on_ramp() {
+    let rate = |level: u16, gear: Option<Rarity>| {
+        let runs = 200;
+        let wins = (0..runs)
             .filter(|attempt: &usize| {
-                let mut cultivation = a_bare_save_at(level);
+                let mut cultivation = a_save_at(level, gear);
                 cultivation.document.trial_floor = level - 1;
                 cultivation
                     .trial(1_000 + (*attempt as i64) * 977, 9)
                     .is_some_and(|outcome| outcome.duel.won)
             })
             .count();
-        let dressed_rate = (0..200)
-            .filter(|attempt: &usize| {
-                let mut cultivation = a_dressed_save_at(level);
-                cultivation.document.trial_floor = level - 1;
-                cultivation
-                    .trial(2_000 + (*attempt as i64) * 977, 9)
-                    .is_some_and(|outcome| outcome.duel.won)
-            })
-            .count();
-        let mut bare = a_bare_save_at(level);
-        bare.document.trial_floor = level - 1;
+        wins * 100 / runs
+    };
+    for level in [10_u16, 50, 100] {
+        let bare = rate(level, None);
+        let common = rate(level, Some(Rarity::Common));
         assert!(
-            !bare.trial_sweepable(),
-            "a bare level {level} save is offered the sweep"
+            bare <= 60,
+            "a bare level {level} save clears its own floor {bare}% of the time"
         );
         assert!(
-            bare_rate + 40 <= dressed_rate,
-            "at level {level} a bare save holds {bare_rate} of two hundred against a dressed save's {dressed_rate}: gear is not the edge the tower asks for"
-        );
-        assert!(
-            bare_rate <= 130,
-            "a bare level {level} save clears its own floor {}% of the time",
-            bare_rate / 2
+            common >= 95,
+            "a white-clad level {level} save clears its own floor only {common}% of the time"
         );
     }
+}
+
+/// Standing on a floor's own level is never enough to sweep it: the skip is for
+/// a body that has outgrown the stretch, and the margin is three tenths over
+/// what the floor prints.
+#[test]
+fn a_same_level_save_is_never_offered_the_sweep() {
+    // The on-ramp is where a first set of cloth still doubles a body, so only
+    // the naked save is held to the rule there.
+    for level in [10_u16, 30, 100] {
+        let mut save = a_bare_save_at(level);
+        save.document.trial_floor = level - 1;
+        assert!(
+            !save.trial_sweepable(),
+            "a bare level {level} save is offered the sweep at its own floor"
+        );
+    }
+    for level in [101_u16, 300, 700] {
+        for gear in [None, Some(Rarity::Common), Some(Rarity::Immortal)] {
+            let mut save = a_save_at(level, gear);
+            save.document.trial_floor = level - 1;
+            assert!(
+                !save.trial_sweepable(),
+                "a level {level} save in {gear:?} gear is offered the sweep at its own floor"
+            );
+        }
+    }
+    // A body a realm ahead of the floor is exactly what the skip is for.
+    let mut ahead = a_bare_save_at(300);
+    ahead.document.trial_floor = 100;
+    assert!(
+        ahead.trial_sweepable(),
+        "a level 300 save cannot sweep the hundredth floor"
+    );
 }
 
 /// The day opens once, and once only: a relaunch the same afternoon is still

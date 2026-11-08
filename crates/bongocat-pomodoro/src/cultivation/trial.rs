@@ -30,14 +30,27 @@ pub const TRIAL_ATTEMPTS_PER_DAY: u32 = 5;
 /// found its edge.
 pub const TRIAL_MAX_FLOOR: u16 = MAX_LEVEL;
 
+/// How far past a floor's warden a save has to stand before the tower offers to
+/// sweep it, in parts per thousand of the number the floor prints.
+///
+/// 1300: three tenths over the warden is the point where the floor stops being
+/// a fight at all. It used to be twice the floor's rung, which only a save two
+/// realms ahead could reach — the skip existed, and nobody was ever offered it.
+/// Three tenths over the printed warden is a save that has outgrown the
+/// stretch: a naked body at its own level stands at 1.075 of the rung and is
+/// never offered it, and a body in white cloth at floor 300 stands at 1.36 of
+/// the rung — under the 1.56 the skip asks — so the climb is still a climb.
+pub const TRIAL_SWEEP_MARGIN_PERMILLE: u32 = 1_300;
+
 /// What a floor's warden is worth against a naked cultivator of that level, in
 /// parts per thousand.
 ///
-/// 930: a cultivator standing on their own level cannot sweep the floor.  At
-/// this height a bare body loses most attempts, while a body carrying a few
-/// pieces of gear, harvested attribute points, or a trained 功法 has the edge it
-/// needs.  The tower therefore stays a real wall at the frontier instead of a
-/// formality that same-level saves clear without preparation.
+/// 930: the floor's body sits just under the naked body of its own level, so
+/// the shallow tower is an on-ramp rather than a coin toss. Past
+/// [`super::opponent::TRIAL_DEEP_START`] the *spread* of the draw does the
+/// work instead (see `DEEP_BAND`): a naked body at its own level clears about
+/// three floors in ten there, because half the draws are a wall and half are
+/// softer than the body standing in front of them.
 pub const TRIAL_OPPONENT_PERMILLE: u32 = 930;
 
 /// What a cleared floor turns up, in parts per thousand, rolled once: a seed
@@ -76,8 +89,15 @@ pub fn floor_realm(floor: u16) -> Realm {
 /// beside the floor and the fighter the duel settles against are the same
 /// spread, and the page reads its middle.
 pub fn warden_power(floor: u16) -> u32 {
-    // The midpoint of the band the floor's own rung is drawn from.
-    super::opponent::floor_rung_power(floor).saturating_mul(1_100) / 1_000
+    // The midpoint of the band the floor's own rung is drawn from. The shallow
+    // tower's band centres on 1100‰; past the on-ramp the band is the wide one,
+    // and its middle is what the page prints.
+    let middle = if floor < super::opponent::TRIAL_DEEP_START {
+        1_100
+    } else {
+        super::opponent::deep_band_middle_permille(floor)
+    };
+    super::opponent::floor_rung_power(floor).saturating_mul(middle) / 1_000
 }
 
 /// What clearing a floor turned up.
@@ -152,32 +172,49 @@ mod tests {
     }
 
     /// A floor reads the same against any save: the warden is the floor's own
-    /// hardened rung, drawn through the band, so the tower stays a benchmark —
-    /// the fight is a contest, not a formality, but the floor does not move with
-    /// who is climbing it.
+    /// rung, drawn through the band, so the tower stays a benchmark — the fight
+    /// is a contest, not a formality, but the floor does not move with who is
+    /// climbing it.
+    ///
+    /// The two bands are the two halves of the tower: the on-ramp draws inside
+    /// [1.00, 1.20] of the rung, and the deep tower draws from the wide band —
+    /// which is what turns "dressed or not" into three steps of odds instead of
+    /// one cliff.
     #[test]
     fn the_warden_is_drawn_around_the_floors_own_rung() {
-        for floor in [1_u16, 50, 100, 500, TRIAL_MAX_FLOOR] {
+        for floor in [1_u16, 50, 100, 101, 500, TRIAL_MAX_FLOOR] {
             let rung = floor_rung_power(floor);
+            let (low, high) = super::super::opponent::challenge_band_bounds(floor);
+            let (mut seen_min, mut seen_max) = (u32::MAX, 0);
             for seed in 0..300u64 {
                 let draw = challenge_power(floor, &mut Rng::seeded(seed));
                 // The draw never leaves the band around the floor's own rung.
                 assert!(
-                    (rung * 1_000 / 1_000..=rung * 1_200 / 1_000).contains(&draw),
-                    "floor {floor} seed {seed}: draw {draw} left [1.00, 1.20] of the rung {rung}"
+                    (rung * low / 1_000..=rung * high / 1_000).contains(&draw),
+                    "floor {floor} seed {seed}: draw {draw} left [{low}, {high}] of the rung {rung}"
                 );
+                seen_min = seen_min.min(draw);
+                seen_max = seen_max.max(draw);
                 // The warden the duel settles against is levelled to that draw,
                 // within a rung's own width — the ladder is the coarsest step
                 // the draw can be read on, and the first floor is its edge.
                 let warden = super::super::opponent::warden(floor, &mut Rng::seeded(seed));
-                let slack = rung / 5;
+                let slack = rung / 4;
                 let w = warden.attributes.power();
                 assert!(
-                    w >= rung.saturating_mul(1_000) / 1_000 - slack
-                        && w <= rung.saturating_mul(1_200) / 1_000 + slack,
+                    w + slack >= rung.saturating_mul(low) / 1_000
+                        && w <= rung.saturating_mul(high) / 1_000 + slack,
                     "floor {floor} seed {seed}: warden {w} left the band around the rung {rung}"
                 );
                 assert!(warden.fighter.health > 0);
+            }
+            // The band is a spread, not a point: a deep floor has to reach both
+            // a wall and a soft draw, or the three steps collapse into one.
+            if floor >= super::super::opponent::TRIAL_DEEP_START {
+                assert!(
+                    seen_min < rung && seen_max > rung * 14 / 10,
+                    "floor {floor}: the deep band never ranged: {seen_min}..{seen_max}"
+                );
             }
         }
     }

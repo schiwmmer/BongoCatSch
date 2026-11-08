@@ -58,8 +58,8 @@ use super::{
     skill_ready, skill_xp_total, star_success_permille,
     trade::{TradeRefusal, session_earnings},
     trial::{
-        TRIAL_ATTEMPTS_PER_DAY, TRIAL_MAX_FLOOR, TrialReward, floor_realm, roll_reward,
-        warden_power,
+        TRIAL_ATTEMPTS_PER_DAY, TRIAL_MAX_FLOOR, TRIAL_SWEEP_MARGIN_PERMILLE, TrialReward,
+        floor_realm, roll_reward, warden_power,
     },
 };
 use crate::CalendarDay;

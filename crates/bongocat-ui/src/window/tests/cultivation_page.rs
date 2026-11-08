@@ -2196,3 +2196,75 @@ fn a_navigation_button_scrolls_its_module_into_view(cx: &mut TestAppContext) {
         "the shop moved up the page: before={before:?} after={after:?}"
     );
 }
+
+/// The whole settings frame, on the cultivation page.
+///
+/// A fresh window per jump: the module bar rides with the page, so a second jump
+/// would have to scroll back to the top first — and what this test is about is
+/// the jump itself, not the walk back.
+fn open_settings_on_cultivation(cx: &mut TestAppContext) -> &mut VisualTestContext {
+    cx.update(gpui_kit::init);
+    let (client, endpoint) = crate::SettingsClient::bounded(4);
+    // The page publishes setting commands this test never reads; the endpoint
+    // has to outlive the window for its sender to stay connected.
+    std::mem::forget(endpoint);
+    let memory = SettingsNavigationMemory::new();
+    memory.open_cultivation();
+    let (_, visual) = cx.add_window_view(move |window, cx| {
+        let view = cx.new(|cx| {
+            SettingsView::new(
+                client,
+                SettingsWindowSeed {
+                    language: SettingsLanguage::English,
+                    appearance_theme: SettingsTheme::System,
+                },
+                Rc::new(|_| {}),
+                Rc::new(|_| {}),
+                PomodoroClient::unavailable(),
+                window,
+                cx,
+            )
+        });
+        view.update(cx, |view, _| view.set_navigation_memory(memory.clone()));
+        gpui_kit::component::Root::new(view, window, cx)
+    });
+    visual.update(|window, cx| window.render_frame(cx));
+    visual
+}
+
+/// A click on a module button at the top of the page has to bring that module
+/// into view: the bar exists so a user can reach 坊市 without dragging the
+/// scrollbar down a page several screens tall.
+#[gpui_kit::test]
+fn clicking_a_module_button_brings_that_module_into_view(cx: &mut TestAppContext) {
+    for (label, index) in [
+        ("储物袋", 4_usize),
+        ("功法", 5),
+        ("种子", 6),
+        // 破境面板只在能破境时出现，空存档的页面上没有这一栏，按钮也不画。
+        ("探索", 9),
+        ("打工", 10),
+        ("试炼", 11),
+        ("资源", 13),
+        ("坊市", 14),
+    ] {
+        let visual = open_settings_on_cultivation(cx);
+        visual.update(|window, cx| window.click(format!("cultivation-nav-{index}"), cx));
+        visual.update(|window, cx| window.render_frame(cx));
+        let (on_screen, offset) = visual.update(|window, _| {
+            let anchor = window
+                .try_find(ElementId::from(format!("cultivation-anchor-{index}")))
+                .map(|snapshot| snapshot.bounds())
+                .expect("the module anchor is painted");
+            let viewport = window.bounds();
+            (
+                anchor.origin.y < viewport.bottom() && anchor.bottom() > viewport.top(),
+                anchor.origin.y,
+            )
+        });
+        assert!(
+            on_screen,
+            "clicking {label} left its module off screen (top at {offset:?})"
+        );
+    }
+}

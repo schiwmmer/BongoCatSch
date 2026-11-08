@@ -966,7 +966,7 @@
       "refuse_top": "锁妖塔已通关，再无可攀之层。",
       "sweep": "横扫",
       "sweep_result": "横扫 %{floors} 层 · 仙草 ×%{seeds} · 装备 ×%{gear} · 功法 ×%{arts} · 灵石「%{stones}」",
-      "refuse_not_sweepable": "战力未远胜守关人，不可横扫。"
+      "refuse_not_sweepable": "战力需超过守关人三成，方可横扫。"
     },
     "notice": {
       "absence": "%{days} 天未修炼，成长值 -%{charged}",

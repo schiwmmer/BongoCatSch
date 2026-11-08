@@ -966,7 +966,7 @@
       "refuse_top": "The tower is cleared; no floor is left to climb.",
       "sweep": "Sweep",
       "sweep_result": "Swept %{floors} floors · herbs ×%{seeds} · gear ×%{gear} · arts ×%{arts} · stones %{stones}",
-      "refuse_not_sweepable": "Only a body far stronger than the warden may sweep."
+      "refuse_not_sweepable": "A sweep needs three tenths over the warden’s power."
     },
     "notice": {
       "absence": "%{days} days without practice — growth -%{charged}",

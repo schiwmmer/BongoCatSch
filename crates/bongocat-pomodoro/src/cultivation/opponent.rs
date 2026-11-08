@@ -187,6 +187,90 @@ pub(crate) fn challenge_band_permille(rng: &mut Rng) -> u32 {
     (1_000 + (rng.below(201) + rng.below(201)) / 2) as u32
 }
 
+/// The band a deep floor draws its warden from, as an inverse CDF: the draw is a
+/// uniform in parts per thousand, and each control point says how strong the
+/// warden is at that rank of the draw.
+///
+/// The shallow tower ([`challenge_band_permille`]) keeps its narrow, triangular
+/// band: the first hundred floors are the on-ramp, and a floor there is decided
+/// by whether the save is dressed at all. Past floor [`TRIAL_DEEP_START`] the
+/// band widens enough that gear becomes a slope rather than a cliff: a naked body
+/// at its own level clears about three floors in ten, a body in common cloth
+/// about five, a body in earth-grade cloth or better about eight.
+///
+/// Two rows, because the *gear* is what moves across the ladder: a white set is
+/// worth a quarter of a body at floor 101 and a fifth of one at floor 700, so a
+/// single band cannot hold the same three odds at both ends. The rows are read
+/// at the rank of the draw and interpolated by floor between
+/// [`TRIAL_DEEP_START`] and [`TRIAL_DEEP_END`].
+const DEEP_BAND_RANKS: [u32; 5] = [0, 285, 480, 820, 1_000];
+const DEEP_BAND_START: [u32; 5] = [750, 1_060, 1_450, 1_660, 2_400];
+const DEEP_BAND_END: [u32; 5] = [700, 1_000, 1_200, 1_310, 1_900];
+
+/// The first floor whose warden is drawn from the deep band rather than from the
+/// shallow one: the first hundred floors are the tower's on-ramp and keep the
+/// odds they were tuned with.
+pub(crate) const TRIAL_DEEP_START: u16 = 101;
+
+/// The last floor the two rows are interpolated between; past it the deep band
+/// is [`DEEP_BAND_END`] flat, so the tower's odds stop drifting with the floor.
+///
+/// 300 rather than 700 because that is where the rows stop separating: a white
+/// set is worth a quarter of a body at floor 101, and about a fifth of one by
+/// floor 300 — from there the ladder and the gear grow together.
+const TRIAL_DEEP_END: u16 = 300;
+
+/// The band a floor's draw sits at, for `rank` parts per thousand of the draw.
+fn deep_band_at(floor: u16, rank: u32) -> u32 {
+    let span = u32::from(TRIAL_DEEP_END - TRIAL_DEEP_START).max(1);
+    let walked = u32::from(floor.clamp(TRIAL_DEEP_START, TRIAL_DEEP_END) - TRIAL_DEEP_START);
+    let scale = |low: u32, high: u32| {
+        if high >= low {
+            low + (high - low) * walked / span
+        } else {
+            low - (low - high) * walked / span
+        }
+    };
+    let columns = std::array::from_fn::<u32, 5, _>(|column| {
+        scale(DEEP_BAND_START[column], DEEP_BAND_END[column])
+    });
+    let rank = rank.min(1_000);
+    for column in 1..DEEP_BAND_RANKS.len() {
+        let (low_rank, high_rank) = (DEEP_BAND_RANKS[column - 1], DEEP_BAND_RANKS[column]);
+        if rank <= high_rank {
+            let width = high_rank.saturating_sub(low_rank).max(1);
+            let offset = rank.saturating_sub(low_rank);
+            return columns[column - 1] + (columns[column] - columns[column - 1]) * offset / width;
+        }
+    }
+    columns[columns.len() - 1]
+}
+
+/// What a floor prints beside itself: the middle of the band it draws from.
+pub(crate) fn deep_band_middle_permille(floor: u16) -> u32 {
+    deep_band_at(floor, 500)
+}
+
+/// The lowest and highest draw a floor's band can produce: the edges the odds
+/// are spread between. The guards read these rather than restating them.
+pub(crate) fn challenge_band_bounds(floor: u16) -> (u32, u32) {
+    if floor < TRIAL_DEEP_START {
+        (1_000, 1_200)
+    } else {
+        (deep_band_at(floor, 0), deep_band_at(floor, 1_000))
+    }
+}
+
+/// The band a floor draws its warden from, by floor: the shallow triangular
+/// band for the on-ramp, the deep band past [`TRIAL_DEEP_START`].
+pub(crate) fn challenge_band_for(floor: u16, rng: &mut Rng) -> u32 {
+    if floor < TRIAL_DEEP_START {
+        challenge_band_permille(rng)
+    } else {
+        deep_band_at(floor, rng.below(1_001) as u32)
+    }
+}
+
 /// The floor's own rung: what a naked cultivator of that level is worth,
 /// softened to [`TRIAL_OPPONENT_PERMILLE`]. The floor every challenge bottoms
 /// out on, so the first floors stay an on-ramp rather than a coin toss.
@@ -202,8 +286,9 @@ pub(crate) fn floor_rung_power(floor: u16) -> u32 {
 /// the band makes the fight a draw rather than a formality. A floor well below
 /// the save is a comfortable win, a floor at the frontier is a real contest,
 /// and a floor a quarter past the save is a wall.
+#[cfg(test)]
 pub(crate) fn challenge_power(floor: u16, rng: &mut Rng) -> u32 {
-    floor_rung_power(floor).saturating_mul(challenge_band_permille(rng)) / 1_000
+    floor_rung_power(floor).saturating_mul(challenge_band_for(floor, rng)) / 1_000
 }
 
 /// Deterministic in the floor's *realm* rather than in the floor itself: a tower
@@ -216,11 +301,20 @@ pub(crate) fn challenge_power(floor: u16, rng: &mut Rng) -> u32 {
 /// through the band — rather than to a fixed soften, so the fight is a fresh
 /// draw every attempt: the tower is a gamble at the frontier, not a formality.
 pub(crate) fn warden(floor: u16, rng: &mut Rng) -> Opponent {
+    warden_at_band(floor, challenge_band_for(floor, rng))
+}
+
+/// The warden of a floor drawn from a band given outright.
+///
+/// The floor's own rung sets what the band multiplies; the band is what the
+/// draw of the day is worth. Split out from [`warden`] so a probe can hold the
+/// band while it measures what a floor's odds are.
+pub(crate) fn warden_at_band(floor: u16, band_permille: u32) -> Opponent {
     let realm = floor_realm(floor);
     let tier = realm.index() as u8 + 1;
     let name = TRIAL_OPPONENT_NAME.to_owned();
     let seed = fixed_seed(Stance::Warden, realm.index() as u32);
-    let target = challenge_power(floor, rng);
+    let target = floor_rung_power(floor).saturating_mul(band_permille) / 1_000;
     let level = level_near(target, tier, name.clone(), seed);
     opponent(Stance::Warden, level, tier, name, seed)
 }
