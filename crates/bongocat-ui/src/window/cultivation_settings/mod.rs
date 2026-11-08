@@ -18,11 +18,12 @@ use bongocat_pomodoro::{
     AptitudeHerb, ArtGrade, ArtKind, ArtOutcome, ArtOwnership, ArtView, Attribute, Attributes,
     BonusFind, Building, BuildingView, Cost, CultivationView, DailyKind, Derived, DropView,
     EquipSlot, EventDetail, EventRecord, ExplorationHours, ExplorationOutcome, GatherSite,
-    GatherSkill, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR, MarrowSource, PlotView,
-    PomodoroCommand, Rarity, Realm, Region, Resource, ResourceBag, ResourcesView, SaleKind,
-    SeedGrade, SeedView, SessionMode, ShopOffer, ShopOfferView, StrikeEffect,
-    TRIAL_ATTEMPTS_PER_DAY, TradeView, TrialBlocked, blueprint, grow_seconds_at, harvest_points,
-    herb_tier, plant_permille, star_multiplier_permille,
+    GatherSkill, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR, MarrowSource, MasteredArtView,
+    PlotView, PomodoroCommand, Rarity, Realm, Region, Resource, ResourceBag, ResourcesView,
+    SaleKind, SeedGrade, SeedView, SessionMode, ShopOffer, ShopOfferView, StrikeEffect,
+    TRIAL_ATTEMPTS_PER_DAY, TradeView, TrialBlocked, art_bonus_at, art_payout_at, blueprint,
+    grow_seconds_at, harvest_points, herb_tier, mastered_art_bonus_payout, mastered_art_payout,
+    plant_permille, star_multiplier_permille,
 };
 
 use gpui_kit::component::Sizable as _;
@@ -52,7 +53,7 @@ pub(super) use attributes::{CombatStats, derived_rows};
 pub(super) use garden::SeedKey;
 // Only the headless page tests read the formula directly; the lib itself
 // reaches it through the page render.
-use arts::arts_panel;
+use arts::{arts_panel, mastered_panel};
 #[cfg(test)]
 pub(super) use attributes::derived_formula;
 use attributes::{attributes_panel, derived_panel};
@@ -119,6 +120,7 @@ pub(super) fn content(
     let open_plot = view.read(cx).cultivation_open_plot;
     let dig_confirm = view.read(cx).cultivation_dig_confirm;
     let dig_confirm_final = view.read(cx).cultivation_dig_confirm_final;
+    let mastered_open = view.read(cx).cultivation_mastered_open;
     let seeds_open = view.read(cx).cultivation_seeds_open;
     // The slots the panels fill during prepaint. The store belongs to the
     // window, because the bar that reads it is drawn in the page header rather
@@ -173,10 +175,15 @@ pub(super) fn content(
         .child(panel_anchor(
             6,
             &panel_bounds,
-            seed_panel(&view, &cultivation, open_seed, seeds_open, locale, tokens),
+            mastered_panel(&view, &cultivation, mastered_open, locale, tokens),
         ))
         .child(panel_anchor(
             7,
+            &panel_bounds,
+            seed_panel(&view, &cultivation, open_seed, seeds_open, locale, tokens),
+        ))
+        .child(panel_anchor(
+            8,
             &panel_bounds,
             garden_panel(
                 &view,
@@ -188,9 +195,9 @@ pub(super) fn content(
                 tokens,
             ),
         ))
-        .children(breakthrough.map(|panel| panel_anchor(8, &panel_bounds, panel)))
+        .children(breakthrough.map(|panel| panel_anchor(9, &panel_bounds, panel)))
         .child(panel_anchor(
-            9,
+            10,
             &panel_bounds,
             exploration_panel(
                 &view,
@@ -205,22 +212,22 @@ pub(super) fn content(
             ),
         ))
         .child(panel_anchor(
-            10,
+            11,
             &panel_bounds,
             jobs_panel(&view, &cultivation, locale, tokens),
         ))
         .child(panel_anchor(
-            11,
+            12,
             &panel_bounds,
             proving_panel(&view, &cultivation, locale, tokens),
         ))
         .child(panel_anchor(
-            12,
+            13,
             &panel_bounds,
             trial_panel(&view, &cultivation, locale, tokens),
         ))
         .child(panel_anchor(
-            13,
+            14,
             &panel_bounds,
             resources::resources_panel(
                 &view,
@@ -231,7 +238,7 @@ pub(super) fn content(
             ),
         ))
         .child(panel_anchor(
-            14,
+            15,
             &panel_bounds,
             shop_panel(&view, &cultivation, open_offer, locale, tokens),
         ))
@@ -240,7 +247,7 @@ pub(super) fn content(
 
 /// The number of modules the navigation bar jumps between. Must match the
 /// number of `panel_anchor` calls in [`content`].
-pub(super) const MODULE_COUNT: usize = 15;
+pub(super) const MODULE_COUNT: usize = 16;
 
 /// One slot per panel, filled during prepaint with the panel's own bounds in
 /// window coordinates.
@@ -322,21 +329,22 @@ fn module_navigation_bar(
 ) -> impl gpui_kit::IntoElement {
     // 只保留需要导航的模块：境界、最近事件、属性、外显属性、装备已在页面上方，
     // 种子和仙草园合并为一个「种子」，试炼和锁妖塔合并为一个「试炼」。
-    let modules: [(SharedString, usize); 9] = [
+    let modules: [(SharedString, usize); 10] = [
         (SharedString::from("储物袋"), 4),
         (SharedString::from("功法"), 5),
-        (SharedString::from("种子"), 6),
-        (SharedString::from("破境"), 8),
-        (SharedString::from("探索"), 9),
-        (SharedString::from("打工"), 10),
-        (SharedString::from("试炼"), 11),
-        (SharedString::from("资源"), 13),
-        (SharedString::from("坊市"), 14),
+        (SharedString::from("已学"), 6),
+        (SharedString::from("种子"), 7),
+        (SharedString::from("破境"), 9),
+        (SharedString::from("探索"), 10),
+        (SharedString::from("打工"), 11),
+        (SharedString::from("试炼"), 12),
+        (SharedString::from("资源"), 14),
+        (SharedString::from("坊市"), 15),
     ];
     let buttons = modules
         .into_iter()
         // 破境面板只在能破境时出现；按钮跟着面板走，不指一个不存在的位置。
-        .filter(move |(_, index)| breakthrough || *index != 8)
+        .filter(move |(_, index)| breakthrough || *index != 9)
         .map(|(label, index)| {
             let store = Rc::clone(&panel_bounds);
             Button::new(format!("cultivation-nav-{index}"))

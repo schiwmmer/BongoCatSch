@@ -1107,6 +1107,38 @@ pub fn mastered_art_attributes(mastered: &[u64]) -> Attributes {
     total
 }
 
+/// The attributes one learned 内功 actually pays, every 阶 with its mastery
+/// share folded in.
+///
+/// This is the number the page prints beside the 功法's name — the sum the
+/// attributes panel counts, not the per-阶 blueprint figure — so the card and
+/// the arithmetic cannot disagree. An 外功 pays no attributes; the caller shows
+/// its multiplier and cost instead.
+pub fn mastered_art_payout(art_id: u64) -> Attributes {
+    let blueprint = blueprint(art_id);
+    let times = i64::from(blueprint.grade.ranks());
+    let mastery = 1_000 + i64::from(mastery_permille(blueprint.grade));
+    Attributes::new(
+        paid(blueprint.gain.root, times, mastery),
+        paid(blueprint.gain.strength, times, mastery),
+        paid(blueprint.gain.mana, times, mastery),
+        paid(blueprint.gain.agility, times, mastery),
+    )
+}
+
+/// The combat numbers one learned 内功 actually pays, every 阶 with its mastery
+/// share folded in.
+///
+/// The twin of [`mastered_art_payout`] for the outright lines: the page prints
+/// it beside the 功法's name the same way, so the card and the arithmetic
+/// cannot disagree.
+pub fn mastered_art_bonus_payout(art_id: u64) -> Derived {
+    let blueprint = blueprint(art_id);
+    let times = i64::from(blueprint.grade.ranks());
+    let mastery = 1_000 + i64::from(mastery_permille(blueprint.grade));
+    scale_bonus(blueprint.bonus, times, mastery)
+}
+
 /// What one extra book of a 功法 family is worth, per point of the family's
 /// best grade, in the family's primary combat number.
 ///
@@ -1293,7 +1325,31 @@ fn scale_bonus(bonus: Derived, times: i64, mastery: i64) -> Derived {
     }
 }
 
+/// The combat numbers one 内功 pays as it stands, at the 阶 its training has
+/// reached.
+pub fn art_bonus_at(art_id: u64, rank: u8) -> Derived {
+    let blueprint = blueprint(art_id);
+    scale_bonus(blueprint.bonus, i64::from(rank), 1_000)
+}
+
 /// The attributes one 内功 pays as it stands, at the 阶 its training has
+/// reached: every 阶 in so far at the blueprint's rate, and no mastery while
+/// any is missing.
+///
+/// This is what the learned-arts panel prints beside a book that is still
+/// being read — the same sum the attributes panel counts, not a promise about
+/// 阶 the training has not paid for yet.
+pub fn art_payout_at(art_id: u64, rank: u8) -> Attributes {
+    let blueprint = blueprint(art_id);
+    let times = i64::from(rank);
+    Attributes::new(
+        paid(blueprint.gain.root, times, 1_000),
+        paid(blueprint.gain.strength, times, 1_000),
+        paid(blueprint.gain.mana, times, 1_000),
+        paid(blueprint.gain.agility, times, 1_000),
+    )
+}
+
 /// The damage one 外功 does behind a given 攻击力.
 pub fn external_damage(attack: u32, multiplier_permille: u32) -> u32 {
     u64::from(attack)

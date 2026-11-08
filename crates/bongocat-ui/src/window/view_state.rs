@@ -417,6 +417,9 @@ impl SettingsView {
             // The event history starts closed: the page's five lines are the
             // record until the user asks for more.
             cultivation_events_open: false,
+            // The learned 功法 panel starts folded: the three nearest completion
+            // are the ones being worked on, the rest are one click away.
+            cultivation_mastered_open: false,
             // The seed panel starts folded: five stacks, lowest grade first.
             cultivation_seeds_open: false,
             cultivation_ladder_open: false,

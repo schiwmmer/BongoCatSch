@@ -350,6 +350,11 @@ pub struct SettingsView {
     /// page. The page carries the click, the window frame carries the popup,
     /// so this is all the state there is.
     pub(crate) cultivation_events_open: bool,
+    /// Whether the learned 功法 panel has been unfolded past the three it shows.
+    ///
+    /// A save can know a hundred 功法 and still be working on three: the panel
+    /// answers "what am I training", and the full list is one click away.
+    pub(crate) cultivation_mastered_open: bool,
     /// The local day whose morning event this window has already opened, so
     /// the day's ambush is shown exactly once.
     ///

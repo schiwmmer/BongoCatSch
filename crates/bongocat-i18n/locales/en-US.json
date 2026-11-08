@@ -650,6 +650,13 @@
       "title": "Art books",
       "empty": "No art books yet. Winning a realm fight always grants one; exploring may."
     },
+    "mastered": {
+      "title": "Learned arts",
+      "empty": "No art learned through yet. Train one to its last rank and it stays with you for good — or sell it.",
+      "progress": "rank %{rank}/%{total}",
+      "show_all": "Show all %{count}",
+      "show_less": "Show fewer"
+    },
     "art": {
       "kind": {
         "internal": "Internal",
@@ -1073,6 +1080,7 @@
       "refuse_equipped": "Worn gear cannot be sold",
       "refuse_training": "The art being trained cannot be sold",
       "refuse_already": "That art is already learned — no page left to sell",
+      "sold": "Sold",
       "refuse_sold": "This tome has been sold already",
       "refuse_star_capped": "This piece already holds all ten stars",
       "refuse_resources": "Not enough resources to star up (needs %{tribute})",

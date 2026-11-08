@@ -1078,6 +1078,34 @@ fn the_page_explains_which_layer_each_number_belongs_to(cx: &mut TestAppContext)
     assert!(painted(visual, "cultivation-derived-attack"));
 }
 
+/// A learned 功法 is on the page in its own panel.
+///
+/// The two lists are kept apart because they are sold differently: a book is
+/// still being trained and can be sold, a learned 功法 is kept for good. A page
+/// that showed them in one list would make the second look like the first.
+#[gpui_kit::test]
+fn the_page_draws_the_learned_arts_in_their_own_panel(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        mastered_arts: vec![1, 3],
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-mastered-arts"),
+        "the learned 功法 have their own panel"
+    );
+    for id in [
+        "cultivation-mastered-art-1",
+        "cultivation-mastered-art-3",
+        "cultivation-mastered-art-payoff-1",
+    ] {
+        assert!(painted(visual, id), "the page must draw {id}");
+    }
+}
+
 /// The popup mounted on its own.
 ///
 /// The settings window's own frame would put it behind a sidebar and a scroll
@@ -1741,8 +1769,67 @@ fn the_log_is_not_repeated_above_itself(cx: &mut TestAppContext) {
     );
 }
 
-/// A trial floor is replayed like every other fight, and the popup names the
-/// floor and what clearing it paid.
+/// A 功法 trained to its first 阶 is 已习得 as far as it has gone: it shows in
+/// the learned panel with the 阶 it stands at, even though the training is not
+/// finished. A book still at rank zero is not learned at all and shows in the
+/// shelf alone.
+#[gpui_kit::test]
+fn the_learned_panel_lists_a_part_trained_art(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        arts: vec![OwnedArt {
+            art_id: 1,
+            rank: 1,
+            progress: 0,
+            outcome: None,
+            failures: 0,
+            copies: 1,
+        }],
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-mastered-art-1"),
+        "a partly trained 功法 is 已习得 as far as it has gone"
+    );
+}
+
+/// The learned panel answers "what am I working on": three rows and a way to
+/// see the rest, rather than a list that grows with the shelf.
+#[gpui_kit::test]
+fn the_learned_panel_shows_three_and_unfolds(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        mastered_arts: vec![11, 12, 13, 14, 15],
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    for id in [
+        "cultivation-mastered-art-11",
+        "cultivation-mastered-art-12",
+        "cultivation-mastered-art-13",
+        "cultivation-mastered-toggle",
+    ] {
+        assert!(painted(visual, id), "the panel must draw {id}");
+    }
+    assert!(
+        !painted(visual, "cultivation-mastered-art-14"),
+        "the fourth 功法 waits behind the fold"
+    );
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-mastered-toggle", cx);
+    });
+    visual.update(|window, cx| window.render_frame(cx));
+    for id in ["cultivation-mastered-art-14", "cultivation-mastered-art-15"] {
+        assert!(painted(visual, id), "unfolding must draw {id}");
+    }
+}
+
 /// The breakthrough prompt is the one line the page raises its voice for, and
 /// it shows only when there is a wall to break.
 ///
@@ -2245,13 +2332,14 @@ fn clicking_a_module_button_brings_that_module_into_view(cx: &mut TestAppContext
     for (label, index) in [
         ("储物袋", 4_usize),
         ("功法", 5),
-        ("种子", 6),
+        ("已学", 6),
+        ("种子", 7),
         // 破境面板只在能破境时出现，空存档的页面上没有这一栏，按钮也不画。
-        ("探索", 9),
-        ("打工", 10),
-        ("试炼", 11),
-        ("资源", 13),
-        ("坊市", 14),
+        ("探索", 10),
+        ("打工", 11),
+        ("试炼", 12),
+        ("资源", 14),
+        ("坊市", 15),
     ] {
         let visual = open_settings_on_cultivation(cx);
         visual.update(|window, cx| window.click(format!("cultivation-nav-{index}"), cx));
@@ -2265,7 +2353,7 @@ fn clicking_a_module_button_brings_that_module_into_view(cx: &mut TestAppContext
             // The page cannot scroll past its own end: the last module is pinned
             // to the bottom rather than to the quarter mark.
             let at_end = window
-                .try_find(ElementId::from("cultivation-anchor-14"))
+                .try_find(ElementId::from("cultivation-anchor-15"))
                 .is_some_and(|shop| shop.bounds().bottom() <= viewport.bottom() + px(2.));
             (anchor.origin.y, viewport, at_end)
         });
