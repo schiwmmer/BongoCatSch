@@ -2332,7 +2332,6 @@ fn clicking_a_module_button_brings_that_module_into_view(cx: &mut TestAppContext
     for (label, index) in [
         ("储物袋", 4_usize),
         ("功法", 5),
-        ("已学", 6),
         ("种子", 7),
         // 破境面板只在能破境时出现，空存档的页面上没有这一栏，按钮也不画。
         ("探索", 10),

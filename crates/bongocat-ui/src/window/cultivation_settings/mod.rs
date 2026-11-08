@@ -329,10 +329,9 @@ fn module_navigation_bar(
 ) -> impl gpui_kit::IntoElement {
     // 只保留需要导航的模块：境界、最近事件、属性、外显属性、装备已在页面上方，
     // 种子和仙草园合并为一个「种子」，试炼和锁妖塔合并为一个「试炼」。
-    let modules: [(SharedString, usize); 10] = [
+    let modules: [(SharedString, usize); 9] = [
         (SharedString::from("储物袋"), 4),
         (SharedString::from("功法"), 5),
-        (SharedString::from("已学"), 6),
         (SharedString::from("种子"), 7),
         (SharedString::from("破境"), 9),
         (SharedString::from("探索"), 10),
