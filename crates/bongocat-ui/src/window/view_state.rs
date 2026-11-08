@@ -420,6 +420,7 @@ impl SettingsView {
             // The seed panel starts folded: five stacks, lowest grade first.
             cultivation_seeds_open: false,
             cultivation_ladder_open: false,
+            cultivation_scroll_handle: gpui_kit::ScrollHandle::new(),
             cultivation_explore_hours: 8,
             cultivation_daily_seen_day: None,
             // No fight is being replayed when the window opens, and none is

@@ -375,6 +375,9 @@ pub struct SettingsView {
     /// list is reference material rather than something to read every launch.
     /// Clicking the realm line opens it, and the same click closes it.
     pub(crate) cultivation_ladder_open: bool,
+    /// The scroll handle for the cultivation page, so the module navigation
+    /// bar can scroll to a panel without a per-panel index.
+    pub(crate) cultivation_scroll_handle: gpui_kit::ScrollHandle,
     /// The fight the cultivation page is replaying over the page, if any.
     pub(crate) cultivation_duel: Option<CultivationDuel>,
     /// A fight or a walk the user asked for that the worker has not answered

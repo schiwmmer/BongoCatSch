@@ -117,6 +117,13 @@ pub(super) fn content(
     let dig_confirm_final = view.read(cx).cultivation_dig_confirm_final;
     let mastered_open = view.read(cx).cultivation_mastered_open;
     let seeds_open = view.read(cx).cultivation_seeds_open;
+    let scroll_handle = view.read(cx).cultivation_scroll_handle.clone();
+
+    // One anchor per panel, so the navigation bar can scroll to a section
+    // without knowing the panel's index in the child list.
+    let anchors: Vec<gpui_kit::ScrollAnchor> = (0..MODULE_COUNT)
+        .map(|_| gpui_kit::ScrollAnchor::for_handle(scroll_handle.clone()))
+        .collect();
 
     div()
         .id("cultivation-settings")
@@ -124,6 +131,8 @@ pub(super) fn content(
         .flex_col()
         .gap_3()
         .p_3()
+        .track_scroll(&scroll_handle)
+        .child(module_navigation_bar(&view, &anchors, locale, tokens))
         .children(breakthrough_banner(&cultivation, locale, tokens))
         .child(realm_header(
             &view,
@@ -133,67 +142,178 @@ pub(super) fn content(
             tokens,
         ))
         .children(notices(&cultivation, locale, tokens))
-        .child(record_section(&view, &cultivation, locale, tokens))
-        .child(attributes_panel(&view, &cultivation, locale, tokens))
-        .child(derived_panel(&cultivation, locale, tokens))
-        .child(equipment_panel(
-            &view,
-            &cultivation,
-            locale,
-            tokens,
-            open_item,
+        .child(anchored_panel(
+            &anchors,
+            0,
+            record_section(&view, &cultivation, locale, tokens),
         ))
-        .child(inventory_panel(
-            &view,
-            &cultivation,
-            locale,
-            tokens,
-            open_item,
+        .child(anchored_panel(
+            &anchors,
+            1,
+            attributes_panel(&view, &cultivation, locale, tokens),
         ))
-        .child(arts_panel(&view, &cultivation, locale, tokens))
-        .child(mastered_panel(
-            &view,
-            &cultivation,
-            mastered_open,
-            locale,
-            tokens,
+        .child(anchored_panel(
+            &anchors,
+            2,
+            derived_panel(&cultivation, locale, tokens),
         ))
-        .child(seed_panel(
-            &view,
-            &cultivation,
-            open_seed,
-            seeds_open,
-            locale,
-            tokens,
+        .child(anchored_panel(
+            &anchors,
+            3,
+            equipment_panel(&view, &cultivation, locale, tokens, open_item),
         ))
-        .child(garden_panel(
-            &view,
-            &cultivation,
-            open_plot,
-            dig_confirm,
-            dig_confirm_final,
-            locale,
-            tokens,
+        .child(anchored_panel(
+            &anchors,
+            4,
+            inventory_panel(&view, &cultivation, locale, tokens, open_item),
         ))
-        .children(breakthrough_panel(&view, &cultivation, locale, tokens))
-        .child(exploration_panel(
-            &view,
-            &cultivation,
-            ExplorationHours::from_hours(view.read(cx).cultivation_explore_hours),
-            locale,
-            tokens,
+        .child(anchored_panel(
+            &anchors,
+            5,
+            arts_panel(&view, &cultivation, locale, tokens),
         ))
-        .child(jobs_panel(&view, &cultivation, locale, tokens))
-        .child(proving_panel(&view, &cultivation, locale, tokens))
-        .child(trial_panel(&view, &cultivation, locale, tokens))
-        .child(resources::resources_panel(
-            &view,
-            &cultivation,
-            locale,
-            tokens,
+        .child(anchored_panel(
+            &anchors,
+            6,
+            mastered_panel(&view, &cultivation, mastered_open, locale, tokens),
         ))
-        .child(shop_panel(&view, &cultivation, open_offer, locale, tokens))
+        .child(anchored_panel(
+            &anchors,
+            7,
+            seed_panel(&view, &cultivation, open_seed, seeds_open, locale, tokens),
+        ))
+        .child(anchored_panel(
+            &anchors,
+            8,
+            garden_panel(
+                &view,
+                &cultivation,
+                open_plot,
+                dig_confirm,
+                dig_confirm_final,
+                locale,
+                tokens,
+            ),
+        ))
+        .children(
+            breakthrough_panel(&view, &cultivation, locale, tokens)
+                .map(|panel| anchored_panel(&anchors, 9, panel)),
+        )
+        .child(anchored_panel(
+            &anchors,
+            10,
+            exploration_panel(
+                &view,
+                &cultivation,
+                ExplorationHours::from_hours(view.read(cx).cultivation_explore_hours),
+                locale,
+                tokens,
+            ),
+        ))
+        .child(anchored_panel(
+            &anchors,
+            11,
+            jobs_panel(&view, &cultivation, locale, tokens),
+        ))
+        .child(anchored_panel(
+            &anchors,
+            12,
+            proving_panel(&view, &cultivation, locale, tokens),
+        ))
+        .child(anchored_panel(
+            &anchors,
+            13,
+            trial_panel(&view, &cultivation, locale, tokens),
+        ))
+        .child(anchored_panel(
+            &anchors,
+            14,
+            resources::resources_panel(&view, &cultivation, locale, tokens),
+        ))
+        .child(anchored_panel(
+            &anchors,
+            15,
+            shop_panel(&view, &cultivation, open_offer, locale, tokens),
+        ))
         .into_any_element()
+}
+
+/// The number of modules the navigation bar jumps between. Must match the
+/// number of `anchored_panel` calls in [`content`].
+const MODULE_COUNT: usize = 16;
+
+/// Wrap a panel in a scroll anchor so the navigation bar can scroll to it.
+///
+/// The wrapper is a plain `div`: it adds no visual chrome, only the anchor
+/// that the navigation bar's buttons scroll to.
+fn anchored_panel(
+    anchors: &[gpui_kit::ScrollAnchor],
+    index: usize,
+    panel: impl gpui_kit::IntoElement,
+) -> impl gpui_kit::IntoElement {
+    div()
+        .id(SharedString::from(format!("cultivation-anchor-{}", index)))
+        .anchor_scroll(Some(anchors[index].clone()))
+        .child(panel.into_any_element())
+}
+
+/// The navigation bar at the top of the cultivation page.
+///
+/// One button per module, in the order the modules appear on the page. A click
+/// scrolls the page to that module; the bar itself stays at the top because it
+/// is rendered before the scrolling column's first child.
+fn module_navigation_bar(
+    _view: &Entity<SettingsView>,
+    anchors: &[gpui_kit::ScrollAnchor],
+    locale: &str,
+    tokens: Tokens,
+) -> impl gpui_kit::IntoElement {
+    let modules = [
+        ("cultivation.module.record", 0),
+        ("cultivation.module.attributes", 1),
+        ("cultivation.module.derived", 2),
+        ("cultivation.module.equipment", 3),
+        ("cultivation.module.inventory", 4),
+        ("cultivation.module.arts", 5),
+        ("cultivation.module.mastered", 6),
+        ("cultivation.module.seeds", 7),
+        ("cultivation.module.garden", 8),
+        ("cultivation.module.breakthrough", 9),
+        ("cultivation.module.exploration", 10),
+        ("cultivation.module.jobs", 11),
+        ("cultivation.module.proving", 12),
+        ("cultivation.module.trial", 13),
+        ("cultivation.module.resources", 14),
+        ("cultivation.module.shop", 15),
+    ];
+
+    div()
+        .id("cultivation-module-navigation")
+        .flex()
+        .flex_row()
+        .gap_2()
+        .flex_wrap()
+        .py_2()
+        .px_3()
+        .bg(tokens.canvas)
+        .rounded_lg()
+        .children(modules.iter().map(|(label, index)| {
+            let anchor = anchors[*index].clone();
+            div()
+                .id(SharedString::from(format!(
+                    "cultivation-nav-{}",
+                    label.rsplit('.').next().unwrap_or(label)
+                )))
+                .px_3()
+                .py_1()
+                .rounded_md()
+                .bg(tokens.overlay)
+                .cursor_pointer()
+                .on_click(move |_event, window, cx| {
+                    anchor.scroll_to(window, cx);
+                })
+                .child(text(locale, label))
+        }))
 }
 
 /// The realm line, the power, and how far through the realm the growth is.
