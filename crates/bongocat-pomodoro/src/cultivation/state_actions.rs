@@ -1044,7 +1044,8 @@ impl Cultivation {
         Fighter::from_derived(PLAYER_NAME.to_owned(), derived, art)
     }
 
-    /// The duel the cultivator fights, with the effects their 神装 carry.
+    /// The duel the cultivator fights, with the effects their 神装 and their
+    /// complete set carry.
     ///
     /// An effect is a debuff the other side walks in with, read when the duel
     /// is built: the number the panel shows the user before they press the
@@ -1057,8 +1058,7 @@ impl Cultivation {
         mut rival: Fighter,
         rng: &mut Rng,
     ) -> DuelReport {
-        if let Some((effect, rarity)) = self.strongest_effect() {
-            let depth = effect.depth_permille(rarity);
+        for (effect, depth) in self.active_effects() {
             let bite = |value: u32| -> u32 {
                 (u64::from(value) * u64::from(1_000 - depth) / 1_000) as u32
             };
@@ -1073,6 +1073,30 @@ impl Cultivation {
             }
         }
         duel(fighter, rival, rng)
+    }
+
+    /// The debuffs the body carries into a fight: the deepest 神装 effect,
+    /// plus the mastery of a complete four-piece set.
+    ///
+    /// The set's is an *extra* effect, not a replacement: the four debuffs
+    /// name different numbers of the rival, so a complete set always bites
+    /// something on its own. If both name the same effect, only the deeper
+    /// bite is kept — a set is not a second layer of the same debuff.
+    pub(crate) fn active_effects(&self) -> Vec<(GearEffect, u32)> {
+        let mut effects: Vec<(GearEffect, u32)> = Vec::new();
+        if let Some((effect, rarity)) = self.strongest_effect() {
+            effects.push((effect, effect.depth_permille(rarity)));
+        }
+        let worn: Vec<_> = self.equipped_items().collect();
+        if let Some(effect) = crate::cultivation::items::gear_set_mastery_effect(&worn) {
+            let depth = effect.depth_permille(Rarity::Divine);
+            if let Some(existing) = effects.iter_mut().find(|(other, _)| *other == effect) {
+                existing.1 = existing.1.max(depth);
+            } else {
+                effects.push((effect, depth));
+            }
+        }
+        effects
     }
 
     /// The effect the worn gear carries, if any: the deepest one, and the

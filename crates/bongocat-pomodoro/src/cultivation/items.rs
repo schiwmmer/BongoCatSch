@@ -69,13 +69,27 @@ impl EquipSlot {
         }
     }
 
-    /// How this slot splits its attribute points over two attributes, in
-    /// percent.
+    /// The attribute that gives this slot its character, and the nominal
+    /// partner used to price it.
     ///
-    /// A weapon is offence, the robe and the trousers are poise, and the boots
-    /// are footwork with a little force behind it. The split is what makes the
-    /// four slots read differently instead of being four copies of one bonus.
+    /// A weapon is offence, the robe is poise, the trousers are the realm's
+    /// 法力, and the boots are footwork. The partner is only the budget's
+    /// anchor: a fresh drop draws its real second attribute from the other
+    /// three, so two robes of one tier are two different finds.
     const fn split(self) -> (Attribute, u32, Attribute, u32) {
+        match self {
+            Self::Weapon => (Attribute::Strength, 70, Attribute::Mana, 30),
+            Self::Clothes => (Attribute::Root, 75, Attribute::Agility, 25),
+            Self::Pants => (Attribute::Mana, 55, Attribute::Root, 45),
+            Self::Boots => (Attribute::Agility, 60, Attribute::Strength, 40),
+        }
+    }
+
+    /// The split a guardian's wardrobe still uses: the old table, kept whole
+    /// so retuning the player's drops cannot quietly re-dress the opposition.
+    /// A guardian's allowance, drift and the tower's rungs were all measured
+    /// against these four pairs.
+    const fn guardian_split(self) -> (Attribute, u32, Attribute, u32) {
         match self {
             Self::Weapon => (Attribute::Strength, 70, Attribute::Mana, 30),
             Self::Clothes => (Attribute::Root, 75, Attribute::Agility, 25),
@@ -379,13 +393,11 @@ impl GearSet {
         }
     }
 
-    /// The combat numbers a set pays, and how much one extra worn piece is
-    /// worth per tier in each: `(line, amount)`.
+    /// The combat numbers a set pays, per tier, at its full four-piece worth:
+    /// `(line, amount)`.
     ///
-    /// The amount is per extra piece per tier, so a three-piece 曜日 set at
-    /// tier five pays two extras at five tiers of the pair. The lines are the
-    /// set's own — a 寒渊 set never pays 攻 because a set that paid everything
-    /// would be a set that was one number with eight names.
+    /// The lines are the set's own — a 寒渊 set never pays 攻 because a set
+    /// that paid everything would be one number with eight names.
     const fn lines(self) -> &'static [(DerivedLine, u32)] {
         match self {
             Self::Sun => &[(DerivedLine::Attack, 6), (DerivedLine::Spell, 3)],
@@ -399,17 +411,45 @@ impl GearSet {
         }
     }
 
-    /// The set bonus a set of worn pieces pays, at a tier.
+    /// The share of a set's full worth a count of worn pieces pays, in
+    /// parts per thousand.
     ///
-    /// Two pieces is one extra, three is two: the bonus is what *beyond the
-    /// first* the set is worth, so a lone 曜日 blade is not a set and pays
-    /// nothing. The tier is the best the set holds — a piece at a high realm
-    /// is the same set as a piece at a low one, and it is the high one that
-    /// sets how deep the kinship bites.
-    fn bonus(self, extra: u32, tier: u8) -> Derived {
+    /// Convex on purpose: two, three and four pieces pay 20, 55 and 100
+    /// percent, so every extra piece is worth *more* than the one before it.
+    /// The old ladder paid the same amount for each extra piece, which made
+    /// finishing a set a sum rather than a decision.
+    const SET_PIECE_PERMILLE: [u32; 5] = [0, 0, 200, 550, 1_000];
+
+    /// Three is the old linear four-piece total: the new curve spends the
+    /// same top-end budget, but front-loads far less of it on piece two.
+    const SET_FULL_EXTRAS: u32 = 3;
+
+    /// The count at which a set is complete and its mastery wakes.
+    pub const SET_MASTERY_PIECES: usize = 4;
+
+    /// The extra effect a complete set lays on the other side of a fight.
+    /// The four debuffs are shared with 神装, but a set's is fixed by its
+    /// name: two 曜日 completions always bite the same way.
+    pub const fn mastery_effect(self) -> GearEffect {
+        match self {
+            Self::Sun | Self::Nether => GearEffect::Sunder,
+            Self::Abyss | Self::Crag => GearEffect::Weaken,
+            Self::Storm | Self::Gale => GearEffect::Thunder,
+            Self::Tide | Self::Iron => GearEffect::Frost,
+        }
+    }
+
+    /// The set bonus a count of worn pieces pays, at a tier.
+    ///
+    /// The tier is the best the set holds — a piece at a high realm is the
+    /// same set as a piece at a low one, and it is the high one that sets
+    /// how deep the kinship bites.
+    fn bonus(self, pieces: usize, tier: u8) -> Derived {
+        let permille = Self::SET_PIECE_PERMILLE[pieces.min(Self::SET_PIECE_PERMILLE.len() - 1)];
+        let scale = Self::SET_FULL_EXTRAS * u32::from(tier.max(1));
         let mut total = Derived::default();
         for (line, amount) in self.lines() {
-            line.add_to(&mut total, extra * u32::from(tier.max(1)) * amount);
+            line.add_to(&mut total, scale * *amount * permille / 1_000);
         }
         total
     }
@@ -435,9 +475,8 @@ pub fn gear_set_bonus(worn: &[EquipmentRecord]) -> Derived {
         if pieces.len() < 2 {
             continue;
         }
-        let extra = u32::try_from(pieces.len() - 1).unwrap_or(u32::MAX);
         let tier = pieces.iter().map(|piece| piece.tier).max().unwrap_or(1);
-        total = total.plus(set.bonus(extra, tier));
+        total = total.plus(set.bonus(pieces.len(), tier));
     }
     total
 }
@@ -451,6 +490,10 @@ pub struct GearSetView {
     /// collection, and only two or more are a set.
     pub pieces: u8,
     pub bonus: Derived,
+    /// The extra effect a complete four-piece set carries. A view is never
+    /// read back from a save, so an old surface simply ignores this field.
+    #[serde(default)]
+    pub effect: Option<GearEffect>,
 }
 
 /// Every active 装备 set, one entry per set with two or more pieces worn.
@@ -473,15 +516,32 @@ pub fn gear_set_views(worn: &[EquipmentRecord]) -> Vec<GearSetView> {
         if pieces.len() < 2 {
             continue;
         }
-        let extra = u32::try_from(pieces.len() - 1).unwrap_or(u32::MAX);
         let tier = pieces.iter().map(|piece| piece.tier).max().unwrap_or(1);
         views.push(GearSetView {
             set,
             pieces: u8::try_from(pieces.len()).unwrap_or(u8::MAX),
-            bonus: set.bonus(extra, tier),
+            bonus: set.bonus(pieces.len(), tier),
+            effect: (pieces.len() >= GearSet::SET_MASTERY_PIECES).then(|| set.mastery_effect()),
         });
     }
     views
+}
+
+/// The extra effect a complete four-piece set lays on a rival, if the body
+/// wears one. Four slots admit at most one complete set; a set below four
+/// pieces is a collection and wakes nothing.
+pub fn gear_set_mastery_effect(worn: &[EquipmentRecord]) -> Option<GearEffect> {
+    let mut sets: std::collections::BTreeMap<GearSet, usize> = std::collections::BTreeMap::new();
+    for item in worn {
+        if let Some(set) = item.set
+            && carries_set(item.rarity)
+        {
+            *sets.entry(set).or_default() += 1;
+        }
+    }
+    sets.into_iter()
+        .find(|(_, count)| *count >= GearSet::SET_MASTERY_PIECES)
+        .map(|(set, _)| set.mastery_effect())
 }
 
 /// One owned piece of gear.
@@ -788,6 +848,12 @@ fn scale_derived(bonus: Derived, permille: u32) -> Derived {
 /// allowed to add.
 pub(crate) const MASTERWORK_CEILING_PERMILLE: u32 = 1_060;
 
+/// The amplitude a fresh drop draws around its nominal worth, in parts per
+/// thousand: ten to thirty percent, up or down. A guardian's wardrobe does
+/// not use this band — see [`roll_equipment_with`].
+pub(crate) const DROP_SWING_MIN_PERMILLE: u32 = 100;
+pub(crate) const DROP_SWING_MAX_PERMILLE: u32 = 300;
+
 /// The points a tier's drop is built from before the quality multiplies them.
 ///
 /// Linear in the tier so a later realm's gear is worth more than an earlier
@@ -833,13 +899,12 @@ fn points_for(budget: i64, weight: i64) -> i32 {
     i32::try_from((budget + weight / 2) / weight).unwrap_or(i32::MAX)
 }
 
-/// How many attribute lines a quality's piece carries.
+/// How many attribute lines a guardian's piece carries, by quality.
 ///
-/// A white blade is one number done well; everything from 精良 up carries the
-/// slot's second attribute as well. The count climbing with the quality is
-/// what keeps a 普通 piece a starting point rather than a watered-down copy of
-/// a 绝世 one — and what makes two pieces of the same slot and tier read as
-/// different objects rather than as the same object at two sizes.
+/// A fresh drop always pays a primary and a drawn second at every quality —
+/// a 普通 blade has a second attribute too, just a smaller budget. The old
+/// one-line ladder survives only in a guardian's wardrobe, whose allowance
+/// and drift are calibrated against it.
 const fn attribute_lines(rarity: Rarity) -> usize {
     if rarity.index() >= 2 { 2 } else { 1 }
 }
@@ -855,6 +920,19 @@ const fn combat_lines(rarity: Rarity) -> usize {
     (index >= 3) as usize + (index >= 5) as usize
 }
 
+/// The second attribute of a fresh drop: any of the three the slot's own
+/// primary is not. Equal odds, so a 精良 blade may lean on 根骨, 法力 or 身法
+/// and still read as a blade.
+fn roll_secondary(primary: Attribute, rng: &mut Rng) -> Attribute {
+    let candidates: [Attribute; 3] = match primary {
+        Attribute::Root => [Attribute::Strength, Attribute::Mana, Attribute::Agility],
+        Attribute::Strength => [Attribute::Root, Attribute::Mana, Attribute::Agility],
+        Attribute::Mana => [Attribute::Root, Attribute::Strength, Attribute::Agility],
+        Attribute::Agility => [Attribute::Root, Attribute::Strength, Attribute::Mana],
+    };
+    candidates[rng.below(candidates.len() as u64) as usize]
+}
+
 /// Roll one piece of gear at a tier, at an already-rolled quality.
 ///
 /// `tier` is the rung the piece stands on and `rarity` is the quality the
@@ -863,7 +941,7 @@ const fn combat_lines(rarity: Rarity) -> usize {
 /// effect, the attributes and the outright combat numbers are rolled here, so a
 /// caller only decides how deep and how good the find is.
 pub fn roll_equipment(id: u64, tier: u8, rarity: Rarity, rng: &mut Rng) -> EquipmentRecord {
-    roll_equipment_with(id, tier, rarity, roll_set(rarity, rng), rng)
+    roll_equipment_with(id, tier, rarity, roll_set(rarity, rng), false, rng)
 }
 
 /// Roll a piece that belongs to no set: the guardian's way in.
@@ -878,7 +956,7 @@ pub(crate) fn roll_equipment_solo(
     rarity: Rarity,
     rng: &mut Rng,
 ) -> EquipmentRecord {
-    roll_equipment_with(id, tier, rarity, None, rng)
+    roll_equipment_with(id, tier, rarity, None, true, rng)
 }
 
 fn roll_equipment_with(
@@ -886,25 +964,50 @@ fn roll_equipment_with(
     tier: u8,
     rarity: Rarity,
     set: Option<GearSet>,
+    solo: bool,
     rng: &mut Rng,
 ) -> EquipmentRecord {
     let slot = EquipSlot::from_index(rng.below(SLOT_COUNT as u64) as usize);
-    // 成色: the slot and the quality decide what a piece is worth, not what it
-    // reads. Six percent either way on the budget means two blades of one tier
-    // are two blades — the shelf used to print the same numbers for every piece
-    // of a slot, which made a page of finds read as one find repeated.
-    let points = base_points(tier) * rarity.multiplier() / 10;
-    let points = (points * (940 + rng.below(121) as u32) / 1_000).max(1);
-    let (primary, primary_percent, secondary, secondary_percent) = slot.split();
-    // The budget is the slot's nominal split *as power*, not as points: moving a
-    // point from 力量 to 身法 keeps the piece worth the same even though it reads
-    // a bigger number, so a red 身法 boot is not a quieter red 力量 boot.
+    // 成色: a fresh drop draws its own amplitude, ten to thirty percent up or
+    // down. Symmetric in expectation, so widening the band does not inflate
+    // the long run — it only makes two pieces of one tier read as two finds.
+    // A guardian's wardrobe keeps the old narrow band: its allowance is read
+    // against MASTERWORK_CEILING_PERMILLE, and a wider roll would be trimmed
+    // back down to nothing but a weaker opponent.
+    let nominal = base_points(tier) * rarity.multiplier() / 10;
+    let points = if solo {
+        (nominal * (940 + rng.below(121) as u32) / 1_000).max(1)
+    } else {
+        let swing = DROP_SWING_MIN_PERMILLE
+            + rng.below(u64::from(
+                DROP_SWING_MAX_PERMILLE - DROP_SWING_MIN_PERMILLE + 1,
+            )) as u32;
+        let permille = if rng.below(2) == 0 {
+            1_000 - swing
+        } else {
+            1_000 + swing
+        };
+        (nominal * permille / 1_000).max(1)
+    };
+    let (primary, primary_percent, nominal_secondary, secondary_percent) = if solo {
+        slot.guardian_split()
+    } else {
+        slot.split()
+    };
+    let secondary = if solo {
+        nominal_secondary
+    } else {
+        roll_secondary(primary, rng)
+    };
+    // The budget is the slot's nominal split *as power*, not as points: a
+    // random second attribute changes how many points the piece prints, not
+    // what the piece is worth, so a 身法 roll is not a quieter 力量 roll.
     let budget = i64::from(points)
         * (i64::from(primary_percent) * attribute_weight(primary)
-            + i64::from(secondary_percent) * attribute_weight(secondary))
+            + i64::from(secondary_percent) * attribute_weight(nominal_secondary))
         / 100;
     let mut attributes = Attributes::default();
-    if attribute_lines(rarity) >= 2 {
+    if !solo || attribute_lines(rarity) >= 2 {
         // The split itself sways a little per piece, inside a band that keeps the
         // slot's character: a weapon is still mostly 力量, it just is not always
         // seventy percent of it.
@@ -1034,9 +1137,8 @@ mod tests {
 
     /// Two pieces of one slot, one tier and one quality are two pieces.
     ///
-    /// The budget is spent as power rather than as points, so a piece that leans
-    /// on 身法 reads a bigger number than one that leans on 力量 for the same
-    /// worth — and the split itself sways, so no two blades print the same pair.
+    /// The second attribute is drawn from the other three and the 成色 swings
+    /// ten to thirty percent, so no two blades print the same four numbers.
     #[test]
     fn two_pieces_of_one_tier_are_two_pieces() {
         let mut blades = std::collections::BTreeSet::new();
@@ -1044,17 +1146,23 @@ mod tests {
             let mut rng = Rng::seeded(id);
             let item = roll_equipment(id, 5, Rarity::Rare, &mut rng);
             if item.slot == EquipSlot::Weapon {
-                blades.insert((item.attributes.strength, item.attributes.mana));
+                blades.insert((
+                    item.attributes.root,
+                    item.attributes.strength,
+                    item.attributes.mana,
+                    item.attributes.agility,
+                ));
             }
         }
         assert!(
             blades.len() > 3,
-            "every 精良 blade of one tier reads the same pair: {blades:?}"
+            "every 精良 blade of one tier reads the same four: {blades:?}"
         );
     }
 
     /// The piece's worth stays on its tier whatever it leans on: the budget is
-    /// read in power, so a heavier number and a lighter one are the same piece.
+    /// read in power, so a heavier number and a lighter one are the same piece
+    /// before the 成色 band is drawn.
     #[test]
     fn a_pieces_worth_is_its_tier_not_its_numbers() {
         let nominal = i64::from(base_points(5) * Rarity::Rare.multiplier() / 10);
@@ -1065,15 +1173,17 @@ mod tests {
             if item.slot != EquipSlot::Weapon {
                 continue;
             }
-            let weight =
-                i64::from(item.attributes.strength) * 26 + i64::from(item.attributes.mana) * 26;
-            // The band, plus the rounding each of the two attribute lines costs
-            // on its way from power back to whole points.
-            let low = expected * 940 / 1_000 - 40;
-            let high = expected * 1_060 / 1_000 + 40;
+            let power = i64::from(item.attributes.root) * 19
+                + i64::from(item.attributes.strength) * 26
+                + i64::from(item.attributes.mana) * 26
+                + i64::from(item.attributes.agility) * 15;
+            // The wide band, plus the rounding each of the two attribute lines
+            // costs on its way from power back to whole points.
+            let low = expected * 700 / 1_000 - 60;
+            let high = expected * 1_300 / 1_000 + 60;
             assert!(
-                (low..=high).contains(&weight),
-                "a 精良 blade of tier five is worth {weight}, outside {low}..={high}"
+                (low..=high).contains(&power),
+                "a 精良 blade of tier five is worth {power}, outside {low}..={high}"
             );
         }
     }
@@ -1124,9 +1234,9 @@ mod tests {
         .count()
     }
 
-    /// The ladder the eight qualities are read by: white and green are one
-    /// attribute done well, 精良 and up carry the slot's second, the outright
-    /// combat numbers arrive at 史诗 and the second one at 神话.
+    /// The ladder the eight qualities are read by: every drop pays a primary
+    /// and a drawn second, and the outright combat numbers arrive at 史诗
+    /// with a second line at 神话.
     ///
     /// Every piece of a quality obeys it, so the roll is walked until each
     /// quality has been seen and each bucket is checked whole.
@@ -1156,7 +1266,7 @@ mod tests {
             );
         }
         for rarity in Rarity::ALL {
-            let expected_attributes = if rarity.index() >= 2 { 2 } else { 1 };
+            let expected_attributes = 2;
             let expected_combat =
                 usize::from(rarity.index() >= 3) + usize::from(rarity.index() >= 5);
             assert_eq!(
@@ -1234,6 +1344,137 @@ mod tests {
         }
     }
 
+    /// A fresh drop's second attribute is any of the three the primary is
+    /// not, and all three turn up: no slot has a fixed partner any more.
+    #[test]
+    fn the_second_attribute_is_drawn_from_the_other_three() {
+        let mut seen = std::collections::BTreeSet::new();
+        for id in 1..=1_200_u64 {
+            let item = roll_equipment(id, 5, Rarity::Rare, &mut Rng::seeded(id));
+            if item.slot != EquipSlot::Weapon {
+                continue;
+            }
+            assert!(item.attributes.strength > 0, "the blade still leans 力量");
+            let partners: Vec<String> = [
+                (Attribute::Root, item.attributes.root),
+                (Attribute::Mana, item.attributes.mana),
+                (Attribute::Agility, item.attributes.agility),
+            ]
+            .into_iter()
+            .filter(|(_, value)| *value > 0)
+            .map(|(attribute, _)| format!("{attribute:?}"))
+            .collect();
+            assert_eq!(partners.len(), 1, "exactly one second attribute: {item:?}");
+            seen.insert(partners[0].clone());
+        }
+        assert_eq!(seen.len(), 3, "all three other attributes appear: {seen:?}");
+    }
+
+    /// Trousers are the realm's 法力 slot.
+    #[test]
+    fn trousers_pay_mana_as_their_primary() {
+        let mut found = 0;
+        for id in 1..=400_u64 {
+            let item = roll_equipment(id, 5, Rarity::Rare, &mut Rng::seeded(id));
+            if item.slot == EquipSlot::Pants {
+                assert!(
+                    item.attributes.mana > 0,
+                    "a 精良 trouser pays 法力: {item:?}"
+                );
+                found += 1;
+            }
+        }
+        assert!(found > 0, "the sample has trousers");
+    }
+
+    /// The 成色 band is ten to thirty percent either way, symmetric in
+    /// expectation: widening it must not silently inflate the ladder.
+    #[test]
+    fn a_drop_swings_ten_to_thirty_percent_without_moving_the_mean() {
+        let nominal = i64::from(base_points(5) * Rarity::Rare.multiplier() / 10) * 26;
+        let low = nominal * 700 / 1_000 - 60;
+        let high = nominal * 1_300 / 1_000 + 60;
+        let mut sum = 0_i64;
+        let mut count = 0_i64;
+        let mut lean = 0;
+        let mut rich = 0;
+        for id in 1..=2_000_u64 {
+            let item = roll_equipment(id, 5, Rarity::Rare, &mut Rng::seeded(id));
+            if item.slot != EquipSlot::Weapon {
+                continue;
+            }
+            let power = i64::from(item.attributes.root) * 19
+                + i64::from(item.attributes.strength) * 26
+                + i64::from(item.attributes.mana) * 26
+                + i64::from(item.attributes.agility) * 15;
+            assert!(
+                (low..=high).contains(&power),
+                "blade {id} is worth {power}, outside {low}..={high}"
+            );
+            if power < nominal * 900 / 1_000 {
+                lean += 1;
+            }
+            if power > nominal * 1_100 / 1_000 {
+                rich += 1;
+            }
+            sum += power;
+            count += 1;
+        }
+        assert!(count > 400, "the sample has blades");
+        assert!(lean > 0 && rich > 0, "both sides of the band are reachable");
+        let mean = sum / count;
+        assert!(
+            (mean - nominal).abs() < nominal / 20,
+            "the mean {mean} drifted from the nominal {nominal}"
+        );
+    }
+
+    /// A set now pays a convex ladder: each extra piece is worth more than
+    /// the one before it, and only four pieces wake the mastery.
+    #[test]
+    fn a_set_pays_a_convex_ladder_and_wakes_at_four() {
+        let piece = |id: u64| EquipmentRecord {
+            id,
+            slot: EquipSlot::from_index((id - 1) as usize),
+            tier: 5,
+            rarity: Rarity::Rare,
+            attributes: Attributes::default(),
+            bonus: Derived::default(),
+            star: 0,
+            half_star: false,
+            effect: None,
+            name: None,
+            set: Some(GearSet::Sun),
+        };
+        let two = gear_set_bonus(&[piece(1), piece(2)]);
+        let three = gear_set_bonus(&[piece(1), piece(2), piece(3)]);
+        let four_worn = [piece(1), piece(2), piece(3), piece(4)];
+        let four = gear_set_bonus(&four_worn);
+        assert!(two.power() < three.power() && three.power() < four.power());
+        assert!(
+            three.power() - two.power() < four.power() - three.power(),
+            "the fourth piece is worth more than the third"
+        );
+        assert_eq!(
+            four.attack, 90,
+            "a complete 曜日 at tier 5 keeps the old top end"
+        );
+        let views = gear_set_views(&four_worn);
+        assert_eq!(views[0].effect, Some(GearSet::Sun.mastery_effect()));
+        assert_eq!(
+            gear_set_views(&[piece(1), piece(2), piece(3)])[0].effect,
+            None
+        );
+        assert_eq!(
+            gear_set_mastery_effect(&[piece(1), piece(2), piece(3)]),
+            None
+        );
+        assert_eq!(
+            gear_set_mastery_effect(&four_worn),
+            Some(GearSet::Sun.mastery_effect())
+        );
+    }
+
     /// The stars are the second axis: five to eight percent a piece, whatever
     /// the quality did.
     #[test]
@@ -1283,6 +1524,16 @@ mod tests {
 
     #[test]
     fn every_slot_splits_its_points_over_two_attributes() {
+        assert_eq!(
+            EquipSlot::Pants.split().0,
+            Attribute::Mana,
+            "trousers are the 法力 slot"
+        );
+        assert_eq!(
+            EquipSlot::Pants.guardian_split().0,
+            Attribute::Agility,
+            "a guardian's wardrobe keeps the old table"
+        );
         for slot in EquipSlot::ALL {
             let (primary, primary_percent, secondary, secondary_percent) = slot.split();
             assert_ne!(primary, secondary);

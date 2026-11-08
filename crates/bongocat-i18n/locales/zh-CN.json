@@ -692,7 +692,8 @@
     },
     "bonus": "外显：%{lines}",
     "set": {
-      "line": "%{set} ×%{count}：%{lines}"
+      "line": "%{set} ×%{count}：%{lines}",
+      "mastery": "完整 · %{effect}"
     },
     "gear_sets": "装备套装",
     "art_sets": "功法家族",

@@ -5,6 +5,13 @@
 
 const L = require('./labels');
 
+const SET_EFFECTS = {
+  frost: '寒霜',
+  thunder: '雷亟',
+  sunder: '碎甲',
+  weaken: '蛊蚀',
+};
+
 /* ---------- 通用 ---------- */
 
 function header(snapshot) {
@@ -521,7 +528,7 @@ function gearSection(c) {
     count: (c.inventory || []).length,
     sets: (c.gear_sets || []).map((set, index) => ({
       key: `gear-set-${index}`,
-      text: `${(set.set && set.set.name) || '套装'} ${set.pieces} 件 · ${L.bonusLine(null, set.bonus)}`,
+      text: `${(set.set && set.set.name) || '套装'} ${set.pieces} 件 · ${L.bonusLine(null, set.bonus)}${set.effect ? ` · 完整 ${SET_EFFECTS[set.effect] || set.effect}` : ''}`,
     })),
   };
 }

@@ -692,7 +692,8 @@
     },
     "bonus": "Outright: %{lines}",
     "set": {
-      "line": "%{set} ×%{count}: %{lines}"
+      "line": "%{set} ×%{count}: %{lines}",
+      "mastery": "Full set · %{effect}"
     },
     "gear_sets": "Equipment sets",
     "art_sets": "Art families",

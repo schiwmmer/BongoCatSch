@@ -16,6 +16,13 @@ const REALMS = {
   Immortal: '仙人',
 };
 
+const SET_EFFECTS = {
+  frost: '寒霜',
+  thunder: '雷亟',
+  sunder: '碎甲',
+  weaken: '蛊蚀',
+};
+
 const ATTRIBUTES = [
   ['root', '根骨'],
   ['strength', '力道'],
@@ -454,7 +461,7 @@ function gearPage(c) {
       ${
         c.gear_sets?.length
           ? `<div class="chips" style="margin-top:12px">${c.gear_sets
-              .map((set) => `<span class="chip gold">${esc(set.set?.name ?? '套装')} ${set.pieces} 件 · ${setBonusText(set.bonus)}</span>`)
+              .map((set) => `<span class="chip gold">${esc(set.set?.name ?? '套装')} ${set.pieces} 件 · ${setBonusText(set.bonus)}${set.effect ? ` · 完整 ${esc(SET_EFFECTS[set.effect] ?? set.effect)}` : ''}</span>`)
               .join('')}</div>`
           : ''
       }

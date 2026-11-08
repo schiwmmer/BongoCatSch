@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### ⚖️ Balance
+
+- Gear drops are reworked: trousers now pay 法力 as their primary; every piece, white and green included, draws its second attribute from the other three at equal odds instead of a fixed partner per slot; the 成色 of two pieces of one slot, tier and quality now swings a random 10–30 percent either way, so a single piece lands between 0.70 and 1.30 times with the same expectation. The budget is still priced on the nominal partner, so a random second attribute changes the printed points, not the piece's worth.
+- The opponent's wardrobe is split from the player's drop table: guardians keep the old slot splits, ±6% 成色 and the 1060 allowance, so the realm gates and tower bands do not drift with this retune.
+- Set bonuses are now a convex ladder: 2 / 3 / 4 pieces pay 20% / 55% / 100% of the full worth (the old ladder paid the same amount for every extra piece), and the full worth is still the old four-piece total. A complete four-piece set also wakes a fixed mastery debuff (Sunder / Blight / Thunder / Frost at 神装 depth) that coexists with a 神装 effect; a shared effect keeps only the deeper bite. All three surfaces print the mastery.
+- Gear already owned is untouched: only future drops are rolled on the new table, and the attribute numbers stored in a save are kept as they are.
+
 ## 2.4.1 - 2026-11-06
 
 ### ✨ Features

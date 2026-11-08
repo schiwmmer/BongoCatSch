@@ -991,6 +991,14 @@ fn a_sweep_clears_ten_floors_and_pays_each() {
 
 /// A save at `level` wearing the four pieces of one quality, or nothing at all.
 fn a_save_at(level: u16, gear: Option<Rarity>) -> Cultivation {
+    a_save_at_seeded(level, gear, 0)
+}
+
+/// The same save with a different wardrobe drawn off the same table. A fresh
+/// drop swings ten to thirty percent, so one draw is one roll of the dice:
+/// the tower's three steps are a statement about the expectation, not about
+/// whichever four pieces happened to land.
+fn a_save_at_seeded(level: u16, gear: Option<Rarity>, wardrobe: u64) -> Cultivation {
     let realm = Realm::from_level(level);
     let mut document = CultivationDocument {
         growth: threshold_for(level),
@@ -1001,7 +1009,7 @@ fn a_save_at(level: u16, gear: Option<Rarity>) -> Cultivation {
     let Some(rarity) = gear else {
         return Cultivation::new(document);
     };
-    let mut rng = Rng::seeded(u64::from(level) * 31 + rarity.index() as u64);
+    let mut rng = Rng::seeded(u64::from(level) * 31 + rarity.index() as u64 + wardrobe);
     let mut slots = std::collections::BTreeSet::new();
     let mut id = 1;
     while slots.len() < SLOT_COUNT {
@@ -1034,21 +1042,26 @@ fn a_dressed_save_at(level: u16) -> Cultivation {
 ///
 /// These three numbers are the product requirement, so they are locked here: a
 /// retune of the attributes, the band or the duel that drifts one of them out
-/// of its window fails this.
+/// of its window fails this. Each rate averages eight independent wardrobes,
+/// so a single lean 成色 roll cannot speak for the whole table.
 #[test]
 fn the_deep_tower_reads_gear_as_three_steps() {
     let rate = |level: u16, floor: u16, gear: Option<Rarity>| {
         let runs = 200;
-        let wins = (0..runs)
-            .filter(|attempt: &usize| {
-                let mut cultivation = a_save_at(level, gear);
-                cultivation.document.trial_floor = floor - 1;
-                cultivation
-                    .trial(1_000 + (*attempt as i64) * 977, 9)
-                    .is_some_and(|outcome| outcome.duel.won)
-            })
-            .count();
-        wins * 100 / runs
+        const WARDROBES: u64 = 8;
+        let mut wins = 0;
+        for wardrobe in 0..WARDROBES {
+            wins += (0..runs)
+                .filter(|attempt: &usize| {
+                    let mut cultivation = a_save_at_seeded(level, gear, wardrobe);
+                    cultivation.document.trial_floor = floor - 1;
+                    cultivation
+                        .trial(1_000 + (*attempt as i64) * 977, 9)
+                        .is_some_and(|outcome| outcome.duel.won)
+                })
+                .count();
+        }
+        wins * 100 / (runs * WARDROBES as usize)
     };
     for level in [101_u16, 200, 500, 700] {
         let bare = rate(level, level, None);

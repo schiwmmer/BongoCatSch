@@ -90,15 +90,23 @@ pub(super) fn equipment_panel(
                 .gap_0p5()
                 .child(section_title(locale, "cultivation.gear_sets", tokens))
                 .children(cultivation.gear_sets.iter().map(|set_view| {
-                    div()
-                        .text_xs()
-                        .text_color(tokens.accent)
-                        .child(set_bonus_line(
+                    let mut line = set_bonus_line(
+                        locale,
+                        set_view.set.name(),
+                        set_view.pieces,
+                        &set_view.bonus,
+                    );
+                    // A complete set pays a mastery on top of the numbers:
+                    // the last piece is the one that changes what a fight does.
+                    if let Some(effect) = set_view.effect {
+                        line.push_str(" · ");
+                        line.push_str(&format_text(
                             locale,
-                            set_view.set.name(),
-                            set_view.pieces,
-                            &set_view.bonus,
-                        ))
+                            "cultivation.set.mastery",
+                            &[("effect", text(locale, effect.key()).to_string())],
+                        ));
+                    }
+                    div().text_xs().text_color(tokens.accent).child(line)
                 })),
         );
     }
