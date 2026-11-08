@@ -295,17 +295,13 @@ fn module_navigation_bar(
         .rounded_lg()
         .children(modules.iter().map(|(label, index)| {
             let anchor = anchors[*index].clone();
-            div()
-                .id(SharedString::from(format!("cultivation-nav-{}", index)))
-                .px_3()
-                .py_1()
-                .rounded_md()
-                .bg(tokens.overlay)
-                .cursor_pointer()
+            Button::new(format!("cultivation-nav-{index}"))
+                .ghost()
+                .small()
+                .label(*label)
                 .on_click(move |_, window, cx| {
                     anchor.scroll_to(window, cx);
                 })
-                .child(*label)
         }))
 }
 
