@@ -265,26 +265,22 @@ fn anchored_panel(
 fn module_navigation_bar(
     _view: &Entity<SettingsView>,
     anchors: &[gpui_kit::ScrollAnchor],
-    locale: &str,
+    _locale: &str,
     tokens: Tokens,
 ) -> impl gpui_kit::IntoElement {
+    // 只保留需要导航的模块：境界、最近事件、属性、外显属性、装备已在页面上方，
+    // 种子和仙草园合并为一个「种子」，试炼和锁妖塔合并为一个「试炼」。
     let modules = [
-        ("cultivation.module.record", 0),
-        ("cultivation.module.attributes", 1),
-        ("cultivation.module.derived", 2),
-        ("cultivation.module.equipment", 3),
-        ("cultivation.module.inventory", 4),
-        ("cultivation.module.arts", 5),
-        ("cultivation.module.mastered", 6),
-        ("cultivation.module.seeds", 7),
-        ("cultivation.module.garden", 8),
-        ("cultivation.module.breakthrough", 9),
-        ("cultivation.module.exploration", 10),
-        ("cultivation.module.jobs", 11),
-        ("cultivation.module.proving", 12),
-        ("cultivation.module.trial", 13),
-        ("cultivation.module.resources", 14),
-        ("cultivation.module.shop", 15),
+        ("储物袋", 4),
+        ("功法", 5),
+        ("已学", 6),
+        ("种子", 7),
+        ("破境", 9),
+        ("探索", 10),
+        ("打工", 11),
+        ("试炼", 12),
+        ("资源", 14),
+        ("坊市", 15),
     ];
 
     div()
@@ -299,20 +295,19 @@ fn module_navigation_bar(
         .rounded_lg()
         .children(modules.iter().map(|(label, index)| {
             let anchor = anchors[*index].clone();
+            let view = _view.clone();
             div()
-                .id(SharedString::from(format!(
-                    "cultivation-nav-{}",
-                    label.rsplit('.').next().unwrap_or(label)
-                )))
+                .id(SharedString::from(format!("cultivation-nav-{}", index)))
                 .px_3()
                 .py_1()
                 .rounded_md()
                 .bg(tokens.overlay)
                 .cursor_pointer()
-                .on_click(move |_event, window, cx| {
+                .on_click(move |_, window, cx| {
                     anchor.scroll_to(window, cx);
+                    view.update(cx, |_, _| {});
                 })
-                .child(text(locale, label))
+                .child(*label)
         }))
 }
 
