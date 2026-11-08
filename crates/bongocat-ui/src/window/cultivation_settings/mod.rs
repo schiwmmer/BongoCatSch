@@ -255,6 +255,7 @@ fn anchored_panel(
         .id(SharedString::from(format!("cultivation-anchor-{}", index)))
         .anchor_scroll(Some(anchors[index].clone()))
         .child(panel.into_any_element())
+        .into_any_element()
 }
 
 /// The navigation bar at the top of the cultivation page.
