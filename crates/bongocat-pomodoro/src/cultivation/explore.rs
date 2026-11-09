@@ -169,16 +169,6 @@ pub(crate) const TRIAL_STONES: StonePurse = StonePurse { min: 12, max: 18 };
 /// job cannot, and the 灵石 is only the road's cash on top of them.
 pub(crate) const WANDERER_STONES: StonePurse = StonePurse { min: 48, max: 68 };
 
-/// What winning a 试炼 in the courtyard pays.
-///
-/// The courtyard is the fourth place a fight happens and the one that used to
-/// pay no purse at all: its reward was a single exclusive roll, and most rolls
-/// come up empty, so a clean win could leave the log reading "试炼获胜。" and
-/// nothing else. Sized above a walk because it is a fight and below a tower
-/// floor because the opponent is the cultivator's own level rather than a
-/// warden that climbs with the tower.
-pub(crate) const PROVING_STONES: StonePurse = StonePurse { min: 6, max: 10 };
-
 /// What beating a realm's guardian pays. The richest purse, because a guardian
 /// guards a realm and its treasury both, and because it is the rarest fight on
 /// the ladder.
@@ -195,12 +185,15 @@ pub(crate) const GUARDIAN_STONES: StonePurse = StonePurse { min: 70, max: 120 };
 /// of a road's walk would be a strange thing to be a thousandth.
 pub(crate) const BONUS_STONES: StonePurse = StonePurse { min: 50, max: 90 };
 
-/// The purses are ordered on purpose — a walk under a courtyard bout, a bout
-/// under a floor, a floor under a wanderer, a wanderer under a guardian —
-/// because that ordering is both the difficulty and the emphasis, and a retune
-/// that broke it would flatten the sources into one.
-const _: () = assert!(WALK_STONES.max < PROVING_STONES.min);
-const _: () = assert!(PROVING_STONES.max < TRIAL_STONES.min);
+/// The purses are ordered on purpose — a walk under a floor, a floor under a
+/// wanderer, a wanderer under a guardian — because that ordering is both the
+/// difficulty and the emphasis, and a retune that broke it would flatten the
+/// sources into one.
+///
+/// A 试炼 no longer has a purse of its own: it is a submodule of the road and
+/// pays what the road pays for one hour there (see [`super::proving`]), so it
+/// sits inside the walk's own band rather than between the walk and the tower.
+const _: () = assert!(WALK_STONES.max < TRIAL_STONES.min);
 const _: () = assert!(TRIAL_STONES.max < WANDERER_STONES.min);
 const _: () = assert!(WANDERER_STONES.max < GUARDIAN_STONES.min);
 
@@ -657,6 +650,12 @@ pub const LEVELS_PER_REGION: u8 = 10;
 /// The deepest level clear a save can hold in one region, as a one-based index.
 pub const MAX_LEVEL: u8 = LEVELS_PER_REGION;
 
+/// How many tenths of a percent make a whole level: one hundred.
+///
+/// The domain carries a region's in-level progress in this unit, so the level
+/// is cleared when the slot crosses it and the excess rolls into the next.
+pub const PROGRESS_TENTHS_PER_LEVEL: u32 = 100;
+
 /// The level a region's progress stands at.
 ///
 /// A region covers one realm's hundred rungs and reads them as ten levels:
@@ -705,6 +704,26 @@ pub const REGION_GAIN_FACTOR_MAX: u32 = 5_000;
 /// the line is deliberate: the floor exists to keep a hopeless body crawling,
 /// not to pay it a share of a road it cannot walk.
 pub const REGION_GAIN_FLOOR_CEILING: u32 = 400;
+
+/// The progress a walk earns, in tenths of a percent of the region.
+///
+/// The same as [`walk_gain_permille`] but in the unit the domain carries and
+/// the page prints: a walk's gain is one of the few numbers that has to be
+/// exact rather than rounded. A walk that moves the region by half a percent
+/// reads `0.5%` on the panel, and a walk that moves it by two reads `2.0%`.
+pub fn walk_gain_tenths(
+    rng: &mut Rng,
+    hours: ExplorationHours,
+    power: u32,
+    requirement: u32,
+) -> u32 {
+    let permille = walk_gain_permille(rng, hours, power, requirement);
+    // Parts per thousand to tenths of a percent: one tenth of a percent is ten
+    // parts per thousand, so the gain is divided by ten and rounded to the
+    // nearest tenth. A gain of four parts per thousand reads `0.4%`, and one of
+    // five reads `0.5%` — the page's own unit, not a rounding of the domain's.
+    (permille + 5) / 10
+}
 
 /// How far this body's advantage carries a walk, in parts per thousand: the
 /// ratio itself once it is past [`REGION_GAIN_FLOOR_CEILING`], the floor below
@@ -789,6 +808,9 @@ pub const DEFEAT_DROP_PERMILLE: u64 = 200;
 ///
 /// The level re-purses the band: a level-ten walk pays a third again more than
 /// a level-one, so a deep walk reads as a real step up inside the band.
+///
+/// `hours` is the walk's length; a 试炼 is one hour of the road and is priced
+/// by [`proving_purse`] through the same table.
 pub fn walk_purse(_region: Region, hours: ExplorationHours, level: u8) -> StonePurse {
     let job = u64::from(super::jobs::job_stones(1, 4, super::arts::ArtGrade::Yellow));
     // The brief's 0.6:1 — the walk pays the job's own purse at sixty percent.
@@ -812,6 +834,23 @@ pub fn combat_purse(region: Region, hours: ExplorationHours, level: u8) -> Stone
         min: quiet.min.saturating_mul(3) / 2,
         max: quiet.max.saturating_mul(3) / 2,
     }
+}
+
+/// The purse one 试炼 opens: the road's own purse for **one hour** at the
+/// region the cultivator stands in.
+///
+/// A 试炼 is a submodule of exploration rather than a second economy: its base
+/// reward is exactly what the current region pays for one hour of walking, so
+/// a finished pomodoro is worth a short walk on the road the save is already
+/// on. The four-hour table above is the walk's own; the 试炼 reads the same
+/// table at one hour, which is why it is a fixed sixth of the shortest walk
+/// rather than a purse of its own.
+pub(crate) fn proving_purse(region: Region, level: u8) -> StonePurse {
+    // One hour is a sixth of the shortest walk, and the shortest walk is the
+    // table's own four-hour purse. The division is exact up to the truncation
+    // the integer steps leave behind, which is the same tolerance the walk's
+    // own purse carries.
+    walk_purse(region, ExplorationHours::Four, level).scaled(1_000 / 6)
 }
 
 #[cfg(test)]
@@ -1166,5 +1205,78 @@ mod tests {
         let quiet = walk_purse(Region::AzurePeaks, ExplorationHours::Four, 5);
         let combat = combat_purse(Region::AzurePeaks, ExplorationHours::Four, 5);
         assert!(combat.min > quiet.min, "combat wins more than a quiet walk");
+    }
+
+    /// A 试炼 pays the road's own purse for one hour: a fixed sixth of the
+    /// shortest walk at the same region and level, so a finished pomodoro is
+    /// worth a short walk on the road the save is already on.
+    #[test]
+    fn a_proving_purse_is_one_hour_of_the_road() {
+        for (region, level) in [
+            (Region::AzurePeaks, 1),
+            (Region::AzurePeaks, 10),
+            (Region::CelestialCourt, 5),
+            (Region::ChaosPalace, 10),
+        ] {
+            let walk = walk_purse(region, ExplorationHours::Four, level);
+            let proving = proving_purse(region, level);
+            // The purse is a fixed sixth of the shortest walk, up to the
+            // truncation the two integer steps leave behind.
+            assert!(
+                proving.min + 2 >= walk.min / 6,
+                "{region:?} level {level}: proving {} under a sixth of the walk {}",
+                proving.min,
+                walk.min
+            );
+            assert!(
+                proving.max <= walk.max / 6 + 2,
+                "{region:?} level {level}: proving {} far over a sixth of the walk {}",
+                proving.max,
+                walk.max
+            );
+        }
+        // The purse is tier-agnostic: the tier's scaling is applied when the
+        // purse is opened (by `roll_stones`), exactly as a walk's is. So the
+        // same level in two regions reads the same band, and the deeper
+        // region's 试炼 pays more because its tier multiplies the band.
+        let mut rng = Rng::seeded(9);
+        let shallow = roll_stones(&mut rng, proving_purse(Region::AzurePeaks, 5), 1);
+        let mut rng = Rng::seeded(9);
+        let deep = roll_stones(&mut rng, proving_purse(Region::ChaosPalace, 5), 10);
+        assert!(
+            deep > shallow,
+            "a deeper region's 试炼 pays more: {deep} vs {shallow}"
+        );
+    }
+
+    /// The walk's gain reads as the page prints it: parts per thousand of the
+    /// region become tenths of a percent, so a walk that moves half a percent
+    /// is `0.5` and one that moves two is `2.0`.
+    #[test]
+    fn a_walks_gain_reads_as_tenths_of_a_percent() {
+        let requirement = 10_000_u32;
+        for seed in 0..200_u64 {
+            // Two identical seeds: `walk_gain_tenths` rolls the permille first
+            // and then rounds it, so the same seed must produce the same
+            // permille the direct call reads.
+            let mut direct = Rng::seeded(seed);
+            let permille = walk_gain_permille(
+                &mut direct,
+                ExplorationHours::Four,
+                requirement,
+                requirement,
+            );
+            let mut rounded = Rng::seeded(seed);
+            let tenths = walk_gain_tenths(
+                &mut rounded,
+                ExplorationHours::Four,
+                requirement,
+                requirement,
+            );
+            // The two reads agree up to the rounding: the tenths are the
+            // permille rounded to the nearest tenth of a percent.
+            let expected = (permille + 5) / 10;
+            assert_eq!(tenths, expected, "seed {seed}: permille {permille}");
+        }
     }
 }

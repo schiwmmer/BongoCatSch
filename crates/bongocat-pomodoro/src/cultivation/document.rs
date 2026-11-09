@@ -389,17 +389,23 @@ pub struct CultivationDocument {
     #[serde(default, deserialize_with = "levels_from_stored")]
     pub explored_levels: [u8; Region::ALL.len()],
     /// The progress the walk has made through the current level of each region,
-    /// in parts per thousand of the level.
+    /// in **tenths of a percent** of the level.
     ///
     /// A walk adds what the body earns — see
-    /// [`super::explore::walk_gain_permille`] — to the region's slot each time
-    /// it comes home; at a thousand the level is cleared and the excess rolls
-    /// over into the next.
+    /// [`super::explore::walk_gain_tenths`] — to the region's slot each time it
+    /// comes home; at a hundred the level is cleared and the excess rolls over
+    /// into the next. The page prints the number as `X.X%`, so the domain
+    /// carries it in the unit the surface reads rather than in parts per
+    /// thousand and a rounding step that could disagree with the bar.
+    ///
+    /// A save written before progress carried a decimal reads parts per
+    /// thousand (the old shape); [`Self::normalized`] folds it into tenths by
+    /// dividing by ten, so an old save keeps the ground it had walked.
     #[serde(default, deserialize_with = "progress_from_stored")]
     pub region_progress: [u32; Region::ALL.len()],
-    /// How far the last settled walk moved its region, in parts per thousand.
+    /// How far the last settled walk moved its region, in tenths of a percent.
     /// Zero on a save that has never walked; the page prints it beside the
-    /// purse so "this walk moved three percent" is a number the user can read.
+    /// purse so "this walk moved 0.5%" is a number the user can read.
     #[serde(default)]
     pub last_walk_gain: u32,
     /// The region the next walk sets out for, by ladder position. Zero — the
@@ -476,6 +482,15 @@ fn expand_progress(stored: &[u32]) -> [u32; Region::ALL.len()] {
     out
 }
 
+/// The largest value a tenths-of-a-percent slot can hold: a whole level is a
+/// hundred tenths, and the slot is cleared at that point.
+///
+/// A save written before progress carried a decimal read parts per thousand in
+/// the same slot; `normalized` reads a slot above this line as that old shape
+/// and folds it down by ten, so an old save keeps the ground it had walked
+/// rather than losing nine tenths of it.
+const PROGRESS_TENTHS_PER_LEVEL: u32 = 100;
+
 impl CultivationDocument {
     /// Bring `growth` onto the current ramp, once.
     ///
@@ -549,6 +564,25 @@ impl CultivationDocument {
         self.trial_floor = self.trial_floor.min(super::TRIAL_MAX_FLOOR);
         self.trial_attempts_today = self.trial_attempts_today.min(super::TRIAL_ATTEMPTS_PER_DAY);
         self.proving_tokens = self.proving_tokens.min(super::TRIAL_CHANCES_CAP);
+        // A save written before region progress carried a decimal read parts
+        // per thousand in the same slot; a tenths-of-a-percent slot can never
+        // hold more than a whole level (a hundred), so a slot above that line
+        // is the old shape and is folded down by ten. A slot at or below the
+        // line is already the new shape and is left exactly as it is — the
+        // fold is one-way, so a second load cannot halve it again.
+        for slot in &mut self.region_progress {
+            if *slot > PROGRESS_TENTHS_PER_LEVEL {
+                *slot /= 10;
+            }
+            *slot = (*slot).min(PROGRESS_TENTHS_PER_LEVEL);
+        }
+        // The last walk's gain travels in the same unit as the slot it moved:
+        // an old save's parts-per-thousand gain is folded the same way, so the
+        // line beside the purse reads what the slot actually moved.
+        if self.last_walk_gain > PROGRESS_TENTHS_PER_LEVEL {
+            self.last_walk_gain /= 10;
+        }
+        self.last_walk_gain = self.last_walk_gain.min(PROGRESS_TENTHS_PER_LEVEL);
         // A save from before herbs carried a grade holds bare counts. Fold them
         // into stacks at 地阶 — the anchor the old numbers were — so an upgraded
         // save keeps exactly what it had, and none of it: the counts are then

@@ -200,7 +200,7 @@
       <view class="row">
         <view class="row-main">
           <view class="row-title">切磋一场</view>
-          <view class="row-sub">对手与你同级，赢了有掉落</view>
+          <view class="row-sub">对手与当前区域进度相匹配，赢了有掉落</view>
         </view>
         <view class="row-actions">
           <button class="btn small primary" data-act="prove" bindtap="onAction" disabled="{{!view.canProve}}">开始</button>

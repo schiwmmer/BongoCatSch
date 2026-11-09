@@ -186,7 +186,7 @@ function outing(c) {
       : `人在外面，${c.outing_return_seconds ? `${L.duration(c.outing_return_seconds)}后回来` : '归期未定'}`,
     regionName: region[1],
     regionLevel: c.explore_level || 1,
-    regionPercent: Math.round(regionProgress / 10),
+    regionPercent: (regionProgress / 10).toFixed(1),
     explorationReady: !!c.exploration_ready,
     cooldownText: c.exploration_ready_at ? `探索冷却，还需 ${L.until(c.exploration_ready_at)}` : '',
     hours: [4, 8, 12].map((value) => ({ value, primary: value === 8 })),

@@ -3,6 +3,17 @@
 
 use super::*;
 
+/// A region's completion as the page prints it: `X.X%`.
+///
+/// The domain carries completion in tenths of a percent (a cleared region reads
+/// `1000`), so the printed number is the slot divided by ten — the integer part
+/// is the whole percent and the remainder is the tenth. The page's own unit is
+/// the tenth, which is what lets a walk that moves half a percent read `0.5%`
+/// rather than being rounded away.
+fn percent_text(percent: u32) -> String {
+    format!("{}.{}", percent / 10, percent % 10)
+}
+
 /// The guardian at the end of the realm, and the one button that fights it.
 ///
 /// The button answers to the cooldown rather than to the power line: the fight
@@ -350,7 +361,7 @@ pub(super) fn exploration_panel(
                         .child(format_text(
                             locale,
                             "cultivation.explore.progress_pct",
-                            &[("pct", region.percent.to_string())],
+                            &[("pct", percent_text(region.percent))],
                         ))
                         .test_support(),
                 )
@@ -374,8 +385,7 @@ pub(super) fn exploration_panel(
             // choice that the user is actually making.
             let loot_title = text(locale, "cultivation.explore.loot_title").to_string();
             let loot_common = text(locale, "cultivation.explore.loot_common").to_string();
-            let loot_jackpot =
-                text(locale, "cultivation.explore.loot_jackpot").to_string();
+            let loot_jackpot = text(locale, "cultivation.explore.loot_jackpot").to_string();
             HoverCard::new(format!("cultivation-region-{index}-loot"))
                 .trigger(row.test_support())
                 .open_delay(Duration::from_millis(120))
@@ -389,7 +399,12 @@ pub(super) fn exploration_panel(
                         .text_xs()
                         .text_color(tokens.muted)
                         .whitespace_normal()
-                        .child(div().font_semibold().text_color(tokens.text).child(loot_title.clone()))
+                        .child(
+                            div()
+                                .font_semibold()
+                                .text_color(tokens.text)
+                                .child(loot_title.clone()),
+                        )
                         .child(div().child(loot_common.clone()))
                         .child(div().child(loot_jackpot.clone()))
                         .test_support()
@@ -411,17 +426,12 @@ pub(super) fn exploration_panel(
                 .items_center()
                 .justify_between()
                 .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_baseline()
-                        .gap_1()
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(tokens.muted)
-                                .child(text(locale, "cultivation.explore.current_region")),
-                        ),
+                    div().flex().flex_row().items_baseline().gap_1().child(
+                        div()
+                            .text_xs()
+                            .text_color(tokens.muted)
+                            .child(text(locale, "cultivation.explore.current_region")),
+                    ),
                 )
                 .child(
                     div()
@@ -431,7 +441,7 @@ pub(super) fn exploration_panel(
                         .child(format_text(
                             locale,
                             "cultivation.explore.progress_pct",
-                            &[("pct", region_pct.to_string())],
+                            &[("pct", percent_text(region_pct))],
                         ))
                         .test_support(),
                 ),

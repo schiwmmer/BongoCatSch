@@ -40,8 +40,8 @@ use super::{
     events::{BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind},
     expedition_yield,
     explore::{
-        BONUS_STONES, GUARDIAN_STONES, PROVING_STONES, TRIAL_STONES, WalkRecord,
-        breakthrough_ready, roll_stones, roll_victory,
+        BONUS_STONES, GUARDIAN_STONES, TRIAL_STONES, WalkRecord, breakthrough_ready, roll_stones,
+        roll_victory,
     },
     garden::{
         CropRecord, MAX_GARDEN_RANK, PlotRecord, SeedGrade, harvest_points, plant_permille,
@@ -448,9 +448,10 @@ pub struct RegionView {
     pub region: super::explore::Region,
     /// Levels cleared in it, zero to [`super::explore::MAX_LEVEL`].
     pub cleared_levels: u8,
-    /// Progress through the level being walked, in parts per thousand.
+    /// Progress through the level being walked, in tenths of a percent.
     pub level_progress: u32,
-    /// The whole region's completion, in percent.
+    /// The whole region's completion, in tenths of a percent: a cleared region
+    /// reads `1000` and the page prints `100.0%`.
     pub percent: u32,
     /// The level the region's progress stands at.
     pub level: u16,
@@ -466,8 +467,13 @@ pub struct RegionView {
 
 impl RegionView {
     /// The region's completion as a fraction, for a progress bar.
+    ///
+    /// The completion is carried in tenths of a percent, so a region walked
+    /// half of one level of ten reads `0.5%` and a bar that is one percent
+    /// full — the number the page prints and the width it draws are the same
+    /// reading of the same slot.
     pub fn fraction(&self) -> f32 {
-        (self.percent as f32 / 100.0).clamp(0.0, 1.0)
+        (self.percent as f32 / 1_000.0).clamp(0.0, 1.0)
     }
 }
 
@@ -953,11 +959,11 @@ pub struct CultivationView {
     pub walk_level: u8,
     /// The furthest level cleared in each region, indexed by ladder position.
     pub explored_levels: [u8; super::explore::Region::ALL.len()],
-    /// Progress through each region's current level, in parts per thousand.
+    /// Progress through each region's current level, in tenths of a percent.
     pub region_progress: [u32; super::explore::Region::ALL.len()],
     /// Every region the page lists, shallowest first: the walk's menu.
     pub regions: Vec<RegionView>,
-    /// How far the last settled walk moved its region, in parts per thousand.
+    /// How far the last settled walk moved its region, in tenths of a percent.
     pub walk_gain: u32,
     /// The resource economy as the page reads it: the purse, the two trades and
     /// the four buildings, each with what the page says about it.

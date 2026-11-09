@@ -602,7 +602,7 @@ mod tests {
     /// row painted grey would be a row whose grade the buyer can no longer read.
     #[test]
     fn a_bought_row_keeps_its_grade_colour() {
-        use bongocat_pomodoro::{Attributes, EquipmentRecord, EquipSlot, Rarity};
+        use bongocat_pomodoro::{Attributes, EquipSlot, EquipmentRecord, Rarity};
         let gear = ShopOffer::Equipment(EquipmentRecord {
             id: 1,
             slot: EquipSlot::Weapon,

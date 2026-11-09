@@ -2193,7 +2193,7 @@ fn a_walk_can_turn_up_stones() {
         let purse = super::explore::walk_purse(region, ExplorationHours::Twelve, level);
         // The purse is opened at the region's tier, so the pocket is the purse
         // multiplied by that tier — and then by how far the body's advantage
-        // carried the walk: ten per mille of the region is one purse.
+        // carried the walk: ten tenths of a percent is one purse.
         let share = cultivation.view().walk_gain.max(10) / 10;
         let (min, max) = purse.at(region.tier());
         let (min, max) = (min * share, max * share);

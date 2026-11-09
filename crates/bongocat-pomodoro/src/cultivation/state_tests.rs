@@ -230,14 +230,18 @@ fn a_session_buys_a_chance_and_a_chance_buys_a_fight() {
 /// The courtyard used to pay its exclusive roll and nothing else, so a clean
 /// win whose roll came up empty read as "试炼获胜。" and a chance spent for
 /// free. Every other fight pays a purse; this one does now too.
+///
+/// The save is a body deep enough to beat the region's own requirement: the
+/// 试炼 is levelled to the road rather than to the cultivator, so a bare
+/// level-zero save stands below its first region and loses every bout. A
+/// level-fifty body is a hundred rungs past the first region's opening, which
+/// is what makes the purse below a win rather than a hope.
 #[test]
 fn a_won_proving_pays_a_purse_the_log_names() {
     let mut paid = None;
     for step in 0..40i64 {
-        let mut cultivation = Cultivation::new(CultivationDocument {
-            proving_tokens: 1,
-            ..CultivationDocument::default()
-        });
+        let mut cultivation = a_bare_save_at(50);
+        cultivation.document.proving_tokens = 1;
         let before = cultivation.view().stones;
         let Some(outcome) = cultivation.proving(1_000 + step * 7) else {
             continue;
@@ -269,6 +273,50 @@ fn a_won_proving_pays_a_purse_the_log_names() {
         break;
     }
     assert!(paid.is_some(), "forty bouts should win at least one");
+}
+
+/// The 试炼's opponent is levelled to the road the cultivator walks: its power
+/// is the current region's own requirement multiplied by a draw between one
+/// and a half and three, so the fight is tied to the region's progress rather
+/// than to the cultivator's rung. A deeper region asks more, and its 试炼 asks
+/// more in the same breath.
+#[test]
+fn a_proving_opponent_matches_the_regions_own_requirement() {
+    use super::super::explore::{Region, region_requirement};
+    use super::super::proving::{TRIAL_CHALLENGE_MAX_PERMILLE, TRIAL_CHALLENGE_MIN_PERMILLE};
+    // A body deep enough to stand in the region it is judged against.
+    let mut cultivation = a_bare_save_at(200);
+    cultivation.document.proving_tokens = 1;
+    let region = Region::from_realm(cultivation.realm());
+    let progress = cultivation
+        .document
+        .region_progress
+        .get(region.index())
+        .copied()
+        .unwrap_or(0);
+    let requirement = region_requirement(region, progress * 10);
+    let Some(outcome) = cultivation.proving(1_000) else {
+        panic!("a banked chance buys its fight");
+    };
+    // The opponent's power is the requirement through the draw: it cannot be
+    // below the weakest draw or above the strongest, whatever the rung the
+    // binary search landed on.
+    let floor = requirement * TRIAL_CHALLENGE_MIN_PERMILLE / 1_000;
+    let ceiling = requirement * TRIAL_CHALLENGE_MAX_PERMILLE / 1_000;
+    assert!(
+        outcome.opponent_power >= floor.saturating_sub(1),
+        "the opponent {} is below the weakest draw {} (requirement {requirement})",
+        outcome.opponent_power,
+        floor
+    );
+    assert!(
+        outcome.opponent_power <= ceiling + 1,
+        "the opponent {} is above the strongest draw {} (requirement {requirement})",
+        outcome.opponent_power,
+        ceiling
+    );
+    // The 试炼 is tied to the region the cultivator stands in.
+    assert_eq!(outcome.region as usize, region.index());
 }
 
 /// 试炼 is fought at home: a walk that has not come back closes the courtyard
@@ -1185,7 +1233,11 @@ fn a_same_level_save_is_never_offered_the_sweep() {
 
 /// A save written when a region covered two realms stores five entries per
 /// array; the ten-region read spreads each old region across the two realms it
-/// used to cover, so a walker keeps the ground it had already walked.
+/// used to cover, so a walker keeps the ground it had already walked. The
+/// progress slot is folded from parts per thousand into tenths of a percent in
+/// the same pass, which is why the save is read through [`Cultivation::new`]
+/// rather than deserialized raw: the fold is the load path's, not the
+/// serializer's.
 #[test]
 fn a_five_region_save_spreads_across_ten() {
     let stored = r#"{"explored_levels":[5,2,0,0,0],"region_progress":[400,0,0,0,0]}"#;
@@ -1196,11 +1248,18 @@ fn a_five_region_save_spreads_across_ten() {
         [10, 0, 4, 0],
         "five old levels are ten new ones, and two old levels are four"
     );
+    // The raw slot is still the old shape: the fold happens on the load path.
     assert_eq!(
         document.region_progress[0], 400,
-        "the old slot's progress rides the first realm"
+        "the old slot's parts per thousand ride the first realm"
     );
     assert_eq!(document.explored_levels.len(), 10);
+    // The load path folds the slot into tenths of a percent.
+    let loaded = Cultivation::new(document);
+    assert_eq!(
+        loaded.document.region_progress[0], 40,
+        "the old slot's parts per thousand are folded into tenths of a percent"
+    );
 }
 
 /// The road is walked down the ladder, never up it: a region ahead of the

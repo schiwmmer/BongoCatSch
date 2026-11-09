@@ -1014,10 +1014,10 @@ impl Cultivation {
         let index = named[rng.below(named.len() as u64) as usize];
         let item: EquipmentRecord = self.document.equipment.remove(index);
         // A piece that was worn leaves its slot, so the body reads as it is.
-        if let Some(slot) = self.document.equipped.get_mut(item.slot.index()) {
-            if *slot == Some(item.id) {
-                *slot = None;
-            }
+        if let Some(slot) = self.document.equipped.get_mut(item.slot.index())
+            && *slot == Some(item.id)
+        {
+            *slot = None;
         }
         let name = item.name.clone().unwrap_or_default();
         self.push_event(now_unix, EventDetail::EquipmentLost { name });
@@ -1578,17 +1578,20 @@ impl Cultivation {
         }
         // How far this walk moves the region: the body read against what the
         // floor asks where the region currently stands. A defeat moves nothing.
+        // The gain is read in tenths of a percent — the unit the slot carries
+        // and the page prints — so a walk that moves half a percent is `0.5%`
+        // rather than a parts-per-thousand number the surface would round.
         let progress_before = self
             .document
             .region_progress
             .get(region.index())
             .copied()
             .unwrap_or(0);
-        let requirement = super::super::explore::region_requirement(region, progress_before);
+        let requirement = super::super::explore::region_requirement(region, progress_before * 10);
         let gain = if outcome == ExplorationOutcome::Defeat {
             0
         } else {
-            super::super::explore::walk_gain_permille(&mut rng, hours, self.power(), requirement)
+            super::super::explore::walk_gain_tenths(&mut rng, hours, self.power(), requirement)
         };
         // 灵石 are rolled beside the finding rather than in place of it: an
         // outing can come back with a herb and a handful of stones both, and
@@ -1688,8 +1691,8 @@ impl Cultivation {
     }
 
     /// Add a walk's progress to the region's current level. When the progress
-    /// crosses a thousand per mille, the level is cleared and the excess rolls
-    /// into the next.
+    /// crosses a whole level — a hundred tenths of a percent — the level is
+    /// cleared and the excess rolls into the next.
     fn accumulate_progress(&mut self, region_index: usize, gain: u32) {
         let slot = self
             .document
@@ -1697,8 +1700,8 @@ impl Cultivation {
             .get_mut(region_index)
             .expect("region_progress slot exists for every region");
         let total = slot.saturating_add(gain);
-        let level_cleared = total / 1_000;
-        *slot = total % 1_000;
+        let level_cleared = total / super::super::explore::PROGRESS_TENTHS_PER_LEVEL;
+        *slot = total % super::super::explore::PROGRESS_TENTHS_PER_LEVEL;
         for _ in 0..level_cleared {
             let level = self
                 .document
@@ -1777,21 +1780,32 @@ impl Cultivation {
             .enumerate()
             .map(|(index, region)| {
                 let cleared_levels = self.cleared_level(index);
+                // The slot carries tenths of a percent, so the level's progress
+                // is read straight off it rather than converted from parts per
+                // thousand. A whole level is a hundred tenths.
                 let level_progress = self
                     .document
                     .region_progress
                     .get(index)
                     .copied()
                     .unwrap_or(0)
-                    .min(1_000);
-                let walked = u32::from(cleared_levels) * 1_000 + level_progress;
+                    .min(super::super::explore::PROGRESS_TENTHS_PER_LEVEL);
+                let walked = u32::from(cleared_levels)
+                    * super::super::explore::PROGRESS_TENTHS_PER_LEVEL
+                    + level_progress;
                 super::RegionView {
                     region,
                     cleared_levels,
                     level_progress,
-                    percent: (walked / 100).min(100),
-                    level: super::super::explore::region_level_at(region, level_progress),
-                    requirement: super::super::explore::region_requirement(region, level_progress),
+                    // The whole region's completion, in tenths of a percent:
+                    // ten levels of a hundred tenths each is a thousand, so a
+                    // cleared region reads `100.0%` rather than `100%`.
+                    percent: walked.min(1_000),
+                    level: super::super::explore::region_level_at(region, level_progress * 10),
+                    requirement: super::super::explore::region_requirement(
+                        region,
+                        level_progress * 10,
+                    ),
                     cleared: self
                         .document
                         .cleared_regions
@@ -2275,16 +2289,22 @@ impl Cultivation {
         Some(outcome)
     }
 
-    /// Spend one 试炼 chance on a fight at the cultivator's own level.
+    /// Spend one 试炼 chance on a fight tied to the road the cultivator walks.
     ///
     /// The courtyard is fought at home, so the same two walls the tower has
     /// close it too: a walk still on the road and a job still in hand are hours
     /// of the same day, and the cultivator is only in one place at a time. What
     /// this fight adds is its own ration — a banked chance, one per finished
-    /// pomodoro, ten at most — and the opponent is rolled per meeting at the
-    /// cultivator's own level: a 试炼 is a fight, not a wall. A win pays the
-    /// 锁妖塔's base table, so the two dungeons differ in when they pay, not
-    /// what.
+    /// pomodoro, ten at most — and the opponent is drawn from the current
+    /// region's own requirement, multiplied by
+    /// [`super::proving::TRIAL_CHALLENGE_MIN_PERMILLE`] to
+    /// [`super::proving::TRIAL_CHALLENGE_MAX_PERMILLE`]: a 试炼 is a fight
+    /// tied to the road, not a second ladder.
+    ///
+    /// A win pays the road's own purse for **one hour** at that region — the
+    /// same table a walk reads — so a finished pomodoro is worth a short walk
+    /// on the road the save is already on. The find is the 锁妖塔's base table,
+    /// so the two differ in when they pay, not in what.
     pub fn proving(&mut self, now_unix: i64) -> Option<ProvingOutcome> {
         // The walk that is home is settled before the courtyard is asked, the
         // way the tower does it: the gate is where the cultivator is, not
@@ -2299,8 +2319,42 @@ impl Cultivation {
         self.provings = self.provings.saturating_add(1);
         let mut rng = self.rng(now_unix);
         let fighter = self.fighter(&mut rng);
-        let tier = self.realm().index() as u8 + 1;
-        let rival = opponent::challenger(self.level(), tier, rng.below(u64::MAX));
+        // The region the 试炼 is tied to is the one the cultivator stands in:
+        // the road it is walking, not a region picked from the ladder.
+        let region = super::super::explore::Region::from_realm(self.realm());
+        let level = self
+            .cleared_level(region.index())
+            .saturating_add(1)
+            .min(super::super::explore::MAX_LEVEL);
+        // The opponent stands where the region's progress stands, multiplied
+        // by a draw between one and a half and three: the road's own
+        // requirement is the floor, and the spread is what makes a 试炼 a fight
+        // rather than a formality. The requirement is read in parts per
+        // thousand, which is what the region's progress is converted to here.
+        let progress = self
+            .document
+            .region_progress
+            .get(region.index())
+            .copied()
+            .unwrap_or(0);
+        let requirement = super::super::explore::region_requirement(region, progress * 10);
+        let span = super::super::proving::TRIAL_CHALLENGE_MAX_PERMILLE
+            - super::super::proving::TRIAL_CHALLENGE_MIN_PERMILLE
+            + 1;
+        let challenge =
+            super::super::proving::TRIAL_CHALLENGE_MIN_PERMILLE + rng.below(u64::from(span)) as u32;
+        let target = requirement.saturating_mul(challenge) / 1_000;
+        let tier = region.tier();
+        // The opponent is levelled to the target rather than to the cultivator:
+        // the fight is tied to the road, so its body is the road's own
+        // requirement through the draw, not the save's own rung.
+        let name = super::super::trial::TRIAL_OPPONENT_NAME.to_owned();
+        let seed = rng.below(u64::MAX);
+        // `level_near` returns the rung whose body is nearest the target; the
+        // full opponent is then wound up from that rung, the way a floor's
+        // warden is.
+        let rung = opponent::level_near(target, tier, name.clone(), seed);
+        let rival = opponent::opponent(opponent::Stance::Wanderer, rung, tier, name, seed);
         let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
         self.record_duel(duel.won, FightKind::Wanderer, now_unix);
         let mut found = ExplorationFindView::default();
@@ -2323,12 +2377,15 @@ impl Cultivation {
                 }
                 TrialReward::Nothing => {}
             }
-            // Every fight pays a purse of its own size (ADR-0096), and the
-            // courtyard was the one that did not: its only reward was the
-            // exclusive roll above, which comes up empty most of the time, so a
-            // clean win could pay the cultivator nothing at all. The purse is
-            // drawn at the realm the bout was fought in, like every other one.
-            let stones = roll_stones(&mut rng, PROVING_STONES, tier);
+            // The purse is the road's own for one hour at the region the 试炼
+            // is tied to: a finished pomodoro is worth a short walk on the road
+            // the save is already on, and the purse follows the road's tier
+            // exactly as a walk's does.
+            let stones = roll_stones(
+                &mut rng,
+                super::super::explore::proving_purse(region, level),
+                tier,
+            );
             self.document.stones = self.document.stones.saturating_add(stones);
             found.stones = Some(stones);
             // A beaten challenger can leave a 洗髓丹 behind, on the same odds
@@ -2345,7 +2402,12 @@ impl Cultivation {
                 stones: found.stones,
             },
         );
-        let outcome = ProvingOutcome { duel, found };
+        let outcome = ProvingOutcome {
+            duel,
+            found,
+            opponent_power: rival.attributes.power(),
+            region: region.index() as u8,
+        };
         self.last_proving = Some(outcome.clone());
         Some(outcome)
     }

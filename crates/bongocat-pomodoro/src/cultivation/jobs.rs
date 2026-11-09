@@ -45,11 +45,21 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::explore::PROVING_STONES;
+use super::explore::StonePurse;
 use super::{ArtGrade, Derived, DerivedSlot, Rng};
 
 /// How many jobs the board holds at a time.
 pub const JOB_OFFER_COUNT: usize = 3;
+
+/// The purse band a job's wage is drawn from, at the first tier.
+///
+/// Six to ten: the band the 试炼 purse used to hold, kept here because the
+/// wage's *number* is still anchored to the realm's own fighting — a job pays
+/// the middle of this band, doubled and widened by its hours, and the walk and
+/// 试炼 purses are in turn read off the job. A 试炼 no longer carries a purse
+/// of its own (see [`super::proving`]), so the band lives where the wage is
+/// made rather than where the fight is priced.
+const JOB_BASE_PURSE: (u32, u32) = (6, 10);
 
 /// The shortest job the board offers, in hours.
 pub const JOB_MIN_HOURS: u8 = 4;
@@ -381,7 +391,11 @@ impl JobRun {
 /// the longest job the only job.
 pub fn job_stones(tier: u8, hours: u8, grade: ArtGrade) -> u32 {
     let hours = u64::from(hours.clamp(JOB_MIN_HOURS, JOB_MAX_HOURS));
-    let purse = PROVING_STONES.scaled(hours * 250);
+    let purse = StonePurse {
+        min: JOB_BASE_PURSE.0,
+        max: JOB_BASE_PURSE.1,
+    }
+    .scaled(hours * 250);
     let (low, high) = purse.at(tier);
     let middle = (u64::from(low) + u64::from(high)) / 2;
     let over = middle * JOB_OVER_TRIAL_PERMILLE / 1_000;
@@ -507,9 +521,14 @@ mod tests {
 
     #[test]
     fn a_job_pays_twice_the_middle_of_the_trial_it_stands_in_for() {
-        // Twelve hours at the fourth tier: the 试炼's purse is 72–120, so its
+        // Twelve hours at the fourth tier: the base band is 72–120, so its
         // middle is 96 and twice that is 192.
-        let trial = PROVING_STONES.scaled(3_000).at(4);
+        let trial = StonePurse {
+            min: JOB_BASE_PURSE.0,
+            max: JOB_BASE_PURSE.1,
+        }
+        .scaled(3_000)
+        .at(4);
         let middle = (u64::from(trial.0) + u64::from(trial.1)) / 2;
         let job = job_stones(4, 12, ArtGrade::Yellow);
         let expected = middle * 2_000 / 1_000;

@@ -325,7 +325,11 @@ pub(crate) fn warden_at_band(floor: u16, band_permille: u32) -> Opponent {
 /// The warden's body is monotone in level, so a binary search finds the rung
 /// closest to the draw; the gear is tiered to the floor's realm either way, so
 /// the search reads the same ladder the floor stands on.
-fn level_near(target: u32, tier: u8, name: String, seed: u64) -> u16 {
+///
+/// Crate-private so the 试炼 can draw an opponent of a chosen power: it is a
+/// submodule of exploration now, and its rival is levelled to the region's own
+/// requirement rather than to the cultivator's.
+pub(crate) fn level_near(target: u32, tier: u8, name: String, seed: u64) -> u16 {
     let mut lo = 1u16;
     let mut hi = MAX_LEVEL;
     while lo < hi {

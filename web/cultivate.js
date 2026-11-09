@@ -797,7 +797,7 @@ function outingPage(c) {
         <div class="row region-row">
           <div class="row-main">
             <div class="row-title">探索 · ${REGIONS[idx]?.[1] ?? `区域 ${idx + 1}`}</div>
-            <div class="row-sub">当前层 ${regionLevel}/10 · 层满 ${Math.round(regionProgress / 10)}% · 战斗几率更高，材料更好</div>
+            <div class="row-sub">当前层 ${regionLevel}/10 · 层满 ${(regionProgress / 10).toFixed(1)}% · 战斗几率更高，材料更好</div>
             ${regionProgress > 0 ? `<div class="region-progress" style="margin-top:6px">${progressBar(regionProgress / 10, { height: 6 })}</div>` : ''}
           </div>
           <div class="row-actions">
@@ -947,7 +947,7 @@ function towerPage(c) {
           <div class="row">
             <div class="row-main">
               <div class="row-title">切磋一场</div>
-              <div class="row-sub">对手与你同级，赢了有掉落</div>
+              <div class="row-sub">对手与当前区域进度相匹配，赢了有掉落</div>
             </div>
             <div class="row-actions">
               <button class="btn small primary" data-act="cult-prove" ${(c.proving_tokens ?? 0) > 0 && c.at_home ? '' : 'disabled'}>开始</button>
