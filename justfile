@@ -199,11 +199,15 @@ verify-app:
 clean-dev:
     cargo clean --profile dev
 
-# Reclaim the two caches that grow without bound and cost little to keep: the
-# incremental cache (per-crate hashes that only speed up the next edit, 1-5G) and
-# the cross-target tree the packager writes (`target/aarch64-apple-darwin`, a
-# second copy of binaries that are already built, 1.5G). This is the small valve
-# to `clean-dev`'s full one.
+# Reclaim the three caches that grow without bound and cost little to keep: the
+# incremental cache (per-crate hashes that only speed up the next edit, 1-5G), the
+# cross-target tree the packager writes (`target/aarch64-apple-darwin`, a second
+# copy of binaries that are already built, 1.5G), and the session-suffixed
+# `*.rcgu.o` codegen units rustc leaves in `target/debug/deps` (~0.5G, growing
+# with every link). Cargo prunes `incremental/` but never those `.o` files. They
+# are pure intermediates: no dep-info references them and the `.rlib` already
+# contains the code, so removing them cannot dirty a fingerprint or force a
+# rebuild. This is the small valve to `clean-dev`'s full one.
 #
 # The paths are removed directly rather than through `cargo clean --target
 # <triple>`: this machine's host triple *is* aarch64-apple-darwin, so asking cargo
@@ -212,6 +216,7 @@ clean-dev:
 prune:
     /bin/rm -rf target/debug/incremental
     /bin/rm -rf target/aarch64-apple-darwin
+    /bin/rm -f target/debug/deps/*.rcgu.o
     @du -sh target 2>/dev/null || true
 
 # Report whether `target/` has drifted away from the steady state that
