@@ -954,6 +954,7 @@ fn the_page_draws_the_next_session_worth_and_the_record(cx: &mut TestAppContext)
                     gear: Some("青锋".to_owned()),
                     seed: None,
                     stones: Some(5),
+                    gain: 80,
                 },
             },
             EventRecord {

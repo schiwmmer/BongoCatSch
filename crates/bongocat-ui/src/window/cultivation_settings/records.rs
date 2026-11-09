@@ -467,12 +467,14 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             gear,
             seed,
             stones,
+            gain,
         } => walk_line(
             *outcome,
             art.as_deref(),
             gear.as_deref(),
             seed.as_deref(),
             *stones,
+            *gain,
             locale,
         ),
         EventDetail::RegionCleared {
@@ -1015,6 +1017,7 @@ fn walk_line(
     gear: Option<&str>,
     seed: Option<&str>,
     stones: Option<u32>,
+    gain: u32,
     locale: &str,
 ) -> String {
     let mut line = format_text(
@@ -1027,6 +1030,7 @@ fn walk_line(
     );
     push_finds(&mut line, art, gear, seed, locale);
     push_stones(&mut line, stones, locale);
+    push_progress(&mut line, gain, locale);
     line
 }
 
@@ -1120,6 +1124,25 @@ fn push_stones(line: &mut String, stones: Option<u32>, locale: &str) {
                 locale,
                 "cultivation.record.found_stones",
                 &[("value", amount.to_string())]
+            )
+        ));
+    }
+}
+
+/// Name how far the walk moved its region, when it moved it.
+///
+/// A defeat moves nothing and prints nothing; a walk that gained prints the
+/// percent beside the finds, in the same segment style, because the region's
+/// percent is the number the user watches climb and a line that made them add
+/// the percents up would be a line that hid the one figure they came for.
+fn push_progress(line: &mut String, gain: u32, locale: &str) {
+    if gain > 0 {
+        line.push_str(&format!(
+            " · {}",
+            format_text(
+                locale,
+                "cultivation.record.walk_progress",
+                &[("percent", (gain / 10).to_string())]
             )
         ));
     }

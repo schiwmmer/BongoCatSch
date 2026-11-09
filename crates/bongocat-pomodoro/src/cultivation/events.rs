@@ -123,13 +123,19 @@ pub enum EventDetail {
         charged: u32,
     },
     /// A walk came back. The finds travel by name, the way the walk record has
-    /// always carried them.
+    /// always carried them, and the progress rides beside them: a walk is the
+    /// region's faucet, and a line that said what it found without saying how
+    /// far it moved the region would leave the user to add the percents up.
     Walk {
         outcome: ExplorationOutcome,
         art: Option<String>,
         gear: Option<String>,
         seed: Option<String>,
         stones: Option<u32>,
+        /// How far this walk moved the region, in parts per thousand. A defeat
+        /// moves it nothing, and a walk that never settled carries none at all.
+        #[serde(default)]
+        gain: u32,
     },
     /// A finished session trained the selected 功法书 and it came to something.
     Training {

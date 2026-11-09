@@ -1623,6 +1623,7 @@ impl Cultivation {
                     .as_ref()
                     .and_then(|w| w.seed.clone()),
                 stones,
+                gain,
             },
         );
         true

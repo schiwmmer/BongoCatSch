@@ -1017,6 +1017,7 @@
       "found_gear": "装备「%{name}」",
       "found_seed": "仙草「%{name}」",
       "found_stones": "灵石「%{value}」",
+      "walk_progress": "探索 +%{percent}%",
       "show_all": "查看全部 %{count} 件事",
       "history": "全部事件"
     },

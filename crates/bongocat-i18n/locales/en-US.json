@@ -1017,6 +1017,7 @@
       "found_gear": "gear “%{name}”",
       "found_seed": "herb “%{name}”",
       "found_stones": "stones “%{value}”",
+      "walk_progress": "explore +%{percent}%",
       "show_all": "Show all %{count} events",
       "history": "Full history"
     },
