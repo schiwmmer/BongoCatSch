@@ -632,6 +632,7 @@
     "growth": {
       "next": "下一个番茄钟 +%{value} 成长值"
     },
+    "today_delta": "今日境界 %{level} 级 · 战力 %{power}",
     "attributes": "属性",
     "free_points": "可分配 %{points} 点",
     "attribute": {

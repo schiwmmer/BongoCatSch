@@ -117,6 +117,56 @@ fn a_session_pays_growth_in_proportion_to_its_length() {
 }
 
 #[test]
+fn a_new_day_records_the_level_and_power_it_opens_with() {
+    let mut cultivation = Cultivation::default();
+    cultivation.ensure_day_baseline(20_000);
+    let baseline = cultivation.document().today_baseline.expect("the day is recorded");
+    assert_eq!(baseline.day, 20_000);
+    assert_eq!(baseline.level, cultivation.level());
+    assert_eq!(baseline.power, cultivation.power());
+
+    // A session on that day moves the level and the power, and the view reads
+    // the difference against the recorded opening rather than against the save's
+    // whole history.
+    cultivation.on_session_completed(1_000, day(20_000), 25);
+    let view = cultivation.view_on(2_000, 20_000);
+    assert_eq!(
+        view.today_level_delta,
+        cultivation.level() as i32 - i32::from(baseline.level)
+    );
+    assert_eq!(
+        view.today_power_delta,
+        (cultivation.power() as i64 - i64::from(baseline.power)) as i32
+    );
+}
+
+#[test]
+fn a_new_day_resets_the_delta_to_zero() {
+    let mut cultivation = Cultivation::default();
+    cultivation.ensure_day_baseline(20_000);
+    cultivation.on_session_completed(1_000, day(20_000), 25);
+    assert_ne!(cultivation.view_on(2_000, 20_000).today_power_delta, 0);
+
+    // The next local day opens at its own baseline, so the previous day's gain
+    // is no longer reported as today's progress.
+    cultivation.ensure_day_baseline(20_001);
+    let view = cultivation.view_on(3_000, 20_001);
+    assert_eq!(view.today_level_delta, 0);
+    assert_eq!(view.today_power_delta, 0);
+}
+
+#[test]
+fn a_save_written_before_the_baseline_existed_reports_zero_until_the_day_is_recorded() {
+    let cultivation = Cultivation::new(CultivationDocument {
+        growth: 10_000,
+        ..CultivationDocument::default()
+    });
+    let view = cultivation.view_on(1_000, 20_000);
+    assert_eq!(view.today_level_delta, 0);
+    assert_eq!(view.today_power_delta, 0);
+}
+
+#[test]
 fn session_growth_scales_with_the_day_and_the_realm() {
     assert_eq!(session_growth(1, 1), 500);
     assert_eq!(session_growth(2, 1), 550, "500 * 1.1, truncated");

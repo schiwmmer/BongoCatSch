@@ -623,6 +623,18 @@ impl PomodoroState {
         self.timer
     }
 
+    /// The UTC offset that decides which local day a completion lands on.
+    pub fn utc_offset_seconds(&self) -> i32 {
+        self.utc_offset_seconds
+    }
+
+    /// Record the level and combat power the local day opens with, and mirror
+    /// it into the document so the next write carries it.
+    pub fn ensure_day_baseline(&mut self, day: i64) {
+        self.cultivation.ensure_day_baseline(day);
+        self.sync_cultivation();
+    }
+
     /// Whether the document changed since it was last written.
     ///
     /// The worker asks this after every command so a pause or a resume — which
@@ -1263,12 +1275,19 @@ impl PomodoroState {
     /// The worker state travels with the data rather than only with the
     /// diagnostics: a caller that renders a timer needs to know whether there is
     /// a worker behind it in the same read it takes the task list from.
-    pub fn snapshot_at(&self, revision: u64, now_unix: i64) -> PomodoroSnapshot {
+    pub fn snapshot_at(&mut self, revision: u64, now_unix: i64) -> PomodoroSnapshot {
         let running_task = self.timer.task_id();
         // The local day, read once and handed down: the cultivation page prices
         // the next pomodoro and rolls the shelf from it, and a day number
         // computed anywhere else could be a timezone's worth of hours out.
         let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
+        // The day's starting level and power are recorded before the view is
+        // built, so a surface that polls across midnight reads the new day's
+        // zero delta rather than a stale baseline from the day that just ended.
+        // The worker mirrors the baseline back into the document on the next
+        // save; the in-memory ladder is the source the view reads.
+        self.cultivation.ensure_day_baseline(today.day_number());
+        self.sync_cultivation();
         PomodoroSnapshot {
             revision,
             worker: crate::service::PomodoroWorkerState::Ready,
@@ -1289,7 +1308,7 @@ impl PomodoroState {
 
     /// The snapshot for a caller with no clock: the cooldowns read as they would
     /// at the start of the epoch, which is what the tests want.
-    pub fn snapshot(&self, revision: u64) -> PomodoroSnapshot {
+    pub fn snapshot(&mut self, revision: u64) -> PomodoroSnapshot {
         self.snapshot_at(revision, 0)
     }
 
@@ -1473,7 +1492,7 @@ mod tests {
 
     #[test]
     fn a_fresh_state_has_no_tasks_and_no_session() {
-        let state = PomodoroState::empty();
+        let mut state = PomodoroState::empty();
         let snapshot = state.snapshot(1);
         assert!(snapshot.tasks.is_empty());
         assert_eq!(snapshot.timer, None);

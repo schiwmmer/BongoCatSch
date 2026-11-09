@@ -137,7 +137,8 @@ impl Inner {
         // The cultivation cooldowns are read against the wall clock, so the
         // snapshot is built with one: a surface that polls gets the truth rather
         // than a cached answer from when the state last changed.
-        self.snapshot = self.domain.snapshot_at(self.revision, now_unix());
+        let now = now_unix();
+        self.snapshot = self.domain.snapshot_at(self.revision, now);
         self.snapshot.worker = self.worker_state;
     }
 
@@ -198,7 +199,7 @@ impl PomodoroClient {
     pub fn unavailable() -> Self {
         let (sender, receiver) = mpsc::sync_channel(1);
         drop(receiver);
-        let domain = PomodoroState::empty();
+        let mut domain = PomodoroState::empty();
         let mut snapshot = domain.snapshot(0);
         // A client with no worker must not render as an idle one that is about
         // to work: a surface asking for the task list has to see the failure.
@@ -444,7 +445,7 @@ impl PomodoroService {
     /// in Shanghai belongs to the day that just started, not to yesterday in UTC.
     pub fn start_at(path: PathBuf, utc_offset_seconds: i32) -> Result<Self, PomodoroStartError> {
         let (sender, receiver) = mpsc::sync_channel(COMMAND_CAPACITY);
-        let domain = PomodoroState::load_at(&path, utc_offset_seconds);
+        let mut domain = PomodoroState::load_at(&path, utc_offset_seconds);
         let snapshot = domain.snapshot(0);
         let shared = Arc::new(SharedState {
             inner: Mutex::new(Inner {

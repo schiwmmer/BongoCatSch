@@ -417,6 +417,27 @@ pub struct CultivationDocument {
     /// walked again, paying the ordinary purses and nothing extra.
     #[serde(default)]
     pub cleared_regions: [bool; Region::ALL.len()],
+    /// The level and combat power at the opening of the current local day.
+    ///
+    /// The page reports the day's progress against the state the day opened
+    /// with rather than against the state a save happened to be in when it was
+    /// first rendered. A document written before this field existed reads as
+    /// `None`, so the first view after an upgrade takes the current level and
+    /// power as that day's baseline and reports a zero delta rather than
+    /// inventing a gain from the whole save's history.
+    #[serde(default)]
+    pub today_baseline: Option<CultivationDayBaseline>,
+}
+
+/// The level and combat power recorded when a local day opens.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CultivationDayBaseline {
+    /// The local day this baseline belongs to.
+    pub day: i64,
+    /// The level at the opening of that day.
+    pub level: u16,
+    /// The combat power at the opening of that day.
+    pub power: u32,
 }
 
 /// Read a per-region level array from either shape: the ten-slot one written
@@ -523,6 +544,15 @@ impl CultivationDocument {
         let realm = usize::from(self.realm).min(STAGE_COUNT - 1);
         self.realm = realm as u8;
         self.growth = self.growth.max(stage_floor(realm));
+        // A save written before the day baseline existed has no starting point
+        // for the day's progress. Leave it absent so the first view after the
+        // upgrade records the current state as the day's opening rather than
+        // inventing a delta from the save's whole history. A hand-edited level
+        // is clamped to the ladder; the power is a derived number and is left
+        // as written.
+        if let Some(baseline) = &mut self.today_baseline {
+            baseline.level = baseline.level.min(MAX_LEVEL);
+        }
         let top_level = ((realm as u16) + 1) * super::LAYERS_PER_STAGE;
         debug_assert!(top_level <= MAX_LEVEL);
         // A hand-edited document cannot claim a peak it never reached, and it

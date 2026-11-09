@@ -196,8 +196,8 @@ pub extern "C" fn web_tick(now: f64, elapsed_ms: u32) -> i32 {
 pub extern "C" fn web_render(now: f64) {
     let now_unix = now as i64;
     APP.with(|cell| {
-        let slot = cell.borrow();
-        let Some(app) = slot.as_ref() else {
+        let mut slot = cell.borrow_mut();
+        let Some(app) = slot.as_mut() else {
             write_output(String::from("null"));
             return;
         };

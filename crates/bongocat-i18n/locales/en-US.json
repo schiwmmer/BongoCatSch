@@ -632,6 +632,7 @@
     "growth": {
       "next": "Next pomodoro +%{value} growth"
     },
+    "today_delta": "Today: %{level} level · %{power} power",
     "attributes": "Attributes",
     "free_points": "%{points} points to place",
     "attribute": {

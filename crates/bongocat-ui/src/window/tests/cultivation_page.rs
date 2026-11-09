@@ -920,6 +920,24 @@ fn walk_report() -> DuelReport {
     }
 }
 
+/// The day's own progress sits beside the lifetime numbers: the level and the
+/// power the cultivator has gained since the local day opened.
+#[gpui_kit::test]
+fn the_page_draws_today_s_level_and_power_delta(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        growth: threshold_for(LAYERS_PER_STAGE),
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-today-delta"),
+        "the page must draw the day's level and power delta"
+    );
+}
+
 /// What the next pomodoro is worth, and the fight record, are on the page.
 ///
 /// The growth line is the one number the user is chasing, so the page says it

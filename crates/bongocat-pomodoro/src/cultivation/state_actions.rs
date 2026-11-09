@@ -3,6 +3,7 @@
 //! Split out of `state.rs` as a child module so it keeps access to the
 //! document's private fields without widening their visibility.
 
+use super::super::CultivationDayBaseline;
 use super::*;
 
 impl Cultivation {
@@ -2533,6 +2534,46 @@ impl Cultivation {
         self.view_on(0, 0)
     }
 
+    /// Record the level and combat power the local day opens with.
+    ///
+    /// A new day has no baseline yet, so the first time the page reads the
+    /// ladder after midnight the current values become that day's starting
+    /// point. The absence charge has already been applied by the worker by the
+    /// time the day opens, so the penalty belongs to the day that missed its
+    /// sessions rather than to the new day's progress.
+    pub fn ensure_day_baseline(&mut self, day: i64) {
+        if self.document.today_baseline.is_some_and(|baseline| baseline.day == day) {
+            return;
+        }
+        self.document.today_baseline = Some(CultivationDayBaseline {
+            day,
+            level: self.level(),
+            power: self.power(),
+        });
+    }
+
+    /// How many levels the cultivator has gained since the local day opened.
+    ///
+    /// A save written before the baseline existed reports zero rather than a
+    /// delta from the whole save's history; the next view takes the current
+    /// level as the day's starting point.
+    fn today_level_delta(&self, day: i64) -> i32 {
+        self.document
+            .today_baseline
+            .filter(|baseline| baseline.day == day)
+            .map_or(0, |baseline| self.level() as i64 - i64::from(baseline.level)) as i32
+    }
+
+    /// How much combat power the cultivator has gained since the local day
+    /// opened. The same rule as [`Self::today_level_delta`] applies to a save
+    /// written before the baseline existed.
+    fn today_power_delta(&self, day: i64) -> i32 {
+        self.document
+            .today_baseline
+            .filter(|baseline| baseline.day == day)
+            .map_or(0, |baseline| self.power() as i64 - i64::from(baseline.power)) as i32
+    }
+
     /// Read the snapshot a surface renders.
     ///
     /// The local day is passed in rather than derived from the timestamp,
@@ -2649,6 +2690,8 @@ impl Cultivation {
         CultivationView {
             level,
             realm,
+            today_level_delta: self.today_level_delta(day),
+            today_power_delta: self.today_power_delta(day),
             layer: said.layer,
             rank: said.rank,
             growth: self.document.growth,

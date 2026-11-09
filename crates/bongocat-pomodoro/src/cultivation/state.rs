@@ -732,6 +732,13 @@ impl PowerBreakdown {
 pub struct CultivationView {
     pub level: u16,
     pub realm: Realm,
+    /// How many levels the cultivator has gained since the local day opened.
+    /// Negative when an absence charge or a loss has taken a level back.
+    pub today_level_delta: i32,
+    /// How much combat power the cultivator has gained since the local day
+    /// opened. Negative when gear, an attribute allocation or a penalty has
+    /// taken power away.
+    pub today_power_delta: i32,
     /// The layer inside the realm, as [`LayerRank`] says it: ten layers of ten
     /// ranks, so 89 is layer 8 rank 9.
     pub layer: u8,

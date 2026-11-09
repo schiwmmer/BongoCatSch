@@ -82,7 +82,7 @@ pub use curve::{
     layer_growth, layer_rank, level_for_growth, threshold_for,
 };
 pub use daily::DailyKind;
-pub use document::CultivationDocument;
+pub use document::{CultivationDayBaseline, CultivationDocument};
 pub use drop::{
     POWER_FACTOR_MAX_PERMILLE, POWER_FACTOR_MIN_PERMILLE, QUALITY_BASE_PER_BILLION,
     QUALITY_STEP_DIVISOR, power_factor_permille, quality_chance_per_billion, quality_per_billion,

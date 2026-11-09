@@ -451,6 +451,17 @@ fn realm_header(
         &[("power", group_thousands(cultivation.power))],
     );
     let (growth_text, fraction) = growth_line(cultivation, locale);
+    let today_delta = format_text(
+        locale,
+        "cultivation.today_delta",
+        &[
+            ("level", signed_delta(cultivation.today_level_delta)),
+            (
+                "power",
+                signed_grouped_delta(cultivation.today_power_delta),
+            ),
+        ],
+    );
     let hint_tokens = tokens;
     // Read out here because the hover body outlives this call and cannot borrow
     // `locale`.
@@ -544,6 +555,17 @@ fn realm_header(
                 .child(growth_bar(tokens, fraction))
                 .child(div().text_xs().text_color(tokens.muted).child(growth_text)),
         )
+        // The day's own progress, beside the lifetime numbers: a level and a
+        // power line that starts at zero when the local day opens, so a user
+        // can read what today's sessions have already bought.
+        .child(
+            div()
+                .id("cultivation-today-delta")
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(today_delta)
+                .test_support(),
+        )
         // What the next pomodoro is worth, in growth. A number rather than a
         // percentage: the four dimensions that decide it are not shown, so a
         // multiplier would be a rule the user can neither see nor move. This
@@ -573,6 +595,30 @@ fn realm_header(
         ));
     }
     header
+}
+
+/// A signed number with an explicit sign, for a line that can go down as well
+/// as up. Zero prints as `±0` so a fresh day reads as a neutral starting point
+/// rather than as a gain.
+fn signed_delta(value: i32) -> String {
+    if value > 0 {
+        format!("+{value}")
+    } else if value < 0 {
+        format!("−{}", value.unsigned_abs())
+    } else {
+        "±0".to_owned()
+    }
+}
+
+/// A signed, grouped number with an explicit sign, for the power line.
+fn signed_grouped_delta(value: i32) -> String {
+    if value > 0 {
+        format!("+{}", group_thousands(value.unsigned_abs()))
+    } else if value < 0 {
+        format!("−{}", group_thousands(value.unsigned_abs()))
+    } else {
+        "±0".to_owned()
+    }
 }
 
 /// The growth line and the fraction of the current layer it represents.
