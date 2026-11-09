@@ -1367,10 +1367,13 @@ fn every_level_pays_one_point_the_user_places() {
     cultivation.on_session_completed(1_000, day(20_000), 25);
     let level = cultivation.level();
     assert!(level > 1, "a session moved the ladder");
-    assert_eq!(
-        cultivation.free_points(),
-        (level.saturating_sub(1)) as u32 * FREE_POINTS_PER_LEVEL
-    );
+    // The balance is what the levels granted plus what 练功 paid, less what is
+    // already placed. 练功's payment is a roll, so it is read rather than
+    // assumed to be zero — an assertion that forgot it would pass or fail on
+    // the dice rather than on the ladder.
+    let expected = (level.saturating_sub(1)) as u32 * FREE_POINTS_PER_LEVEL
+        + cultivation.document().training_points;
+    assert_eq!(cultivation.free_points(), expected);
 
     let before = cultivation.attributes().strength;
     assert!(cultivation.allocate(Attribute::Strength));
@@ -1616,21 +1619,33 @@ fn a_finished_session_trains_the_selected_art() {
 #[test]
 fn a_trained_internal_art_feeds_the_attribute_total() {
     let mut cultivation = Cultivation::default();
-    let before = cultivation.attributes().total();
-    let granted = cultivation
-        .grant_art(ArtGrade::Yellow, 7)
-        .expect("a 黄阶 art");
-    if blueprint(granted.id).kind != ArtKind::Internal {
-        return;
-    }
+    // A named 黄阶 内功, so the test says what it is about rather than
+    // returning early when the draw lands on another kind.
+    let internal = (1..=ART_COUNT)
+        .map(blueprint)
+        .find(|art| art.grade == ArtGrade::Yellow && art.kind == ArtKind::Internal)
+        .expect("a 黄阶 内功 exists");
+    cultivation
+        .grant_art_book(internal.id)
+        .expect("the book is kept");
+    cultivation.select_art(Some(internal.id));
     for offset in 0..20_i64 {
         cultivation.on_session_completed(2_000 + offset, day(40_000 + offset), 25);
     }
     let paid = cultivation.art_attributes().total();
     assert!(paid > 0, "a trained 内功 pays something");
+    // The whole is the level, the gear, the harvest, the placed points and the
+    // 功法 summed, and the sessions that trained the 功法 also moved the
+    // level. So the claim is the sum itself: every source, the 功法 among
+    // them, is counted once in the total the body fights with.
+    let parts = cultivation.level_attributes().total()
+        + cultivation.equipment_attributes().total()
+        + cultivation.crop_attributes().total()
+        + cultivation.allocated_attributes().total()
+        + paid;
     assert_eq!(
         cultivation.attributes().total(),
-        before + paid,
+        parts,
         "the 功法 total is part of the whole"
     );
 }
@@ -2439,16 +2454,21 @@ fn selling_the_book_does_not_take_the_learned_art_away() {
 #[test]
 fn a_learned_internal_art_pays_its_mastery_for_good() {
     let mut cultivation = Cultivation::default();
-    let granted = cultivation
-        .grant_art(ArtGrade::Yellow, 1_000)
-        .expect("a 黄阶 art");
-    if blueprint(granted.id).kind != ArtKind::Internal {
-        return;
-    }
+    // A named 黄阶 内功 rather than a random draw: the claim is about a
+    // learned 内功, and a draw that lands on a different kind would return
+    // early and assert nothing at all.
+    let internal = (1..=ART_COUNT)
+        .map(blueprint)
+        .find(|art| art.grade == ArtGrade::Yellow && art.kind == ArtKind::Internal)
+        .expect("a 黄阶 内功 exists");
+    cultivation
+        .grant_art_book(internal.id)
+        .expect("the book is kept");
+    cultivation.select_art(Some(internal.id));
     for offset in 0..40_i64 {
         cultivation.on_session_completed(1_000 + offset, day(30_000 + offset), 25);
     }
-    let learned = mastered_art_attributes(&[granted.id]);
+    let learned = mastered_art_attributes(&[internal.id]);
     assert!(learned.total() > 0, "a learned 内功 pays its attributes");
     assert_eq!(
         cultivation.art_attributes().total(),

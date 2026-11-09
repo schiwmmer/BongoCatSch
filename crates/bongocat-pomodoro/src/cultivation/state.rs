@@ -1087,6 +1087,17 @@ pub struct Cultivation {
     /// The roll counter, so two sessions finishing in the same second still
     /// roll different items.
     roll_sequence: u64,
+    /// A per-launch salt mixed into every roll's seed.
+    ///
+    /// The counter alone is not enough: it starts at zero on every launch, so
+    /// a relaunch that rolls in the same second as the previous one — same
+    /// `now_unix`, same counter — would land on the exact same number. The salt
+    /// is derived from the birth seed, which is different on every launch (the
+    /// wall clock on desktop, a host-supplied value in wasm), so the same second
+    /// on two launches never rolls the same thing. It is deliberately *not*
+    /// persisted: a salt that came back from the save would be the same salt
+    /// every launch, which is the collision this exists to prevent.
+    roll_salt: u64,
     last_absence: Option<AbsenceCharge>,
     last_drop: Option<Drop>,
     last_breakthrough: Option<BreakthroughOutcome>,
@@ -1152,8 +1163,32 @@ pub struct Cultivation {
 
 impl Default for Cultivation {
     fn default() -> Self {
-        Self::new(CultivationDocument::default())
+        // A fixed birth seed rather than the wall clock: a default is a
+        // placeholder a surface draws before a save exists, and the tests use
+        // it to build a save whose rolls they can predict. The persistent path
+        // goes through [`Self::new`] or [`Self::new_with_seed`], which are the
+        // two that need a fresh salt per launch.
+        Self::new_with_seed(CultivationDocument::default(), DEFAULT_BIRTH_SEED)
     }
+}
+
+/// The birth seed [`Cultivation::default`] uses: a fixed value so a default
+/// save's rolls are reproducible, which is what a test that builds a save and
+/// asserts an exact outcome needs.
+const DEFAULT_BIRTH_SEED: u64 = 0x5EED_1E55_1234_5678;
+
+/// One round of SplitMix64's finalizer, used to derive the per-launch salt.
+///
+/// A fresh value out of the clock is already well distributed, but the salt is
+/// stored and reused across every roll of a launch, so it goes through the
+/// finalizer once to keep it from carrying the low bits of a nanosecond count
+/// into the seed arithmetic. The same function [`Rng::next_u64`] uses, kept
+/// here so the salt does not need a whole [`Rng`] to be made.
+fn splitmix_mix(value: u64) -> u64 {
+    let mut z = value;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
 }
 
 /// A seed for the one roll a new body gets: its 潜质.
@@ -1164,12 +1199,23 @@ impl Default for Cultivation {
 /// which is the one thing "初始值为 −10～10 的随机值" rules out. The value is
 /// written down by the next save, so it is only ever read once.
 fn birth_seed() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0x5EED_1E55_1234_5678, |elapsed| {
-            (elapsed.as_nanos() as u64) ^ 0x9E37_79B9_7F4A_7C15
-        })
+    // A test builds a save and asserts an exact outcome, so it needs the same
+    // rolls every run: a clock-read seed would make every assertion here a
+    // coin flip. The persistent paths a user actually runs are not under
+    // `cfg(test)` and still read the clock.
+    #[cfg(test)]
+    {
+        DEFAULT_BIRTH_SEED
+    }
+    #[cfg(not(test))]
+    {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(DEFAULT_BIRTH_SEED, |elapsed| {
+                (elapsed.as_nanos() as u64) ^ 0x9E37_79B9_7F4A_7C15
+            })
+    }
 }
 
 impl Cultivation {
@@ -1199,6 +1245,12 @@ impl Cultivation {
         Self {
             document,
             roll_sequence: 0,
+            // Mixed once from the birth seed rather than used raw: the seed is
+            // the one value this module reads from the clock, and the salt is
+            // what keeps a relaunch's first roll from repeating the previous
+            // launch's. A zero seed (a host that handed in 0) still yields a
+            // non-zero salt, so the counter keeps its meaning on its own.
+            roll_salt: splitmix_mix(seed),
             last_absence: None,
             last_drop: None,
             last_breakthrough: None,
@@ -2210,14 +2262,17 @@ impl Cultivation {
     }
 
     /// A random source for one event. The wall clock is mixed in so a session
-    /// never rolls what the previous one did, and the counter keeps two events
-    /// in the same second apart.
+    /// never rolls what the previous one did, the counter keeps two events in
+    /// the same second apart, and the per-launch salt keeps a relaunch's roll
+    /// in the same second from repeating the previous launch's — see
+    /// [`Self::roll_salt`].
     fn rng(&mut self, now_unix: i64) -> Rng {
         self.roll_sequence = self.roll_sequence.wrapping_add(1);
         Rng::seeded(
             (now_unix as u64)
                 .wrapping_mul(0x9E37_79B9_7F4A_7C15)
-                .wrapping_add(self.roll_sequence.wrapping_mul(0xBF58_476D_1CE4_E5B9)),
+                .wrapping_add(self.roll_sequence.wrapping_mul(0xBF58_476D_1CE4_E5B9))
+                .wrapping_add(self.roll_salt),
         )
     }
 

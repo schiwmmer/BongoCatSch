@@ -1006,8 +1006,14 @@ fn a_save_at_seeded(level: u16, gear: Option<Rarity>, wardrobe: u64) -> Cultivat
         equipped: vec![None; SLOT_COUNT],
         ..CultivationDocument::default()
     };
+    // The wardrobe is the save's whole identity here, so it seeds the ladder
+    // too: a roll that reads the wall clock would make the rate below a
+    // different number every run, and a window assertion over a random sample
+    // is not an assertion. The same wardrobe always produces the same save,
+    // which is what lets the tower's three steps be locked at all.
+    let birth = u64::from(level) * 1_000_003 + wardrobe * 7919 + 0x5EED_0000;
     let Some(rarity) = gear else {
-        return Cultivation::new(document);
+        return Cultivation::new_with_seed(document, birth);
     };
     let mut rng = Rng::seeded(u64::from(level) * 31 + rarity.index() as u64 + wardrobe);
     let mut slots = std::collections::BTreeSet::new();
@@ -1025,7 +1031,7 @@ fn a_save_at_seeded(level: u16, gear: Option<Rarity>, wardrobe: u64) -> Cultivat
             id += 1;
         }
     }
-    Cultivation::new(document)
+    Cultivation::new_with_seed(document, birth)
 }
 
 /// A save at `level` in a set of common cloth: the four pieces a player of that
@@ -1708,5 +1714,63 @@ fn finishing_a_book_leaves_its_spare_unread() {
     assert!(
         !left.selected,
         "a finished session does not restart the reading"
+    );
+}
+
+/// Two rolls in the same second land on different numbers.
+///
+/// The counter is what separates them: the wall clock alone would hand both
+/// rolls the same seed.
+#[test]
+fn two_rolls_in_the_same_second_never_land_on_the_same_number() {
+    let mut cultivation = Cultivation::new(CultivationDocument::default());
+    let first = cultivation.rng(1_700_000_000).next_u64();
+    let second = cultivation.rng(1_700_000_000).next_u64();
+    assert_ne!(
+        first, second,
+        "the counter has to move the second roll off the first one's seed"
+    );
+}
+
+/// A relaunch that rolls in the same second does not repeat the previous
+/// launch's number.
+///
+/// This is the case the counter cannot cover: it starts at zero on every
+/// launch, so the same second would produce the same seed without the
+/// per-launch salt.
+#[test]
+fn a_relaunch_in_the_same_second_does_not_repeat_the_previous_roll() {
+    let document = CultivationDocument {
+        aptitude_tenths: Some(0),
+        ..CultivationDocument::default()
+    };
+    let mut first = Cultivation::new_with_seed(document.clone(), 0x5EED_0001);
+    let mut second = Cultivation::new_with_seed(document, 0x5EED_0002);
+    let now = 1_700_000_000;
+    for step in 0..8 {
+        let left = first.rng(now).next_u64();
+        let right = second.rng(now).next_u64();
+        assert_ne!(
+            left, right,
+            "launch {step}: the same second on two launches rolled the same number"
+        );
+    }
+}
+
+/// The salt is a salt, not a zero: a host that hands in a zero seed still
+/// gets a launch whose rolls differ from any other launch's.
+#[test]
+fn a_zero_seed_still_produces_a_salt() {
+    let document = CultivationDocument {
+        aptitude_tenths: Some(0),
+        ..CultivationDocument::default()
+    };
+    let mut zero = Cultivation::new_with_seed(document.clone(), 0);
+    let mut one = Cultivation::new_with_seed(document, 1);
+    let now = 1_700_000_000;
+    assert_ne!(
+        zero.rng(now).next_u64(),
+        one.rng(now).next_u64(),
+        "a zero seed must not collapse onto the same salt as a non-zero one"
     );
 }
