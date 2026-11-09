@@ -90,21 +90,7 @@ fn shop_row(
     // same colour the same piece wears in the satchel: the shelf and the
     // inventory are one market, and a grade that read differently on the two
     // sides would be two grades.
-    let name_color = match &entry.offer {
-        ShopOffer::Equipment(item) if !entry.bought => quality_color(item.rarity),
-        // A 功法 on the shelf wears its grade's colour too: 黄、蓝、紫、橙、红
-        // is how a buyer tells five books apart before reading five names.
-        ShopOffer::Art { art_id } if !entry.bought => grade_color(blueprint(*art_id).grade),
-        // And a herb the same: 黄/玄/地/天/神 is the ladder its numbers are read
-        // on, so a shelf that printed it in the plain text colour would be the
-        // one place in the game where the grade was only a word.
-        ShopOffer::Seed { grade, .. } if !entry.bought => seed_grade_color(*grade),
-        // And a 潜质 herb the same: the name now carries the grade and the 品阶
-        // in its own line, so a herb read by the colour is a herb read the same
-        // way the seed rows above it are.
-        ShopOffer::Herb { grade, .. } if !entry.bought => seed_grade_color(*grade),
-        _ => tokens.text,
-    };
+    let name_color = shelf_name_color(&entry.offer);
     let price = format_text(
         locale,
         "cultivation.shop.price",
@@ -145,11 +131,7 @@ fn shop_row(
         .min_w_0()
         .truncate()
         .text_xs()
-        .text_color(if entry.bought {
-            tokens.muted
-        } else {
-            name_color
-        })
+        .text_color(name_color)
         .child(label);
     // A bought row keeps its place — a shelf that reshuffles under the cursor is
     // a shelf where the wrong thing gets bought — so the row says "已购" and the
@@ -452,6 +434,21 @@ pub(super) fn art_numbers(
     }
 }
 
+/// The colour a shelf row's name is painted in: the grade's own colour, the
+/// same one the same item wears in the satchel. The purchase state does not
+/// enter into it — a bought row says 已购 and is struck through, so the colour
+/// goes on meaning the grade alone. A bought row painted grey would be a row
+/// whose grade the buyer can no longer read, and the satchel right below still
+/// paints the same item in its colour.
+fn shelf_name_color(offer: &ShopOffer) -> Hsla {
+    match offer {
+        ShopOffer::Equipment(item) => quality_color(item.rarity),
+        ShopOffer::Art { art_id } => grade_color(blueprint(*art_id).grade),
+        ShopOffer::Seed { grade, .. } => seed_grade_color(*grade),
+        ShopOffer::Herb { grade, .. } => seed_grade_color(*grade),
+    }
+}
+
 /// What one offer is called on the shelf.
 ///
 /// The same names the inventory uses, so a thing bought from the shelf and the
@@ -598,5 +595,38 @@ mod tests {
         // 慧心草 grows at tier eight, and the grade is read on the 功法 ladder.
         assert!(label.contains("8 阶"), "{label}");
         assert!(label.contains("地阶"), "{label}");
+    }
+
+    /// A bought row keeps its grade's colour: the row says 已购 and the name is
+    /// struck through, so the colour goes on meaning the grade alone. A bought
+    /// row painted grey would be a row whose grade the buyer can no longer read.
+    #[test]
+    fn a_bought_row_keeps_its_grade_colour() {
+        use bongocat_pomodoro::{Attributes, EquipmentRecord, EquipSlot, Rarity};
+        let gear = ShopOffer::Equipment(EquipmentRecord {
+            id: 1,
+            slot: EquipSlot::Weapon,
+            tier: 1,
+            rarity: Rarity::Rare,
+            attributes: Attributes::default(),
+            bonus: Default::default(),
+            star: 0,
+            half_star: false,
+            effect: None,
+            name: Some("测试剑".into()),
+            set: None,
+        });
+        let art = ShopOffer::Art { art_id: 299 };
+        let seed = ShopOffer::Seed {
+            attribute: Attribute::Mana,
+            tier: 3,
+            grade: SeedGrade::Earth,
+            name: None,
+        };
+        // The colour is the grade's own, whatever the purchase state: the colour
+        // is read off the offer, never off whether the row has been bought.
+        assert_eq!(shelf_name_color(&gear), quality_color(Rarity::Rare));
+        assert_eq!(shelf_name_color(&art), grade_color(ArtGrade::Profound));
+        assert_eq!(shelf_name_color(&seed), seed_grade_color(SeedGrade::Earth));
     }
 }
