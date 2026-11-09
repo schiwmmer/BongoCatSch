@@ -771,6 +771,14 @@ pub fn region_seed_permille(level: u8) -> u64 {
     REGION_SEED_PERMILLE_BASE.saturating_add_signed(-drop)
 }
 
+/// What a defeat costs beyond the walk: the chance the road takes a piece of
+/// the cultivator's own gear.
+///
+/// One in five — well below a victory's find rate, because a defeat is the
+/// price of losing rather than a worse way to win. The piece comes off the
+/// cultivator's own satchel (and body), not off the wanderer's back.
+pub const DEFEAT_DROP_PERMILLE: u64 = 200;
+
 /// The purse a clear walk opens: the first tier's `黄阶 × 0.6` purse.
 ///
 /// The walk is the safe counterpart to a job, and its purse is the job's at

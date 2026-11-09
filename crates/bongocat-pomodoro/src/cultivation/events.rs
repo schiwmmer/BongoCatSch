@@ -403,6 +403,16 @@ pub enum EventDetail {
     /// rarer of the two things the same pomodoro did and the one a user will go
     /// looking for later.
     Bonus { find: BonusFind },
+    /// A walk that met a wanderer and lost left a piece of the cultivator's own
+    /// gear on the road.
+    ///
+    /// Its own line rather than a note on the walk, because a loss that took
+    /// something the user was wearing is the kind of thing they go looking for
+    /// later, and a walk line that said only "defeat" would hide it.
+    EquipmentLost {
+        /// The piece's name, the way every other line names a thing.
+        name: String,
+    },
 }
 
 /// What one 千分之一 paid, in the shape it came.

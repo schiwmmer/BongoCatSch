@@ -1055,6 +1055,7 @@
       "marrow_found": "Found a Marrow Pill (%{source})",
       "bonus": "Unexpected gain: %{find}",
       "bonus_stones": "%{stones} stones",
+      "equipment_lost": "Defeat cost gear “%{name}”",
       "with_effect": "%{what} (%{effect})",
       "trial_sweep": "Swept floors %{from}–%{to}",
       "region_cleared": "Walked %{region} end to end · stones +%{stones} · %{gear}",

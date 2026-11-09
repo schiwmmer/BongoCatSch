@@ -986,6 +986,43 @@ impl Cultivation {
         true
     }
 
+    /// Roll whether a defeat costs the cultivator a piece of their own gear.
+    ///
+    /// A loss is meant to sting: the walk is already forfeit, and on top of it
+    /// the road now and then takes a piece of what the cultivator was carrying.
+    /// The odds are well below a victory's find rate — a defeat is the price of
+    /// losing, not a worse way to win — so a loss costs a piece one time in five
+    /// and the other four are only the walk. A piece worn is taken off its slot
+    /// as it goes, so the satchel and the body never disagree about what is on.
+    pub(crate) fn roll_defeat_drop(&mut self, rng: &mut Rng, now_unix: i64) {
+        if rng.below(1_000) >= super::super::explore::DEFEAT_DROP_PERMILLE {
+            return;
+        }
+        let named: Vec<usize> = self
+            .document
+            .equipment
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| item.name.is_some())
+            .map(|(i, _)| i)
+            .collect();
+        if named.is_empty() {
+            return;
+        }
+        // Every named piece is a candidate: a loss that always took the oldest
+        // would be a loss the user could plan around.
+        let index = named[rng.below(named.len() as u64) as usize];
+        let item: EquipmentRecord = self.document.equipment.remove(index);
+        // A piece that was worn leaves its slot, so the body reads as it is.
+        if let Some(slot) = self.document.equipped.get_mut(item.slot.index()) {
+            if *slot == Some(item.id) {
+                *slot = None;
+            }
+        }
+        let name = item.name.clone().unwrap_or_default();
+        self.push_event(now_unix, EventDetail::EquipmentLost { name });
+    }
+
     /// Write one fought fight into the record, newest first.
     /// A win is also what trains the 战斗 dimension, so the count and the line of
     /// history are written together: a record that disagreed with the dimension
@@ -1508,6 +1545,10 @@ impl Cultivation {
                     self.roll_marrow_from_combat(rival.attributes.power(), &mut rng, now_unix);
                 } else {
                     outcome = ExplorationOutcome::Defeat;
+                    // The loss is not free: the road now and then takes a piece
+                    // of the cultivator's own gear, so a defeat costs more than
+                    // the walk it was.
+                    self.roll_defeat_drop(&mut rng, now_unix);
                 }
                 self.record_duel(duel.won, FightKind::Wanderer, now_unix);
                 self.last_exploration_duel = Some(duel);

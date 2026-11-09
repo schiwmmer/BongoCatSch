@@ -865,6 +865,11 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             "cultivation.event.bonus",
             &[("find", bonus_find_label(find, locale))],
         ),
+        EventDetail::EquipmentLost { name } => format_text(
+            locale,
+            "cultivation.event.equipment_lost",
+            &[("name", name.clone())],
+        ),
     }
 }
 

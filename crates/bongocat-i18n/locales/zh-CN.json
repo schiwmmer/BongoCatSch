@@ -1055,6 +1055,7 @@
       "marrow_found": "得洗髓丹 ×1（%{source}）",
       "bonus": "意外之财：%{find}",
       "bonus_stones": "%{stones} 灵石",
+      "equipment_lost": "战败掉落装备「%{name}」",
       "with_effect": "%{what}（%{effect}）",
       "trial_sweep": "横扫第 %{from}~%{to} 层",
       "region_cleared": "首次探明 %{region} · 灵石 +%{stones} · %{gear}",

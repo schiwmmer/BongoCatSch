@@ -2244,6 +2244,74 @@ fn a_walk_that_was_beaten_pays_nothing() {
     }
 }
 
+/// A defeat costs the cultivator a piece of their own gear now and then.
+///
+/// The road takes what the cultivator carries, not what the wanderer wore: the
+/// piece comes off the satchel (and off the body, if it was worn), and the log
+/// says which one went. The odds are one in five, so the test asserts the two
+/// directions rather than one roll: over enough defeats a piece is lost, and a
+/// defeat with nothing named to lose costs nothing.
+#[test]
+fn a_defeat_now_and_then_costs_a_piece_of_the_cultivators_own_gear() {
+    let mut lost_any = false;
+    for seed in 0..600_u64 {
+        let mut cultivation = Cultivation::default();
+        let mut document = cultivation.document().clone();
+        for (index, slot) in EquipSlot::ALL.into_iter().enumerate() {
+            let item = EquipmentRecord {
+                id: index as u64 + 1,
+                slot,
+                tier: 1,
+                rarity: Rarity::Rare,
+                name: Some(format!("佩{index}")),
+                ..Default::default()
+            };
+            document.equipment.push(item.clone());
+            document.equipped[slot.index()] = Some(item.id);
+        }
+        document.next_item_id = 5;
+        cultivation = Cultivation::new(document);
+        let before: Vec<u64> = cultivation
+            .document()
+            .equipment
+            .iter()
+            .map(|item| item.id)
+            .collect();
+        let mut rng = Rng::seeded(seed);
+        cultivation.roll_defeat_drop(&mut rng, 1_000);
+        let after: Vec<u64> = cultivation
+            .document()
+            .equipment
+            .iter()
+            .map(|item| item.id)
+            .collect();
+        if after.len() < before.len() {
+            lost_any = true;
+            assert_eq!(before.len() - after.len(), 1, "a defeat costs one piece");
+            let lost = before
+                .iter()
+                .copied()
+                .find(|id| !after.contains(id))
+                .expect("the piece that went");
+            // A worn piece leaves its slot as it goes, so the body cannot
+            // disagree with the satchel about what is on.
+            assert!(
+                !cultivation
+                    .document()
+                    .equipped
+                    .iter()
+                    .flatten()
+                    .any(|worn| *worn == lost),
+                "a lost piece must not still read as worn"
+            );
+        }
+    }
+    assert!(
+        lost_any,
+        "one defeat in five over six hundred rolls costs a piece at least once"
+    );
+}
+
 /// A walk that met nobody carries no fight into its popup.
 ///
 /// The bug this guards: the fight the last walk met stayed on file through a
