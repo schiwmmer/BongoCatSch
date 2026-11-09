@@ -955,12 +955,14 @@
       "hours": "%{hours} 小时 · ×%{mult}",
       "hint": "走满时长归来才有收获，提前回返一无所获",
       "busy_gathering": "正在采集，归来后方可探索。",
-      "region_level": "第 %{level} 层",
       "progress_pct": "%{pct}%",
       "current_region": "当前区域",
-      "region_line": "第 %{level} 层 · 要求战力 %{power}",
+      "region_line": "要求战力 %{power}",
       "region_cleared": "已探明",
-      "refuse_region": "该区域尚未开启：先提升境界"
+      "refuse_region": "该区域尚未开启：先提升境界",
+      "loot_title": "探索奖励",
+      "loot_common": "灵草种子、装备、功法与灵石",
+      "loot_jackpot": "首通大奖：神装与大量灵石"
     },
     "trial": {
       "title": "锁妖塔",

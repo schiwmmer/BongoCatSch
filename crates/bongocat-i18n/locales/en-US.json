@@ -955,12 +955,14 @@
       "hours": "%{hours}h · ×%{mult}",
       "hint": "Walk the hours out or come home with nothing.",
       "busy_gathering": "Out gathering — explore once home.",
-      "region_level": "Floor %{level}",
       "progress_pct": "%{pct}%",
       "current_region": "Current Region",
-      "region_line": "level %{level} · needs %{power}",
+      "region_line": "needs %{power}",
       "region_cleared": "cleared",
-      "refuse_region": "That region is not open yet — climb a realm first."
+      "refuse_region": "That region is not open yet — climb a realm first.",
+      "loot_title": "Exploration rewards",
+      "loot_common": "herb seeds, gear, arts and stones",
+      "loot_jackpot": "First clear: a divine piece and a purse of stones"
     },
     "trial": {
       "title": "Demon-Locking Tower",

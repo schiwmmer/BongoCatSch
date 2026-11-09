@@ -185,7 +185,6 @@ pub(super) fn exploration_panel(
         .or_else(|| cultivation.regions.first());
     let region_pct = current.map_or(0, |region| region.percent);
     let fraction = current.map_or(0.0, |region| region.fraction());
-    let region_level = current.map_or(1, |region| region.level);
     let mut button = if at_home {
         Button::new("cultivation-explore-attempt")
             .small()
@@ -328,10 +327,7 @@ pub(super) fn exploration_panel(
                                 .child(format_text(
                                     locale,
                                     "cultivation.explore.region_line",
-                                    &[
-                                        ("level", region.level.to_string()),
-                                        ("power", group_thousands(region.requirement)),
-                                    ],
+                                    &[("power", group_thousands(region.requirement))],
                                 ))
                                 .test_support(),
                         )
@@ -371,7 +367,34 @@ pub(super) fn exploration_panel(
             if is_current {
                 row = row.bg(tokens.overlay).font_semibold();
             }
-            row
+            // The row's hover says what the road pays: the finds a walk can
+            // turn up, and the jackpot a first clear of the region carries. A
+            // region is chosen on its rewards as much as its difficulty, and a
+            // row that showed only the power requirement hid the half of the
+            // choice that the user is actually making.
+            let loot_title = text(locale, "cultivation.explore.loot_title").to_string();
+            let loot_common = text(locale, "cultivation.explore.loot_common").to_string();
+            let loot_jackpot =
+                text(locale, "cultivation.explore.loot_jackpot").to_string();
+            HoverCard::new(format!("cultivation-region-{index}-loot"))
+                .trigger(row.test_support())
+                .open_delay(Duration::from_millis(120))
+                .content(move |_, _, _| {
+                    div()
+                        .id(format!("cultivation-region-{index}-loot-body"))
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .w(px(240.0))
+                        .text_xs()
+                        .text_color(tokens.muted)
+                        .whitespace_normal()
+                        .child(div().font_semibold().text_color(tokens.text).child(loot_title.clone()))
+                        .child(div().child(loot_common.clone()))
+                        .child(div().child(loot_jackpot.clone()))
+                        .test_support()
+                })
+                .into_any_element()
         });
     // The rules of the road read beside the title rather than behind it: the page
     // used to hide four lines of prose under a hover nobody thought to seek, and
@@ -398,18 +421,6 @@ pub(super) fn exploration_panel(
                                 .text_xs()
                                 .text_color(tokens.muted)
                                 .child(text(locale, "cultivation.explore.current_region")),
-                        )
-                        .child(
-                            div()
-                                .id("cultivation-explore-region-level")
-                                .text_xs()
-                                .text_color(tokens.muted)
-                                .child(format_text(
-                                    locale,
-                                    "cultivation.explore.region_level",
-                                    &[("level", region_level.to_string())],
-                                ))
-                                .test_support(),
                         ),
                 )
                 .child(
