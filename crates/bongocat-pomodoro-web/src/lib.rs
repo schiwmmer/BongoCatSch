@@ -331,7 +331,12 @@ fn parse_command(value: &Value) -> Option<PomodoroCommand> {
         "refresh_jobs" => PomodoroCommand::RefreshJobs,
         "tower" => PomodoroCommand::Tower,
         "tower_sweep" => PomodoroCommand::TowerSweep,
-        "prove" => PomodoroCommand::Prove,
+        "prove" => PomodoroCommand::Prove {
+            region: value
+                .get("region")
+                .and_then(Value::as_u64)
+                .map(|index| index.min(u64::from(u8::MAX)) as u8),
+        },
         "buy_from_shop" => PomodoroCommand::BuyFromShop {
             slot: usize_value(value, "slot")?,
         },

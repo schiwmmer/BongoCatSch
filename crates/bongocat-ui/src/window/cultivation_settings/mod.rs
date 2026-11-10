@@ -57,7 +57,7 @@ use arts::{arts_panel, mastered_panel};
 #[cfg(test)]
 pub(super) use attributes::derived_formula;
 use attributes::{attributes_panel, derived_panel};
-use explore::{breakthrough_banner, breakthrough_panel, exploration_panel};
+use explore::{breakthrough_banner, breakthrough_panel, exploration_panel, region_key};
 use garden::{garden_panel, seed_panel};
 use gear::{equipment_panel, inventory_panel};
 use jobs::jobs_panel;
@@ -219,7 +219,16 @@ pub(super) fn content(
         .child(panel_anchor(
             12,
             &panel_bounds,
-            proving_panel(&view, &cultivation, locale, tokens),
+            proving_panel(
+                &view,
+                &cultivation,
+                locale,
+                tokens,
+                view.read(cx)
+                    .cultivation_explore_region
+                    .unwrap_or(usize::from(cultivation.exploration_region))
+                    .min(cultivation.regions.len().saturating_sub(1)),
+            ),
         ))
         .child(panel_anchor(
             13,

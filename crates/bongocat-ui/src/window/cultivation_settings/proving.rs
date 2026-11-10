@@ -24,6 +24,7 @@ pub(super) fn proving_panel(
     cultivation: &CultivationView,
     locale: &str,
     tokens: Tokens,
+    selected_region: usize,
 ) -> impl IntoElement {
     // The click is always wired: whether the road is still out, the job still
     // in hand, or the bank empty, the domain answers with the refusal and the
@@ -34,12 +35,29 @@ pub(super) fn proving_panel(
         .label(text(locale, "cultivation.proving.attempt"));
     button = button.on_click({
         let view = view.clone();
+        let region = selected_region as u8;
         move |_, _, cx| {
             view.update(cx, |view, cx| {
-                view.ask_cultivation(CultivationDuelSource::Proving, PomodoroCommand::Prove, cx);
+                view.ask_cultivation(
+                    CultivationDuelSource::Proving,
+                    PomodoroCommand::Prove {
+                        region: Some(region),
+                    },
+                    cx,
+                );
             });
         }
     });
+    // The road the fight will be levelled to is named beside the count: a page
+    // that has picked one sends it, and one that has never picked sends the
+    // save's remembered road. Both are the same choice as far as the domain is
+    // concerned, and the panel has to say which road that is before the click.
+    let selected_index = selected_region.min(cultivation.regions.len().saturating_sub(1));
+    let selected = cultivation
+        .regions
+        .get(selected_index)
+        .map(|region| text(locale, region_key(region.region)).to_string())
+        .unwrap_or_default();
     // The count is always read against the cap, whether the bank is full, part
     // spent, or empty: "0 / 10" is the honest answer to "can I go?".
     let status = format_text(
@@ -74,6 +92,8 @@ pub(super) fn proving_panel(
                         .text_xs()
                         .text_color(tokens.muted)
                         .child(status)
+                        .child(" · ")
+                        .child(selected)
                         .test_support(),
                 )
                 .child(button),

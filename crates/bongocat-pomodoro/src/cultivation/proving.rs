@@ -9,12 +9,12 @@
 //! week of focus is a week of fights.
 //!
 //! It is a **submodule of exploration** rather than a second economy. Its
-//! opponent stands where the current region's progress stands, multiplied by
-//! [`TRIAL_CHALLENGE_MIN_PERMILLE`] to [`TRIAL_CHALLENGE_MAX_PERMILLE`], and
-//! its base reward is exactly what the current region pays for one hour of
-//! walking. A finished pomodoro is therefore worth a short walk on the road
-//! the save is already on, and the fight is worth having because the road is
-//! worth walking.
+//! opponent stands where the **selected exploration region's** progress stands,
+//! multiplied by [`TRIAL_CHALLENGE_MIN_PERMILLE`] to
+//! [`TRIAL_CHALLENGE_MAX_PERMILLE`], and its base reward is exactly what that
+//! region pays for one hour of walking. A finished pomodoro is therefore worth
+//! a short walk on the road the user chose, and the fight is worth having
+//! because the road is worth walking.
 //!
 //! What a win finds is the 锁妖塔's base table rather than a second table: a
 //! seed most often, gear sometimes, a 功法 almost never. The two differ in

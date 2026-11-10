@@ -1910,7 +1910,10 @@ fn the_trial_panel_asks_for_the_fight_or_a_refusal(cx: &mut TestAppContext) {
         window.click("cultivation-proving-attempt", cx);
     });
     assert!(
-        matches!(published(&sink).as_slice(), [PomodoroCommand::Prove]),
+        matches!(
+            published(&sink).as_slice(),
+            [PomodoroCommand::Prove { region: Some(0) }]
+        ),
         "the click still asks the worker, and the domain refuses with a toast"
     );
 
@@ -1927,7 +1930,10 @@ fn the_trial_panel_asks_for_the_fight_or_a_refusal(cx: &mut TestAppContext) {
     });
     let commands = published(&sink);
     assert!(
-        matches!(commands.as_slice(), [PomodoroCommand::Prove]),
+        matches!(
+            commands.as_slice(),
+            [PomodoroCommand::Prove { region: Some(0) }]
+        ),
         "a banked chance asks the worker for the fight: {commands:?}"
     );
 }
@@ -1949,7 +1955,10 @@ fn the_trial_panel_asks_and_the_domain_refuses_at_a_job(cx: &mut TestAppContext)
         window.click("cultivation-proving-attempt", cx);
     });
     assert!(
-        matches!(published(&sink).as_slice(), [PomodoroCommand::Prove]),
+        matches!(
+            published(&sink).as_slice(),
+            [PomodoroCommand::Prove { region: Some(0) }]
+        ),
         "the click still asks the worker, and the domain refuses with a toast"
     );
 }

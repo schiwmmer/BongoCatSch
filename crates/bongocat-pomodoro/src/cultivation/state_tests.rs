@@ -195,7 +195,7 @@ fn aptitude_sets_what_a_rank_asks_of_the_body() {
 fn a_session_buys_a_chance_and_a_chance_buys_a_fight() {
     let mut cultivation = Cultivation::default();
     assert!(
-        cultivation.proving(1_000).is_none(),
+        cultivation.proving(1_000, None).is_none(),
         "an empty bank buys no fight"
     );
     assert_eq!(cultivation.last_refusal, Some(Refusal::ProvingSpent));
@@ -210,7 +210,7 @@ fn a_session_buys_a_chance_and_a_chance_buys_a_fight() {
     assert_eq!(filled.proving_token_cap, TRIAL_CHANCES_CAP);
 
     let outcome = cultivation
-        .proving(2_000)
+        .proving(2_000, None)
         .expect("a banked chance buys a fight");
     assert!(!outcome.duel.rounds.is_empty(), "a fight has blows");
     assert_eq!(
@@ -243,7 +243,7 @@ fn a_won_proving_pays_a_purse_the_log_names() {
         let mut cultivation = a_bare_save_at(50);
         cultivation.document.proving_tokens = 1;
         let before = cultivation.view().stones;
-        let Some(outcome) = cultivation.proving(1_000 + step * 7) else {
+        let Some(outcome) = cultivation.proving(1_000 + step * 7, None) else {
             continue;
         };
         if !outcome.duel.won {
@@ -275,19 +275,20 @@ fn a_won_proving_pays_a_purse_the_log_names() {
     assert!(paid.is_some(), "forty bouts should win at least one");
 }
 
-/// The 试炼's opponent is levelled to the road the cultivator walks: its power
-/// is the current region's own requirement multiplied by a draw between one
-/// and a half and three, so the fight is tied to the region's progress rather
-/// than to the cultivator's rung. A deeper region asks more, and its 试炼 asks
-/// more in the same breath.
+/// The 试炼's opponent is levelled to the road the user selected: its power
+/// is that region's own requirement multiplied by a draw between one and a half
+/// and three, so the fight is tied to the selected region's progress rather
+/// than to the cultivator's current realm. A deeper selected region asks more,
+/// and its 试炼 asks more in the same breath.
 #[test]
-fn a_proving_opponent_matches_the_regions_own_requirement() {
+fn a_proving_opponent_matches_the_selected_regions_own_requirement() {
     use super::super::explore::{Region, region_requirement};
     use super::super::proving::{TRIAL_CHALLENGE_MAX_PERMILLE, TRIAL_CHALLENGE_MIN_PERMILLE};
-    // A body deep enough to stand in the region it is judged against.
+    // A body deep enough to stand in every region it can select.
     let mut cultivation = a_bare_save_at(200);
     cultivation.document.proving_tokens = 1;
-    let region = Region::from_realm(cultivation.realm());
+    cultivation.document.exploration_region = 0;
+    let region = Region::from_index(usize::from(cultivation.document.exploration_region));
     let progress = cultivation
         .document
         .region_progress
@@ -295,7 +296,7 @@ fn a_proving_opponent_matches_the_regions_own_requirement() {
         .copied()
         .unwrap_or(0);
     let requirement = region_requirement(region, progress * 10);
-    let Some(outcome) = cultivation.proving(1_000) else {
+    let Some(outcome) = cultivation.proving(1_000, None) else {
         panic!("a banked chance buys its fight");
     };
     // The opponent's power is the requirement through the draw: it cannot be
@@ -315,8 +316,22 @@ fn a_proving_opponent_matches_the_regions_own_requirement() {
         outcome.opponent_power,
         ceiling
     );
-    // The 试炼 is tied to the region the cultivator stands in.
+    // The 试炼 is tied to the selected exploration region, even though the
+    // cultivator's realm is deeper than that road.
     assert_eq!(outcome.region as usize, region.index());
+    assert_ne!(region.index(), cultivation.realm().index());
+}
+
+/// A selection beyond the cultivator's reached realm is refused without
+/// spending the chance: the walk already answers that choice with
+/// RegionLocked, and the courtyard must agree with it.
+#[test]
+fn a_locked_proving_selection_spends_no_chance() {
+    let mut cultivation = a_bare_save_at(2);
+    cultivation.document.proving_tokens = 1;
+    assert_eq!(cultivation.proving(1_000, Some(1)), None);
+    assert_eq!(cultivation.last_refusal, Some(Refusal::RegionLocked));
+    assert_eq!(cultivation.view().proving_tokens, 1);
 }
 
 /// 试炼 is fought at home: a walk that has not come back closes the courtyard
@@ -331,7 +346,7 @@ fn a_proving_waits_for_the_walk_to_come_home() {
     assert!(tokens > 0, "three sessions banked three chances");
     cultivation.explore(2_000, ExplorationHours::Four);
     assert!(
-        cultivation.proving(2_000 + 3_600).is_none(),
+        cultivation.proving(2_000 + 3_600, None).is_none(),
         "an unreturned walk closes the courtyard"
     );
     assert_eq!(cultivation.last_refusal, Some(Refusal::ProvingOut));
@@ -342,7 +357,7 @@ fn a_proving_waits_for_the_walk_to_come_home() {
     );
     let home = 2_000 + 4 * 3_600;
     assert!(
-        cultivation.proving(home).is_some(),
+        cultivation.proving(home, None).is_some(),
         "back home, the chance buys its fight"
     );
 }
@@ -371,7 +386,7 @@ fn a_proving_waits_for_the_job_to_come_home() {
         "the job in hand is the wall the page should print"
     );
     assert!(
-        cultivation.proving(out + 60).is_none(),
+        cultivation.proving(out + 60, None).is_none(),
         "an unreturned job closes the courtyard too"
     );
     assert_eq!(cultivation.last_refusal, Some(Refusal::Working));
@@ -387,7 +402,7 @@ fn a_proving_waits_for_the_job_to_come_home() {
         "the clock is home"
     );
     assert!(
-        cultivation.proving(run.ends_unix).is_some(),
+        cultivation.proving(run.ends_unix, None).is_some(),
         "back home, the chance buys its fight"
     );
     assert_eq!(

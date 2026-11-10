@@ -2323,7 +2323,7 @@ impl Cultivation {
     /// same table a walk reads — so a finished pomodoro is worth a short walk
     /// on the road the save is already on. The find is the 锁妖塔's base table,
     /// so the two differ in when they pay, not in what.
-    pub fn proving(&mut self, now_unix: i64) -> Option<ProvingOutcome> {
+    pub fn proving(&mut self, now_unix: i64, region: Option<u8>) -> Option<ProvingOutcome> {
         // The walk that is home is settled before the courtyard is asked, the
         // way the tower does it: the gate is where the cultivator is, not
         // whether the tick has come round.
@@ -2333,13 +2333,29 @@ impl Cultivation {
             self.note_refusal(blocked.refusal());
             return None;
         }
+        // The 试炼 stands on the road the user selected for exploration, not on
+        // the realm they happen to stand in. The two used to be the same ladder,
+        // but an explored region can be older than the current realm, and the
+        // courtyard must not silently move to a deeper road just because the
+        // cultivator advanced. The command names that region, so a page with no
+        // menu still sends the save's remembered road; anything past the reached
+        // ladder is refused before the chance is spent.
+        let region = region.map_or_else(
+            || {
+                super::super::explore::Region::from_index(
+                    usize::from(self.document.exploration_region),
+                )
+            },
+            |index| super::super::explore::Region::from_index(usize::from(index)),
+        );
+        if region.index() > self.realm().index() {
+            self.note_refusal(Refusal::RegionLocked);
+            return None;
+        }
         self.document.proving_tokens = self.document.proving_tokens.saturating_sub(1);
         self.provings = self.provings.saturating_add(1);
         let mut rng = self.rng(now_unix);
         let fighter = self.fighter(&mut rng);
-        // The region the 试炼 is tied to is the one the cultivator stands in:
-        // the road it is walking, not a region picked from the ladder.
-        let region = super::super::explore::Region::from_realm(self.realm());
         let level = self
             .cleared_level(region.index())
             .saturating_add(1)

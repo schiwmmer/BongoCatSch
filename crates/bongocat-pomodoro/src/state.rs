@@ -295,7 +295,14 @@ pub enum PomodoroCommand {
     /// A finished pomodoro pays a chance and ten can be banked, so the gate is
     /// the bank rather than a clock: the page offers the button while a chance
     /// is held, and says how many are left while they last.
-    Prove,
+    ///
+    /// The fight is levelled to the selected exploration region. `None` leaves
+    /// the choice to the save's remembered road; anything past the realm is
+    /// refused by the domain without spending a chance.
+    Prove {
+        #[serde(default)]
+        region: Option<u8>,
+    },
     /// Credit growth for raw keyboard or mouse activity. `count` is how many
     /// interactions happened since the last credit, batched by the caller so a
     /// fast typist does not publish one command per keystroke.
@@ -408,7 +415,7 @@ impl PomodoroCommand {
             | Self::RefreshJobs
             | Self::Tower
             | Self::TowerSweep
-            | Self::Prove
+            | Self::Prove { .. }
             | Self::RecordInput { .. } => true,
             // A trade is the one command that can be refused, and the state knows
             // whether it was: `apply` records the outcome and the writer reads it,
@@ -749,8 +756,8 @@ impl PomodoroState {
                 let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
                 self.cultivation.trial_sweep(now_unix, today.day_number());
             }
-            PomodoroCommand::Prove => {
-                self.cultivation.proving(now_unix);
+            PomodoroCommand::Prove { region } => {
+                self.cultivation.proving(now_unix, region);
             }
             PomodoroCommand::RecordInput { count } => {
                 for _ in 0..count {
