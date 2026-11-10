@@ -136,6 +136,11 @@ pub enum EventDetail {
         /// moves it nothing, and a walk that never settled carries none at all.
         #[serde(default)]
         gain: u32,
+        /// The catalog key naming how the walk went, picked from the band's own
+        /// phrasings, so the page can say how the walk itself went rather than
+        /// only how far it moved the region.
+        #[serde(default)]
+        hint: Option<String>,
     },
     /// A finished session trained the selected 功法书 and it came to something.
     Training {

@@ -293,6 +293,11 @@ pub struct WalkRecord {
     /// the page had to guess at again.
     #[serde(default)]
     pub stones: Option<u32>,
+    /// The catalog key naming how the walk went, picked from the band's own
+    /// phrasings, so the page can say how the walk itself went rather than only
+    /// how far it moved the region.
+    #[serde(default)]
+    pub hint: Option<String>,
 }
 
 /// What winning the fight pays, as a second roll of its own.
@@ -683,15 +688,15 @@ pub fn region_requirement(region: Region, progress_permille: u32) -> u32 {
 }
 
 /// What one walk advances, in parts per thousand of the region: a base draw of
-/// half a percent to two percent at four hours, multiplied by how far the body
+/// two percent to eight percent at four hours, multiplied by how far the body
 /// stands past what the floor asks.
 ///
 /// The factor is the body's own ratio between a fifth and five times, so the
 /// strongest cannot buy more than five walks in one. A twelve-hour walk triples
 /// the base before the factor is applied, which is what makes the longer
 /// outings worth the wait.
-pub const REGION_GAIN_BASE_MIN: u32 = 5;
-pub const REGION_GAIN_BASE_MAX: u32 = 20;
+pub const REGION_GAIN_BASE_MIN: u32 = 20;
+pub const REGION_GAIN_BASE_MAX: u32 = 80;
 /// What a body that has not reached the road earns: a fifth of the base draw.
 pub const REGION_GAIN_FACTOR_MIN: u32 = 200;
 pub const REGION_GAIN_FACTOR_MAX: u32 = 5_000;
@@ -709,20 +714,22 @@ pub const REGION_GAIN_FLOOR_CEILING: u32 = 400;
 ///
 /// The same as [`walk_gain_permille`] but in the unit the domain carries and
 /// the page prints: a walk's gain is one of the few numbers that has to be
-/// exact rather than rounded. A walk that moves the region by half a percent
-/// reads `0.5%` on the panel, and a walk that moves it by two reads `2.0%`.
+/// exact rather than rounded. A walk that moves the region by two percent
+/// reads `2.0%` on the panel, and a walk that moves it by eight reads `8.0%`.
+/// The base draw rides beside it, so the caller can say how the walk itself
+/// went rather than only how far it moved the region.
 pub fn walk_gain_tenths(
     rng: &mut Rng,
     hours: ExplorationHours,
     power: u32,
     requirement: u32,
-) -> u32 {
-    let permille = walk_gain_permille(rng, hours, power, requirement);
+) -> (u32, u32) {
+    let (base, permille) = walk_gain_permille(rng, hours, power, requirement);
     // Parts per thousand to tenths of a percent: one tenth of a percent is ten
     // parts per thousand, so the gain is divided by ten and rounded to the
     // nearest tenth. A gain of four parts per thousand reads `0.4%`, and one of
     // five reads `0.5%` — the page's own unit, not a rounding of the domain's.
-    (permille + 5) / 10
+    (base, (permille + 5) / 10)
 }
 
 /// How far this body's advantage carries a walk, in parts per thousand: the
@@ -743,12 +750,82 @@ pub fn walk_gain_permille(
     hours: ExplorationHours,
     power: u32,
     requirement: u32,
-) -> u32 {
+) -> (u32, u32) {
     let span = u64::from(REGION_GAIN_BASE_MAX - REGION_GAIN_BASE_MIN + 1);
     let base = REGION_GAIN_BASE_MIN + rng.below(span) as u32;
     let factor = walk_gain_factor(power, requirement);
-    let base = base.saturating_mul(hours.multiplier_permille() as u32) / 1_000;
-    base.saturating_mul(factor) / 1_000
+    let scaled = base.saturating_mul(hours.multiplier_permille() as u32) / 1_000;
+    let permille = scaled.saturating_mul(factor) / 1_000;
+    (base, permille)
+}
+
+/// The four bands a walk's gain falls into, as the page reads them.
+///
+/// The gain is read against the base band — the draw a body at the floor makes
+/// — rather than against the factor, so a hint says how far this walk moved the
+/// region rather than how strong the body is. The bands are the base band's own
+/// quarters: a walk that drew the floor's bottom quarter is 举步维艰, the top
+/// quarter is 一日千里, and the two between are 稍有波折 and 稳步前行.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub enum WalkGainBand {
+    /// The bottom quarter of the base band: the road barely moved.
+    #[default]
+    Slow,
+    /// The second quarter: a few bumps, but the road held.
+    Uneven,
+    /// The third quarter: a steady pace, nothing remarkable.
+    Steady,
+    /// The top quarter: the road opened up and the region leapt.
+    Fast,
+}
+
+impl WalkGainBand {
+    /// The catalog keys naming this band's hints, as the page reads them.
+    ///
+    /// Each band carries several phrasings so a week of walks does not read as
+    /// the same sentence over and over; the caller picks one.
+    pub const fn hint_keys(self) -> &'static [&'static str] {
+        match self {
+            Self::Slow => &[
+                "cultivation.record.walk_hint_slow",
+                "cultivation.record.walk_hint_slow_alt",
+                "cultivation.record.walk_hint_slow_alt2",
+            ],
+            Self::Uneven => &[
+                "cultivation.record.walk_hint_uneven",
+                "cultivation.record.walk_hint_uneven_alt",
+                "cultivation.record.walk_hint_uneven_alt2",
+            ],
+            Self::Steady => &[
+                "cultivation.record.walk_hint_steady",
+                "cultivation.record.walk_hint_steady_alt",
+                "cultivation.record.walk_hint_steady_alt2",
+            ],
+            Self::Fast => &[
+                "cultivation.record.walk_hint_fast",
+                "cultivation.record.walk_hint_fast_alt",
+                "cultivation.record.walk_hint_fast_alt2",
+            ],
+        }
+    }
+}
+
+/// Which band a walk's base draw falls into, read against the base band.
+///
+/// The base band is [`REGION_GAIN_BASE_MIN`]..=[`REGION_GAIN_BASE_MAX`], split
+/// into four equal quarters. A walk that drew the floor's bottom quarter is
+/// 举步维艰, the top quarter is 一日千里, and the two between are 稍有波折 and
+/// 稳步推进. The band is read from the base draw rather than the final gain, so
+/// the hint says how the walk itself went rather than how strong the body is.
+pub fn walk_gain_band(base: u32) -> WalkGainBand {
+    let width = REGION_GAIN_BASE_MAX - REGION_GAIN_BASE_MIN;
+    let share = base.saturating_sub(REGION_GAIN_BASE_MIN) * 4 / width.max(1);
+    match share {
+        0 => WalkGainBand::Slow,
+        1 => WalkGainBand::Uneven,
+        2 => WalkGainBand::Steady,
+        _ => WalkGainBand::Fast,
+    }
 }
 
 /// The chance a walk meets someone, in parts per thousand.
@@ -1078,7 +1155,7 @@ mod tests {
         let requirement = 10_000_u32;
         let (mut low, mut high) = (u32::MAX, 0);
         for seed in 0..500u64 {
-            let gain = walk_gain_permille(
+            let (_, gain) = walk_gain_permille(
                 &mut Rng::seeded(seed),
                 ExplorationHours::Four,
                 10_000,
@@ -1087,24 +1164,24 @@ mod tests {
             low = low.min(gain);
             high = high.max(gain);
         }
-        // A body at the floor draws the base band: half a percent to two.
+        // A body at the floor draws the base band: two percent to eight.
         assert!((REGION_GAIN_BASE_MIN..=REGION_GAIN_BASE_MAX).contains(&low));
         assert!((REGION_GAIN_BASE_MIN..=REGION_GAIN_BASE_MAX).contains(&high));
 
-        let weak = walk_gain_permille(
+        let (_, weak) = walk_gain_permille(
             &mut Rng::seeded(1),
             ExplorationHours::Four,
             requirement / 10,
             requirement,
         );
-        let strong = walk_gain_permille(
+        let (_, strong) = walk_gain_permille(
             &mut Rng::seeded(1),
             ExplorationHours::Twelve,
             requirement * 50,
             requirement,
         );
         assert!(weak >= 1, "a hopeless body still crawls forward: {weak}");
-        assert!(strong <= 320, "the strongest walk is capped: {strong}");
+        assert!(strong <= 1280, "the strongest walk is capped: {strong}");
         assert!(
             strong > weak * 10,
             "the strong walk pays far more: {strong} vs {weak}"
@@ -1250,8 +1327,8 @@ mod tests {
     }
 
     /// The walk's gain reads as the page prints it: parts per thousand of the
-    /// region become tenths of a percent, so a walk that moves half a percent
-    /// is `0.5` and one that moves two is `2.0`.
+    /// region become tenths of a percent, so a walk that moves two percent
+    /// is `2.0` and one that moves eight is `8.0`.
     #[test]
     fn a_walks_gain_reads_as_tenths_of_a_percent() {
         let requirement = 10_000_u32;
@@ -1260,14 +1337,14 @@ mod tests {
             // and then rounds it, so the same seed must produce the same
             // permille the direct call reads.
             let mut direct = Rng::seeded(seed);
-            let permille = walk_gain_permille(
+            let (_, permille) = walk_gain_permille(
                 &mut direct,
                 ExplorationHours::Four,
                 requirement,
                 requirement,
             );
             let mut rounded = Rng::seeded(seed);
-            let tenths = walk_gain_tenths(
+            let (_, tenths) = walk_gain_tenths(
                 &mut rounded,
                 ExplorationHours::Four,
                 requirement,
@@ -1277,6 +1354,58 @@ mod tests {
             // permille rounded to the nearest tenth of a percent.
             let expected = (permille + 5) / 10;
             assert_eq!(tenths, expected, "seed {seed}: permille {permille}");
+        }
+    }
+
+    /// The base band is split into four equal quarters: a draw at the floor's
+    /// bottom is 举步维艰, the top is 一日千里, and the two between are 稍有波折
+    /// and 稳步推进. The band is read from the base draw, not the final gain.
+    #[test]
+    fn the_base_band_splits_into_four_equal_quarters() {
+        let width = REGION_GAIN_BASE_MAX - REGION_GAIN_BASE_MIN;
+        let quarter = width / 4;
+        assert_eq!(
+            walk_gain_band(REGION_GAIN_BASE_MIN),
+            WalkGainBand::Slow,
+            "the floor's bottom is 举步维艰"
+        );
+        assert_eq!(
+            walk_gain_band(REGION_GAIN_BASE_MIN + quarter - 1),
+            WalkGainBand::Slow,
+            "the first quarter's top edge is still 举步维艰"
+        );
+        assert_eq!(
+            walk_gain_band(REGION_GAIN_BASE_MIN + quarter),
+            WalkGainBand::Uneven,
+            "the second quarter is 稍有波折"
+        );
+        assert_eq!(
+            walk_gain_band(REGION_GAIN_BASE_MIN + 2 * quarter),
+            WalkGainBand::Steady,
+            "the third quarter is 稳步推进"
+        );
+        assert_eq!(
+            walk_gain_band(REGION_GAIN_BASE_MAX),
+            WalkGainBand::Fast,
+            "the top of the band is 一日千里"
+        );
+    }
+
+    /// Each band carries three phrasings, so a week of walks does not read as
+    /// the same sentence over and over.
+    #[test]
+    fn every_band_carries_three_phrasings() {
+        for band in [
+            WalkGainBand::Slow,
+            WalkGainBand::Uneven,
+            WalkGainBand::Steady,
+            WalkGainBand::Fast,
+        ] {
+            assert_eq!(
+                band.hint_keys().len(),
+                3,
+                "{band:?} carries three phrasings"
+            );
         }
     }
 }

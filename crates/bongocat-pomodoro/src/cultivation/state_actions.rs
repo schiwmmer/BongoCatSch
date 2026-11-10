@@ -1580,8 +1580,10 @@ impl Cultivation {
         // How far this walk moves the region: the body read against what the
         // floor asks where the region currently stands. A defeat moves nothing.
         // The gain is read in tenths of a percent — the unit the slot carries
-        // and the page prints — so a walk that moves half a percent is `0.5%`
+        // and the page prints — so a walk that moves one percent is `1.0%`
         // rather than a parts-per-thousand number the surface would round.
+        // The base draw rides beside it, so the page can say how the walk
+        // itself went rather than only how far it moved the region.
         let progress_before = self
             .document
             .region_progress
@@ -1589,10 +1591,23 @@ impl Cultivation {
             .copied()
             .unwrap_or(0);
         let requirement = super::super::explore::region_requirement(region, progress_before * 10);
-        let gain = if outcome == ExplorationOutcome::Defeat {
-            0
+        let (gain, band) = if outcome == ExplorationOutcome::Defeat {
+            (0, super::super::explore::WalkGainBand::Slow)
         } else {
-            super::super::explore::walk_gain_tenths(&mut rng, hours, self.power(), requirement)
+            let (base, tenths) =
+                super::super::explore::walk_gain_tenths(&mut rng, hours, self.power(), requirement);
+            let band = super::super::explore::walk_gain_band(base);
+            (tenths, band)
+        };
+        // The hint is picked from the band's own phrasings, so a week of walks
+        // does not read as the same sentence over and over. A defeat carries no
+        // hint: the walk did not happen, and a sentence about how it went would
+        // be a sentence about a walk that was not taken.
+        let hint = if outcome == ExplorationOutcome::Defeat {
+            None
+        } else {
+            let keys = band.hint_keys();
+            Some(keys[rng.below(keys.len() as u64) as usize].to_string())
         };
         // 灵石 are rolled beside the finding rather than in place of it: an
         // outing can come back with a herb and a handful of stones both, and
@@ -1647,6 +1662,7 @@ impl Cultivation {
             gear: found.gear.as_ref().and_then(|item| item.name.clone()),
             seed: found.seed.as_ref().and_then(|seed| seed.name.clone()),
             stones,
+            hint: hint.clone(),
         });
         self.last_exploration = Some(outcome);
         self.last_exploration_found = Some(found);
@@ -1669,6 +1685,7 @@ impl Cultivation {
                     .and_then(|w| w.seed.clone()),
                 stones,
                 gain,
+                hint,
             },
         );
         true
@@ -2542,7 +2559,11 @@ impl Cultivation {
     /// time the day opens, so the penalty belongs to the day that missed its
     /// sessions rather than to the new day's progress.
     pub fn ensure_day_baseline(&mut self, day: i64) {
-        if self.document.today_baseline.is_some_and(|baseline| baseline.day == day) {
+        if self
+            .document
+            .today_baseline
+            .is_some_and(|baseline| baseline.day == day)
+        {
             return;
         }
         self.document.today_baseline = Some(CultivationDayBaseline {
@@ -2561,7 +2582,9 @@ impl Cultivation {
         self.document
             .today_baseline
             .filter(|baseline| baseline.day == day)
-            .map_or(0, |baseline| self.level() as i64 - i64::from(baseline.level)) as i32
+            .map_or(0, |baseline| {
+                self.level() as i64 - i64::from(baseline.level)
+            }) as i32
     }
 
     /// How much combat power the cultivator has gained since the local day
@@ -2571,7 +2594,9 @@ impl Cultivation {
         self.document
             .today_baseline
             .filter(|baseline| baseline.day == day)
-            .map_or(0, |baseline| self.power() as i64 - i64::from(baseline.power)) as i32
+            .map_or(0, |baseline| {
+                self.power() as i64 - i64::from(baseline.power)
+            }) as i32
     }
 
     /// Read the snapshot a surface renders.

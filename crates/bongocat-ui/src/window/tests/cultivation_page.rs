@@ -976,6 +976,7 @@ fn the_page_draws_the_next_session_worth_and_the_record(cx: &mut TestAppContext)
                     seed: None,
                     stones: Some(5),
                     gain: 80,
+                    hint: Some("cultivation.record.walk_hint_fast".to_owned()),
                 },
             },
             EventRecord {

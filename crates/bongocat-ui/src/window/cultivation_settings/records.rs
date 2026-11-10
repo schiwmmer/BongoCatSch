@@ -468,6 +468,7 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             seed,
             stones,
             gain,
+            hint,
         } => walk_line(
             *outcome,
             art.as_deref(),
@@ -475,6 +476,7 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             seed.as_deref(),
             *stones,
             *gain,
+            hint.as_deref(),
             locale,
         ),
         EventDetail::RegionCleared {
@@ -1023,6 +1025,7 @@ fn walk_line(
     seed: Option<&str>,
     stones: Option<u32>,
     gain: u32,
+    hint: Option<&str>,
     locale: &str,
 ) -> String {
     let mut line = format_text(
@@ -1036,6 +1039,7 @@ fn walk_line(
     push_finds(&mut line, art, gear, seed, locale);
     push_stones(&mut line, stones, locale);
     push_progress(&mut line, gain, locale);
+    push_hint(&mut line, hint, locale);
     line
 }
 
@@ -1150,6 +1154,18 @@ fn push_progress(line: &mut String, gain: u32, locale: &str) {
                 &[("percent", (gain / 10).to_string())]
             )
         ));
+    }
+}
+
+/// Name how the walk itself went, as a hint beside the progress.
+///
+/// The hint is the catalog key the domain picked from the band's own phrasings,
+/// so the page prints the sentence the walk earned rather than one it chose.
+/// A defeat carries none: the walk did not happen, and a sentence about how it
+/// went would be a sentence about a walk that was not taken.
+fn push_hint(line: &mut String, hint: Option<&str>, locale: &str) {
+    if let Some(key) = hint {
+        line.push_str(&format!(" · {}", text(locale, key)));
     }
 }
 
