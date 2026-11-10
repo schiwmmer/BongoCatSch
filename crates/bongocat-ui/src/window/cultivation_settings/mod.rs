@@ -373,7 +373,7 @@ fn module_navigation_bar(
 
 /// Scroll the settings list so the panel at `index` is in view.
 ///
-/// The panel's bounds were recorded during its prepaint, in window
+/// The panel's bounds were recorded during its prepaint, in window-local
 /// coordinates. The panel's *top* is aimed at a quarter of the viewport down
 /// rather than at the middle: a module lands near the top of what the eye takes
 /// in, with the page above it as context and three quarters of the screen for
@@ -381,6 +381,12 @@ fn module_navigation_bar(
 /// below the mark (scroll down, a negative wheel delta) and negative when it
 /// sits above (scroll up). A panel already at the mark asks for no scroll, and
 /// the list clamps a panel near either end to the end.
+///
+/// Everything here is window-local: panel bounds, the mouse position that the
+/// hit test uses, and the viewport. `Window::bounds()` is global screen space,
+/// so folding its origin into either the aim or the event position shifted the
+/// landing by the window's place on the display and could send the wheel event
+/// outside the window altogether. Headless windows sit at `(0, 0)` and hide it.
 ///
 /// The dispatch is deferred rather than sent from the click handler: a click
 /// handler runs inside the list's own mouse dispatch, whose listeners have been
@@ -396,10 +402,12 @@ fn scroll_to_panel(
     let Some(bounds) = panel_bounds.borrow().get(index).copied().flatten() else {
         return;
     };
-    let viewport = window.bounds();
+    let viewport = window.viewport_size();
     // A quarter of the way down: the target panel's first line sits there, so
-    // the module reads from its heading rather than from its middle.
-    let aim = viewport.origin.y + viewport.size.height / 4.0;
+    // the module reads from its heading rather than from its middle. Both the
+    // aim and the event position are window-local, the same space the panel
+    // bounds and the hit test live in.
+    let aim = viewport.height / 4.0;
     let delta_y = bounds.origin.y - aim;
     if delta_y.abs() < px(1.) {
         return;
@@ -408,10 +416,7 @@ fn scroll_to_panel(
     // delta is what scrolls. It has to land inside the list — a position at the
     // target panel is often below the fold, where the hit-test finds nothing
     // and the event goes nowhere — so it is aimed at the middle of the page.
-    let position = point(
-        viewport.origin.x + viewport.size.width / 2.0,
-        viewport.origin.y + viewport.size.height / 2.0,
-    );
+    let position = point(viewport.width / 2.0, viewport.height / 2.0);
     let delta = ScrollDelta::Pixels(point(px(0.), -delta_y));
     window.defer(cx, move |window, cx| {
         window.dispatch_event(
@@ -456,10 +461,7 @@ fn realm_header(
         "cultivation.today_delta",
         &[
             ("level", signed_delta(cultivation.today_level_delta)),
-            (
-                "power",
-                signed_grouped_delta(cultivation.today_power_delta),
-            ),
+            ("power", signed_grouped_delta(cultivation.today_power_delta)),
         ],
     );
     let hint_tokens = tokens;
@@ -1448,4 +1450,88 @@ pub(super) fn slot_name(locale: &str, key: &str) -> String {
     format_text(locale, key, &[("value", String::new())])
         .trim()
         .to_string()
+}
+
+#[cfg(test)]
+mod navigation_tests {
+    use super::*;
+    use crate::SettingsClient;
+    use gpui_kit::test::TestWindowExt as _;
+    use gpui_kit::{TestAppContext, VisualTestContext, point, px};
+    use std::rc::Rc;
+
+    /// A settings frame parked away from the screen origin, the way a real
+    /// macOS window is. The headless harness maximizes its window onto a
+    /// display at `(0, 0)`, so only a displaced frame exposes a jump that mixes
+    /// global window bounds with the window-local coordinates the panels and
+    /// the hit test use.
+    fn settings_window_at(
+        cx: &mut TestAppContext,
+        origin: gpui_kit::Point<gpui_kit::Pixels>,
+    ) -> &mut VisualTestContext {
+        cx.update(gpui_kit::init);
+        let (client, endpoint) = SettingsClient::bounded(4);
+        // The page publishes commands this test never reads; the endpoint has
+        // to outlive the window for its sender to stay connected.
+        std::mem::forget(endpoint);
+        let memory = SettingsNavigationMemory::new();
+        memory.open_cultivation();
+        let bounds = gpui_kit::Bounds::new(origin, gpui_kit::size(px(1_280.), px(800.)));
+        let handle = cx
+            .app
+            .borrow_mut()
+            .open_window(
+                gpui_kit::WindowOptions {
+                    window_bounds: Some(gpui_kit::WindowBounds::Windowed(bounds)),
+                    ..Default::default()
+                },
+                move |window, cx| {
+                    cx.new(|cx| {
+                        let view = cx.new(|cx| {
+                            SettingsView::new(
+                                client,
+                                SettingsWindowSeed {
+                                    language: SettingsLanguage::English,
+                                    appearance_theme: SettingsTheme::System,
+                                },
+                                Rc::new(|_| {}),
+                                Rc::new(|_| {}),
+                                PomodoroClient::unavailable(),
+                                window,
+                                cx,
+                            )
+                        });
+                        view.update(cx, |view, _| view.set_navigation_memory(memory.clone()));
+                        gpui_kit::component::Root::new(view, window, cx)
+                    })
+                },
+            )
+            .expect("the off-origin window opens");
+        let visual = VisualTestContext::from_window(handle.into(), cx).into_mut();
+        visual.run_until_parked();
+        visual.update(|window, cx| window.render_frame(cx));
+        visual
+    }
+
+    /// `Window::bounds()` is global screen space; panel bounds, mouse position
+    /// and hit tests are window-local. A jump that adds the window's screen y
+    /// to its target lands nowhere useful once the window is moved.
+    #[gpui_kit::test]
+    fn module_jumps_ignore_the_windows_screen_position(cx: &mut TestAppContext) {
+        let visual = settings_window_at(cx, point(px(320.), px(240.)));
+        visual.update(|window, cx| window.click("cultivation-nav-10", cx));
+        visual.update(|window, cx| window.render_frame(cx));
+        let (top, viewport) = visual.update(|window, _| {
+            let anchor = window
+                .try_find(gpui_kit::ElementId::from("cultivation-anchor-10"))
+                .map(|snapshot| snapshot.bounds())
+                .expect("the exploration anchor is painted");
+            (anchor.origin.y, window.bounds())
+        });
+        let aim = viewport.size.height / 4.0;
+        assert!(
+            (top - aim).abs() <= viewport.size.height * 0.15,
+            "a window away from the screen origin put the module at {top:?}, not the quarter mark {aim:?}"
+        );
+    }
 }

@@ -120,7 +120,10 @@ fn a_session_pays_growth_in_proportion_to_its_length() {
 fn a_new_day_records_the_level_and_power_it_opens_with() {
     let mut cultivation = Cultivation::default();
     cultivation.ensure_day_baseline(20_000);
-    let baseline = cultivation.document().today_baseline.expect("the day is recorded");
+    let baseline = cultivation
+        .document()
+        .today_baseline
+        .expect("the day is recorded");
     assert_eq!(baseline.day, 20_000);
     assert_eq!(baseline.level, cultivation.level());
     assert_eq!(baseline.power, cultivation.power());

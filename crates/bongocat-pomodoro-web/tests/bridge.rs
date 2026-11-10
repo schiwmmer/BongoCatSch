@@ -24,7 +24,7 @@ fn state_at(now: i64) -> PomodoroState {
 #[test]
 fn a_snapshot_carries_every_key_the_page_reads() {
     let now = 1_800_000_000;
-    let state = state_at(now);
+    let mut state = state_at(now);
     let snapshot = serde_json::to_value(state.snapshot_at(1, now)).expect("snapshot serializes");
 
     for key in [
@@ -104,7 +104,7 @@ fn a_document_survives_the_json_round_trip() {
     assert!(finished.is_some(), "a full session completes");
 
     let stored = state.document_json();
-    let restored = PomodoroState::from_document_json_with_seed(&stored, 8 * 3600, 1);
+    let mut restored = PomodoroState::from_document_json_with_seed(&stored, 8 * 3600, 1);
 
     let before = state.snapshot_at(0, now + 25 * 60);
     let after = restored.snapshot_at(0, now + 25 * 60);
@@ -140,7 +140,7 @@ fn a_fresh_save_gets_its_own_aptitude() {
 fn an_unreadable_document_reads_as_a_fresh_one() {
     // A store that was cleared, truncated by a crash, or written by a build this
     // one cannot read must still start the page rather than blank it.
-    let state = PomodoroState::from_document_json_with_seed("{not json", 8 * 3600, 7);
+    let mut state = PomodoroState::from_document_json_with_seed("{not json", 8 * 3600, 7);
     let snapshot = state.snapshot_at(0, 1_800_000_000);
     assert!(snapshot.tasks.is_empty());
     assert_eq!(snapshot.cultivation.level, 1);
