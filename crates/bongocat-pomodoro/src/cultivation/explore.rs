@@ -688,15 +688,15 @@ pub fn region_requirement(region: Region, progress_permille: u32) -> u32 {
 }
 
 /// What one walk advances, in parts per thousand of the region: a base draw of
-/// two percent to eight percent at four hours, multiplied by how far the body
-/// stands past what the floor asks.
+/// half a percent to two point two percent at four hours, multiplied by how far
+/// the body stands past what the floor asks.
 ///
 /// The factor is the body's own ratio between a fifth and five times, so the
 /// strongest cannot buy more than five walks in one. A twelve-hour walk triples
 /// the base before the factor is applied, which is what makes the longer
 /// outings worth the wait.
-pub const REGION_GAIN_BASE_MIN: u32 = 20;
-pub const REGION_GAIN_BASE_MAX: u32 = 80;
+pub const REGION_GAIN_BASE_MIN: u32 = 5;
+pub const REGION_GAIN_BASE_MAX: u32 = 22;
 /// What a body that has not reached the road earns: a fifth of the base draw.
 pub const REGION_GAIN_FACTOR_MIN: u32 = 200;
 pub const REGION_GAIN_FACTOR_MAX: u32 = 5_000;
@@ -819,12 +819,23 @@ impl WalkGainBand {
 /// the hint says how the walk itself went rather than how strong the body is.
 pub fn walk_gain_band(base: u32) -> WalkGainBand {
     let width = REGION_GAIN_BASE_MAX - REGION_GAIN_BASE_MIN;
-    let share = base.saturating_sub(REGION_GAIN_BASE_MIN) * 4 / width.max(1);
-    match share {
-        0 => WalkGainBand::Slow,
-        1 => WalkGainBand::Uneven,
-        2 => WalkGainBand::Steady,
-        _ => WalkGainBand::Fast,
+    // The band is the base's share of the band's width, in four quarters. The
+    // boundaries are computed as fractions of the width rather than by integer
+    // division on the base, so a width that is not a multiple of four still
+    // splits evenly: the first quarter is [min, min + width/4), the second
+    // [min + width/4, min + width/2), and so on.
+    let offset = base.saturating_sub(REGION_GAIN_BASE_MIN);
+    let first = width / 4;
+    let second = width / 2;
+    let third = width * 3 / 4;
+    if offset < first {
+        WalkGainBand::Slow
+    } else if offset < second {
+        WalkGainBand::Uneven
+    } else if offset < third {
+        WalkGainBand::Steady
+    } else {
+        WalkGainBand::Fast
     }
 }
 
@@ -1164,7 +1175,7 @@ mod tests {
             low = low.min(gain);
             high = high.max(gain);
         }
-        // A body at the floor draws the base band: two percent to eight.
+        // A body at the floor draws the base band: half a percent to two point two.
         assert!((REGION_GAIN_BASE_MIN..=REGION_GAIN_BASE_MAX).contains(&low));
         assert!((REGION_GAIN_BASE_MIN..=REGION_GAIN_BASE_MAX).contains(&high));
 
@@ -1181,7 +1192,7 @@ mod tests {
             requirement,
         );
         assert!(weak >= 1, "a hopeless body still crawls forward: {weak}");
-        assert!(strong <= 1280, "the strongest walk is capped: {strong}");
+        assert!(strong <= 640, "the strongest walk is capped: {strong}");
         assert!(
             strong > weak * 10,
             "the strong walk pays far more: {strong} vs {weak}"
@@ -1327,8 +1338,8 @@ mod tests {
     }
 
     /// The walk's gain reads as the page prints it: parts per thousand of the
-    /// region become tenths of a percent, so a walk that moves two percent
-    /// is `2.0` and one that moves eight is `8.0`.
+    /// region become tenths of a percent, so a walk that moves half a percent
+    /// is `0.5` and one that moves two is `2.0`.
     #[test]
     fn a_walks_gain_reads_as_tenths_of_a_percent() {
         let requirement = 10_000_u32;
