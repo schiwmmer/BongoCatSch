@@ -380,6 +380,12 @@ impl SettingsView {
         })
         .detach();
 
+        // The refusal baseline is read before the client is moved into the
+        // struct: a refusal the worker already holds is not news this window
+        // has to announce, so the count it starts from is the one the snapshot
+        // already carries rather than zero.
+        let cultivation_refusal_seen = pomodoro.snapshot().cultivation.refusal_count;
+
         Self {
             client,
             pomodoro,
@@ -431,10 +437,11 @@ impl SettingsView {
             // waiting on the worker either.
             cultivation_duel: None,
             cultivation_duel_pending: None,
-            // Nothing has been refused yet, so there is no error waiting to be
-            // shown and no count to compare against.
+            // Nothing is waiting to be shown, and the count the worker already
+            // holds is the baseline captured above: a refusal that happened
+            // before this window opened is not this window's news.
             cultivation_refusal_pending: None,
-            cultivation_refusal_seen: 0,
+            cultivation_refusal_seen,
             pomodoro_done_expanded: false,
             pomodoro_chart_days: 7,
             // No day is picked when the page opens: the chart ends on today

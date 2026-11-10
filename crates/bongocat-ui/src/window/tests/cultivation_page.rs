@@ -624,13 +624,16 @@ fn a_walk_under_way_offers_to_come_home(cx: &mut TestAppContext) {
     );
 }
 
-/// A refused action is said out loud.
+/// A refusal that happened before the window opened is not this window's news.
 ///
-/// The domain records why; the page has to show it. A click that does nothing
-/// without a word is a button the user reads as broken, so the refusal count is
-/// watched and the reason is turned into an error the user can read.
+/// The refusal count is a worker-lifetime counter, not a per-window one: a
+/// window that started from zero would replay the last refusal as if it had
+/// just happened, which is what made every right-click into the cultivation
+/// page re-announce a refusal the user had already seen. The window takes the
+/// count the snapshot already carries as its baseline, so only a refusal that
+/// happens after the window opens is reported.
 #[gpui_kit::test]
-fn a_refused_action_is_reported_to_the_user(cx: &mut TestAppContext) {
+fn a_refusal_that_happened_before_the_window_opened_is_not_reported(cx: &mut TestAppContext) {
     let mut cultivation = at_the_cap();
     cultivation.refusal_count = 1;
     cultivation.last_refusal = Some(bongocat_pomodoro::Refusal::ExploreCooldown);
@@ -648,9 +651,9 @@ fn a_refused_action_is_reported_to_the_user(cx: &mut TestAppContext) {
             .map(|(refusal, _)| refusal.key())
     });
     assert_eq!(
-        reported,
-        Some("cultivation.explore.refuse_cooldown"),
-        "the refusal has to be reported with its reason"
+        reported, None,
+        "a refusal the worker already held before the window opened is not \
+         this window's news and must not be replayed as a new toast"
     );
 }
 
