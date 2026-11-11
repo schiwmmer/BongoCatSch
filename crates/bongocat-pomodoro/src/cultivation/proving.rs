@@ -36,18 +36,18 @@ pub const TRIAL_CHANCES_CAP: u32 = 10;
 /// The weakest a 试炼's opponent is drawn at, in parts per thousand of the
 /// current region's requirement.
 ///
-/// One and a half: the opponent is always a real step past what the road asks,
+/// One point two: the opponent is always a real step past what the road asks,
 /// so a 试炼 is a fight rather than a formality. The draw is a uniform between
 /// this and [`TRIAL_CHALLENGE_MAX_PERMILLE`], so a 试炼's difficulty is a
 /// spread around the region rather than a fixed wall.
-pub const TRIAL_CHALLENGE_MIN_PERMILLE: u32 = 1_500;
+pub const TRIAL_CHALLENGE_MIN_PERMILLE: u32 = 1_200;
 
 /// The strongest a 试炼's opponent is drawn at, in parts per thousand of the
 /// current region's requirement.
 ///
-/// Three: the top of the spread is a body three times what the road asks, so a
-/// 试炼 can be a wall — and a win over it pays for the trouble.
-pub const TRIAL_CHALLENGE_MAX_PERMILLE: u32 = 3_000;
+/// Two: the top of the spread is a body twice what the road asks, so a 试炼
+/// can be a wall — and a win over it pays for the trouble.
+pub const TRIAL_CHALLENGE_MAX_PERMILLE: u32 = 2_000;
 
 /// What one 试炼 chance came to.
 ///
