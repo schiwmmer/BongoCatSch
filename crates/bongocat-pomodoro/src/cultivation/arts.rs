@@ -681,18 +681,25 @@ fn external_cost(grade: ArtGrade) -> u32 {
 
 /// What an 外功 is worth, in parts per thousand of the 攻击力 behind it.
 ///
-/// The grade is the whole difference: 1.2× for 黄, 2.0× for 玄 — the brief's
+/// The grade is the whole difference: 1.26× for 黄, 2.0× for 玄 — the brief's
 /// "玄 is one and a half times what it was" applied to the old 1_350‰ — then a
 /// third more per grade after that. A 神阶 strike at 4.8× is a different act
-/// from a 黄阶 one at 1.2×, which is what makes finding one worth the ten-
+/// from a 黄阶 one at 1.26×, which is what makes finding one worth the ten-
 /// thousandth chance it takes.
+///
+/// 黄 was lifted from 1.2× to 1.26×: at 1.2× the cheapest 外功 cost 16 内力 for
+/// a blow worth 1.2 attacks, so a body whose 内力 pool was read off a low 根骨
+/// could pay for fewer swings than the same points in 身法 would have bought in
+/// speed — the low grade was a tax on the early ladder rather than a step on it.
+/// Six percent closes that gap without touching the upper grades, which are
+/// where the ladder's own slope is supposed to bite.
 ///
 /// This is the figure a row prints, and the *centre* of the band a blow rolls
 /// in — see [`StrikeShape::band`]. A 神阶 外功 is not worth a fixed number of blows
 /// per use; it is worth a draw from a band, which is what makes two of them
 /// different objects rather than two copies of one number.
 fn external_multiplier(grade: ArtGrade) -> u32 {
-    const MULTIPLIERS: [u32; 5] = [1_200, 2_025, 2_700, 3_600, 4_800];
+    const MULTIPLIERS: [u32; 5] = [1_260, 2_025, 2_700, 3_600, 4_800];
     MULTIPLIERS[grade.index()]
 }
 
@@ -1799,7 +1806,7 @@ mod tests {
         // The anchor is a *centre* now, not the number: a copy carries a few
         // percent of its own, so the row sits either side of the grade's figure
         // and two 玄阶 外功 are worth two things.
-        let centres = [1_200_u32, 2_025, 2_700, 3_600, 4_800];
+        let centres = [1_260_u32, 2_025, 2_700, 3_600, 4_800];
         for (index, value) in multipliers.iter().enumerate() {
             let centre = centres[index];
             assert!(
