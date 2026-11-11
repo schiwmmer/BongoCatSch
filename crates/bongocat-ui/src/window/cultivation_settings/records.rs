@@ -1144,6 +1144,8 @@ fn push_stones(line: &mut String, stones: Option<u32>, locale: &str) {
 /// percent beside the finds, in the same segment style, because the region's
 /// percent is the number the user watches climb and a line that made them add
 /// the percents up would be a line that hid the one figure they came for.
+/// The domain stores tenths of a percent, so the event prints that resolution
+/// directly rather than rounding a small gain away.
 fn push_progress(line: &mut String, gain: u32, locale: &str) {
     if gain > 0 {
         line.push_str(&format!(
@@ -1151,7 +1153,7 @@ fn push_progress(line: &mut String, gain: u32, locale: &str) {
             format_text(
                 locale,
                 "cultivation.record.walk_progress",
-                &[("percent", (gain / 10).to_string())]
+                &[("percent", format!("{}.{}", gain / 10, gain % 10))]
             )
         ));
     }
