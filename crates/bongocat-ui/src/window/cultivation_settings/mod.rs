@@ -219,6 +219,11 @@ pub(super) fn content(
         .child(panel_anchor(
             12,
             &panel_bounds,
+            trial_panel(&view, &cultivation, locale, tokens),
+        ))
+        .child(panel_anchor(
+            13,
+            &panel_bounds,
             proving_panel(
                 &view,
                 &cultivation,
@@ -229,11 +234,6 @@ pub(super) fn content(
                     .unwrap_or(usize::from(cultivation.exploration_region))
                     .min(cultivation.regions.len().saturating_sub(1)),
             ),
-        ))
-        .child(panel_anchor(
-            13,
-            &panel_bounds,
-            trial_panel(&view, &cultivation, locale, tokens),
         ))
         .child(panel_anchor(
             14,
