@@ -15,6 +15,7 @@
 
 #[cfg(test)]
 mod binary_tests;
+mod app_menu;
 mod gamepad_observer;
 mod model_cover;
 mod overlay_placement;
@@ -70,6 +71,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use app_menu::{refresh_app_menu, setup_app_menu};
 use gamepad_observer::GamepadConnectionObserver;
 use model_cover::{COVER_CAPTURE_POLL_INTERVAL_MS, capture_model_cover_without_blocking};
 use overlay_placement::OverlayPlacementDebouncer;
@@ -522,6 +524,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
         let settings_client = settings_service.client();
+        setup_app_menu(cx, initial_settings_snapshot.resolved_language.catalog_locale());
 
         // The update worker is independent of the settings worker: a check, a transfer
         // or an install must never queue behind a settings command, and the settings
@@ -869,6 +872,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if !cx.has_global::<ProductCoordinator>() {
                             return Ok(());
                         }
+                        refresh_app_menu(cx, language.catalog_locale());
                         let coordinator = cx.global_mut::<ProductCoordinator>();
                         coordinator.product_language = language;
                         coordinator.product_appearance_theme = appearance_theme;
