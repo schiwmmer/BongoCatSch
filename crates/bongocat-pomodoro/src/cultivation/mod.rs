@@ -1037,8 +1037,18 @@ const ATTACK_PER_STRENGTH: i64 = 3;
 const BASE_HEALTH: i64 = 100;
 const HEALTH_PER_STRENGTH: i64 = 20;
 /// The floor every 内力值 starts from, and what one point of 根骨 adds.
+///
+/// Six, down from eight: 根骨 was the attribute that paid for both 防御 and the
+/// 内力 pool, so a build leaning on it bought the physical fight *and* the
+/// 外功 resource in one attribute — while 身法 paid for speed, 命中 and 闪避
+/// across three lines and sat lower in [`Attributes::power`]. The panel's
+/// currency and the fight's currency disagreed, and the disagreement was
+/// 根骨's. Six narrows the pool so 根骨 is a choice (a deeper well for 外功)
+/// rather than the default (the only well), without touching 防御 — the
+/// physical half of the pair stays where it was, so a geared save still reads
+/// as a wall turned into a challenge.
 const BASE_INNER: i64 = 50;
-const INNER_PER_ROOT: i64 = 8;
+const INNER_PER_ROOT: i64 = 6;
 /// What one point of 法力 is worth to 法术强度 and to 法抗.
 const SPELL_PER_MANA: i64 = 3;
 const RESIST_PER_MANA: i64 = 2;

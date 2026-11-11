@@ -491,7 +491,7 @@ fn every_shown_number_follows_from_the_attribute_that_owns_it() {
     assert_eq!(swift.evade, 200, "the same curve 命中 climbs");
 
     let rooted = Attributes::new(10, 0, 0, 0).derived();
-    assert_eq!(rooted.inner, 130, "50 + 根骨×8");
+    assert_eq!(rooted.inner, 110, "50 + 根骨×6");
     assert_eq!(
         rooted.aptitude, 0,
         "根骨 no longer buys 潜质 — only the two herbs do"
