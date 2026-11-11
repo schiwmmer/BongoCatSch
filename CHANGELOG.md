@@ -8,6 +8,11 @@
 - The opponent's wardrobe is split from the player's drop table: guardians keep the old slot splits, ±6% 成色 and the 1060 allowance, so the realm gates and tower bands do not drift with this retune.
 - Set bonuses are now a convex ladder: 2 / 3 / 4 pieces pay 20% / 55% / 100% of the full worth (the old ladder paid the same amount for every extra piece), and the full worth is still the old four-piece total. A complete four-piece set also wakes a fixed mastery debuff (Sunder / Blight / Thunder / Frost at 神装 depth) that coexists with a 神装 effect; a shared effect keeps only the deeper bite. All three surfaces print the mastery.
 - Gear already owned is untouched: only future drops are rolled on the new table, and the attribute numbers stored in a save are kept as they are.
+- The 庭院试炼 now draws its opponent from the selected exploration region, and its difficulty is narrowed from 1.5–3.0× to 1.2–2.0× the region's requirement; the panel moves below the 锁妖塔.
+- The recent-events line keeps one decimal of exploration progress instead of rounding it away.
+- 根骨's 内力 coefficient drops from 8 to 6: 根骨 no longer pays for both 防御 and the 内力 pool at once, flattening its marginal return against 身法 while leaving 防御 untouched.
+- The deep-tower band's top control point is brought down from 2400/1900 to 2000/1600: the hardest draw no longer outruns the floor's own level, while the band stays wide enough that gear remains a slope.
+- The 黄阶 外功 multiplier rises from 1.2 to 1.26, so the cheapest 外功 no longer costs 16 内力 for less than the same points in 身法 would buy in speed.
 
 ## 2.4.1 - 2026-11-06
 

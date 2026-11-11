@@ -762,7 +762,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-app"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "async-io",
  "atomic-write-file",
@@ -795,7 +795,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-audio"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "rodio",
  "thiserror 2.0.21",
@@ -803,7 +803,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-config"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "bongocat-input",
  "bongocat-storage",
@@ -817,7 +817,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-i18n"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "rust-i18n",
  "serde_json",
@@ -825,7 +825,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-input"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "schemars",
  "serde",
@@ -834,7 +834,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-live2d"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "bongocat-live2d-playback",
  "bongocat-live2d-render",
@@ -850,7 +850,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-live2d-playback"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -859,7 +859,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-live2d-render"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "bongocat-model",
  "bongocat-render",
@@ -869,7 +869,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-log"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "bongocat-storage",
  "tempfile",
@@ -878,7 +878,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-model"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "proptest",
  "serde",
@@ -889,7 +889,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-model-store"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "bongocat-model",
  "bongocat-render",
@@ -906,7 +906,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-overlay"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "block2 0.6.2",
  "bongocat-input",
@@ -927,7 +927,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-packaging"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "cargo-packager",
  "cargo-packager-updater",
@@ -942,7 +942,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-platform"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "arboard",
  "async-io",
@@ -978,7 +978,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-pomodoro"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "bongocat-storage",
  "serde",
@@ -989,7 +989,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-pomodoro-web"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "bongocat-pomodoro",
  "serde_json",
@@ -997,7 +997,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-render"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "bongocat-input",
  "thiserror 2.0.21",
@@ -1005,7 +1005,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-runtime"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "bongocat-audio",
  "bongocat-input",
@@ -1022,7 +1022,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-storage"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "atomic-write-file",
  "tempfile",
@@ -1030,7 +1030,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-ui"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "async-channel",
  "bongocat-config",
@@ -1045,7 +1045,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-ui-protocol"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "async-channel",
  "bongocat-input",
@@ -1054,7 +1054,7 @@ dependencies = [
 
 [[package]]
 name = "bongocat-update"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "bongocat-config",
  "cargo-packager",
