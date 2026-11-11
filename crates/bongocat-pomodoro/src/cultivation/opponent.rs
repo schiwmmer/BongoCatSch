@@ -203,9 +203,17 @@ pub(crate) fn challenge_band_permille(rng: &mut Rng) -> u32 {
 /// single band cannot hold the same three odds at both ends. The rows are read
 /// at the rank of the draw and interpolated by floor between
 /// [`TRIAL_DEEP_START`] and [`TRIAL_DEEP_END`].
+///
+/// The top control point was brought down from 2_400/1_900 to 2_000/1_600: the
+/// old top let a floor's hardest draw reach past twice its rung, so a save that
+/// had just cleared its own level could meet a warden a third again as strong as
+/// the one below it and read the tower as a wall rather than a ladder. The top
+/// is still the top — the hardest draw is still a wall — but it is a wall the
+/// save can see over: the spread stays wide enough that gear is a slope, and
+/// the high end no longer outruns the ladder's own step.
 const DEEP_BAND_RANKS: [u32; 5] = [0, 285, 480, 820, 1_000];
-const DEEP_BAND_START: [u32; 5] = [750, 1_060, 1_450, 1_660, 2_400];
-const DEEP_BAND_END: [u32; 5] = [700, 1_000, 1_200, 1_310, 1_900];
+const DEEP_BAND_START: [u32; 5] = [750, 1_060, 1_450, 1_660, 2_000];
+const DEEP_BAND_END: [u32; 5] = [700, 1_000, 1_200, 1_310, 1_600];
 
 /// The first floor whose warden is drawn from the deep band rather than from the
 /// shallow one: the first hundred floors are the tower's on-ramp and keep the
