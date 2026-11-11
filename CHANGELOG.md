@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### ✨ Features
+
+- `Cmd+Q` quits the app: the macOS menu bar gains a BongoCat menu whose Quit item carries the `⌘Q` accelerator, so the keystroke works while BongoCat is the active app. The label follows the interface language.
+
 ### ⚖️ Balance
 
 - Gear drops are reworked: trousers now pay 法力 as their primary; every piece, white and green included, draws its second attribute from the other three at equal odds instead of a fixed partner per slot; the 成色 of two pieces of one slot, tier and quality now swings a random 10–30 percent either way, so a single piece lands between 0.70 and 1.30 times with the same expectation. The budget is still priced on the nominal partner, so a random second attribute changes the printed points, not the piece's worth.
