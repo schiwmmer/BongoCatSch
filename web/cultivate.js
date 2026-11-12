@@ -912,6 +912,13 @@ function findChips(found) {
   return chips.join('') || '<span class="chip muted">空手而归</span>';
 }
 
+// The region a won bout moved, in tenths of a percent: a loss carries none and
+// prints nothing, and a sixth too small to round to a tenth reads as no chip.
+function progressChip(progress) {
+  if (progress == null) return '';
+  return `<span class="chip jade">试炼 +${(progress / 10).toFixed(1)}%</span>`;
+}
+
 /* ---------- tower ---------- */
 
 function towerPage(c) {
@@ -954,7 +961,7 @@ function towerPage(c) {
             </div>
           </div>
           ${c.proving_blocked ? `<div class="card-hint">${REFUSALS[c.proving_blocked] ?? '暂时不能试炼'}</div>` : ''}
-          ${c.last_proving ? `<div class="chips">${findChips(c.last_proving.found)}</div>` : ''}
+          ${c.last_proving ? `<div class="chips">${findChips(c.last_proving.found)}${progressChip(c.last_proving.progress)}</div>` : ''}
         </div>
       </div>
     </div>

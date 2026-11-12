@@ -275,6 +275,166 @@ fn a_won_proving_pays_a_purse_the_log_names() {
     assert!(paid.is_some(), "forty bouts should win at least one");
 }
 
+/// A won 试炼 moves the region it was tied to by the gain it reports: the slot
+/// advances by exactly that sixth of the road's own, the popup carries it, and
+/// the log names the same ground. A body deep enough to stand far past the
+/// floor moves a visible amount rather than a sixth that rounds to zero.
+#[test]
+fn a_won_proving_moves_the_region_by_the_gain_it_reports() {
+    use super::super::explore::{PROGRESS_TENTHS_PER_LEVEL, Region};
+    let mut wins = 0;
+    for step in 0..40_i64 {
+        let mut cultivation = a_bare_save_at(200);
+        cultivation.document.proving_tokens = 1;
+        cultivation.document.exploration_region = 0;
+        let region = Region::from_index(0);
+        let before = cultivation
+            .document
+            .region_progress
+            .get(region.index())
+            .copied()
+            .unwrap_or(0);
+        let Some(outcome) = cultivation.proving(1_000 + step * 7, None) else {
+            continue;
+        };
+        if !outcome.duel.won {
+            continue;
+        }
+        wins += 1;
+        let gain = outcome
+            .progress
+            .expect("a win reports the ground it moved");
+        assert!(gain > 0, "step {step}: a body this deep moves the road");
+        // The slot rolls over at a whole level, so the gain is read across the
+        // boundary: the slot the win left is the slot it found plus the gain,
+        // modulo a level.
+        let after = cultivation
+            .document
+            .region_progress
+            .get(region.index())
+            .copied()
+            .unwrap_or(0);
+        assert_eq!(
+            (before + gain) % PROGRESS_TENTHS_PER_LEVEL,
+            after,
+            "step {step}: the win moved the slot by the gain it reported"
+        );
+        match cultivation
+            .view()
+            .events
+            .first()
+            .map(|event| event.detail.clone())
+        {
+            Some(EventDetail::Proving {
+                progress: Some(logged),
+                ..
+            }) => assert_eq!(logged, gain, "step {step}: the line names the gain"),
+            other => panic!("step {step}: the newest line is the bout: {other:?}"),
+        }
+    }
+    assert!(wins > 0, "forty bouts should win at least one");
+}
+
+/// A lost 试炼 moves nothing: the slot is left exactly where it stood, and the
+/// report says so by carrying no gain at all rather than a zero.
+#[test]
+fn a_lost_proving_leaves_the_region_where_it_stood() {
+    use super::super::explore::Region;
+    let mut losses = 0;
+    for step in 0..40_i64 {
+        let mut cultivation = a_bare_save_at(2);
+        cultivation.document.proving_tokens = 1;
+        cultivation.document.exploration_region = 0;
+        // The road is read near the top of its first level, so its requirement
+        // is a rung a two-rung body cannot stand at: the bout is a loss.
+        cultivation.document.region_progress[0] = 99;
+        let region = Region::from_index(0);
+        let before = cultivation
+            .document
+            .region_progress
+            .get(region.index())
+            .copied()
+            .unwrap_or(0);
+        let Some(outcome) = cultivation.proving(1_000 + step * 7, None) else {
+            continue;
+        };
+        if outcome.duel.won {
+            continue;
+        }
+        losses += 1;
+        assert_eq!(
+            outcome.progress, None,
+            "step {step}: a loss reports no ground moved"
+        );
+        let after = cultivation
+            .document
+            .region_progress
+            .get(region.index())
+            .copied()
+            .unwrap_or(0);
+        assert_eq!(after, before, "step {step}: a loss leaves the slot");
+    }
+    assert!(
+        losses > 0,
+        "a two-rung body loses to a road read at its top"
+    );
+}
+
+/// A 试炼 that carries the region across its last level pays the one-off haul,
+/// the way a walk that reaches the end of the road does: the region's progress
+/// is the same currency whichever activity moved it.
+#[test]
+fn a_proving_that_clears_a_region_pays_the_haul() {
+    use super::super::explore::{MAX_LEVEL, Region};
+    let mut cleared = false;
+    for step in 0..40_i64 {
+        let mut cultivation = a_bare_save_at(200);
+        cultivation.document.proving_tokens = 1;
+        cultivation.document.exploration_region = 0;
+        // The road is a tenth short of its last level, so an hour's gain that
+        // rounds to anything at all carries it across the line.
+        cultivation.document.explored_levels[0] = MAX_LEVEL - 1;
+        cultivation.document.region_progress[0] = 99;
+        let region = Region::from_index(0);
+        let before = cultivation.view().stones;
+        let Some(outcome) = cultivation.proving(1_000 + step * 7, None) else {
+            continue;
+        };
+        if !outcome.duel.won {
+            continue;
+        }
+        let gain = outcome
+            .progress
+            .expect("a win reports the ground it moved");
+        // A win always moves the road by at least the tenth it earned, so a
+        // region a tenth short of its last level is carried across the line.
+        assert!(
+            gain > 0,
+            "step {step}: a win moves the road by at least a tenth"
+        );
+        assert_eq!(
+            cultivation.document.explored_levels[region.index()],
+            MAX_LEVEL,
+            "step {step}: the win carried the region across its last level"
+        );
+        assert!(
+            cultivation.view().stones > before,
+            "step {step}: the haul pays a purse"
+        );
+        assert!(
+            cultivation
+                .view()
+                .events
+                .iter()
+                .any(|event| matches!(event.detail, EventDetail::RegionCleared { .. })),
+            "step {step}: the haul is logged"
+        );
+        cleared = true;
+        break;
+    }
+    assert!(cleared, "forty bouts should clear the region at least once");
+}
+
 /// The 试炼's opponent is levelled to the road the user selected: its power
 /// is that region's own requirement multiplied by a draw between one and a half
 /// and three, so the fight is tied to the selected region's progress rather

@@ -941,6 +941,26 @@ pub(crate) fn proving_purse(region: Region, level: u8) -> StonePurse {
     walk_purse(region, ExplorationHours::Four, level).scaled(1_000 / 6)
 }
 
+/// The progress one 试炼 advances: the road's own gain for **one hour** at the
+/// region the cultivator stands in.
+///
+/// Mirrors [`proving_purse`]: a 试炼 is one hour of the road, so its progress
+/// is the shortest walk's gain at the same sixth the purse takes, in the same
+/// tenths of a percent the slot carries. A win moves the region exactly as far
+/// as an hour of walking it would; a loss moves nothing, the way a walk that
+/// was beaten moves nothing.
+pub(crate) fn proving_gain_tenths(rng: &mut Rng, power: u32, requirement: u32) -> u32 {
+    let (_, permille) = walk_gain_permille(rng, ExplorationHours::Four, power, requirement);
+    // One hour is a sixth of the shortest walk — the same sixth [`proving_purse`]
+    // takes — and the sixth is rounded to the nearest tenth of a percent. A sixth
+    // too small to round to a tenth still moves the road by one tenth, the road's
+    // smallest step: a victory that paid its purse is a step taken, not a walk
+    // dragged, and the purse's own sixth never pays zero either. Without the
+    // floor a win at a body near the requirement would report `0.0%` and read as
+    // a bout that left the road untouched.
+    ((permille + 30) / 60).max(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{Realm, arts, jobs};
@@ -1335,6 +1355,61 @@ mod tests {
             deep > shallow,
             "a deeper region's 试炼 pays more: {deep} vs {shallow}"
         );
+    }
+
+    /// A 试炼 moves the region by the road's own gain for one hour: a sixth of
+    /// the shortest walk's gain at the same body and requirement, in the same
+    /// tenths of a percent the slot carries.
+    #[test]
+    fn a_provings_progress_is_one_hour_of_the_road() {
+        let requirement = 10_000_u32;
+        for seed in 0..200_u64 {
+            // Two identical seeds: the hour's gain reads the same base draw the
+            // walk's own does, so the two can be compared draw for draw.
+            let mut walk_rng = Rng::seeded(seed);
+            let (_, permille) =
+                walk_gain_permille(&mut walk_rng, ExplorationHours::Four, requirement, requirement);
+            let walk_tenths = (permille + 5) / 10;
+            let mut hour_rng = Rng::seeded(seed);
+            let hour_tenths = proving_gain_tenths(&mut hour_rng, requirement, requirement);
+            // The hour is a sixth of the walk, rounded once to the tenths the
+            // slot carries and floored at the road's smallest step — the same
+            // conversion the purse takes.
+            assert_eq!(
+                hour_tenths,
+                ((permille + 30) / 60).max(1),
+                "seed {seed}: {permille}"
+            );
+            assert!(
+                hour_tenths <= walk_tenths,
+                "seed {seed}: an hour moves less than a walk"
+            );
+        }
+    }
+
+    /// The hour's gain follows the body the way the walk's does: a body under
+    /// the floor crawls at the flat fifth, and a body five times the floor is
+    /// capped at five times the base. The floor of one tenth is the road's
+    /// smallest step, so even the weakest body that wins moves the road by a
+    /// tenth — but a body at the cap still moves it further.
+    #[test]
+    fn a_provings_progress_follows_the_body() {
+        let requirement = 10_000_u32;
+        let mut high = 0;
+        for seed in 0..200_u64 {
+            high = high.max(proving_gain_tenths(
+                &mut Rng::seeded(seed),
+                requirement * 5,
+                requirement,
+            ));
+        }
+        // A body five times the floor draws the capped gain: the four-hour
+        // band times five, a sixth of it, rounded to tenths — two tenths at
+        // the top of the band.
+        assert!(high > 1, "a strong body's 试炼 moves the region further: {high}");
+        let weak = proving_gain_tenths(&mut Rng::seeded(1), requirement / 10, requirement);
+        assert!(weak < high, "a hopeless body moves no further: {weak} vs {high}");
+        assert!(weak >= 1, "a win moves the road by at least a tenth: {weak}");
     }
 
     /// The walk's gain reads as the page prints it: parts per thousand of the

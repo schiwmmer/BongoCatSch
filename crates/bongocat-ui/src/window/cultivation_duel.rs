@@ -888,6 +888,21 @@ fn payoff_lines(duel: &CultivationDuel, locale: &str, tokens: Tokens) -> Vec<gpu
                     tokens.accent,
                 ));
             }
+            // The region the bout was tied to moves by the hour's own gain, so
+            // the popup says how far it went beside the purse it paid. A loss
+            // carries no gain and prints no line; a win always moves the road
+            // by at least the tenth it earned.
+            if let Some(gain) = outcome.progress {
+                lines.push(payoff(
+                    "cultivation-duel-proving-progress",
+                    format_text(
+                        locale,
+                        "cultivation.duel.proving_progress",
+                        &[("percent", format!("{}.{}", gain / 10, gain % 10))],
+                    ),
+                    tokens.accent,
+                ));
+            }
         }
         CultivationDuelPayload::Daily(outcome) => {
             let key = if outcome.won {

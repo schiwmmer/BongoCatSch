@@ -211,6 +211,28 @@ function outing(c) {
 
 function tower(c) {
   const attempts = c.trial_attempts_left || 0;
+  // The last 试炼's find, as the same chips a walk's find wears: a loss finds
+  // nothing and shows none, and a win that moved the region names the percent
+  // it moved beside what it turned up.
+  const proving = c.last_proving;
+  const provingChips = [];
+  if (proving && proving.found) {
+    const found = proving.found;
+    if (found.seed) {
+      provingChips.push({ key: 'seed', text: `种子${found.seed.name ? ` ${found.seed.name}` : ''}` });
+    }
+    if (found.gear) provingChips.push({ key: 'gear', text: found.gear.name || '装备' });
+    if (found.art) provingChips.push({ key: 'art', text: `功法 ${found.art}` });
+    if (found.stones) {
+      provingChips.push({ key: 'stones', text: `${L.num(found.stones)} 灵石` });
+    }
+  }
+  if (proving && proving.progress != null) {
+    provingChips.push({
+      key: 'progress',
+      text: `试炼 +${(proving.progress / 10).toFixed(1)}%`,
+    });
+  }
   return {
     floor: c.trial_floor || 0,
     attempts,
@@ -225,6 +247,7 @@ function tower(c) {
     tokenCap: c.proving_token_cap || 10,
     canProve: (c.proving_tokens || 0) > 0 && !!c.at_home,
     provingBlocked: c.proving_blocked ? L.refusalText(c.proving_blocked) : '',
+    provingChips,
     record: (c.duel_record || [])
       .slice(-8)
       .reverse()

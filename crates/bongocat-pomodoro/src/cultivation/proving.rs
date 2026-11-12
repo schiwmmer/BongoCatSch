@@ -68,4 +68,12 @@ pub struct ProvingOutcome {
     pub opponent_power: u32,
     /// Which region the 试炼 was fought in, as a ladder position.
     pub region: u8,
+    /// How far the win moved that region, in tenths of a percent.
+    ///
+    /// The 试炼 is one hour of the road, so a win advances the region exactly
+    /// as an hour of walking it would — the same sixth of the shortest walk's
+    /// gain the purse takes, floored at the road's smallest step so a win never
+    /// reports `0.0%`. A loss moves nothing and says so by being `None`, the
+    /// way a walk that was beaten moves nothing.
+    pub progress: Option<u32>,
 }

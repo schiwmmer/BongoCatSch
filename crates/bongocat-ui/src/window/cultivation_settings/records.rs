@@ -637,6 +637,7 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             gear,
             seed,
             stones,
+            progress,
         } => {
             let mut line = format_text(
                 locale,
@@ -658,6 +659,11 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
                 // The purse is the half a win always pays, so the line never
                 // reads as a fight that cost a chance and returned nothing.
                 push_stones(&mut line, *stones, locale);
+                // The region the 试炼 is tied to moves by the hour's own gain,
+                // so the line says how far it went the way a walk's does.
+                if let Some(gain) = *progress {
+                    push_progress(&mut line, gain, "cultivation.record.proving_progress", locale);
+                }
             }
             line
         }
@@ -1038,7 +1044,7 @@ fn walk_line(
     );
     push_finds(&mut line, art, gear, seed, locale);
     push_stones(&mut line, stones, locale);
-    push_progress(&mut line, gain, locale);
+    push_progress(&mut line, gain, "cultivation.record.walk_progress", locale);
     push_hint(&mut line, hint, locale);
     line
 }
@@ -1138,21 +1144,22 @@ fn push_stones(line: &mut String, stones: Option<u32>, locale: &str) {
     }
 }
 
-/// Name how far the walk moved its region, when it moved it.
+/// Name how far a walk or a 试炼 moved its region, when it moved it.
 ///
-/// A defeat moves nothing and prints nothing; a walk that gained prints the
+/// A defeat moves nothing and prints nothing; a win that gained prints the
 /// percent beside the finds, in the same segment style, because the region's
 /// percent is the number the user watches climb and a line that made them add
 /// the percents up would be a line that hid the one figure they came for.
 /// The domain stores tenths of a percent, so the event prints that resolution
-/// directly rather than rounding a small gain away.
-fn push_progress(line: &mut String, gain: u32, locale: &str) {
+/// directly rather than rounding a small gain away. The key names the activity,
+/// so a walk's line reads as a walk and a 试炼's as a 试炼.
+fn push_progress(line: &mut String, gain: u32, key: &str, locale: &str) {
     if gain > 0 {
         line.push_str(&format!(
             " · {}",
             format_text(
                 locale,
-                "cultivation.record.walk_progress",
+                key,
                 &[("percent", format!("{}.{}", gain / 10, gain % 10))]
             )
         ));

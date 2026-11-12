@@ -207,6 +207,9 @@
         </view>
       </view>
       <view wx:if="{{view.provingBlocked}}" class="hint">{{view.provingBlocked}}</view>
+      <view class="chips" wx:if="{{view.provingChips.length}}">
+        <text wx:for="{{view.provingChips}}" wx:key="key" class="chip gold">{{item.text}}</text>
+      </view>
     </view>
 
     <view class="card">

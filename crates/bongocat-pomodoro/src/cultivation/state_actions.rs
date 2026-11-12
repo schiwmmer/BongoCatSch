@@ -2392,6 +2392,10 @@ impl Cultivation {
         let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
         self.record_duel(duel.won, FightKind::Wanderer, now_unix);
         let mut found = ExplorationFindView::default();
+        // How far a win moves the region, in tenths of a percent. A loss moves
+        // nothing and leaves it `None`, the way a walk that was beaten moves
+        // nothing.
+        let mut moved = None;
         if duel.won {
             let strength = Strength::of(rival.attributes.power());
             match roll_reward(&mut rng) {
@@ -2425,6 +2429,16 @@ impl Cultivation {
             // A beaten challenger can leave a 洗髓丹 behind, on the same odds
             // every other fight rolls: the pill is not a tower's privilege.
             self.roll_marrow_from_combat(rival.attributes.power(), &mut rng, now_unix);
+            // The win moves the region by what the body earned, exactly as a
+            // walk does: a 试炼 is one hour of the road, so its progress is the
+            // road's own gain at one hour, read against the requirement where
+            // the fight stood — the same floor the opponent was levelled to.
+            // Crossing the last level pays the one-off haul, the way a walk
+            // that reaches the end of the road does.
+            let gain = super::super::explore::proving_gain_tenths(&mut rng, self.power(), requirement);
+            self.accumulate_progress(region.index(), gain);
+            self.first_clear_haul(region, &mut rng, now_unix);
+            moved = Some(gain);
         }
         self.push_event(
             now_unix,
@@ -2434,6 +2448,7 @@ impl Cultivation {
                 gear: found.gear.as_ref().and_then(|item| item.name.clone()),
                 seed: found.seed.as_ref().and_then(|seed| seed.name.clone()),
                 stones: found.stones,
+                progress: moved,
             },
         );
         let outcome = ProvingOutcome {
@@ -2441,6 +2456,7 @@ impl Cultivation {
             found,
             opponent_power: rival.attributes.power(),
             region: region.index() as u8,
+            progress: moved,
         };
         self.last_proving = Some(outcome.clone());
         Some(outcome)
