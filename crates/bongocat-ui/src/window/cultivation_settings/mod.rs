@@ -40,7 +40,6 @@ mod explore;
 mod garden;
 mod gear;
 mod jobs;
-mod proving;
 mod records;
 mod resources;
 mod shop;
@@ -57,13 +56,12 @@ use arts::{arts_panel, mastered_panel};
 #[cfg(test)]
 pub(super) use attributes::derived_formula;
 use attributes::{attributes_panel, derived_panel};
-use explore::{breakthrough_banner, breakthrough_panel, exploration_panel, region_key};
+use explore::{breakthrough_banner, breakthrough_panel, exploration_panel};
 use garden::{garden_panel, seed_panel};
 use gear::{equipment_panel, inventory_panel};
 use jobs::jobs_panel;
 // The history popup is mounted by the window frame beside the fight, so it
 // has to be visible past this module.
-use proving::proving_panel;
 pub(super) use records::events_overlay;
 use records::record_section;
 use shop::shop_panel;
@@ -224,20 +222,6 @@ pub(super) fn content(
         .child(panel_anchor(
             13,
             &panel_bounds,
-            proving_panel(
-                &view,
-                &cultivation,
-                locale,
-                tokens,
-                view.read(cx)
-                    .cultivation_explore_region
-                    .unwrap_or(usize::from(cultivation.exploration_region))
-                    .min(cultivation.regions.len().saturating_sub(1)),
-            ),
-        ))
-        .child(panel_anchor(
-            14,
-            &panel_bounds,
             resources::resources_panel(
                 &view,
                 &cultivation,
@@ -247,7 +231,7 @@ pub(super) fn content(
             ),
         ))
         .child(panel_anchor(
-            15,
+            14,
             &panel_bounds,
             shop_panel(&view, &cultivation, open_offer, locale, tokens),
         ))
@@ -256,7 +240,7 @@ pub(super) fn content(
 
 /// The number of modules the navigation bar jumps between. Must match the
 /// number of `panel_anchor` calls in [`content`].
-pub(super) const MODULE_COUNT: usize = 16;
+pub(super) const MODULE_COUNT: usize = 15;
 
 /// One slot per panel, filled during prepaint with the panel's own bounds in
 /// window coordinates.
@@ -346,8 +330,8 @@ fn module_navigation_bar(
         (SharedString::from("探索"), 10),
         (SharedString::from("打工"), 11),
         (SharedString::from("试炼"), 12),
-        (SharedString::from("资源"), 14),
-        (SharedString::from("坊市"), 15),
+        (SharedString::from("资源"), 13),
+        (SharedString::from("坊市"), 14),
     ];
     let buttons = modules
         .into_iter()

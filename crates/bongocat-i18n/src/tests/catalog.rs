@@ -155,10 +155,9 @@ fn the_shipped_catalog_list_matches_the_files() {
 /// are the same width on screen.
 #[test]
 fn a_section_header_rule_fits_beside_its_title() {
-    const RULES: [&str; 6] = [
+    const RULES: [&str; 5] = [
         "cultivation.explore.hint",
         "cultivation.trial.hint",
-        "cultivation.proving.hint",
         "cultivation.jobs.hint",
         "cultivation.derived_hint",
         "cultivation.shop.shelf",

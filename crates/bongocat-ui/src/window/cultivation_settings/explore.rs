@@ -258,6 +258,39 @@ pub(super) fn exploration_panel(
         };
         cooldown_line(cultivation.exploration_ready_at, key, locale)
     };
+    // The 试炼's button rides above the region list rather than in a panel of
+    // its own: it is the same kind of decision as the walk — go and find
+    // something — and it is levelled to the region the page has selected, so
+    // the button belongs beside that selection instead of under a road of its
+    // own. The count is drawn against the cap the way the walk's status is,
+    // and the click is always wired: the domain refuses with a toast when the
+    // bank is empty or the road is still out.
+    let mut proving_button = Button::new("cultivation-proving-attempt")
+        .small()
+        .label(text(locale, "cultivation.proving.attempt"));
+    proving_button = proving_button.on_click({
+        let view = view.clone();
+        let region = selected as u8;
+        move |_, _, cx| {
+            view.update(cx, |view, cx| {
+                view.ask_cultivation(
+                    CultivationDuelSource::Proving,
+                    PomodoroCommand::Prove {
+                        region: Some(region),
+                    },
+                    cx,
+                );
+            });
+        }
+    });
+    let proving_status = format_text(
+        locale,
+        "cultivation.proving.chances",
+        &[
+            ("left", cultivation.proving_tokens.to_string()),
+            ("total", cultivation.proving_token_cap.to_string()),
+        ],
+    );
     let chips = ExplorationHours::ALL.into_iter().map(move |hours| {
         let selected_chip = hours == chosen;
         let mut chip = div()
@@ -470,6 +503,22 @@ pub(super) fn exploration_panel(
             "cultivation.explore.hint",
             tokens,
         ))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .id("cultivation-proving-status")
+                        .text_xs()
+                        .text_color(tokens.muted)
+                        .child(proving_status)
+                        .test_support(),
+                )
+                .child(proving_button),
+        )
         .child(
             div()
                 .id("cultivation-region-list")

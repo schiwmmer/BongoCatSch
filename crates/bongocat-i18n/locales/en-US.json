@@ -1153,10 +1153,8 @@
       "shop": "the market"
     },
     "proving": {
-      "title": "Trial",
       "attempt": "Trial",
       "chances": "Trial chances %{left}/%{total}",
-      "hint": "One trial per finished pomodoro; none while away.",
       "won": "The trial was passed.",
       "lost": "The trial was too much; nothing came of it.",
       "refuse_empty": "No trial chance banked: finish a pomodoro to earn one",

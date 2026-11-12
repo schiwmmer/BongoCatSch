@@ -531,7 +531,6 @@ fn every_rule_is_read_beside_its_title(cx: &mut TestAppContext) {
     for hint in [
         "cultivation-explore-hint",
         "cultivation-trial-hint",
-        "cultivation-proving-hint",
         "cultivation-jobs-hint",
         "cultivation-derived_hint",
         "cultivation-shop-shelf",
@@ -555,7 +554,6 @@ fn every_rule_is_read_beside_its_title(cx: &mut TestAppContext) {
     for card in [
         "cultivation-hint-explore-body",
         "cultivation-hint-trial-body",
-        "cultivation-hint-proving-body",
     ] {
         assert!(!painted(visual, card), "{card} should no longer exist");
     }
@@ -1889,9 +1887,9 @@ fn the_breakthrough_prompt_appears_only_at_a_full_realm(cx: &mut TestAppContext)
     );
 }
 
-/// The 试炼 sits under the walk, and its button always asks the worker: a banked
-/// chance buys the fight, an empty bank is refused by the domain and answered
-/// with a toast.
+/// The 试炼 button rides above the walk's region list, and it always asks the
+/// worker: a banked chance buys the fight, an empty bank is refused by the
+/// domain and answered with a toast.
 #[gpui_kit::test]
 fn the_trial_panel_asks_for_the_fight_or_a_refusal(cx: &mut TestAppContext) {
     let mut cultivation = Cultivation::default().view();
@@ -1900,10 +1898,6 @@ fn the_trial_panel_asks_for_the_fight_or_a_refusal(cx: &mut TestAppContext) {
     let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
     let (_view, visual) = cultivation_page_with(cx, pomodoro);
     visual.update(|window, cx| window.render_frame(cx));
-    assert!(
-        painted(visual, "cultivation-proving"),
-        "the 试炼 must be on the page"
-    );
     scroll_until_visible(visual, "cultivation-proving-attempt");
     visual.update(|window, cx| {
         window.render_frame(cx);
@@ -2084,6 +2078,47 @@ fn the_region_list_points_the_walk_at_the_region_picked(cx: &mut TestAppContext)
             }]
         ),
         "the walk sets out for the region that was picked: {commands:?}"
+    );
+}
+
+/// The 试炼 button rides above the walk's region list, in the exploration
+/// panel rather than in a panel of its own: the fight is levelled to the
+/// region the page has selected, so the button belongs beside that selection
+/// — and the panel that used to name the road under its own title is gone.
+#[gpui_kit::test]
+fn the_proving_button_rides_above_the_region_list(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        growth: threshold_for(250),
+        realm: 2,
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    scroll_until_visible(visual, "cultivation-proving-attempt");
+    visual.update(|window, cx| window.render_frame(cx));
+    let (button_bottom, list_top) = visual.update(|window, _| {
+        let button = window.find("cultivation-proving-attempt").bounds();
+        let list = window.find("cultivation-region-list").bounds();
+        (button.bottom(), list.origin.y)
+    });
+    assert!(
+        button_bottom <= list_top,
+        "the 试炼 button (bottom {button_bottom:?}) must sit above the region list (top {list_top:?})"
+    );
+    // The click still asks for the fight at the region the page has picked.
+    scroll_until_visible(visual, "cultivation-proving-attempt");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-proving-attempt", cx);
+    });
+    assert!(
+        matches!(
+            published(&sink).as_slice(),
+            [PomodoroCommand::Prove { region: Some(0) }]
+        ),
+        "the button above the list asks for the fight at the selected region"
     );
 }
 
@@ -2369,8 +2404,8 @@ fn clicking_a_module_button_brings_that_module_into_view(cx: &mut TestAppContext
         ("探索", 10),
         ("打工", 11),
         ("试炼", 12),
-        ("资源", 14),
-        ("坊市", 15),
+        ("资源", 13),
+        ("坊市", 14),
     ] {
         let visual = open_settings_on_cultivation(cx);
         visual.update(|window, cx| window.click(format!("cultivation-nav-{index}"), cx));
@@ -2384,7 +2419,7 @@ fn clicking_a_module_button_brings_that_module_into_view(cx: &mut TestAppContext
             // The page cannot scroll past its own end: the last module is pinned
             // to the bottom rather than to the quarter mark.
             let at_end = window
-                .try_find(ElementId::from("cultivation-anchor-15"))
+                .try_find(ElementId::from("cultivation-anchor-14"))
                 .is_some_and(|shop| shop.bounds().bottom() <= viewport.bottom() + px(2.));
             (anchor.origin.y, viewport, at_end)
         });
