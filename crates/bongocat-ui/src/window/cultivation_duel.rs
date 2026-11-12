@@ -279,7 +279,8 @@ pub(super) struct CultivationDuelActions {
 /// Laid out the way a fight is watched rather than the way it is logged: the
 /// two health bars on top, the two sides' numbers under them — the cultivator
 /// on the left, whoever they are fighting on the right — and the blow-by-blow
-/// log below both. The verdict waits until the last blow has been shown.
+/// log below both, the cultivator's blows down its left and their opponent's
+/// down its right. The verdict waits until the last blow has been shown.
 pub(super) fn render(
     duel: &CultivationDuel,
     locale: &str,
@@ -292,10 +293,7 @@ pub(super) fn render(
         tokens.danger
     };
     let shown = duel.revealed.min(duel.rounds().len());
-    let rounds: Vec<String> = duel.rounds()[..shown]
-        .iter()
-        .map(|round| round_line(round, duel.opponent(), locale))
-        .collect();
+    let rounds = &duel.rounds()[..shown];
     let on_replay = actions.on_replay;
     let on_skip = actions.on_skip;
     let on_close = actions.on_close;
@@ -333,7 +331,14 @@ pub(super) fn render(
                 .child(header(duel, locale, tokens, on_replay, on_close))
                 .children(health_bars(duel, locale, tokens))
                 .children(fighter_columns(duel, locale, tokens))
-                .child(log(rounds, duel.fought(), locale, tokens, on_skip))
+                .child(log(
+                    rounds,
+                    duel.fought(),
+                    duel.opponent(),
+                    locale,
+                    tokens,
+                    on_skip,
+                ))
                 .child(verdict(duel, locale, verdict_color, tokens))
                 .test_support(),
         )
@@ -670,21 +675,40 @@ fn art_line(id: String, art: &ArtStrike, locale: &str, tokens: Tokens) -> impl I
 
 /// The blows so far, one line each, scrolling once the fight runs long.
 ///
+/// The two sides are kept apart the way the fight was fought: the cultivator's
+/// blows down the left, their opponent's down the right. One column would read
+/// as a single voice describing a fight; two columns read as the two fighters
+/// trading it, and a line's side of the panel says whose blow it was before
+/// the line is read — the same left-right the health bars and the numbers
+/// above already use.
+///
 /// `fought` says whether there is a fight to replay at all: a walk that met
 /// nobody has no blows, and a log that promised a replay of nothing would be
 /// lying about the walk.
 fn log(
-    rounds: Vec<String>,
+    rounds: &[DuelRound],
     fought: bool,
+    opponent: &str,
     locale: &str,
     tokens: Tokens,
     on_skip: DuelAction,
 ) -> impl IntoElement {
+    // Sorted by who swung, not by when: the columns are the sides, so a blow
+    // goes to the column of the fighter who threw it.
+    let mut player = Vec::new();
+    let mut foe = Vec::new();
+    for round in rounds {
+        if round.attacker == PLAYER_NAME {
+            player.push(round_line(round, opponent, locale));
+        } else {
+            foe.push(round_line(round, opponent, locale));
+        }
+    }
     let mut log = div()
         .id("cultivation-duel-log")
         .flex()
-        .flex_col()
-        .gap_1()
+        .flex_row()
+        .gap_2()
         .min_h(px(48.0))
         .max_h(px(LOG_MAX_HEIGHT))
         .overflow_y_scroll()
@@ -705,11 +729,50 @@ fn log(
             );
         }
     }
-    for line in rounds {
-        log = log.child(div().text_xs().text_color(tokens.text).child(line));
+    if !rounds.is_empty() {
+        log = log
+            .child(log_column("cultivation-duel-log-player", player, false, tokens))
+            .child(log_column(
+                "cultivation-duel-log-opponent",
+                foe,
+                true,
+                tokens,
+            ));
     }
     // Marked so a frame can be asked whether the log is on screen at all.
     log.test_support()
+}
+
+/// One side's blows, in the order they landed.
+///
+/// The cultivator's column hugs the left of the panel and their opponent's the
+/// right, so the pair reads across the way the health bars above do.
+fn log_column(
+    id: &'static str,
+    lines: Vec<String>,
+    foe: bool,
+    tokens: Tokens,
+) -> impl IntoElement {
+    let mut column = div()
+        .id(id)
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .gap_1();
+    if foe {
+        column = column.items_end();
+    }
+    for line in lines {
+        column = column.child(
+            div()
+                .text_xs()
+                .text_color(tokens.text)
+                .when(foe, |row| row.text_right())
+                .child(line),
+        );
+    }
+    column.test_support()
 }
 
 /// How the fight came out, and what it paid or cost — once the last blow has

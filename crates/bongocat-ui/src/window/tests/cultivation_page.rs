@@ -921,6 +921,27 @@ fn walk_report() -> DuelReport {
     }
 }
 
+/// A fight where the two sides trade blows, so the log has a line for each
+/// column: the cultivator swings the odd-numbered blows, the wanderer the even.
+fn alternating_report() -> DuelReport {
+    let mut report = walk_report();
+    report.rounds = (1..=6)
+        .map(|index| DuelRound {
+            index,
+            attacker: if index % 2 == 1 {
+                PLAYER_NAME.to_owned()
+            } else {
+                WANDERER_NAME.to_owned()
+            },
+            art: None,
+            dodged: false,
+            damage: 10,
+            target_health: 100 - index,
+        })
+        .collect();
+    report
+}
+
 /// The day's own progress sits beside the lifetime numbers: the level and the
 /// power the cultivator has gained since the local day opened.
 #[gpui_kit::test]
@@ -1267,6 +1288,51 @@ fn a_replay_from_the_log_is_drawn_like_any_other_fight(cx: &mut TestAppContext) 
     ] {
         assert!(painted(visual, id), "the replay must paint {id}");
     }
+}
+
+/// The log is two columns: the cultivator's blows on the left, their opponent's
+/// on the right.
+///
+/// A fight is an exchange, and one column of lines reads as one voice
+/// describing it; the two columns read as the two fighters trading it — the
+/// same left-right the health bars and the numbers above already use. The test
+/// reads the two columns' bounds rather than their text: what matters is which
+/// side of the panel each fighter's blows sit on.
+#[gpui_kit::test]
+fn the_log_splits_the_two_sides_left_and_right(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let mut duel = CultivationDuel::new(
+        CultivationDuelSource::Exploration,
+        cultivation_duel::CultivationDuelPayload::Exploration(
+            ExplorationOutcome::Victory,
+            None,
+            Some(alternating_report()),
+        ),
+    );
+    // Every blow at once, so both columns have their lines to be laid out.
+    assert!(duel.reveal_all(), "the fight has blows to show");
+    let (_, visual) =
+        cx.add_window_view(move |window, cx| Root::new(cx.new(|_| DuelPopup(duel)), window, cx));
+    visual.update(|window, cx| window.render_frame(cx));
+    let (player, opponent) = visual.update(|window, _| {
+        let player = window
+            .try_find(ElementId::from("cultivation-duel-log-player"))
+            .expect("the cultivator's blows are drawn")
+            .bounds();
+        let opponent = window
+            .try_find(ElementId::from("cultivation-duel-log-opponent"))
+            .expect("the opponent's blows are drawn")
+            .bounds();
+        (player, opponent)
+    });
+    assert!(
+        player.origin.x < opponent.origin.x,
+        "the cultivator's blows sit left of their opponent's"
+    );
+    assert!(
+        player.size.height > px(0.0) && opponent.size.height > px(0.0),
+        "both sides landed blows, so neither column is empty"
+    );
 }
 
 /// The growth line is the pair the ladder is about: what has been grown over
