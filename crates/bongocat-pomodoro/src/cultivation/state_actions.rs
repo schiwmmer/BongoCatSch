@@ -896,7 +896,7 @@ impl Cultivation {
                 report,
                 target: guardian.target,
                 reward: None,
-                duel,
+                duel: duel.clone(),
                 lost,
                 granted_art: None,
                 stones: None,
@@ -914,6 +914,7 @@ impl Cultivation {
                     gear: None,
                     art: None,
                     seed: None,
+                    duel: Some(duel),
                 },
             );
             return Some(outcome);
@@ -944,6 +945,7 @@ impl Cultivation {
                     .as_ref()
                     .and_then(|outcome| outcome.granted_art.clone()),
                 seed: outcome.as_ref().and_then(|outcome| outcome.seed.clone()),
+                duel: outcome.as_ref().map(|outcome| outcome.duel.clone()),
             },
         );
         outcome
@@ -1049,6 +1051,13 @@ impl Cultivation {
     /// The log is a window like the duel record: sixteen lines is what a page
     /// reads at a glance, and a save that kept every event since the first
     /// pomodoro would be a diary nobody opens.
+    ///
+    /// The replay it may carry is a window of its own: only the newest
+    /// [`BATTLE_REPLAY_CAP`] fights are replayable, so an event pushed past that
+    /// window is trimmed of its report. The line stays — the fight's finds,
+    /// its purse and its outcome are the event — but the blows are what the
+    /// replay alone could show, and a save that kept every fight since the
+    /// first pomodoro would weigh more than the fights are worth.
     pub(super) fn push_event(&mut self, now_unix: i64, detail: EventDetail) {
         self.document.events.insert(
             0,
@@ -1058,6 +1067,19 @@ impl Cultivation {
             },
         );
         self.document.events.truncate(EVENT_LOG_CAP);
+        // Walk the log newest first and count the fights still carrying their
+        // report. The first BATTLE_REPLAY_CAP of them are the replay window;
+        // every fight after it is trimmed, oldest last so the cut is the same
+        // one the user would have made by hand.
+        let mut replays = 0_usize;
+        for event in &mut self.document.events {
+            if event.detail.is_battle() {
+                replays += 1;
+                if replays > BATTLE_REPLAY_CAP {
+                    event.detail.clear_duel();
+                }
+            }
+        }
     }
 
     /// The multiplier every finished session is currently worth, in parts per
@@ -1686,6 +1708,7 @@ impl Cultivation {
                 stones,
                 gain,
                 hint,
+                duel: self.last_exploration_duel.clone(),
             },
         );
         true
@@ -2193,6 +2216,7 @@ impl Cultivation {
                 gear: found.gear.as_ref().and_then(|item| item.name.clone()),
                 seed: found.seed.as_ref().and_then(|seed| seed.name.clone()),
                 stones: found.stones,
+                duel: Some(duel.clone()),
             },
         );
         let outcome = TrialOutcome {
@@ -2449,6 +2473,7 @@ impl Cultivation {
                 seed: found.seed.as_ref().and_then(|seed| seed.name.clone()),
                 stones: found.stones,
                 progress: moved,
+                duel: Some(duel.clone()),
             },
         );
         let outcome = ProvingOutcome {
@@ -2560,6 +2585,7 @@ impl Cultivation {
                 gear: found.gear.as_ref().and_then(|item| item.name.clone()),
                 seed: found.seed.as_ref().and_then(|seed| seed.name.clone()),
                 stones: found.stones,
+                duel: outcome.duel.clone(),
             },
         );
         self.last_daily_event = Some(outcome.clone());

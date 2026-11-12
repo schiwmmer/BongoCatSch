@@ -1,7 +1,8 @@
 use super::super::{
-    AptitudeHerb, DISCIPLINE_STEP_CAP, DISCIPLINE_STEP_PERMILLE, Discipline, ExplorationHours,
-    GROWTH_MULTIPLIER_CAP_PERMILLE, LAYERS_PER_STAGE, STAGE_COUNT, discipline_bonus,
-    discipline_cap, growth_permille, scaled_growth, session_growth, threshold_for,
+    AptitudeHerb, DISCIPLINE_STEP_CAP, DISCIPLINE_STEP_PERMILLE, Discipline, DuelRound,
+    ExplorationHours, GROWTH_MULTIPLIER_CAP_PERMILLE, LAYERS_PER_STAGE, STAGE_COUNT,
+    WANDERER_NAME, discipline_bonus, discipline_cap, growth_permille, scaled_growth,
+    session_growth, threshold_for,
 };
 use super::*;
 use crate::CalendarDay;
@@ -894,6 +895,126 @@ fn the_record_keeps_the_last_eight_fights_newest_first() {
             .iter()
             .any(|line| line.kind == FightKind::Wanderer),
         "and so are the walks' fights"
+    );
+}
+
+/// One blow of a fight, enough for the log to carry a replay.
+///
+/// The numbers are not what the test reads — the window is — so the fighter is a
+/// bare body and the blow is the cultivator's.
+fn bare_report() -> DuelReport {
+    fn fighter(name: &str) -> Fighter {
+        Fighter {
+            name: name.to_owned(),
+            health: 100,
+            attack: 10,
+            inner: 0,
+            spell: 0,
+            resist: 0,
+            defense: 0,
+            speed: 10,
+            hit: 900,
+            evade: 0,
+            art: None,
+        }
+    }
+    DuelReport {
+        rounds: vec![DuelRound {
+            index: 1,
+            attacker: PLAYER_NAME.to_owned(),
+            art: None,
+            dodged: false,
+            damage: 10,
+            target_health: 90,
+        }],
+        won: true,
+        player: fighter(PLAYER_NAME),
+        opponent: fighter(WANDERER_NAME),
+    }
+}
+
+/// The log keeps a replay for only the newest twenty fights.
+///
+/// A fight's blows are the one thing its line cannot say — the finds, the purse
+/// and the outcome are all on it — so the blows are what the replay is for, and
+/// what the log has to hold onto. Twenty is the window: the twenty-first fight
+/// trims the oldest, and a line older than the window carries no button.
+#[test]
+fn the_log_keeps_a_replay_for_only_the_newest_twenty_fights() {
+    let mut cultivation = Cultivation::default();
+    // Thirty fights interleaved with thirty quiet lines, the way a real week
+    // reads: a bout, then the session that paid for it.
+    for step in 0..30 {
+        cultivation.push_event(
+            1_000 + step,
+            EventDetail::Trial {
+                floor: 1,
+                won: true,
+                art: None,
+                gear: None,
+                seed: None,
+                stones: None,
+                duel: Some(bare_report()),
+            },
+        );
+        cultivation.push_event(1_000 + step, EventDetail::Session { growth: 500 });
+    }
+    let view = cultivation.view();
+    let fights: Vec<_> = view
+        .events
+        .iter()
+        .filter(|event| matches!(event.detail, EventDetail::Trial { .. }))
+        .collect();
+    assert_eq!(fights.len(), 25, "the log holds every fight it can hold");
+    assert!(
+        fights[..BATTLE_REPLAY_CAP]
+            .iter()
+            .all(|event| event.detail.is_battle()),
+        "the newest twenty keep their report"
+    );
+    assert!(
+        fights[BATTLE_REPLAY_CAP..]
+            .iter()
+            .all(|event| !event.detail.is_battle()),
+        "the five before them were trimmed"
+    );
+    // A quiet line never had a report to trim: the walk's herb-find and the
+    // session beside it are not fights, and the window counts fights only.
+    assert!(
+        view.events
+            .iter()
+            .filter(|event| matches!(event.detail, EventDetail::Session { .. }))
+            .all(|event| event.detail.duel_report().is_none()),
+        "a quiet line is not a fight"
+    );
+}
+
+/// A fight the domain settles writes its blows into the log beside it.
+///
+/// The popup the replay button opens is drawn from the report, so a line whose
+/// fight was settled but whose report was dropped would be a button that opens
+/// an empty popup — the one thing the log must never do.
+#[test]
+fn a_settled_fight_writes_its_blows_into_the_log() {
+    let mut cultivation = a_dressed_save_at(30);
+    let won = cultivation
+        .trial(1_000, 9)
+        .expect("the first floor is owed");
+    assert!(won.duel.won, "a dressed level thirty save clears the floor");
+    let view = cultivation.view();
+    let logged = view
+        .events
+        .first()
+        .and_then(|event| event.detail.duel_report())
+        .expect("the newest line is the floor and carries its blows");
+    assert_eq!(
+        logged.rounds.len(),
+        won.duel.rounds.len(),
+        "the log carries the fight the popup would replay"
+    );
+    assert!(
+        logged.rounds.iter().all(|round| round.index > 0),
+        "every blow is numbered, so the replay can pace them"
     );
 }
 

@@ -1815,19 +1815,28 @@ impl Render for SettingsView {
 
         // The cultivation page's full event history, over the page that asked
         // for it. The page carries the click and this frame carries the popup,
-        // so the only wiring here is the close action.
+        // so the only wiring here is the close action and the replay of a fight
+        // the log still holds.
         let cultivation_events_overlay = self.cultivation_events_open.then(|| {
-            let view = cx.entity().downgrade();
+            // Two handles, one per closure: a `WeakEntity` is not `Copy`, and each
+            // action owns the one it updates through.
+            let close_view = cx.entity().downgrade();
+            let replay_view = close_view.clone();
             let events = self.pomodoro.snapshot().cultivation.events;
             cultivation_settings::events_overlay(
                 &events,
                 language.catalog_locale(),
                 Tokens::from_theme(cx),
                 Rc::new(move |window: &mut Window, cx: &mut App| {
-                    let _ = view.update(cx, |view, cx| {
+                    let _ = close_view.update(cx, |view, cx| {
                         view.cultivation_events_open = false;
                         cx.notify();
                         let _ = window;
+                    });
+                }),
+                Rc::new(move |detail, cx: &mut App| {
+                    let _ = replay_view.update(cx, |view, cx| {
+                        view.open_cultivation_replay(detail, cx);
                     });
                 }),
             )

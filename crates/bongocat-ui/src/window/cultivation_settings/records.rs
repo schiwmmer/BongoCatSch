@@ -20,6 +20,12 @@ const EVENTS_LIST_MAX_HEIGHT: f32 = 360.0;
 /// What closing the history popup does.
 pub(in crate::window) type EventsClose = Rc<dyn Fn(&mut Window, &mut App)>;
 
+/// What replaying one of the log's fights does.
+///
+/// The row carries the event it was drawn from, so the handler does not have to
+/// close over which line the button sat on: the same closure serves every row.
+pub(in crate::window) type EventsReplay = Rc<dyn Fn(&EventDetail, &mut App)>;
+
 /// The page's log of what has happened, newest first.
 ///
 /// The last five events sit on the page and the rest hang behind the
@@ -111,6 +117,15 @@ pub(super) fn record_section(
     // The offset is read once per render rather than once per line: every line
     // on the page belongs to the same local clock.
     let offset = bongocat_platform::local_utc_offset_seconds();
+    // One closure serves every row, and it carries the event it was drawn from
+    // rather than the row's index: the handler asks the event which fight it
+    // was, so a row does not have to remember where in the log it sat.
+    let on_replay: EventsReplay = {
+        let view = view.clone();
+        Rc::new(move |detail: &EventDetail, cx: &mut App| {
+            view.update(cx, |view, cx| view.open_cultivation_replay(detail, cx));
+        })
+    };
     if cultivation.events.is_empty() {
         return column.child(
             div()
@@ -127,14 +142,14 @@ pub(super) fn record_section(
         .take(VISIBLE_EVENT_COUNT)
         .enumerate()
     {
-        column = column.child(
-            div()
-                .id(format!("cultivation-event-{index}"))
-                .text_xs()
-                .text_color(tokens.muted)
-                .child(event_line_with_stamp(event, locale, offset))
-                .test_support(),
-        );
+        column = column.child(event_row(
+            format!("cultivation-event-{index}"),
+            event,
+            locale,
+            offset,
+            tokens,
+            on_replay.clone(),
+        ));
     }
     let total = cultivation.events.len();
     if total > VISIBLE_EVENT_COUNT {
@@ -237,6 +252,7 @@ pub(in crate::window) fn events_overlay(
     locale: &str,
     tokens: Tokens,
     on_close: EventsClose,
+    on_replay: EventsReplay,
 ) -> gpui_kit::AnyElement {
     let close_from_backdrop = on_close.clone();
     let mut list = div()
@@ -262,18 +278,14 @@ pub(in crate::window) fn events_overlay(
         );
     }
     for (index, event) in events.iter().enumerate() {
-        list = list.child(
-            div()
-                .id(format!("cultivation-history-event-{index}"))
-                .text_xs()
-                .text_color(tokens.muted)
-                .child(event_line_with_stamp(
-                    event,
-                    locale,
-                    bongocat_platform::local_utc_offset_seconds(),
-                ))
-                .test_support(),
-        );
+        list = list.child(event_row(
+            format!("cultivation-history-event-{index}"),
+            event,
+            locale,
+            bongocat_platform::local_utc_offset_seconds(),
+            tokens,
+            on_replay.clone(),
+        ));
     }
     div()
         .id("cultivation-events-overlay")
@@ -342,6 +354,59 @@ fn event_line_with_stamp(event: &EventRecord, locale: &str, offset_seconds: i32)
         crate::pomodoro_window::view::format_local_timestamp(event.at_unix, offset_seconds),
         event_line(&event.detail, locale)
     )
+}
+
+/// One event row: the line, and — when the log still holds the fight — the
+/// button that replays it.
+///
+/// A fight the log has trimmed of its report carries no button: the domain keeps
+/// only the newest [`bongocat_pomodoro::BATTLE_REPLAY_CAP`] fights, and a button
+/// that opened an empty popup would be a promise the log broke.
+fn event_row(
+    id: String,
+    event: &EventRecord,
+    locale: &str,
+    offset_seconds: i32,
+    tokens: Tokens,
+    on_replay: EventsReplay,
+) -> impl IntoElement {
+    let mut row = div()
+        .id(id.clone())
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .text_xs()
+        .text_color(tokens.muted)
+        .child(
+            div()
+                .flex_1()
+                .child(event_line_with_stamp(event, locale, offset_seconds)),
+        );
+    if event.detail.is_battle() {
+        row = row.child(replay_button(
+            format!("{id}-replay"),
+            &event.detail,
+            locale,
+            on_replay,
+        ));
+    }
+    row.test_support()
+}
+
+/// The button that replays one fight the log still holds.
+fn replay_button(
+    id: String,
+    detail: &EventDetail,
+    locale: &str,
+    on_replay: EventsReplay,
+) -> impl IntoElement {
+    let detail = detail.clone();
+    Button::new(id)
+        .ghost()
+        .small()
+        .label(text(locale, "cultivation.duel.replay"))
+        .on_click(move |_, _, cx| on_replay(&detail, cx))
 }
 
 /// One event, as a line the user reads.
@@ -469,6 +534,7 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             stones,
             gain,
             hint,
+            duel: _,
         } => walk_line(
             *outcome,
             art.as_deref(),
@@ -564,6 +630,7 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             gear,
             art,
             seed,
+            duel: _,
         } => {
             // A win names the realm it opened, the way the sticky notice above
             // this log used to: the notice is gone because the log is the same
@@ -610,6 +677,7 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             gear,
             seed,
             stones,
+            duel: _,
         } => trial_line(
             *floor,
             *won,
@@ -638,6 +706,7 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             seed,
             stones,
             progress,
+            duel: _,
         } => {
             let mut line = format_text(
                 locale,
@@ -711,6 +780,7 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
             gear,
             seed,
             stones,
+            duel: _,
         } => {
             // One line for the whole morning: how the day opened, then what it
             // left behind. A lost ambush says so instead of naming the attacker,
@@ -1290,6 +1360,7 @@ mod tests {
             gear: Some("青锋".to_owned()),
             art: Some("玄冰诀".to_owned()),
             seed: Some("云芝".to_owned()),
+            duel: None,
         };
         let line = event_line(&detail, "zh-CN");
         for name in ["玄冰诀", "青锋", "云芝", "40"] {

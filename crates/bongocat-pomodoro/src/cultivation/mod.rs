@@ -92,7 +92,7 @@ pub use duel::{
     ArtStrike, DUEL_RECORD_CAP, DUEL_ROUND_CAP, DuelRecord, DuelReport, DuelRound, FightKind,
     Fighter, GUARDIAN_NAME, PLAYER_NAME, WANDERER_NAME,
 };
-pub use events::{BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind};
+pub use events::{BATTLE_REPLAY_CAP, BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind};
 pub use explore::{
     BREAKTHROUGH_COOLDOWN_SECONDS, ExpeditionInProgress, ExplorationHours, ExplorationOutcome,
     Region, VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkInProgress, WalkRecord,

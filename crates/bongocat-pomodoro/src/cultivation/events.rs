@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use super::ArtOutcome;
 use super::Attribute;
 use super::daily::DailyKind;
+use super::duel::DuelReport;
 use super::explore::ExplorationOutcome;
 
 /// How many events the log keeps, newest first.
@@ -27,6 +28,15 @@ use super::explore::ExplorationOutcome;
 /// a few days; a save that plays daily outgrew it in a fortnight and lost the
 /// beginning of its own week.
 pub const EVENT_LOG_CAP: usize = 50;
+
+/// How many battle replays the log keeps, newest first.
+///
+/// Twenty is what a week of fights reads as: the popup can replay the fight
+/// blow by blow, and a save that carried every fight since the first pomodoro
+/// would be a combat log nobody opens. The oldest replay is dropped when the
+/// twenty-first fight is recorded, so a line older than the newest twenty has
+/// no replay button beside it.
+pub const BATTLE_REPLAY_CAP: usize = 20;
 
 /// One thing that happened, as the page's event log reads it.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -141,6 +151,12 @@ pub enum EventDetail {
         /// only how far it moved the region.
         #[serde(default)]
         hint: Option<String>,
+        /// Every blow of the fight the walk met, kept so the line can be
+        /// replayed from the log. A walk that found a herb or turned back
+        /// carries none; an old save's events predate the field and read as a
+        /// fight that cannot be replayed — which is what they were.
+        #[serde(default)]
+        duel: Option<DuelReport>,
     },
     /// A finished session trained the selected 功法书 and it came to something.
     Training {
@@ -183,6 +199,11 @@ pub enum EventDetail {
         /// The herb the win turned up, by name.
         #[serde(default)]
         seed: Option<String>,
+        /// Every blow of the fight that settled it, kept so the line can be
+        /// replayed from the log. An old save's events predate the field and
+        /// read as a fight that cannot be replayed — which is what they were.
+        #[serde(default)]
+        duel: Option<DuelReport>,
     },
     /// A 试炼 floor was climbed. The warden is the tower's own; what the win
     /// turned up travels by name, the way a walk's finds do.
@@ -196,6 +217,11 @@ pub enum EventDetail {
         /// the field and read as no money at all, which is what they said.
         #[serde(default)]
         stones: Option<u32>,
+        /// Every blow of the fight that settled it, kept so the line can be
+        /// replayed from the log. An old save's events predate the field and
+        /// read as a fight that cannot be replayed — which is what they were.
+        #[serde(default)]
+        duel: Option<DuelReport>,
     },
     /// The tower was swept: one overwhelmingly strong cultivator cleared
     /// several floors in one action, every fight skipped because none of them
@@ -247,6 +273,11 @@ pub enum EventDetail {
     /// they were.
     #[serde(default)]
     progress: Option<u32>,
+        /// Every blow of the fight that settled it, kept so the line can be
+        /// replayed from the log. An old save's events predate the field and
+        /// read as a fight that cannot be replayed — which is what they were.
+        #[serde(default)]
+        duel: Option<DuelReport>,
     },
     /// Something was bought at the market, for this much.
     ///
@@ -359,6 +390,12 @@ pub enum EventDetail {
         seed: Option<String>,
         #[serde(default)]
         stones: Option<u32>,
+        /// Every blow of the ambush, kept so the line can be replayed from the
+        /// log. A gift or a trinket is not a fight and carries none; an old
+        /// save's events predate the field and read as a fight that cannot be
+        /// replayed — which is what they were.
+        #[serde(default)]
+        duel: Option<DuelReport>,
     },
     /// A star was attempted on a piece of gear, and came off or did not.
     ///
@@ -426,6 +463,49 @@ pub enum EventDetail {
         /// The piece's name, the way every other line names a thing.
         name: String,
     },
+}
+
+impl EventDetail {
+    /// The duel behind this line, when the line is one of the fights.
+    ///
+    /// Only the fight variants carry it — a 破境, a 试炼, a 论道, the morning
+    /// ambush, and the walk's own encounter. Everything else reads as a fight
+    /// that cannot be replayed, which is what it was.
+    pub fn duel_report(&self) -> Option<&DuelReport> {
+        match self {
+            Self::Breakthrough { duel, .. }
+            | Self::Trial { duel, .. }
+            | Self::Proving { duel, .. }
+            | Self::Daily { duel, .. }
+            | Self::Walk { duel, .. } => duel.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Whether the line is a fight the user can replay.
+    ///
+    /// A fight without a report is not a replay: an old save's events predate
+    /// the report and read as a fight that cannot be replayed, and the walk's
+    /// herb-finds and the day's gifts are not fights at all.
+    pub fn is_battle(&self) -> bool {
+        self.duel_report().is_some()
+    }
+
+    /// Drop the report so the line becomes a fight that cannot be replayed.
+    ///
+    /// The log keeps only the newest [`BATTLE_REPLAY_CAP`] fights; the rest are
+    /// trimmed of their report, which is the only part of the fight the line
+    /// does not already say.
+    pub fn clear_duel(&mut self) {
+        match self {
+            Self::Breakthrough { duel, .. }
+            | Self::Trial { duel, .. }
+            | Self::Proving { duel, .. }
+            | Self::Daily { duel, .. }
+            | Self::Walk { duel, .. } => *duel = None,
+            _ => {}
+        }
+    }
 }
 
 /// What one 千分之一 paid, in the shape it came.

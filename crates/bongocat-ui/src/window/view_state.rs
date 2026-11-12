@@ -732,6 +732,35 @@ impl SettingsView {
         self.poll_pomodoro(cx);
     }
 
+    /// Replay a fight the log still carries, from the button on its event line.
+    ///
+    /// Only a fight the domain kept its report for can be replayed: the log holds
+    /// the newest [`bongocat_pomodoro::BATTLE_REPLAY_CAP`] fights, and an older
+    /// line has no report to show. The event itself says which of the five fights
+    /// it was, which is what the popup's title names.
+    pub(super) fn open_cultivation_replay(
+        &mut self,
+        detail: &bongocat_pomodoro::EventDetail,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(report) = detail.duel_report() else {
+            return;
+        };
+        let source = match detail {
+            bongocat_pomodoro::EventDetail::Breakthrough { .. } => CultivationDuelSource::Breakthrough,
+            bongocat_pomodoro::EventDetail::Trial { .. } => CultivationDuelSource::Trial,
+            bongocat_pomodoro::EventDetail::Proving { .. } => CultivationDuelSource::Proving,
+            bongocat_pomodoro::EventDetail::Daily { .. } => CultivationDuelSource::Daily,
+            bongocat_pomodoro::EventDetail::Walk { .. } => CultivationDuelSource::Exploration,
+            _ => return,
+        };
+        self.cultivation_duel = Some(CultivationDuel::new(
+            source,
+            cultivation_duel::CultivationDuelPayload::Replay(report.clone()),
+        ));
+        cx.notify();
+    }
+
     /// Wake the cultivation page when a minute the page is counting down to
     /// goes by.
     ///

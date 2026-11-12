@@ -86,6 +86,13 @@ pub(crate) enum CultivationDuelPayload {
     Proving(ProvingOutcome),
     /// The morning ambush: the fight, and what driving it off paid.
     Daily(DailyOutcome),
+    /// A fight replayed from the log.
+    ///
+    /// The event line already says what the fight was and what it paid, so the
+    /// payload carries the report and nothing else: the popup shows the blows
+    /// again, not the finds a second time. The source says which fight it was,
+    /// which is what the title names.
+    Replay(DuelReport),
 }
 
 /// The fight the cultivation page is replaying.
@@ -121,6 +128,7 @@ impl CultivationDuel {
             CultivationDuelPayload::Daily(outcome) => {
                 outcome.duel.as_ref().map_or(&[], |duel| &duel.rounds)
             }
+            CultivationDuelPayload::Replay(report) => &report.rounds,
         }
     }
 
@@ -163,6 +171,7 @@ impl CultivationDuel {
             CultivationDuelPayload::Trial(outcome) => Some(&outcome.duel),
             CultivationDuelPayload::Proving(outcome) => Some(&outcome.duel),
             CultivationDuelPayload::Daily(outcome) => outcome.duel.as_ref(),
+            CultivationDuelPayload::Replay(report) => Some(report),
         }
     }
 
@@ -189,6 +198,9 @@ impl CultivationDuel {
                 .duel
                 .as_ref()
                 .map(|duel| (&duel.player, &duel.opponent)),
+            CultivationDuelPayload::Replay(report) => {
+                Some((&report.player, &report.opponent))
+            }
         }
     }
 
@@ -207,6 +219,7 @@ impl CultivationDuel {
             CultivationDuelPayload::Trial(outcome) => outcome.duel.won,
             CultivationDuelPayload::Proving(outcome) => outcome.duel.won,
             CultivationDuelPayload::Daily(outcome) => outcome.won,
+            CultivationDuelPayload::Replay(report) => report.won,
         }
     }
 
@@ -422,7 +435,24 @@ fn title_line(duel: &CultivationDuel, locale: &str) -> String {
         CultivationDuelPayload::Daily(_) => {
             text(locale, "cultivation.duel.title_daily").to_string()
         }
+        // A replay says only what the fight was. The event line the button sat
+        // on already named the floor, the purse and the finds, and the report
+        // carries no powers to print beside the name.
+        CultivationDuelPayload::Replay(_) => replay_title(duel, locale),
     }
+}
+
+/// What a replayed fight is called, read off the source rather than the payload:
+/// the report says nothing about which of the five fights it was.
+fn replay_title(duel: &CultivationDuel, locale: &str) -> String {
+    let key = match duel.source {
+        CultivationDuelSource::Breakthrough => "cultivation.duel.title_breakthrough",
+        CultivationDuelSource::Exploration => "cultivation.duel.title_exploration",
+        CultivationDuelSource::Trial => "cultivation.duel.title_trial",
+        CultivationDuelSource::Proving => "cultivation.duel.title_proving",
+        CultivationDuelSource::Daily => "cultivation.duel.title_daily",
+    };
+    text(locale, key).to_string()
 }
 
 /// The two health bars, side by side, as the replay has them.
@@ -1033,6 +1063,9 @@ fn payoff_lines(duel: &CultivationDuel, locale: &str, tokens: Tokens) -> Vec<gpu
                 }
             }
         }
+        // The event line the button sat on already said what the fight paid,
+        // so a replay adds no payoff of its own: the blows are the whole point.
+        CultivationDuelPayload::Replay(_) => {}
     }
     lines
 }
@@ -1282,5 +1315,21 @@ mod tests {
         );
         assert_eq!(guardian.opponent(), GUARDIAN_NAME);
         assert_eq!(walk(3).opponent(), WANDERER_NAME);
+    }
+
+    /// A replay from the log is the fight alone: the event line already said what
+    /// the fight paid, so the popup draws the blows and nothing else.
+    #[test]
+    fn a_replay_from_the_log_shows_the_fight_and_nothing_beside_it() {
+        let duel = CultivationDuel::new(
+            CultivationDuelSource::Trial,
+            CultivationDuelPayload::Replay(report(6)),
+        );
+        assert_eq!(duel.rounds().len(), 6, "the blows are there to replay");
+        assert!(duel.fought(), "and so there is a fight to draw");
+        assert!(duel.report().is_some(), "with bars to draw it");
+        assert!(duel.sides().is_some(), "and columns for both sides");
+        assert!(duel.won(), "the cultivator won this one");
+        assert_eq!(duel.opponent(), TRIAL_OPPONENT_NAME);
     }
 }

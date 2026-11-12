@@ -963,6 +963,7 @@ fn the_page_draws_the_next_session_worth_and_the_record(cx: &mut TestAppContext)
                     gear: None,
                     art: None,
                     seed: None,
+                    duel: None,
                 },
             },
             EventRecord {
@@ -975,6 +976,7 @@ fn the_page_draws_the_next_session_worth_and_the_record(cx: &mut TestAppContext)
                     stones: Some(5),
                     gain: 80,
                     hint: Some("cultivation.record.walk_hint_fast".to_owned()),
+                    duel: None,
                 },
             },
             EventRecord {
@@ -1002,6 +1004,68 @@ fn the_page_draws_the_next_session_worth_and_the_record(cx: &mut TestAppContext)
     ] {
         assert!(painted(visual, id), "the page must draw {id}");
     }
+}
+
+/// A fight the log still holds carries a replay button, and the button opens the
+/// fight again.
+///
+/// The blows are the one thing an event line cannot say — the finds, the purse
+/// and the outcome are all on it — so the button is what makes the log's history
+/// watchable: a line that settled a fight and kept its report offers the replay,
+/// and a quiet line offers nothing.
+#[gpui_kit::test]
+fn a_fight_in_the_log_carries_a_replay_button(cx: &mut TestAppContext) {
+    let cultivation = Cultivation::new(CultivationDocument {
+        events: vec![
+            EventRecord {
+                at_unix: 2_000,
+                detail: EventDetail::Session { growth: 500 },
+            },
+            EventRecord {
+                at_unix: 1_000,
+                detail: EventDetail::Walk {
+                    outcome: ExplorationOutcome::Victory,
+                    art: None,
+                    gear: None,
+                    seed: None,
+                    stones: None,
+                    gain: 80,
+                    hint: None,
+                    duel: Some(walk_report()),
+                },
+            },
+        ],
+        ..CultivationDocument::default()
+    })
+    .view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    // The newest line is the quiet session, so it carries no button.
+    assert!(
+        !painted(visual, "cultivation-event-0-replay"),
+        "a quiet line offers no replay"
+    );
+    // The walk beneath it settled a fight the log still holds, so it does.
+    scroll_until_visible(visual, "cultivation-event-1-replay");
+    assert!(
+        painted(visual, "cultivation-event-1-replay"),
+        "a fight the log still holds offers the replay"
+    );
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-event-1-replay", cx);
+    });
+    // The page harness mounts the page alone, so the popup the settings frame
+    // would draw over it is not in this window; what the click did to the page's
+    // own state is what is under test here, and the popup's drawing has its
+    // own harness below.
+    _view.update(cx, |view, _| {
+        assert!(
+            view.cultivation_duel.is_some(),
+            "the replay button opens the fight the line belongs to"
+        );
+    });
 }
 
 /// The 集市 is on the page, with the purse and a shelf to buy from.
@@ -1178,6 +1242,30 @@ fn the_fight_popup_shows_both_sides_and_their_health(cx: &mut TestAppContext) {
         "cultivation-duel-log",
     ] {
         assert!(painted(visual, id), "the popup must paint {id}");
+    }
+}
+
+/// A fight replayed from the log is drawn the way a fight just fought is: the
+/// blows are what the button promises, so the popup has to paint both sides and
+/// the log between them.
+#[gpui_kit::test]
+fn a_replay_from_the_log_is_drawn_like_any_other_fight(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let duel = CultivationDuel::new(
+        CultivationDuelSource::Trial,
+        cultivation_duel::CultivationDuelPayload::Replay(walk_report()),
+    );
+    let (_, visual) =
+        cx.add_window_view(move |window, cx| Root::new(cx.new(|_| DuelPopup(duel)), window, cx));
+    visual.update(|window, cx| window.render_frame(cx));
+    for id in [
+        "cultivation-duel-health-player",
+        "cultivation-duel-health-opponent",
+        "cultivation-duel-side-player",
+        "cultivation-duel-side-opponent",
+        "cultivation-duel-log",
+    ] {
+        assert!(painted(visual, id), "the replay must paint {id}");
     }
 }
 
@@ -1601,6 +1689,7 @@ impl Render for EventsPopup {
                 "en-US",
                 Tokens::from_theme(cx),
                 Rc::new(|_, _| {}),
+                Rc::new(|_: &EventDetail, _: &mut App| {}),
             ))
     }
 }

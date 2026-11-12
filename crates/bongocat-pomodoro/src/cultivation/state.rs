@@ -37,7 +37,7 @@ use super::{
         roll_kind,
     },
     duel::{DUEL_RECORD_CAP, DuelRecord, FightKind, duel},
-    events::{BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind},
+    events::{BATTLE_REPLAY_CAP, BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind},
     expedition_yield,
     explore::{
         BONUS_STONES, GUARDIAN_STONES, TRIAL_STONES, WalkRecord, breakthrough_ready, roll_stones,
