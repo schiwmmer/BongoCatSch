@@ -759,9 +759,11 @@ impl StrikeShape {
 /// What one landing blow does besides the hurt.
 ///
 /// A 外功 that only multiplies is a number with a name; these are the names
-/// that change how the rest of the fight reads. Each is written in the log the
-/// first time it lands and holds from then on, so a fight against a 寒劲 art is a
-/// fight against a slow hand rather than against a second, identical swing.
+/// that change how the rest of the fight reads. Each is laid on the first blow
+/// that gets through and holds for the thrower's own next swings — the count is
+/// `EFFECT_DURATION_BLOWS`, and the fight hands it back when it runs out — so a
+/// fight against a 寒劲 art is a fight against a slow hand for a moment rather
+/// than against a second, identical swing.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum StrikeEffect {
     /// 寒劲: the target's 速度 falls.

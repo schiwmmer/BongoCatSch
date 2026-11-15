@@ -69,6 +69,7 @@ pub use cultivation::{
     CultivationDocument, CultivationView, DEFENSE_MITIGATION_CAP_PERMILLE,
     DEFENSE_MITIGATION_PER_POINT,
     DEFENSE_PER_ROOT, DUEL_RECORD_CAP, DUEL_ROUND_CAP, DailyKind, DailyOutcome, Derived,
+    EFFECT_DURATION_BLOWS,
     DerivedBreakdown, DerivedSlot, Discipline, Drop, DropView, DuelRecord, DuelReport, DuelRound,
     EQUIPMENT_DROP_PERMILLE, EVENT_LOG_CAP, EquipSlot, EquipmentRecord, EventDetail, EventRecord,
     ExpeditionInProgress, ExpeditionView, ExplorationFindView, ExplorationHours,

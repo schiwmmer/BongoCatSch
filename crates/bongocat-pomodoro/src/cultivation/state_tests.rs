@@ -926,6 +926,7 @@ fn bare_report() -> DuelReport {
             dodged: false,
             damage: 10,
             target_health: 90,
+            effect: None,
         }],
         won: true,
         player: fighter(PLAYER_NAME),

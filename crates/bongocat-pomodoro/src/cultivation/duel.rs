@@ -23,6 +23,18 @@ use super::{
 /// circle each other forever, and a fight that never ends is worse than a loss.
 pub const DUEL_ROUND_CAP: u32 = 30;
 
+/// How many of the thrower's own swings a laid effect holds for.
+///
+/// An effect is a change to the rest of the fight, not a second swing — but it
+/// is not forever either. A chill that never lifts is a chill the whole fight is
+/// fought under, and then the panel's 速度 stops being the number that decides
+/// the turn order: the slower side simply becomes the faster one from the first
+/// landed blow on, and the fight is decided by a stat nobody can read off the
+/// panel any more. The count is spent by the hand that laid it, so an effect
+/// lives exactly as long as its owner keeps swinging and lapses the moment that
+/// hand falls silent.
+pub const EFFECT_DURATION_BLOWS: u32 = 2;
+
 /// How full a meter has to be before its owner acts.
 ///
 /// The floor is the pace a fight of slow fighters shares. A fight is also
@@ -148,6 +160,54 @@ pub struct DuelRound {
     pub damage: u32,
     /// What the target has left.
     pub target_health: u32,
+    /// What the blow laid, if it laid one.
+    ///
+    /// The effect itself is spent by the thrower's own swings and lives only a
+    /// moment (see `EFFECT_DURATION_BLOWS`); this is the record that it landed,
+    /// so the log can say so. It defaults to none so a report written before
+    /// effects were recorded still reads.
+    #[serde(default)]
+    pub effect: Option<StrikeEffect>,
+}
+
+/// Which side of a fight an effect belongs to.
+///
+/// A fight is two fighters rather than an enum, so an effect has to carry which
+/// one it is about.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+enum EffectSide {
+    Player,
+    Guardian,
+}
+
+impl EffectSide {
+    /// The other side.
+    const fn other(self) -> Self {
+        match self {
+            Self::Player => Self::Guardian,
+            Self::Guardian => Self::Player,
+        }
+    }
+}
+
+/// A laid effect still on the fight, counting down to its end.
+///
+/// `remaining` is spent by `owner`'s own swings: the hand that laid the effect is
+/// the hand that keeps it. `taken` is what it took, so the lapse hands back the
+/// same amount rather than recomputing one — a speed that fell once must come
+/// back up by the same step, not by whatever the speed happens to be later.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+struct ActiveEffect {
+    /// Who laid it — whose swings spend the count.
+    owner: EffectSide,
+    /// Who it acts on.
+    target: EffectSide,
+    /// What it does.
+    kind: StrikeEffect,
+    /// How many of the owner's swings it still holds for.
+    remaining: u32,
+    /// What it took, to hand back when it lapses.
+    taken: u32,
 }
 
 /// How many fights the record keeps.
@@ -243,7 +303,10 @@ impl DuelReport {
 ///
 /// The meters are what make 速度 matter: each side fills at its own rate and acts
 /// when full, so a fast fighter simply gets more turns. A tie on the meter goes
-/// to the faster side, which is the same advantage stated once more.
+/// to the faster side, which is the same advantage stated once more. A 外功's
+/// effect is a change to that 速度 or to 命中 for a moment — it is counted down
+/// by the thrower's own swings, so a hand that stops swinging lets the fight
+/// return to the numbers the panel showed (see `EFFECT_DURATION_BLOWS`).
 pub fn duel(player: Fighter, guardian: Fighter, rng: &mut Rng) -> DuelReport {
     // The two sides as they walked in, kept for the report: the fight mutates
     // its own copies, and what a surface shows beside the replay is the
@@ -263,6 +326,8 @@ pub fn duel(player: Fighter, guardian: Fighter, rng: &mut Rng) -> DuelReport {
     let mut rounds = Vec::new();
     let mut player_meter = 0_i64;
     let mut guardian_meter = 0_i64;
+    // The effects still on the fight, each counting down on its owner's swings.
+    let mut active = Vec::new();
     let mut ticks = 0_u32;
     while !player.down() && !guardian.down() && rounds.len() < DUEL_ROUND_CAP as usize {
         ticks += 1;
@@ -277,17 +342,29 @@ pub fn duel(player: Fighter, guardian: Fighter, rng: &mut Rng) -> DuelReport {
         if !player_acts && !guardian_acts {
             continue;
         }
-        let round = if player_acts {
+        let actor = if player_acts {
+            EffectSide::Player
+        } else {
+            EffectSide::Guardian
+        };
+        let (round, laid) = if player_acts {
             player_meter -= meter_full;
-            let mut round = strike(&mut player, &mut guardian, rng);
+            let (mut round, laid) = strike(&mut player, &mut guardian, rng, actor);
             round.attacker = player_name.clone();
-            round
+            (round, laid)
         } else {
             guardian_meter -= meter_full;
-            let mut round = strike(&mut guardian, &mut player, rng);
+            let (mut round, laid) = strike(&mut guardian, &mut player, rng, actor);
             round.attacker = guardian_name.clone();
-            round
+            (round, laid)
         };
+        // The blow that landed spends the effects its owner had already laid: the
+        // hand that keeps an effect is the hand that spends it. A blow laid by
+        // this swing is not spent by it — it holds for the owner's next ones.
+        spend(&mut active, actor, &mut player, &mut guardian);
+        if let Some(effect) = laid {
+            active.push(effect);
+        }
         let index = rounds.len() as u32 + 1;
         rounds.push(DuelRound { index, ..round });
     }
@@ -389,33 +466,103 @@ fn strike_multiplier(strike: &ArtStrike, rng: &mut Rng) -> u32 {
         .saturating_div(1_000) as u32
 }
 
-/// Lay a 外功's effect on the fight: the side it names keeps it from here.
+/// Lay a 外功's effect on the fight, and return the instance that now holds it.
 ///
-/// An effect is *not* a second swing — it is a change to what the rest of the
-/// fight reads, so a fight against a 寒劲 art is a fight against a slow hand
-/// rather than against the same swing twice. Each move lays its own once, on
-/// the first blow that gets through.
-fn lay_effect(attacker: &mut Fighter, defender: &mut Fighter, effect: Option<StrikeEffect>) {
-    let Some(effect) = effect else {
-        return;
-    };
-    match effect {
+/// An effect is *not* a second swing — it is a change to what the next blows
+/// read, so a fight against a 寒劲 art is a fight against a slow hand rather
+/// than against the same swing twice. Each move lays its own once, on the first
+/// blow that gets through. It is not forever either: the instance carries a
+/// count of the thrower's own swings, and [`lapse`] hands back what it took once
+/// that count runs out.
+fn lay_effect(
+    attacker: &mut Fighter,
+    defender: &mut Fighter,
+    effect: Option<StrikeEffect>,
+    attacker_side: EffectSide,
+) -> Option<ActiveEffect> {
+    let effect = effect?;
+    let (target, taken) = match effect {
         StrikeEffect::Slow { permille } => {
-            let lost = defender.speed.saturating_mul(permille) / 1_000;
-            defender.speed = defender.speed.saturating_sub(lost.max(1));
+            let lost = (defender.speed.saturating_mul(permille) / 1_000).max(1);
+            defender.speed = defender.speed.saturating_sub(lost);
+            (attacker_side.other(), lost)
         }
         StrikeEffect::Haste { permille } => {
-            let gained = attacker.speed.saturating_mul(permille) / 1_000;
-            attacker.speed = attacker.speed.saturating_add(gained.max(1));
+            let gained = (attacker.speed.saturating_mul(permille) / 1_000).max(1);
+            attacker.speed = attacker.speed.saturating_add(gained);
+            (attacker_side, gained)
         }
         StrikeEffect::Focus { hit } => {
             attacker.hit = attacker.hit.saturating_add(hit);
+            (attacker_side, hit)
+        }
+    };
+    Some(ActiveEffect {
+        owner: attacker_side,
+        target,
+        kind: effect,
+        remaining: EFFECT_DURATION_BLOWS,
+        taken,
+    })
+}
+
+/// Spend one landed blow against the effects its owner laid.
+///
+/// The hand that keeps an effect is the hand that spends it, so a swing by the
+/// other side leaves every count alone — the guardian's 寒劲 is not worn down by
+/// the cultivator's answers, only by the guardian's own. What reaches zero is
+/// handed back.
+fn spend(
+    active: &mut Vec<ActiveEffect>,
+    actor: EffectSide,
+    player: &mut Fighter,
+    guardian: &mut Fighter,
+) {
+    for effect in active.iter_mut() {
+        if effect.owner == actor {
+            effect.remaining = effect.remaining.saturating_sub(1);
+        }
+    }
+    let mut at = 0;
+    while at < active.len() {
+        if active[at].remaining == 0 {
+            let lapsed = active.remove(at);
+            lapse(player, guardian, &lapsed);
+        } else {
+            at += 1;
         }
     }
 }
 
+/// Hand back what a lapsed effect took.
+///
+/// The lapse returns the same amount the effect took rather than recomputing one
+/// from the speed as it stands: two effects can be on the same fighter at once,
+/// and a speed that fell by one step must rise by that step, not by whatever the
+/// other effect left behind.
+fn lapse(player: &mut Fighter, guardian: &mut Fighter, effect: &ActiveEffect) {
+    let target = match effect.target {
+        EffectSide::Player => player,
+        EffectSide::Guardian => guardian,
+    };
+    match effect.kind {
+        StrikeEffect::Slow { .. } => target.speed = target.speed.saturating_add(effect.taken),
+        StrikeEffect::Haste { .. } => target.speed = target.speed.saturating_sub(effect.taken),
+        StrikeEffect::Focus { .. } => target.hit = target.hit.saturating_sub(effect.taken),
+    }
+}
+
 /// Throw one blow.
-fn strike(attacker: &mut Fighter, defender: &mut Fighter, rng: &mut Rng) -> DuelRound {
+///
+/// Returns the blow as the log tells it and the effect it laid, if it laid one.
+/// The caller keeps the effect's count: the count is spent by the thrower's own
+/// swings, and only the fight knows which swing is whose.
+fn strike(
+    attacker: &mut Fighter,
+    defender: &mut Fighter,
+    rng: &mut Rng,
+    attacker_side: EffectSide,
+) -> (DuelRound, Option<ActiveEffect>) {
     // 命中 against 闪避, never a certainty and never hopeless — asked before
     // the blow is thrown, because a move that misses carries nothing with it.
     let chance = hit_chance_permille(attacker.hit, defender.evade);
@@ -427,6 +574,7 @@ fn strike(attacker: &mut Fighter, defender: &mut Fighter, rng: &mut Rng) -> Duel
     let mut physical_damage = physical;
     let mut damage = base;
     let mut art = None;
+    let mut laid = None;
     // An 外功 is spent whenever it can be paid for: the choice to save 内力 for
     // later is not the fighter's to make, and a fighter who cannot pay falls
     // back on the bare hand rather than standing still.
@@ -470,7 +618,7 @@ fn strike(attacker: &mut Fighter, defender: &mut Fighter, rng: &mut Rng) -> Duel
             if let Some(held) = attacker.art.as_mut() {
                 held.marked = true;
             }
-            lay_effect(attacker, defender, strike.effect);
+            laid = lay_effect(attacker, defender, strike.effect, attacker_side);
         }
         art = Some(strike.name);
     }
@@ -488,14 +636,16 @@ fn strike(attacker: &mut Fighter, defender: &mut Fighter, rng: &mut Rng) -> Duel
         }
     }
     defender.health = defender.health.saturating_sub(damage);
-    DuelRound {
+    let round = DuelRound {
         index: 0,
         attacker: String::new(),
         art,
         dodged,
         damage,
         target_health: defender.health,
-    }
+        effect: laid.as_ref().map(|effect| effect.kind),
+    };
+    (round, laid)
 }
 
 #[cfg(test)]
@@ -610,7 +760,12 @@ mod tests {
         for seed in 0..80u64 {
             let mut attacker = striker();
             let mut target = brute("target", 1_000_000, 0, 10);
-            let round = strike(&mut attacker, &mut target, &mut Rng::seeded(seed));
+            let (round, _) = strike(
+                &mut attacker,
+                &mut target,
+                &mut Rng::seeded(seed),
+                EffectSide::Player,
+            );
             // A slipped blow is no blow at all: it says nothing about the band.
             if !round.dodged {
                 seen.insert(round.damage);
@@ -649,7 +804,12 @@ mod tests {
             ..brute("fighter", 10_000, 100, 10)
         };
         let mut target = brute("target", 1_000_000, 0, 10);
-        let round = strike(&mut attacker, &mut target, &mut Rng::seeded(1));
+        let (round, _) = strike(
+            &mut attacker,
+            &mut target,
+            &mut Rng::seeded(1),
+            EffectSide::Player,
+        );
         // Three draws at a third apiece over 150% of a hundred: somewhere near
         // a hundred and fifty, and never less than the three together can pay.
         assert!(
@@ -663,7 +823,7 @@ mod tests {
     /// one: a move that laid its mark on every hit would be a move that could
     /// not be dodged out of.
     #[test]
-    fn an_effect_lands_once_and_stays() {
+    fn an_effect_lands_once_and_is_not_dealt_again() {
         let mut attacker = Fighter {
             inner: 1_000,
             art: Some(ArtStrike {
@@ -680,13 +840,23 @@ mod tests {
         };
         let mut target = brute("target", 1_000_000, 0, 100);
         let before = target.speed;
-        strike(&mut attacker, &mut target, &mut Rng::seeded(5));
+        strike(
+            &mut attacker,
+            &mut target,
+            &mut Rng::seeded(5),
+            EffectSide::Player,
+        );
         let chilled = target.speed;
         assert!(
             chilled < before,
             "the chill bit: {chilled} against {before}"
         );
-        strike(&mut attacker, &mut target, &mut Rng::seeded(6));
+        strike(
+            &mut attacker,
+            &mut target,
+            &mut Rng::seeded(6),
+            EffectSide::Player,
+        );
         assert_eq!(
             target.speed, chilled,
             "the chill does not stack: a second blow adds nothing"
@@ -713,13 +883,144 @@ mod tests {
         };
         let focus_before = attacker.hit;
         let mut target = brute("target", 1_000_000, 0, 10);
-        strike(&mut attacker, &mut target, &mut Rng::seeded(7));
+        strike(
+            &mut attacker,
+            &mut target,
+            &mut Rng::seeded(7),
+            EffectSide::Player,
+        );
         assert!(
             attacker.hit > focus_before,
             "the aim steadied: {} against {}",
             attacker.hit,
             focus_before
         );
+    }
+
+    /// A laid effect is not forever: it is spent by the thrower's own swings and
+    /// hands back what it took once they run out. The other side's answers do not
+    /// wear it down — the guardian's 寒劲 is not undone by the cultivator's
+    /// replies, only by the guardian's own hand.
+    #[test]
+    fn a_laid_effect_is_spent_by_the_throwers_own_blows() {
+        let mut attacker = Fighter {
+            inner: 1_000,
+            art: Some(ArtStrike {
+                name: "寒劲".to_owned(),
+                multiplier_permille: 1_000,
+                cost: 10,
+                hits: 1,
+                band_permille: (0, 0),
+                effect: Some(StrikeEffect::Slow { permille: 200 }),
+                marked: false,
+                mastery_permille: 0,
+            }),
+            ..brute("fighter", 10_000, 100, 10)
+        };
+        let mut target = brute("target", 1_000_000, 0, 100);
+        let mut active = Vec::new();
+        let (_, laid) = strike(
+            &mut attacker,
+            &mut target,
+            &mut Rng::seeded(5),
+            EffectSide::Player,
+        );
+        if let Some(effect) = laid {
+            active.push(effect);
+        }
+        let chilled = target.speed;
+        assert!(chilled < 100, "the chill bit: {chilled}");
+        spend(
+            &mut active,
+            EffectSide::Guardian,
+            &mut attacker,
+            &mut target,
+        );
+        assert_eq!(
+            target.speed, chilled,
+            "the other side's blows do not wear the chill"
+        );
+        spend(&mut active, EffectSide::Player, &mut attacker, &mut target);
+        assert_eq!(
+            target.speed, chilled,
+            "one swing of the thrower's and it holds"
+        );
+        assert_eq!(active.len(), 1, "the count is not spent out yet");
+        spend(&mut active, EffectSide::Player, &mut attacker, &mut target);
+        assert!(active.is_empty(), "the count ran out");
+        assert_eq!(target.speed, 100, "the speed comes back");
+    }
+
+    /// 轻身 and 凝神 are spent the same way, and hand back what they gave: the
+    /// quickening and the aim are the thrower's own, and they lapse on the
+    /// thrower's swings too.
+    #[test]
+    fn a_lifted_effect_hands_back_what_it_gave() {
+        let mut thrower = Fighter {
+            inner: 1_000,
+            art: Some(ArtStrike {
+                name: "轻身".to_owned(),
+                multiplier_permille: 1_000,
+                cost: 10,
+                hits: 1,
+                band_permille: (0, 0),
+                effect: Some(StrikeEffect::Haste { permille: 200 }),
+                marked: false,
+                mastery_permille: 0,
+            }),
+            ..brute("fighter", 10_000, 100, 100)
+        };
+        let mut target = brute("target", 1_000_000, 0, 10);
+        let mut active = Vec::new();
+        let (_, laid) = strike(
+            &mut thrower,
+            &mut target,
+            &mut Rng::seeded(5),
+            EffectSide::Player,
+        );
+        if let Some(effect) = laid {
+            active.push(effect);
+        }
+        let hastened = thrower.speed;
+        assert!(hastened > 100, "the thrower quickened: {hastened}");
+        for _ in 0..EFFECT_DURATION_BLOWS {
+            spend(&mut active, EffectSide::Player, &mut thrower, &mut target);
+        }
+        assert!(active.is_empty(), "the quickening ran out");
+        assert_eq!(thrower.speed, 100, "the speed hands back");
+
+        // 凝神 is the same shape on 命中.
+        let mut thrower = Fighter {
+            inner: 1_000,
+            art: Some(ArtStrike {
+                name: "凝神".to_owned(),
+                multiplier_permille: 1_000,
+                cost: 10,
+                hits: 1,
+                band_permille: (0, 0),
+                effect: Some(StrikeEffect::Focus { hit: 80 }),
+                marked: false,
+                mastery_permille: 0,
+            }),
+            ..brute("fighter", 10_000, 100, 10)
+        };
+        let aim_before = thrower.hit;
+        let mut active = Vec::new();
+        let (_, laid) = strike(
+            &mut thrower,
+            &mut target,
+            &mut Rng::seeded(5),
+            EffectSide::Player,
+        );
+        if let Some(effect) = laid {
+            active.push(effect);
+        }
+        assert!(thrower.hit > aim_before, "the aim steadied");
+        for _ in 0..EFFECT_DURATION_BLOWS {
+            spend(&mut active, EffectSide::Player, &mut thrower, &mut target);
+        }
+        assert!(active.is_empty(), "the aim ran out");
+        assert_eq!(thrower.hit, aim_before, "the 命中 hands back");
     }
 
     #[test]
@@ -775,12 +1076,22 @@ mod tests {
         let mut attacker = brute("attacker", 1_000, 100, 10);
         let mut defender = brute("defender", 1_000, 0, 10);
         defender.defense = 200;
-        let round = strike(&mut attacker, &mut defender, &mut Rng::seeded(21));
+        let (round, _) = strike(
+            &mut attacker,
+            &mut defender,
+            &mut Rng::seeded(21),
+            EffectSide::Player,
+        );
         assert!(!round.dodged, "the probe needs a blow that lands");
         assert_eq!(round.damage, 80, "200‰ of a hundred is eighty");
         // The same attacker against an unarmoured body: the full blow.
         let mut naked = brute("naked", 1_000, 0, 10);
-        let round = strike(&mut attacker, &mut naked, &mut Rng::seeded(22));
+        let (round, _) = strike(
+            &mut attacker,
+            &mut naked,
+            &mut Rng::seeded(22),
+            EffectSide::Player,
+        );
         assert_eq!(round.damage, 100);
         // A pure spell blow: 防御 does not touch it. The hit chance tops out
         // at 950‰, so a seed can slip the blow; walk the seeds to the first one
@@ -793,7 +1104,12 @@ mod tests {
         for seed in 0..100_u64 {
             let mut caster = caster.clone();
             let mut warded = warded.clone();
-            let round = strike(&mut caster, &mut warded, &mut Rng::seeded(seed));
+            let (round, _) = strike(
+                &mut caster,
+                &mut warded,
+                &mut Rng::seeded(seed),
+                EffectSide::Player,
+            );
             if !round.dodged {
                 landed = Some(round.damage);
                 break;
@@ -809,7 +1125,12 @@ mod tests {
         mixed.spell = 100;
         let mut armoured = brute("armoured", 1_000, 0, 10);
         armoured.defense = 200;
-        let round = strike(&mut mixed, &mut armoured, &mut Rng::seeded(24));
+        let (round, _) = strike(
+            &mut mixed,
+            &mut armoured,
+            &mut Rng::seeded(24),
+            EffectSide::Player,
+        );
         assert_eq!(round.damage, 180, "eighty of physical and the full spell");
     }
 
@@ -830,13 +1151,28 @@ mod tests {
             ..brute("fighter", 1_000, 100, 10)
         };
         let mut target = brute("target", 10_000, 0, 10);
-        let first = strike(&mut fighter, &mut target, &mut Rng::seeded(3));
+        let (first, _) = strike(
+            &mut fighter,
+            &mut target,
+            &mut Rng::seeded(3),
+            EffectSide::Player,
+        );
         assert_eq!(first.art.as_deref(), Some("降龙十八掌"));
         assert!(first.damage >= 200, "the art multiplies the blow");
         assert_eq!(fighter.inner, 15);
         // Two more blows and the pool cannot pay; the bare hand is still there.
-        let _ = strike(&mut fighter, &mut target, &mut Rng::seeded(4));
-        let third = strike(&mut fighter, &mut target, &mut Rng::seeded(5));
+        let (_, _) = strike(
+            &mut fighter,
+            &mut target,
+            &mut Rng::seeded(4),
+            EffectSide::Player,
+        );
+        let (third, _) = strike(
+            &mut fighter,
+            &mut target,
+            &mut Rng::seeded(5),
+            EffectSide::Player,
+        );
         assert_eq!(third.art, None, "no 内力 left to spend");
         assert!(third.damage > 0, "a fighter out of 内力 still fights");
     }
@@ -864,11 +1200,17 @@ mod tests {
         }
         let mut plain_target = brute("target", 100_000, 0, 10);
         let mut mastered_target = brute("target", 100_000, 0, 10);
-        let plain = strike(&mut striker(0), &mut plain_target, &mut Rng::seeded(11));
-        let mastered = strike(
+        let (plain, _) = strike(
+            &mut striker(0),
+            &mut plain_target,
+            &mut Rng::seeded(11),
+            EffectSide::Player,
+        );
+        let (mastered, _) = strike(
             &mut striker(150),
             &mut mastered_target,
             &mut Rng::seeded(11),
+            EffectSide::Player,
         );
         assert!(!plain.dodged, "the probe needs a blow that lands");
         // A 120% move pays one and a fifth times the whole base blow; the
@@ -880,7 +1222,12 @@ mod tests {
             inner: 0,
             ..striker(150)
         };
-        let bare = strike(&mut spent, &mut plain_target, &mut Rng::seeded(12));
+        let (bare, _) = strike(
+            &mut spent,
+            &mut plain_target,
+            &mut Rng::seeded(12),
+            EffectSide::Player,
+        );
         assert_eq!(bare.art, None, "no 内力, no art");
         assert_eq!(bare.damage, 1_000, "and no mastery share either");
     }
@@ -910,7 +1257,12 @@ mod tests {
         attacker.spell = 1_722;
         let mut target = brute("target", 100_000, 0, 10);
         target.resist = 1_148;
-        let round = strike(&mut attacker, &mut target, &mut Rng::seeded(13));
+        let (round, _) = strike(
+            &mut attacker,
+            &mut target,
+            &mut Rng::seeded(13),
+            EffectSide::Player,
+        );
         assert!(!round.dodged, "the probe needs a blow that lands");
         assert_eq!(blow(&attacker, &target), 2_579);
         assert_eq!(
@@ -920,7 +1272,12 @@ mod tests {
         // The same move against a defender with no 法抗 keeps its full spell
         // half inside the multiplier too.
         let mut unwarded = brute("target", 100_000, 0, 10);
-        let round = strike(&mut attacker, &mut unwarded, &mut Rng::seeded(14));
+        let (round, _) = strike(
+            &mut attacker,
+            &mut unwarded,
+            &mut Rng::seeded(14),
+            EffectSide::Player,
+        );
         assert!(!round.dodged);
         assert_eq!(blow(&attacker, &unwarded), 3_727);
         assert_eq!(round.damage, 4_230);

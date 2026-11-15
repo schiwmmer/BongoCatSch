@@ -17,6 +17,7 @@
 - 根骨's 内力 coefficient drops from 8 to 6: 根骨 no longer pays for both 防御 and the 内力 pool at once, flattening its marginal return against 身法 while leaving 防御 untouched.
 - The deep-tower band's top control point is brought down from 2400/1900 to 2000/1600: the hardest draw no longer outruns the floor's own level, while the band stays wide enough that gear remains a slope.
 - The 黄阶 外功 multiplier rises from 1.2 to 1.26, so the cheapest 外功 no longer costs 16 内力 for less than the same points in 身法 would buy in speed.
+- 外功 effects are no longer fought under for the whole fight: a laid 寒劲, 轻身 or 凝神 is spent by the thrower's own swings and hands back what it took after 2 of them. A 寒劲 that landed once used to decide every turn behind it — the slower side simply became the faster one from that blow on, and the panel's 速度 stopped being the number that ordered the fight; it now decides two swings of the hand that laid it.
 
 ## 2.4.1 - 2026-11-06
 
