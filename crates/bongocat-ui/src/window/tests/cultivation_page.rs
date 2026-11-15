@@ -889,6 +889,7 @@ fn walk_report() -> DuelReport {
                 dodged: false,
                 damage: 10,
                 target_health: 100 - index,
+                effect: None,
             })
             .collect(),
         won: true,
@@ -937,6 +938,7 @@ fn alternating_report() -> DuelReport {
             dodged: false,
             damage: 10,
             target_health: 100 - index,
+            effect: None,
         })
         .collect();
     report

@@ -688,7 +688,8 @@
       "total_band": "%{min}%~%{max}% total",
       "effect_slow": "chill: 速度 −%{value}%",
       "effect_haste": "footwork: 速度 +%{value}%",
-      "effect_focus": "focus: 命中 +%{value}"
+      "effect_focus": "focus: 命中 +%{value}",
+      "effect_duration": "lasts %{blows} swings"
     },
     "derived": "Shown",
     "derived_hint": "From the four attributes; no points here",
@@ -862,6 +863,7 @@
       "guardian": "the guardian",
       "hit": "%{attacker} lands %{art} on %{target} for %{damage} (%{target} has %{health} left)",
       "hp": "%{health} / %{max}",
+      "laid": " · %{effect}",
       "lose": "Defeat",
       "lost_gear": "Gear lost: %{name}",
       "playing": "Replaying the fight… click the log to skip",

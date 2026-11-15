@@ -688,7 +688,8 @@
       "total_band": "合计 %{min}%~%{max}%",
       "effect_slow": "寒劲 减速 %{value}%",
       "effect_haste": "轻身 加速 %{value}%",
-      "effect_focus": "凝神 命中 +%{value}"
+      "effect_focus": "凝神 命中 +%{value}",
+      "effect_duration": "持续 %{blows} 次出手"
     },
     "derived": "外显属性",
     "derived_hint": "由四项属性算出，不可加点",
@@ -862,6 +863,7 @@
       "guardian": "镇守",
       "hit": "%{attacker} 以 %{art} 击中 %{target}，造成 %{damage} 点伤害（%{target} 剩余 %{health}）",
       "hp": "%{health} / %{max}",
+      "laid": " · %{effect}",
       "lose": "败北",
       "lost_gear": "丢失装备：%{name}",
       "playing": "战斗回放中…点击日志可跳过",

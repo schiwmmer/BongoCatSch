@@ -15,9 +15,9 @@ use super::cultivation_settings::{CombatStats, derived_rows};
 use super::*;
 use bongocat_i18n::{format_text, text};
 use bongocat_pomodoro::{
-    ArtStrike, BreakthroughOutcome, DailyOutcome, DuelReport, DuelRound, ExplorationFindView,
-    ExplorationOutcome, Fighter, GUARDIAN_NAME, PLAYER_NAME, ProvingOutcome, TRIAL_OPPONENT_NAME,
-    TrialOutcome, WANDERER_NAME,
+    ArtStrike, BreakthroughOutcome, DailyOutcome, DuelReport, DuelRound, EFFECT_DURATION_BLOWS,
+    ExplorationFindView, ExplorationOutcome, Fighter, GUARDIAN_NAME, PLAYER_NAME, ProvingOutcome,
+    StrikeEffect, TRIAL_OPPONENT_NAME, TrialOutcome, WANDERER_NAME,
 };
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::Sizable as _;
@@ -639,6 +639,13 @@ fn fighter_column(
 /// The 外功 a side is swinging: what it multiplies by, what it costs, and what
 /// its last 阶 added on top.
 fn art_line(id: String, art: &ArtStrike, locale: &str, tokens: Tokens) -> impl IntoElement {
+    let line = art_line_text(locale, art);
+    div().id(id).text_xs().text_color(tokens.accent).child(line)
+}
+
+/// The 外功 row's text: what it multiplies by, what it costs, what its last 阶
+/// added, and — when it lays one — what it lays and for how long.
+fn art_line_text(locale: &str, art: &ArtStrike) -> String {
     let mut line = format!(
         "{}：{}",
         text(locale, "cultivation.art.kind.external"),
@@ -670,7 +677,44 @@ fn art_line(id: String, art: &ArtStrike, locale: &str, tokens: Tokens) -> impl I
             )
         ));
     }
-    div().id(id).text_xs().text_color(tokens.accent).child(line)
+    // The effect is the reason a fight's turn order moves, and the panel is where
+    // it is read before the fight: a 寒劲 that nobody can see is a 速度 that
+    // changes for no stated reason. Its duration rides beside it, because an
+    // effect that lasts is an effect the next blows answer for.
+    if let Some(effect) = art.effect {
+        line.push_str(&format!(" · {}", effect_label(locale, effect)));
+        line.push_str(&format!(
+            " · {}",
+            format_text(
+                locale,
+                "cultivation.art.effect_duration",
+                &[("blows", EFFECT_DURATION_BLOWS.to_string())],
+            )
+        ));
+    }
+    line
+}
+
+/// What an 外功's effect is called, as the art row and the fight log both read it.
+fn effect_label(locale: &str, effect: StrikeEffect) -> String {
+    let percent = |permille: u32| ((permille + 5) / 10).to_string();
+    match effect {
+        StrikeEffect::Slow { permille } => format_text(
+            locale,
+            "cultivation.art.effect_slow",
+            &[("value", percent(permille))],
+        ),
+        StrikeEffect::Haste { permille } => format_text(
+            locale,
+            "cultivation.art.effect_haste",
+            &[("value", percent(permille))],
+        ),
+        StrikeEffect::Focus { hit } => format_text(
+            locale,
+            "cultivation.art.effect_focus",
+            &[("value", hit.to_string())],
+        ),
+    }
 }
 
 /// The blows so far, one line each, scrolling once the fight runs long.
@@ -1184,7 +1228,18 @@ fn round_line(round: &DuelRound, opponent: &str, locale: &str) -> String {
             ],
         )
     };
-    format!("{head} {body}")
+    let mut line = format!("{head} {body}");
+    // The effect the blow laid is the half of the line that explains the blows
+    // behind it: a 寒劲 that lands silently is a 速度 the reader cannot account
+    // for, and the fight looks like it turned on nothing.
+    if let Some(effect) = round.effect {
+        line.push_str(&format_text(
+            locale,
+            "cultivation.duel.laid",
+            &[("effect", effect_label(locale, effect))],
+        ));
+    }
+    line
 }
 
 /// A found item's display line, shared with the page's own rows.
@@ -1244,6 +1299,7 @@ mod tests {
                     dodged: false,
                     damage: 10,
                     target_health: 100 - index,
+                    effect: None,
                 })
                 .collect(),
             won: true,
@@ -1394,5 +1450,51 @@ mod tests {
         assert!(duel.sides().is_some(), "and columns for both sides");
         assert!(duel.won(), "the cultivator won this one");
         assert_eq!(duel.opponent(), TRIAL_OPPONENT_NAME);
+    }
+
+    /// The 外功 row says what the art lays and for how long, so the fight's turn
+    /// order can be read before it is fought: a 寒劲 nobody can see is a 速度 that
+    /// changes for no stated reason.
+    #[test]
+    fn the_art_row_names_the_effect_and_its_duration() {
+        let art = ArtStrike {
+            name: "磐石刀法".to_owned(),
+            multiplier_permille: 1_350,
+            cost: 28,
+            hits: 1,
+            band_permille: (940, 1_060),
+            effect: Some(StrikeEffect::Slow { permille: 179 }),
+            marked: false,
+            mastery_permille: 0,
+        };
+        let line = art_line_text("zh-CN", &art);
+        assert!(line.contains("磐石刀法"), "{line}");
+        assert!(line.contains("基准威力 135%"), "{line}");
+        assert!(line.contains("耗内力 28"), "{line}");
+        assert!(line.contains("寒劲 减速 18%"), "{line}");
+        assert!(
+            line.contains(&format!("持续 {EFFECT_DURATION_BLOWS} 次出手")),
+            "{line}"
+        );
+    }
+
+    /// The blow that laid an effect says so on its line: the log is where the
+    /// fight's turn order is explained, not only counted.
+    #[test]
+    fn the_blow_line_names_the_effect_it_laid() {
+        let round = DuelRound {
+            index: 2,
+            attacker: GUARDIAN_NAME.to_owned(),
+            art: Some("磐石刀法".to_owned()),
+            dodged: false,
+            damage: 2_611,
+            target_health: 19_849,
+            effect: Some(StrikeEffect::Slow { permille: 179 }),
+        };
+        let line = round_line(&round, GUARDIAN_NAME, "zh-CN");
+        assert!(line.contains("第 2 击"), "{line}");
+        assert!(line.contains("磐石刀法"), "{line}");
+        assert!(line.contains("2611"), "{line}");
+        assert!(line.contains("寒劲 减速 18%"), "{line}");
     }
 }
