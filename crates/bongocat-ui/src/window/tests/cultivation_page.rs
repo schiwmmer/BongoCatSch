@@ -1747,7 +1747,7 @@ fn a_seed_row_shows_the_growing_time_beside_the_odds(cx: &mut TestAppContext) {
 /// The history popup mounted on its own, the way the fight popup is: the
 /// settings frame would put it behind a sidebar and a scroll view, and the
 /// popup is what is under test.
-struct EventsPopup(Vec<EventRecord>);
+struct EventsPopup(Vec<EventRecord>, &'static str);
 
 impl Render for EventsPopup {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1756,7 +1756,7 @@ impl Render for EventsPopup {
             .size_full()
             .child(cultivation_settings::events_overlay(
                 &self.0,
-                "en-US",
+                self.1,
                 Tokens::from_theme(cx),
                 Rc::new(|_, _| {}),
                 Rc::new(|_: &EventDetail, _: &mut App| {}),
@@ -1776,8 +1776,9 @@ fn the_history_popup_lists_every_event(cx: &mut TestAppContext) {
             detail: EventDetail::Session { growth: 500 },
         })
         .collect();
-    let (_, visual) = cx
-        .add_window_view(move |window, cx| Root::new(cx.new(|_| EventsPopup(events)), window, cx));
+    let (_, visual) = cx.add_window_view(move |window, cx| {
+        Root::new(cx.new(|_| EventsPopup(events, "en-US")), window, cx)
+    });
     visual.update(|window, cx| window.render_frame(cx));
     for id in [
         "cultivation-events-panel",
@@ -1787,6 +1788,84 @@ fn the_history_popup_lists_every_event(cx: &mut TestAppContext) {
     ] {
         assert!(painted(visual, id), "the popup must paint {id}");
     }
+}
+
+/// A fight the log still holds carries its replay button, and the button is
+/// drawn where the user can reach it.
+///
+/// The row is one flex line: the text took `flex_1` without a `min_w_0`, so it
+/// could not shrink below its longest line and pushed the button past the
+/// popup's edge — a replay that existed and could not be clicked. The panel is
+/// also drawn wide enough that the longest line a save writes stays on one row,
+/// so the button is not bought by wrapping the line under it. The two walks
+/// carry the same line; only one of them is a fight, so the other is the height
+/// a single row of that line takes.
+#[gpui_kit::test]
+fn the_replay_button_sits_inside_the_history_popup(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let walk = |duel| EventDetail::Walk {
+        outcome: ExplorationOutcome::Seed,
+        art: None,
+        gear: None,
+        seed: Some("幻蓉".into()),
+        stones: Some(36),
+        gain: 22,
+        hint: Some("cultivation.record.walk_hint_fast_alt".into()),
+        duel,
+    };
+    let events = vec![
+        // A short line, which sets the height of one row.
+        EventRecord {
+            at_unix: 1,
+            detail: EventDetail::Session { growth: 12_884 },
+        },
+        // The longest line an exploration writes, and not a fight.
+        EventRecord {
+            at_unix: 2,
+            detail: walk(None),
+        },
+        // The same line as a fight the log still holds.
+        EventRecord {
+            at_unix: 3,
+            detail: walk(Some(walk_report())),
+        },
+    ];
+    let (_, visual) = cx.add_window_view(move |window, cx| {
+        Root::new(cx.new(|_| EventsPopup(events, "zh-CN")), window, cx)
+    });
+    visual.update(|window, cx| window.render_frame(cx));
+
+    for (index, carries) in [(0, false), (1, false), (2, true)] {
+        assert_eq!(
+            painted(visual, format!("cultivation-history-event-{index}-replay")),
+            carries,
+            "row {index} replay button"
+        );
+    }
+
+    visual.update(|window, _| {
+        let panel = window.find("cultivation-events-panel").bounds();
+        let short = window.find("cultivation-history-event-0").bounds();
+        let plain_walk = window.find("cultivation-history-event-1").bounds();
+        let button = window
+            .find("cultivation-history-event-2-replay")
+            .bounds();
+
+        assert!(
+            plain_walk.size.height == short.size.height,
+            "the longest line must fit one row: {} against the one-line {}",
+            plain_walk.size.height,
+            short.size.height
+        );
+        assert!(
+            button.left() >= panel.left() && button.right() <= panel.right(),
+            "the replay button must sit inside the popup: button {}..{} in panel {}..{}",
+            button.left(),
+            button.right(),
+            panel.left(),
+            panel.right()
+        );
+    });
 }
 
 /// A 功法 on the shelf says where its training stands: the 阶 the grade has,

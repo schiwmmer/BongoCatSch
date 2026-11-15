@@ -12,7 +12,15 @@ use std::rc::Rc;
 const VISIBLE_EVENT_COUNT: usize = 5;
 
 /// How wide the history popup is drawn.
-const EVENTS_PANEL_WIDTH: f32 = 420.0;
+///
+/// Wide enough that the longest line a save writes — an exploration that found
+/// a seed, paid stones and closed with a hint, plus its timestamp — still fits
+/// one row beside the replay button. A narrower popup does not truncate the
+/// line, it wraps it, and a row of two lines is a row whose button has been
+/// pushed about. The row's text carries `min_w_0`, so a line longer than any
+/// popup wraps instead of overflowing — but a popup narrow enough to wrap every
+/// real line is a popup whose rows are all two tall.
+const EVENTS_PANEL_WIDTH: f32 = 600.0;
 
 /// How tall the history list may grow before it scrolls.
 const EVENTS_LIST_MAX_HEIGHT: f32 = 360.0;
@@ -381,6 +389,7 @@ fn event_row(
         .child(
             div()
                 .flex_1()
+                .min_w_0()
                 .child(event_line_with_stamp(event, locale, offset_seconds)),
         );
     if event.detail.is_battle() {
