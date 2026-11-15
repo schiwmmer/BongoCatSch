@@ -890,6 +890,7 @@ fn walk_report() -> DuelReport {
                 damage: 10,
                 target_health: 100 - index,
                 effect: None,
+                effects: Vec::new(),
             })
             .collect(),
         won: true,
@@ -939,6 +940,7 @@ fn alternating_report() -> DuelReport {
             damage: 10,
             target_health: 100 - index,
             effect: None,
+            effects: Vec::new(),
         })
         .collect();
     report

@@ -428,7 +428,6 @@ pub(crate) fn opponent(stance: Stance, level: u16, tier: u8, name: String, seed:
             hits: art.hits,
             band_permille: art.band_permille,
             effect: art.effect,
-            marked: false,
             // The opponent is not the one who trained it: a 功法 in a fighter's
             // hands is the multiplier it was printed with, and the mastery share
             // belongs to whoever put the pomodoros in.

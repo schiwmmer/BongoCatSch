@@ -927,6 +927,7 @@ fn bare_report() -> DuelReport {
             damage: 10,
             target_health: 90,
             effect: None,
+            effects: Vec::new(),
         }],
         won: true,
         player: fighter(PLAYER_NAME),

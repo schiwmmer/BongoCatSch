@@ -864,6 +864,7 @@
       "hit": "%{attacker} lands %{art} on %{target} for %{damage} (%{target} has %{health} left)",
       "hp": "%{health} / %{max}",
       "laid": " · %{effect}",
+      "effect_left": "%{blows} left",
       "lose": "Defeat",
       "lost_gear": "Gear lost: %{name}",
       "playing": "Replaying the fight… click the log to skip",

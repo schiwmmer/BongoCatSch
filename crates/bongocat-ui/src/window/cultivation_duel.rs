@@ -15,9 +15,9 @@ use super::cultivation_settings::{CombatStats, derived_rows};
 use super::*;
 use bongocat_i18n::{format_text, text};
 use bongocat_pomodoro::{
-    ArtStrike, BreakthroughOutcome, DailyOutcome, DuelReport, DuelRound, EFFECT_DURATION_BLOWS,
-    ExplorationFindView, ExplorationOutcome, Fighter, GUARDIAN_NAME, PLAYER_NAME, ProvingOutcome,
-    StrikeEffect, TRIAL_OPPONENT_NAME, TrialOutcome, WANDERER_NAME,
+    ActiveEffect, ArtStrike, BreakthroughOutcome, DailyOutcome, DuelReport, DuelRound,
+    EFFECT_DURATION_BLOWS, ExplorationFindView, ExplorationOutcome, Fighter, GUARDIAN_NAME,
+    PLAYER_NAME, ProvingOutcome, StrikeEffect, TRIAL_OPPONENT_NAME, TrialOutcome, WANDERER_NAME,
 };
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::Sizable as _;
@@ -469,6 +469,7 @@ fn replay_title(duel: &CultivationDuel, locale: &str) -> String {
 fn health_bars(duel: &CultivationDuel, locale: &str, tokens: Tokens) -> Option<impl IntoElement> {
     let report = duel.report()?;
     let (player_health, opponent_health) = report.health_after(duel.revealed);
+    let (player_effects, opponent_effects) = report.effects_after(duel.revealed);
     Some(
         div()
             .id("cultivation-duel-health")
@@ -481,6 +482,7 @@ fn health_bars(duel: &CultivationDuel, locale: &str, tokens: Tokens) -> Option<i
                 &report.player,
                 player_health,
                 tokens.accent,
+                &player_effects,
                 locale,
                 tokens,
             ))
@@ -490,10 +492,56 @@ fn health_bars(duel: &CultivationDuel, locale: &str, tokens: Tokens) -> Option<i
                 &report.opponent,
                 opponent_health,
                 tokens.danger,
+                &opponent_effects,
                 locale,
                 tokens,
             )),
     )
+}
+
+/// What one acting effect says on a side's line: what it is, and how many of the
+/// target's swings it has left.
+fn effect_text(locale: &str, effect: &ActiveEffect) -> String {
+    format!(
+        "{} · {}",
+        effect_label(locale, effect.kind),
+        format_text(
+            locale,
+            "cultivation.duel.effect_left",
+            &[("blows", effect.remaining.to_string())],
+        ),
+    )
+}
+
+/// The whole line as text, for the tests that read it.
+#[cfg(test)]
+fn effect_line_text(effects: &[ActiveEffect], locale: &str) -> Option<String> {
+    (!effects.is_empty()).then(|| {
+        effects
+            .iter()
+            .map(|effect| effect_text(locale, effect))
+            .collect::<Vec<_>>()
+            .join(" · ")
+    })
+}
+
+/// The effects acting on one side, drawn under its bar.
+///
+/// A bar says how much is left; this says why the next blows may not read the
+/// way the panel's numbers suggest. A 减益 takes the danger tint and a 增益 the
+/// accent, so a side's line reads as what is being done to it and what it is
+/// doing for itself — the same distinction the effect's own name carries.
+fn effect_row(effects: &[ActiveEffect], locale: &str, tokens: Tokens) -> impl IntoElement {
+    let mut row = div().flex().flex_row().flex_wrap().gap_1().text_xs();
+    for effect in effects {
+        let tint = if effect.kind.helps() {
+            tokens.accent
+        } else {
+            tokens.danger
+        };
+        row = row.child(div().text_color(tint).child(effect_text(locale, effect)));
+    }
+    row
 }
 
 /// One side of the comparison: who it is, how much health it has left, and the
@@ -508,6 +556,7 @@ fn health_column(
     fighter: &Fighter,
     health: u32,
     color: Hsla,
+    effects: &[ActiveEffect],
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
@@ -517,7 +566,11 @@ fn health_column(
     } else {
         health as f32 / max as f32
     };
-    div()
+    // The effects go under the bar because that is where a side's state is read:
+    // the bar says how much is left and the line under it says what is acting on
+    // it. Empty means nothing is acting, and a row that is not there is better
+    // than a row that says nothing.
+    let mut column = div()
         .id(id)
         .flex_1()
         .flex()
@@ -542,10 +595,13 @@ fn health_column(
                     &[("health", health.to_string()), ("max", max.to_string())],
                 ))),
         )
-        .child(health_bar(tokens, fraction, color))
-        // Marked so a frame can be asked whether the two halves of the
-        // comparison are both on screen, the way the page's own rows are.
-        .test_support()
+        .child(health_bar(tokens, fraction, color));
+    if !effects.is_empty() {
+        column = column.child(effect_row(effects, locale, tokens));
+    }
+    // Marked so a frame can be asked whether the two halves of the
+    // comparison are both on screen, the way the page's own rows are.
+    column.test_support()
 }
 
 /// The bar itself. A fixed pixel width rather than a percentage, the same way
@@ -1269,7 +1325,7 @@ fn gear_label(locale: &str, item: &bongocat_pomodoro::EquipmentRecord) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bongocat_pomodoro::{DuelReport, DuelRound};
+    use bongocat_pomodoro::{DuelReport, DuelRound, EffectSide};
 
     /// One side of a test fight: `health` of flesh and an even hand.
     fn side(name: &str, health: u32) -> Fighter {
@@ -1300,6 +1356,7 @@ mod tests {
                     damage: 10,
                     target_health: 100 - index,
                     effect: None,
+                    effects: Vec::new(),
                 })
                 .collect(),
             won: true,
@@ -1464,7 +1521,6 @@ mod tests {
             hits: 1,
             band_permille: (940, 1_060),
             effect: Some(StrikeEffect::Slow { permille: 179 }),
-            marked: false,
             mastery_permille: 0,
         };
         let line = art_line_text("zh-CN", &art);
@@ -1475,6 +1531,36 @@ mod tests {
         assert!(
             line.contains(&format!("持续 {EFFECT_DURATION_BLOWS} 次出手")),
             "{line}"
+        );
+    }
+
+    /// The line under a bar says what is acting on that side and for how much
+    /// longer: a 寒劲 reading as 剩 N 次 is what lets a reader account for a
+    /// 速度 the panel no longer shows.
+    #[test]
+    fn the_effects_under_a_bar_name_the_effect_and_what_is_left() {
+        let effects = vec![
+            ActiveEffect {
+                target: EffectSide::Player,
+                kind: StrikeEffect::Slow { permille: 179 },
+                remaining: 1,
+                taken: 280,
+            },
+            ActiveEffect {
+                target: EffectSide::Player,
+                kind: StrikeEffect::Haste { permille: 120 },
+                remaining: 2,
+                taken: 120,
+            },
+        ];
+        let line = effect_line_text(&effects, "zh-CN").expect("there is a line to read");
+        assert!(line.contains("寒劲 减速 18%"), "{line}");
+        assert!(line.contains("剩 1 次"), "{line}");
+        assert!(line.contains("轻身 加速 12%"), "{line}");
+        assert!(line.contains("剩 2 次"), "{line}");
+        assert!(
+            effect_line_text(&[], "zh-CN").is_none(),
+            "nothing acting means no line at all"
         );
     }
 
@@ -1490,6 +1576,7 @@ mod tests {
             damage: 2_611,
             target_health: 19_849,
             effect: Some(StrikeEffect::Slow { permille: 179 }),
+            effects: Vec::new(),
         };
         let line = round_line(&round, GUARDIAN_NAME, "zh-CN");
         assert!(line.contains("第 2 击"), "{line}");

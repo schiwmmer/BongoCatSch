@@ -864,6 +864,7 @@
       "hit": "%{attacker} 以 %{art} 击中 %{target}，造成 %{damage} 点伤害（%{target} 剩余 %{health}）",
       "hp": "%{health} / %{max}",
       "laid": " · %{effect}",
+      "effect_left": "剩 %{blows} 次",
       "lose": "败北",
       "lost_gear": "丢失装备：%{name}",
       "playing": "战斗回放中…点击日志可跳过",

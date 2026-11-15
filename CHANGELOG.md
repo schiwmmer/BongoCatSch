@@ -6,6 +6,7 @@
 
 - `Cmd+Q` quits the app: the macOS menu bar gains a BongoCat menu whose Quit item carries the `⌘Q` accelerator, so the keystroke works while BongoCat is the active app. The label follows the interface language.
 - The 外功 row in a fight now prints what the art lays and for how long — `寒劲 减速 18% · 持续 2 次出手` — and the blow that lays one says so on its log line, so a 速度 that moves has a stated reason.
+- The fight panel draws the effects acting on each side under its health bar, with the effect and the counts left (`寒劲 · 剩 1 次`): 增益 in the accent colour and 减益 in the warning colour. A replay shows what was acting at that blow, not what is acting now.
 
 ### ⚖️ Balance
 
@@ -18,11 +19,12 @@
 - 根骨's 内力 coefficient drops from 8 to 6: 根骨 no longer pays for both 防御 and the 内力 pool at once, flattening its marginal return against 身法 while leaving 防御 untouched.
 - The deep-tower band's top control point is brought down from 2400/1900 to 2000/1600: the hardest draw no longer outruns the floor's own level, while the band stays wide enough that gear remains a slope.
 - The 黄阶 外功 multiplier rises from 1.2 to 1.26, so the cheapest 外功 no longer costs 16 内力 for less than the same points in 身法 would buy in speed.
-- 外功 effects are no longer fought under for the whole fight: a laid 寒劲, 轻身 or 凝神 is spent by the thrower's own swings and hands back what it took after 2 of them. A 寒劲 that landed once used to decide every turn behind it — the slower side simply became the faster one from that blow on, and the panel's 速度 stopped being the number that ordered the fight; it now decides two swings of the hand that laid it.
+- 外功 effects are no longer fought under for the whole fight, and they run down on the hand they act on: a laid 寒劲, 轻身 or 凝神 loses one count every time its own target swings, hands back what it took at zero, and is spent after 2 of those swings. A second laying while one is running adds its count to the first rather than resetting it, but the fall is not stacked — the 速度 or 命中 is the one the last laying set, so a re-hit that lands twice reads as 3 counts, not as a fresh 2. A 寒劲 that landed once used to decide every turn behind it, and the panel's 速度 stopped being the number that ordered the fight.
 
 ### 🐛 Bug Fixes
 
 - A 外功's effect was applied in silence: the fight panel showed only its name, worth and cost, and the log line only the damage, so a 寒劲 that cut a side's 速度 reordered the fight with nothing on screen saying why.
+- A 外功 laid its effect once per fight and then never again: a second landing of the same 寒劲 did nothing, so an art that hit twice — the very art worth paying for — behaved like one that hit once. Every landing blow now lays its effect, stacked as the balance entry above describes.
 
 ## 2.4.1 - 2026-11-06
 

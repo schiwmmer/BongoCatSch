@@ -89,8 +89,9 @@ pub use drop::{
     realm_power, tier_for_power,
 };
 pub use duel::{
-    ArtStrike, DUEL_RECORD_CAP, DUEL_ROUND_CAP, DuelRecord, DuelReport, DuelRound,
-    EFFECT_DURATION_BLOWS, FightKind, Fighter, GUARDIAN_NAME, PLAYER_NAME, WANDERER_NAME,
+    ActiveEffect, ArtStrike, DUEL_RECORD_CAP, DUEL_ROUND_CAP, DuelRecord, DuelReport, DuelRound,
+    EFFECT_DURATION_BLOWS, EffectSide, FightKind, Fighter, GUARDIAN_NAME, PLAYER_NAME,
+    WANDERER_NAME,
 };
 pub use events::{BATTLE_REPLAY_CAP, BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind};
 pub use explore::{

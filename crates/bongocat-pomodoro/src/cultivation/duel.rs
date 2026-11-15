@@ -23,16 +23,20 @@ use super::{
 /// circle each other forever, and a fight that never ends is worse than a loss.
 pub const DUEL_ROUND_CAP: u32 = 30;
 
-/// How many of the thrower's own swings a laid effect holds for.
+/// How many of the target's own swings a laid effect holds for.
 ///
 /// An effect is a change to the rest of the fight, not a second swing — but it
 /// is not forever either. A chill that never lifts is a chill the whole fight is
 /// fought under, and then the panel's 速度 stops being the number that decides
 /// the turn order: the slower side simply becomes the faster one from the first
 /// landed blow on, and the fight is decided by a stat nobody can read off the
-/// panel any more. The count is spent by the hand that laid it, so an effect
-/// lives exactly as long as its owner keeps swinging and lapses the moment that
-/// hand falls silent.
+/// panel any more.
+///
+/// The count is spent by whoever the effect acts on, not by whoever laid it: a
+/// 寒劲 on the cultivator is worn down by the cultivator's own answers, and a
+/// 轻身 on the thrower by the thrower's. A hand that lays a chill and then
+/// stands idle keeps it up for as long as its victim keeps swinging, which is
+/// the side of the trade the effect is really about.
 pub const EFFECT_DURATION_BLOWS: u32 = 2;
 
 /// How full a meter has to be before its owner acts.
@@ -76,13 +80,11 @@ pub struct ArtStrike {
     /// worth. `(0, 0)` is a move that pays exactly what it says.
     #[serde(default)]
     pub band_permille: (u32, u32),
-    /// What the first blow that lands does to the rest of the fight.
+    /// What a landing blow lays on the rest of the fight. A move lays it every
+    /// time it gets through, and a second laying stacks its count onto the first
+    /// (see [`receive`]).
     #[serde(default)]
     pub effect: Option<StrikeEffect>,
-    /// Whether the move has already laid its effect on the fight: it rides on
-    /// the first blow that gets through and nowhere else.
-    #[serde(default)]
-    pub marked: bool,
     /// What a completed 功法 adds to every blow, in parts per thousand of the
     /// wielder's 攻击力. Zero for an 外功 whose last 阶 is still owed.
     #[serde(default)]
@@ -162,20 +164,31 @@ pub struct DuelRound {
     pub target_health: u32,
     /// What the blow laid, if it laid one.
     ///
-    /// The effect itself is spent by the thrower's own swings and lives only a
+    /// The effect itself is spent by the target's own swings and lives only a
     /// moment (see `EFFECT_DURATION_BLOWS`); this is the record that it landed,
     /// so the log can say so. It defaults to none so a report written before
     /// effects were recorded still reads.
     #[serde(default)]
     pub effect: Option<StrikeEffect>,
+    /// The effects still on the fight once this blow was settled, as they stood
+    /// for each side.
+    ///
+    /// A snapshot per blow rather than one list for the fight: the replay walks
+    /// the blows in order, and what the bars' owner needs to read beside a
+    /// half-fought fight is what was acting on each side at that moment — the
+    /// count that was still running, not the count that is running now. It
+    /// defaults to empty so a report written before snapshots were kept reads.
+    #[serde(default)]
+    pub effects: Vec<ActiveEffect>,
 }
 
 /// Which side of a fight an effect belongs to.
 ///
 /// A fight is two fighters rather than an enum, so an effect has to carry which
-/// one it is about.
+/// one it is about. Public because a report keeps a snapshot of the effects
+/// still on the fight, and the replay reads them to draw.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-enum EffectSide {
+pub enum EffectSide {
     Player,
     Guardian,
 }
@@ -192,22 +205,22 @@ impl EffectSide {
 
 /// A laid effect still on the fight, counting down to its end.
 ///
-/// `remaining` is spent by `owner`'s own swings: the hand that laid the effect is
-/// the hand that keeps it. `taken` is what it took, so the lapse hands back the
-/// same amount rather than recomputing one — a speed that fell once must come
-/// back up by the same step, not by whatever the speed happens to be later.
+/// `remaining` is spent by `target`'s own swings: the fighter an effect acts on
+/// is the fighter whose answers wear it down. `taken` is what it took, so the
+/// lapse hands back the same amount rather than recomputing one — a speed that
+/// fell once must come back up by the same step, not by whatever the speed
+/// happens to be later. A second laying of the same effect on the same target
+/// adds to both (see [`receive`]), so the pair is what one running effect is.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-struct ActiveEffect {
-    /// Who laid it — whose swings spend the count.
-    owner: EffectSide,
-    /// Who it acts on.
-    target: EffectSide,
+pub struct ActiveEffect {
+    /// Who it acts on — whose swings spend the count.
+    pub target: EffectSide,
     /// What it does.
-    kind: StrikeEffect,
-    /// How many of the owner's swings it still holds for.
-    remaining: u32,
+    pub kind: StrikeEffect,
+    /// How many of the target's swings it still holds for.
+    pub remaining: u32,
     /// What it took, to hand back when it lapses.
-    taken: u32,
+    pub taken: u32,
 }
 
 /// How many fights the record keeps.
@@ -297,6 +310,30 @@ impl DuelReport {
         }
         (player, opponent)
     }
+
+    /// The effects acting on each side once `revealed` blows have been shown.
+    ///
+    /// The same walk the health bars take: a replay half-way through shows what
+    /// was acting on each side at that blow, so a chill the fight has already
+    /// shrugged off is not still drawn beside the bars. Nothing shown yet means
+    /// nothing acting.
+    pub fn effects_after(&self, revealed: usize) -> (Vec<ActiveEffect>, Vec<ActiveEffect>) {
+        let Some(round) = revealed
+            .checked_sub(1)
+            .and_then(|shown| self.rounds.get(shown))
+        else {
+            return (Vec::new(), Vec::new());
+        };
+        let mut player = Vec::new();
+        let mut opponent = Vec::new();
+        for effect in &round.effects {
+            match effect.target {
+                EffectSide::Player => player.push(effect.clone()),
+                EffectSide::Guardian => opponent.push(effect.clone()),
+            }
+        }
+        (player, opponent)
+    }
 }
 
 /// Settle one fight.
@@ -305,8 +342,10 @@ impl DuelReport {
 /// when full, so a fast fighter simply gets more turns. A tie on the meter goes
 /// to the faster side, which is the same advantage stated once more. A 外功's
 /// effect is a change to that 速度 or to 命中 for a moment — it is counted down
-/// by the thrower's own swings, so a hand that stops swinging lets the fight
-/// return to the numbers the panel showed (see `EFFECT_DURATION_BLOWS`).
+/// by the swings of whoever it acts on, so a hand that keeps swinging keeps its
+/// victim slowed while a hand that stands idle does not (see
+/// `EFFECT_DURATION_BLOWS`). A move lays its effect on every blow that lands,
+/// and a second laying adds its count to the first.
 pub fn duel(player: Fighter, guardian: Fighter, rng: &mut Rng) -> DuelReport {
     // The two sides as they walked in, kept for the report: the fight mutates
     // its own copies, and what a surface shows beside the replay is the
@@ -326,7 +365,7 @@ pub fn duel(player: Fighter, guardian: Fighter, rng: &mut Rng) -> DuelReport {
     let mut rounds = Vec::new();
     let mut player_meter = 0_i64;
     let mut guardian_meter = 0_i64;
-    // The effects still on the fight, each counting down on its owner's swings.
+    // The effects still on the fight, each counting down on its target's swings.
     let mut active = Vec::new();
     let mut ticks = 0_u32;
     while !player.down() && !guardian.down() && rounds.len() < DUEL_ROUND_CAP as usize {
@@ -347,7 +386,7 @@ pub fn duel(player: Fighter, guardian: Fighter, rng: &mut Rng) -> DuelReport {
         } else {
             EffectSide::Guardian
         };
-        let (round, laid) = if player_acts {
+        let (mut round, laid) = if player_acts {
             player_meter -= meter_full;
             let (mut round, laid) = strike(&mut player, &mut guardian, rng, actor);
             round.attacker = player_name.clone();
@@ -358,14 +397,16 @@ pub fn duel(player: Fighter, guardian: Fighter, rng: &mut Rng) -> DuelReport {
             round.attacker = guardian_name.clone();
             (round, laid)
         };
-        // The blow that landed spends the effects its owner had already laid: the
-        // hand that keeps an effect is the hand that spends it. A blow laid by
-        // this swing is not spent by it — it holds for the owner's next ones.
+        // The swing wears down whatever is acting on the hand that made it, and
+        // a chill laid by this swing is not worn by it — it goes on afterwards,
+        // so it holds for the target's next answers rather than being spent
+        // before it ever acted.
         spend(&mut active, actor, &mut player, &mut guardian);
         if let Some(effect) = laid {
-            active.push(effect);
+            receive(&mut active, effect, &mut player, &mut guardian);
         }
         let index = rounds.len() as u32 + 1;
+        round.effects = active.clone();
         rounds.push(DuelRound { index, ..round });
     }
     let (player_side, opponent_side) = walked_in;
@@ -468,12 +509,15 @@ fn strike_multiplier(strike: &ArtStrike, rng: &mut Rng) -> u32 {
 
 /// Lay a 外功's effect on the fight, and return the instance that now holds it.
 ///
+/// Lay an effect on the fighter it acts on, and say what it took.
+///
 /// An effect is *not* a second swing — it is a change to what the next blows
 /// read, so a fight against a 寒劲 art is a fight against a slow hand rather
-/// than against the same swing twice. Each move lays its own once, on the first
-/// blow that gets through. It is not forever either: the instance carries a
-/// count of the thrower's own swings, and [`lapse`] hands back what it took once
-/// that count runs out.
+/// than against the same swing twice. A move lays its effect on every blow that
+/// gets through, and a blow that slipped carries nothing: an art that laid its
+/// chill on a miss would be an art that could not be dodged out of. The laying
+/// carries a count of the target's swings (see `EFFECT_DURATION_BLOWS`), and
+/// [`lapse`] hands back what it took once that count runs out.
 fn lay_effect(
     attacker: &mut Fighter,
     defender: &mut Fighter,
@@ -498,7 +542,6 @@ fn lay_effect(
         }
     };
     Some(ActiveEffect {
-        owner: attacker_side,
         target,
         kind: effect,
         remaining: EFFECT_DURATION_BLOWS,
@@ -506,12 +549,38 @@ fn lay_effect(
     })
 }
 
-/// Spend one landed blow against the effects its owner laid.
+/// Put a freshly laid effect on the fight, stacking onto one already running.
 ///
-/// The hand that keeps an effect is the hand that spends it, so a swing by the
-/// other side leaves every count alone — the guardian's 寒劲 is not worn down by
-/// the cultivator's answers, only by the guardian's own. What reaches zero is
-/// handed back.
+/// A second laying of the same effect on the same fighter is the same effect
+/// again: its count is added to the count already running, so a 寒劲 laid twice
+/// holds for both layings' swings. What it does *not* do is take the amount a
+/// second time — the laying's own taking is handed straight back, because the
+/// effect is already at its full strength on that fighter and a re-hit buys
+/// duration, not depth. Two layings that each slowed the target would stack the
+/// slow without limit and turn a re-hit into a death sentence.
+fn receive(
+    active: &mut Vec<ActiveEffect>,
+    laid: ActiveEffect,
+    player: &mut Fighter,
+    guardian: &mut Fighter,
+) {
+    if let Some(existing) = active
+        .iter_mut()
+        .find(|effect| effect.target == laid.target && effect.kind == laid.kind)
+    {
+        existing.remaining = existing.remaining.saturating_add(laid.remaining);
+        lapse(player, guardian, &laid);
+    } else {
+        active.push(laid);
+    }
+}
+
+/// Spend one landed blow against the effects acting on the hand that swung.
+///
+/// A fighter's own swings wear down what is acting on that fighter, so a swing
+/// by the other side leaves every count alone — the guardian's 寒劲 is not
+/// worn down by the cultivator's answers, only by the cultivator's own. What
+/// reaches zero is handed back.
 fn spend(
     active: &mut Vec<ActiveEffect>,
     actor: EffectSide,
@@ -519,7 +588,7 @@ fn spend(
     guardian: &mut Fighter,
 ) {
     for effect in active.iter_mut() {
-        if effect.owner == actor {
+        if effect.target == actor {
             effect.remaining = effect.remaining.saturating_sub(1);
         }
     }
@@ -611,13 +680,11 @@ fn strike(
             .unwrap_or(0)
             .saturating_add(mastered);
         damage = total;
-        // The effect rides on the first blow that gets through, and stays. A
-        // blow that slipped carries nothing: an art that laid its mark on a
-        // miss would be an art that could not be dodged out of.
-        if !dodged && !strike.marked {
-            if let Some(held) = attacker.art.as_mut() {
-                held.marked = true;
-            }
+        // The effect rides on every blow that gets through. A blow that slipped
+        // carries nothing: an art that laid its chill on a miss would be an art
+        // that could not be dodged out of. A second laying stacks its count
+        // onto the first (see `receive`).
+        if !dodged {
             laid = lay_effect(attacker, defender, strike.effect, attacker_side);
         }
         art = Some(strike.name);
@@ -644,6 +711,7 @@ fn strike(
         damage,
         target_health: defender.health,
         effect: laid.as_ref().map(|effect| effect.kind),
+        effects: Vec::new(),
     };
     (round, laid)
 }
@@ -751,7 +819,6 @@ mod tests {
                 // The widest band there is: a sixth of a swing to nearly two.
                 band_permille: (550, 1_700),
                 effect: None,
-                marked: false,
                 mastery_permille: 0,
             }),
             ..brute("fighter", 10_000, 100, 10)
@@ -798,7 +865,6 @@ mod tests {
                 hits: 3,
                 band_permille: (280, 340),
                 effect: None,
-                marked: false,
                 mastery_permille: 0,
             }),
             ..brute("fighter", 10_000, 100, 10)
@@ -819,11 +885,11 @@ mod tests {
         );
     }
 
-    /// An effect rides on the first blow that gets through, and only on that
-    /// one: a move that laid its mark on every hit would be a move that could
-    /// not be dodged out of.
+    /// Every blow that gets through lays the move's effect, and a second laying
+    /// slows further: a move that laid its chill once and then forgot would be a
+    /// move whose later hits were only damage.
     #[test]
-    fn an_effect_lands_once_and_is_not_dealt_again() {
+    fn every_blow_that_lands_lays_its_effect_again() {
         let mut attacker = Fighter {
             inner: 1_000,
             art: Some(ArtStrike {
@@ -833,14 +899,13 @@ mod tests {
                 hits: 1,
                 band_permille: (0, 0),
                 effect: Some(StrikeEffect::Slow { permille: 200 }),
-                marked: false,
                 mastery_permille: 0,
             }),
             ..brute("fighter", 10_000, 100, 10)
         };
         let mut target = brute("target", 1_000_000, 0, 100);
         let before = target.speed;
-        strike(
+        let (_, first) = strike(
             &mut attacker,
             &mut target,
             &mut Rng::seeded(5),
@@ -851,22 +916,46 @@ mod tests {
             chilled < before,
             "the chill bit: {chilled} against {before}"
         );
-        strike(
+        assert_eq!(
+            first.as_ref().map(|effect| effect.remaining),
+            Some(EFFECT_DURATION_BLOWS),
+            "a laying carries the whole count"
+        );
+        let (_, second) = strike(
             &mut attacker,
             &mut target,
             &mut Rng::seeded(6),
             EffectSide::Player,
         );
-        assert_eq!(
-            target.speed, chilled,
-            "the chill does not stack: a second blow adds nothing"
-        );
         assert!(
-            attacker.art.as_ref().is_some_and(|held| held.marked),
-            "the move remembers it has laid its mark"
+            target.speed < chilled,
+            "the second laying slows further: {} against {}",
+            target.speed,
+            chilled
         );
-        // 凝神 and 轻身 are the other side of the same coin: they ride on the
-        // thrower, not on the target.
+        assert_eq!(
+            second.as_ref().map(|effect| effect.remaining),
+            Some(EFFECT_DURATION_BLOWS),
+            "a re-laying carries its own count, not a reset"
+        );
+        // A blow that slipped carries nothing: an art that laid its chill on a
+        // miss would be an art that could not be dodged out of.
+        let mut slippery = brute("slippery", 1_000_000, 0, 100);
+        slippery.evade = 100_000;
+        let (_, laid) = strike(
+            &mut attacker,
+            &mut slippery,
+            &mut Rng::seeded(7),
+            EffectSide::Player,
+        );
+        assert!(laid.is_none(), "a slipped blow lays nothing");
+        assert_eq!(slippery.speed, 100, "and takes nothing off the speed");
+    }
+
+    /// 凝神 and 轻身 are the other side of the same coin: they ride on the
+    /// thrower, not on the target.
+    #[test]
+    fn an_effect_on_the_thrower_lifts_the_thrower() {
         let mut attacker = Fighter {
             inner: 1_000,
             art: Some(ArtStrike {
@@ -876,7 +965,6 @@ mod tests {
                 hits: 1,
                 band_permille: (0, 0),
                 effect: Some(StrikeEffect::Focus { hit: 80 }),
-                marked: false,
                 mastery_permille: 0,
             }),
             ..brute("fighter", 10_000, 100, 10)
@@ -897,12 +985,12 @@ mod tests {
         );
     }
 
-    /// A laid effect is not forever: it is spent by the thrower's own swings and
-    /// hands back what it took once they run out. The other side's answers do not
-    /// wear it down — the guardian's 寒劲 is not undone by the cultivator's
-    /// replies, only by the guardian's own hand.
+    /// A laid effect is not forever: it is spent by the swings of whoever it
+    /// acts on, and hands back what it took once they run out. The hand that
+    /// laid it does not wear it down — the guardian's 寒劲 is undone by the
+    /// cultivator's own answers, not by the guardian's.
     #[test]
-    fn a_laid_effect_is_spent_by_the_throwers_own_blows() {
+    fn a_laid_effect_is_spent_by_the_targets_own_blows() {
         let mut attacker = Fighter {
             inner: 1_000,
             art: Some(ArtStrike {
@@ -912,7 +1000,6 @@ mod tests {
                 hits: 1,
                 band_permille: (0, 0),
                 effect: Some(StrikeEffect::Slow { permille: 200 }),
-                marked: false,
                 mastery_permille: 0,
             }),
             ..brute("fighter", 10_000, 100, 10)
@@ -930,6 +1017,11 @@ mod tests {
         }
         let chilled = target.speed;
         assert!(chilled < 100, "the chill bit: {chilled}");
+        spend(&mut active, EffectSide::Player, &mut attacker, &mut target);
+        assert_eq!(
+            target.speed, chilled,
+            "the thrower's own blows do not wear the chill"
+        );
         spend(
             &mut active,
             EffectSide::Guardian,
@@ -938,17 +1030,156 @@ mod tests {
         );
         assert_eq!(
             target.speed, chilled,
-            "the other side's blows do not wear the chill"
-        );
-        spend(&mut active, EffectSide::Player, &mut attacker, &mut target);
-        assert_eq!(
-            target.speed, chilled,
-            "one swing of the thrower's and it holds"
+            "one swing of the target's and it holds"
         );
         assert_eq!(active.len(), 1, "the count is not spent out yet");
-        spend(&mut active, EffectSide::Player, &mut attacker, &mut target);
+        spend(
+            &mut active,
+            EffectSide::Guardian,
+            &mut attacker,
+            &mut target,
+        );
         assert!(active.is_empty(), "the count ran out");
         assert_eq!(target.speed, 100, "the speed comes back");
+    }
+
+    /// A second laying is the same effect again: its count is added to the one
+    /// already running rather than replacing it, but it does not take the amount
+    /// a second time — a re-hit buys duration, not depth. A re-hit that reset
+    /// the count would be a refresh the fight did not earn.
+    #[test]
+    fn a_second_laying_adds_its_count_to_the_first() {
+        let mut attacker = Fighter {
+            inner: 1_000,
+            art: Some(ArtStrike {
+                name: "寒劲".to_owned(),
+                multiplier_permille: 1_000,
+                cost: 10,
+                hits: 1,
+                band_permille: (0, 0),
+                effect: Some(StrikeEffect::Slow { permille: 200 }),
+                mastery_permille: 0,
+            }),
+            ..brute("fighter", 10_000, 100, 10)
+        };
+        let mut target = brute("target", 1_000_000, 0, 100);
+        let before = target.speed;
+        let mut active = Vec::new();
+        let (_, first) = strike(
+            &mut attacker,
+            &mut target,
+            &mut Rng::seeded(5),
+            EffectSide::Player,
+        );
+        receive(&mut active, first.unwrap(), &mut attacker, &mut target);
+        let after_first = target.speed;
+        assert!(
+            after_first < before,
+            "the first laying slowed: {after_first}"
+        );
+        let (_, second) = strike(
+            &mut attacker,
+            &mut target,
+            &mut Rng::seeded(6),
+            EffectSide::Player,
+        );
+        assert!(
+            target.speed < after_first,
+            "the re-hit slows again before it is stacked"
+        );
+        receive(&mut active, second.unwrap(), &mut attacker, &mut target);
+        assert_eq!(
+            target.speed, after_first,
+            "the re-hit's taking is handed straight back"
+        );
+        assert_eq!(active.len(), 1, "the two layings are one running effect");
+        assert_eq!(
+            active[0].remaining,
+            2 * EFFECT_DURATION_BLOWS,
+            "the counts add"
+        );
+        assert_eq!(
+            active[0].taken,
+            before - after_first,
+            "it took the amount once"
+        );
+        // Four of the target's swings spend the two layings: two apiece.
+        spend(
+            &mut active,
+            EffectSide::Guardian,
+            &mut attacker,
+            &mut target,
+        );
+        spend(
+            &mut active,
+            EffectSide::Guardian,
+            &mut attacker,
+            &mut target,
+        );
+        assert_eq!(
+            active[0].remaining, EFFECT_DURATION_BLOWS,
+            "the first laying is spent"
+        );
+        spend(
+            &mut active,
+            EffectSide::Guardian,
+            &mut attacker,
+            &mut target,
+        );
+        assert_eq!(active[0].remaining, 1, "the second laying is nearly spent");
+        spend(
+            &mut active,
+            EffectSide::Guardian,
+            &mut attacker,
+            &mut target,
+        );
+        assert!(active.is_empty(), "the second laying ran out");
+        assert_eq!(target.speed, before, "the fall comes back");
+    }
+
+    /// The report carries what was acting at each blow, so a replay half-way
+    /// through draws what was acting then rather than what is acting now.
+    #[test]
+    fn the_report_says_what_was_acting_at_each_blow() {
+        let round = |index: u32, effects: Vec<ActiveEffect>| DuelRound {
+            index,
+            attacker: PLAYER_NAME.to_owned(),
+            art: None,
+            dodged: false,
+            damage: 10,
+            target_health: 100 - index,
+            effect: None,
+            effects,
+        };
+        let chill = |remaining| ActiveEffect {
+            target: EffectSide::Guardian,
+            kind: StrikeEffect::Slow { permille: 179 },
+            remaining,
+            taken: 280,
+        };
+        let report = DuelReport {
+            rounds: vec![
+                round(1, vec![chill(2)]),
+                round(2, vec![chill(1)]),
+                round(3, vec![]),
+            ],
+            won: true,
+            player: brute("you", 100, 10, 10),
+            opponent: brute("foe", 100, 10, 10),
+        };
+        let (player, opponent) = report.effects_after(0);
+        assert!(
+            player.is_empty() && opponent.is_empty(),
+            "nothing shown yet"
+        );
+        let (player, opponent) = report.effects_after(1);
+        assert!(player.is_empty(), "the chill is on the other side");
+        assert_eq!(opponent.len(), 1);
+        assert_eq!(opponent[0].remaining, 2, "the first blow laid it whole");
+        let (_, opponent) = report.effects_after(2);
+        assert_eq!(opponent[0].remaining, 1, "the count walked down");
+        let (_, opponent) = report.effects_after(3);
+        assert!(opponent.is_empty(), "and it lapsed");
     }
 
     /// 轻身 and 凝神 are spent the same way, and hand back what they gave: the
@@ -965,7 +1196,6 @@ mod tests {
                 hits: 1,
                 band_permille: (0, 0),
                 effect: Some(StrikeEffect::Haste { permille: 200 }),
-                marked: false,
                 mastery_permille: 0,
             }),
             ..brute("fighter", 10_000, 100, 100)
@@ -999,7 +1229,6 @@ mod tests {
                 hits: 1,
                 band_permille: (0, 0),
                 effect: Some(StrikeEffect::Focus { hit: 80 }),
-                marked: false,
                 mastery_permille: 0,
             }),
             ..brute("fighter", 10_000, 100, 10)
@@ -1145,7 +1374,6 @@ mod tests {
                 hits: 1,
                 band_permille: (0, 0),
                 effect: None,
-                marked: false,
                 mastery_permille: 0,
             }),
             ..brute("fighter", 1_000, 100, 10)
@@ -1192,7 +1420,6 @@ mod tests {
                     hits: 1,
                     band_permille: (0, 0),
                     effect: None,
-                    marked: false,
                     mastery_permille,
                 }),
                 ..brute("fighter", 10_000, 1_000, 10)
@@ -1249,7 +1476,6 @@ mod tests {
                 hits: 1,
                 band_permille: (0, 0),
                 effect: None,
-                marked: false,
                 mastery_permille: 0,
             }),
             ..brute("fighter", 100_000, 2_005, 10)

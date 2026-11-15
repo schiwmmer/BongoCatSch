@@ -759,11 +759,11 @@ impl StrikeShape {
 /// What one landing blow does besides the hurt.
 ///
 /// A 外功 that only multiplies is a number with a name; these are the names
-/// that change how the rest of the fight reads. Each is laid on the first blow
-/// that gets through and holds for the thrower's own next swings — the count is
-/// `EFFECT_DURATION_BLOWS`, and the fight hands it back when it runs out — so a
-/// fight against a 寒劲 art is a fight against a slow hand for a moment rather
-/// than against a second, identical swing.
+/// that change how the rest of the fight reads. Each is laid on every blow that
+/// gets through and holds for the swings of whoever it acts on — the count is
+/// `EFFECT_DURATION_BLOWS`, a second laying adds to it, and the fight hands it
+/// back when it runs out — so a fight against a 寒劲 art is a fight against a
+/// slow hand for a moment rather than against a second, identical swing.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum StrikeEffect {
     /// 寒劲: the target's 速度 falls.
@@ -784,7 +784,19 @@ pub enum StrikeEffect {
     },
 }
 
-impl StrikeEffect {}
+impl StrikeEffect {
+    /// Whether the effect serves the fighter it acts on rather than hindering it.
+    ///
+    /// A 寒劲 slows whoever it is laid on; a 轻身 or 凝神 lifts whoever it is
+    /// laid on. The distinction is what lets a side's row of effects read as
+    /// what is being done *to* it and what it is doing for itself.
+    pub const fn helps(self) -> bool {
+        match self {
+            Self::Slow { .. } => false,
+            Self::Haste { .. } | Self::Focus { .. } => true,
+        }
+    }
+}
 
 /// How many pomodoros the given 阶 prints: 1, 2, 3, 4, 5, 7, 10, 14, 20, 29.
 ///
