@@ -27,13 +27,14 @@ use std::time::{Duration, Instant};
 /// How far apart two blows of the replay are shown.
 ///
 /// Fast enough that a thirty-blow fight is over in a few seconds, slow enough
-/// that a reader can follow who is hitting whom.
-pub(super) const REVEAL_INTERVAL: Duration = Duration::from_millis(250);
+/// that a reader can follow who is hitting whom. The reader asked for the whole
+/// ladder to be slower, so this is twice the interval the popup opened with.
+pub(super) const REVEAL_INTERVAL: Duration = Duration::from_millis(500);
 
 /// The same interval in microseconds, so a faster speed can cut it exactly.
 ///
-/// The pacing arithmetic wants whole numbers, and 250ms does not divide by
-/// every speed: at 4x the gap is 62.5ms, which an integer millisecond count
+/// The pacing arithmetic wants whole numbers, and 500ms does not divide by
+/// every speed: at 8x the gap is 62.5ms, which an integer millisecond count
 /// would quietly round to 62 — a speed a little faster than the one its button
 /// claims. Microseconds keep 1x/2x/4x/8x exact.
 const REVEAL_INTERVAL_US: i64 = REVEAL_INTERVAL.as_micros() as i64;
@@ -1683,10 +1684,10 @@ mod tests {
 
     /// The gap the replay paces itself by, at each of the four speeds.
     ///
-    /// 4x and 8x do not divide 250ms into whole milliseconds — 62.5 and 31.25 —
-    /// so the arithmetic is in microseconds. A millisecond count would round
-    /// those down and leave the popup playing a little faster than the button it
-    /// has pressed claims.
+    /// 8x does not divide 500ms into whole milliseconds — 62.5 — so the
+    /// arithmetic is in microseconds. A millisecond count would round that down
+    /// and leave the popup playing a little faster than the button it has
+    /// pressed claims.
     #[test]
     fn the_gap_between_blows_is_cut_by_the_speed_exactly() {
         let interval = |divisor| {
@@ -1694,8 +1695,8 @@ mod tests {
         };
         assert_eq!(interval(1), REVEAL_INTERVAL_US);
         assert_eq!(interval(2), REVEAL_INTERVAL_US / 2);
-        assert_eq!(interval(4), 62_500);
-        assert_eq!(interval(8), 31_250);
+        assert_eq!(interval(4), 125_000);
+        assert_eq!(interval(8), 62_500);
     }
 
     /// The same stretch of time owes more blows at a faster speed: the speed is
