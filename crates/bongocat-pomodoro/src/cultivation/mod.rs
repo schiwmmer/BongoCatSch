@@ -90,7 +90,7 @@ pub use drop::{
 };
 pub use duel::{
     ActiveEffect, ArtStrike, DUEL_RECORD_CAP, DUEL_ROUND_CAP, DuelRecord, DuelReport, DuelRound,
-    EFFECT_DURATION_BLOWS, EffectSide, FightKind, Fighter, GUARDIAN_NAME, PLAYER_NAME,
+    EFFECT_DURATION_BLOWS, EffectSide, FightKind, Fighter, GUARDIAN_NAME, PLAYER_NAME, ReplaySpeed,
     WANDERER_NAME,
 };
 pub use events::{BATTLE_REPLAY_CAP, BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind};

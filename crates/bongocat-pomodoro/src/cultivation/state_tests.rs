@@ -2131,3 +2131,34 @@ fn a_zero_seed_still_produces_a_salt() {
         "a zero seed must not collapse onto the same salt as a non-zero one"
     );
 }
+
+/// A fresh save replays a fight at 1x, and a speed the reader chose is the one
+/// the next replay opens at — carried on the view rather than remembered by the
+/// popup, so a popup that never opened cannot forget it.
+#[test]
+fn a_chosen_replay_speed_is_kept_and_read_back_off_the_view() {
+    let mut cultivation = Cultivation::default();
+    assert_eq!(
+        cultivation.replay_speed(),
+        ReplaySpeed::DEFAULT,
+        "a save that has never been asked plays at 1x"
+    );
+    assert!(cultivation.set_replay_speed(4));
+    assert_eq!(cultivation.replay_speed().divisor(), 4);
+    assert_eq!(
+        cultivation.view().duel_replay_speed.divisor(),
+        4,
+        "the view is what the popup reads the speed from"
+    );
+    // A divisor the popup has no button for is refused rather than stored: the
+    // control could not show the speed it is playing at.
+    assert!(
+        !cultivation.set_replay_speed(3),
+        "3x is not one of the four the popup offers"
+    );
+    assert_eq!(
+        cultivation.replay_speed().divisor(),
+        4,
+        "a refused speed leaves the last one chosen standing"
+    );
+}

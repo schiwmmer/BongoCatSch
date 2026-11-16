@@ -21,9 +21,9 @@ use super::{
     DuelReport, EQUIPMENT_DROP_PERMILLE, EquipSlot, EquipmentRecord, ExpeditionInProgress,
     ExplorationOutcome, FREE_POINTS_PER_LEVEL, Fighter, GatherSite, GearEffect, GearSetView,
     Guardian, MAX_LEVEL, MAX_STAR, MAX_TRADE_LEVEL, MasteredArtView, OwnedArt, PLAYER_NAME,
-    RECENT_ARTS_CAP, Rarity, Realm, Refusal, Resource, ResourceBag, Rng, SEED_DROP_PERMILLE,
-    SESSION_BONUS_PERMILLE, SLOT_COUNT, SeedStack, SessionMode, VICTORY_SEED_PERMILLE,
-    absence_penalty, art_attributes, art_view,
+    RECENT_ARTS_CAP, Rarity, Realm, Refusal, ReplaySpeed, Resource, ResourceBag, Rng,
+    SEED_DROP_PERMILLE, SESSION_BONUS_PERMILLE, SLOT_COUNT, SeedStack, SessionMode,
+    VICTORY_SEED_PERMILLE, absence_penalty, art_attributes, art_view,
     arts::{
         art_bonus, art_set_bonus, art_set_views, blueprint, mastered_art_attributes,
         mastered_art_bonus, mastered_art_view, train,
@@ -998,6 +998,11 @@ pub struct CultivationView {
     pub derived_breakdowns: Vec<DerivedBreakdown>,
     /// The fights fought, newest first.
     pub duel_record: Vec<DuelRecord>,
+    /// How fast a replayed fight plays, as the divisor of the reveal interval.
+    ///
+    /// Read from the save rather than held by the popup so the next replay
+    /// opens at the speed the last one was watched at.
+    pub duel_replay_speed: ReplaySpeed,
     /// What the last walk settled, kept past the quit that ended its popup.
     pub last_walk: Option<WalkRecord>,
     /// What has happened lately, newest first: sessions, walks, 功法 turning

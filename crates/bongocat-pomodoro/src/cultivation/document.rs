@@ -14,7 +14,7 @@ use super::{
     MAX_PLOT_COUNT, OwnedArt, PlotRecord, RECENT_ARTS_CAP, SLOT_COUNT, STAGE_COUNT, SeedStack,
     blueprint,
     curve::{self, level_for_growth, stage_floor},
-    duel::{DUEL_RECORD_CAP, DuelRecord},
+    duel::{DUEL_RECORD_CAP, DuelRecord, ReplaySpeed},
     events::{EVENT_LOG_CAP, EventRecord},
     explore::Region,
     explore::WalkInProgress,
@@ -222,6 +222,14 @@ pub struct CultivationDocument {
     /// fights went would be showing the ladder without its history.
     #[serde(default)]
     pub duel_record: Vec<DuelRecord>,
+    /// How fast a replayed fight plays, as the divisor of the reveal interval.
+    ///
+    /// A viewing preference, but it lives here because the replay is drawn from
+    /// this document's own log: a fight can only be replayed while its report is
+    /// in [`Self::events`], so the speed that plays it back belongs to the same
+    /// save rather than to a settings file that outlives the fight it paces.
+    #[serde(default)]
+    pub duel_replay_speed: ReplaySpeed,
     /// What the last walk settled, kept past the quit that ends its popup.
     #[serde(default)]
     pub last_walk: Option<WalkRecord>,
@@ -573,6 +581,11 @@ impl CultivationDocument {
         // A hand-edited save could carry a thousand lines of history; the record
         // is a window, so it is cut back to the window here rather than trusted.
         self.duel_record.truncate(DUEL_RECORD_CAP);
+        // A replay speed is one of four buttons; a number outside them can only
+        // have been written by hand, and a popup playing at a speed with no
+        // button is a popup whose control lies about what it is doing.
+        self.duel_replay_speed = ReplaySpeed::from_divisor(self.duel_replay_speed.divisor())
+            .unwrap_or(ReplaySpeed::DEFAULT);
         // The event log is a window too, and a hand-edited save could carry a
         // season of entries; cut it back to the window here rather than trust it.
         self.events.truncate(EVENT_LOG_CAP);
@@ -799,6 +812,36 @@ mod tests {
             "the peak is the level the stored growth already reached"
         );
         assert_eq!(document.allocated, Attributes::default());
+    }
+
+    /// A save written before the speed control existed has no speed in it, and
+    /// plays at 1x — the one the control opens on.
+    #[test]
+    fn a_save_written_before_the_speed_control_existed_plays_at_one_x() {
+        let parsed: CultivationDocument =
+            serde_json::from_str(r#"{"growth":1000}"#).expect("the older shape loads");
+        assert_eq!(parsed.duel_replay_speed, ReplaySpeed::DEFAULT);
+        assert_eq!(parsed.normalized().duel_replay_speed, ReplaySpeed::DEFAULT);
+    }
+
+    /// A speed outside the four buttons can only have been written by hand, and
+    /// is folded back to a speed the popup can show rather than trusted.
+    #[test]
+    fn a_hand_edited_speed_is_folded_back_to_one_the_popup_offers() {
+        let parsed: CultivationDocument =
+            serde_json::from_str(r#"{"duel_replay_speed":3}"#).expect("a number loads");
+        assert_eq!(
+            parsed.normalized().duel_replay_speed,
+            ReplaySpeed::DEFAULT,
+            "3x has no button, so it cannot be what the popup plays at"
+        );
+        let parsed: CultivationDocument =
+            serde_json::from_str(r#"{"duel_replay_speed":8}"#).expect("a number loads");
+        assert_eq!(
+            parsed.normalized().duel_replay_speed.divisor(),
+            8,
+            "a speed the control does offer is kept as written"
+        );
     }
 
     #[test]

@@ -336,6 +336,59 @@ impl DuelReport {
     }
 }
 
+/// How many times faster than real time a replayed fight plays.
+///
+/// The popup paces itself off a fixed reveal interval — one blow every quarter
+/// second at 1x — so a speed is naturally the number that interval is divided
+/// by, and 1x/2x/4x/8x are the four the control offers. Stored as that divisor
+/// rather than as a duration because a duration would have to be re-derived
+/// from the interval every time the popup opened, and the two could then drift.
+///
+/// A number the control cannot offer is folded back to [`ReplaySpeed::DEFAULT`]
+/// when the save is loaded (see `CultivationDocument::normalized`) rather than
+/// being trusted: a hand-edited save must not leave the popup playing at a
+/// speed that has no button.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct ReplaySpeed(u8);
+
+impl Default for ReplaySpeed {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+impl ReplaySpeed {
+    /// What a save written before the control existed plays at, and what a
+    /// handed-in divisor the control cannot offer falls back to.
+    pub const DEFAULT: Self = Self(1);
+
+    /// The speeds the popup offers, slowest first — the order its buttons are
+    /// drawn in, so a user who wants it faster reads left to right.
+    pub const ALL: [Self; 4] = [Self(1), Self(2), Self(4), Self(8)];
+
+    /// The number the reveal interval is divided by.
+    pub const fn divisor(self) -> u8 {
+        self.0
+    }
+
+    /// The label its button prints. Digits and an `x`, which read the same in
+    /// every catalog, so the control carries no catalog key of its own.
+    pub const fn label(self) -> &'static str {
+        match self.0 {
+            2 => "2x",
+            4 => "4x",
+            8 => "8x",
+            _ => "1x",
+        }
+    }
+
+    /// The speed a stored divisor names, or `None` when it names none of them.
+    pub fn from_divisor(divisor: u8) -> Option<Self> {
+        Self::ALL.into_iter().find(|speed| speed.0 == divisor)
+    }
+}
+
 /// Settle one fight.
 ///
 /// The meters are what make 速度 matter: each side fills at its own rate and acts
@@ -1543,5 +1596,35 @@ mod tests {
         let report = duel(left, right, &mut Rng::seeded(6));
         assert!(report.rounds.len() <= DUEL_ROUND_CAP as usize);
         assert!(!report.won, "nobody went down");
+    }
+
+    /// The four speeds the popup offers, and the one a save that says nothing
+    /// plays at.
+    ///
+    /// The list is the control's order as well as its contents, so a speed that
+    /// is in the popup but not in `ALL` would be one the buttons cannot reach.
+    #[test]
+    fn a_replay_speed_is_one_of_the_four_the_popup_offers() {
+        assert_eq!(
+            ReplaySpeed::DEFAULT,
+            ReplaySpeed::from_divisor(1).expect("1x is offered"),
+            "a save written before the control existed plays at 1x"
+        );
+        assert_eq!(ReplaySpeed::ALL.map(ReplaySpeed::divisor), [1, 2, 4, 8]);
+        assert_eq!(
+            ReplaySpeed::ALL.map(ReplaySpeed::label),
+            ["1x", "2x", "4x", "8x"],
+            "the labels are the divisors, read as a speed"
+        );
+        for divisor in [1, 2, 4, 8] {
+            let speed = ReplaySpeed::from_divisor(divisor).expect("the popup offers it");
+            assert_eq!(speed.divisor(), divisor);
+            assert_eq!(speed.label(), format!("{divisor}x"));
+        }
+        // A number with no button is not a speed the popup can play at, so it is
+        // refused rather than stored and left for the control to misreport.
+        for divisor in [0, 3, 5, 16] {
+            assert_eq!(ReplaySpeed::from_divisor(divisor), None);
+        }
     }
 }

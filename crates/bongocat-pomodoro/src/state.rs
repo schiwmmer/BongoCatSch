@@ -11,7 +11,7 @@ use std::{collections::BTreeMap, time::Duration};
 
 use crate::{
     CalendarDay, CalendarDayTotal, CalendarTaskActivity, Cultivation, CultivationView, EquipSlot,
-    MAX_FOCUS_MINUTES, MAX_TASK_NAME_CHARS, MIN_FOCUS_MINUTES, Refusal, SessionMode,
+    MAX_FOCUS_MINUTES, MAX_TASK_NAME_CHARS, MIN_FOCUS_MINUTES, Refusal, ReplaySpeed, SessionMode,
     document::{Document, LiveSessionRecord, TaskRecord, TaskStatus, read_document},
 };
 use serde::Serialize;
@@ -361,6 +361,14 @@ pub enum PomodoroCommand {
     /// or gathers at one site — so choosing one replaces the other. A running
     /// session is not disturbed: the mode is read when it finishes.
     SelectSessionMode { mode: crate::SessionMode },
+    /// Choose how fast a replayed fight plays, as the divisor of the reveal
+    /// interval — 1, 2, 4 or 8.
+    ///
+    /// A viewing preference, but it is persisted with the ladder because the
+    /// replay is drawn from the same save: the next popup opens at the speed
+    /// the last one was watched at rather than at a default the user has
+    /// already moved off.
+    SetReplaySpeed { speed: u8 },
     /// Feed one 潜质 herb to the body: 悟心草 or 慧心草.
     ///
     /// The page feeds a herb the moment it is found, so this command only ever
@@ -434,6 +442,11 @@ impl PomodoroCommand {
             | Self::UseAptitudeHerb { .. }
             | Self::UseMarrowPill
             | Self::AcknowledgeDailyEvent { .. } => true,
+            // The one command of the four speeds that can be refused: a divisor
+            // the popup has no button for changes nothing, so the document is not
+            // rewritten for it. `apply` still bumps the revision, because a
+            // caller that asked deserves an answer.
+            Self::SetReplaySpeed { speed } => ReplaySpeed::from_divisor(*speed).is_some(),
         }
     }
 }
@@ -827,6 +840,12 @@ impl PomodoroState {
             }
             PomodoroCommand::SelectSessionMode { mode } => {
                 self.cultivation.set_session_mode(mode);
+            }
+            PomodoroCommand::SetReplaySpeed { speed } => {
+                // A divisor outside the four is refused here and reported as a
+                // no-change by `changes_the_document`, so a bad caller costs a
+                // revision bump and nothing on disk.
+                self.cultivation.set_replay_speed(speed);
             }
             PomodoroCommand::UseAptitudeHerb { herb } => {
                 if let Err(refusal) = self.cultivation.use_aptitude_herb(herb, now_unix) {
@@ -1964,7 +1983,8 @@ mod tests {
 
     /// The four timer commands outlive the session now: the countdown in flight
     /// is in the document, so pausing, resuming, starting and abandoning all
-    /// have something to write.
+    /// have something to write. A replay speed is in the document too, but only
+    /// one of the four the popup offers actually changes it.
     #[test]
     fn only_the_document_changing_commands_ask_for_a_write() {
         assert!(PomodoroState::command_writes_the_document(
@@ -1988,6 +2008,14 @@ mod tests {
         assert!(PomodoroState::command_writes_the_document(
             &PomodoroCommand::SetFocusMinutes { minutes: 30 }
         ));
+        assert!(PomodoroState::command_writes_the_document(
+            &PomodoroCommand::SetReplaySpeed { speed: 4 }
+        ));
+        let refused = PomodoroCommand::SetReplaySpeed { speed: 3 };
+        assert!(
+            !PomodoroState::command_writes_the_document(&refused),
+            "a speed the popup has no button for leaves the document alone"
+        );
     }
 
     #[test]

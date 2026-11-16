@@ -587,6 +587,7 @@ impl SettingsView {
         self.cultivation_duel = Some(CultivationDuel::new(
             CultivationDuelSource::Daily,
             cultivation_duel::CultivationDuelPayload::Daily(event),
+            cultivation.duel_replay_speed,
         ));
         cx.notify();
     }
@@ -685,7 +686,11 @@ impl SettingsView {
         }
         self.cultivation_duel_pending = None;
         if let Some(payload) = payload {
-            self.cultivation_duel = Some(CultivationDuel::new(source, payload));
+            self.cultivation_duel = Some(CultivationDuel::new(
+                source,
+                payload,
+                cultivation.duel_replay_speed,
+            ));
         }
         cx.notify();
     }
@@ -754,9 +759,11 @@ impl SettingsView {
             bongocat_pomodoro::EventDetail::Walk { .. } => CultivationDuelSource::Exploration,
             _ => return,
         };
+        let speed = self.pomodoro.snapshot().cultivation.duel_replay_speed;
         self.cultivation_duel = Some(CultivationDuel::new(
             source,
             cultivation_duel::CultivationDuelPayload::Replay(report.clone()),
+            speed,
         ));
         cx.notify();
     }

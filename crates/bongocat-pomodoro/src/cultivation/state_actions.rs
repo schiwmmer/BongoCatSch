@@ -722,6 +722,25 @@ impl Cultivation {
         self.document.session_mode = mode;
     }
 
+    /// How fast a replayed fight plays.
+    pub fn replay_speed(&self) -> ReplaySpeed {
+        self.document.duel_replay_speed
+    }
+
+    /// Choose how fast a replayed fight plays, as the divisor of the reveal
+    /// interval.
+    ///
+    /// Refused when the divisor is not one the popup offers: the control can
+    /// only ever send one of the four, and a command that could set a fifth
+    /// would leave the popup playing at a speed its own buttons cannot show.
+    pub fn set_replay_speed(&mut self, divisor: u8) -> bool {
+        let Some(speed) = ReplaySpeed::from_divisor(divisor) else {
+            return false;
+        };
+        self.document.duel_replay_speed = speed;
+        true
+    }
+
     /// Raise one building a rank for 灵石 and the gathered tribute.
     ///
     /// Refused at the top of a building's ladder, or when the purse cannot
@@ -2980,6 +2999,7 @@ impl Cultivation {
             next_session_growth: self.next_session_growth(day),
             derived_breakdowns: attribute_derived.breakdowns(attributes, bonus, level),
             duel_record: self.document.duel_record.clone(),
+            duel_replay_speed: self.document.duel_replay_speed,
             last_walk: self.document.last_walk.clone(),
             events: self.document.events.clone(),
             stones: self.document.stones,

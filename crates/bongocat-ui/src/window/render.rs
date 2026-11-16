@@ -1802,6 +1802,30 @@ impl Render for SettingsView {
                             });
                         }
                     }),
+                    on_speed: Rc::new({
+                        let view = view.clone();
+                        move |speed: bongocat_pomodoro::ReplaySpeed,
+                              window: &mut Window,
+                              cx: &mut App| {
+                            let _ = view.update(cx, |view, cx| {
+                                // The popup moves at once and the save follows:
+                                // the speed is what the reader asked for, and a
+                                // command that lost its place in the queue must
+                                // not leave the next replay at the old rate
+                                // while this one plays at the new.
+                                if let Some(duel) = view.cultivation_duel.as_mut() {
+                                    duel.set_speed(speed);
+                                }
+                                let _ = view.pomodoro.try_publish(
+                                    bongocat_pomodoro::PomodoroCommand::SetReplaySpeed {
+                                        speed: speed.divisor(),
+                                    },
+                                );
+                                cx.notify();
+                                let _ = window;
+                            });
+                        }
+                    }),
                     on_close: Rc::new(move |window: &mut Window, cx: &mut App| {
                         let _ = view.update(cx, |view, cx| {
                             view.cultivation_duel = None;
@@ -1874,8 +1898,13 @@ impl Render for SettingsView {
             .child(div().min_h_0().w_full().flex_1().child(settings))
             .child(model_drag_exit_listener)
             .children(model_drag_overlay)
-            .children(cultivation_duel_overlay)
+            // The fight goes over the event list, not under it: the list's own
+            // 重播 button is what opens a replay, and a popup drawn beneath the
+            // list it was opened from is a popup the click appears to have
+            // dropped. Closing the fight hands the list back, which is where the
+            // reader was.
             .children(cultivation_events_overlay)
+            .children(cultivation_duel_overlay)
             .into_any_element()
     }
 }

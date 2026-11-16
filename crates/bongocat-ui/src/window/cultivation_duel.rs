@@ -17,10 +17,11 @@ use bongocat_i18n::{format_text, text};
 use bongocat_pomodoro::{
     ActiveEffect, ArtStrike, BreakthroughOutcome, DailyOutcome, DuelReport, DuelRound,
     EFFECT_DURATION_BLOWS, ExplorationFindView, ExplorationOutcome, Fighter, GUARDIAN_NAME,
-    PLAYER_NAME, ProvingOutcome, StrikeEffect, TRIAL_OPPONENT_NAME, TrialOutcome, WANDERER_NAME,
+    PLAYER_NAME, ProvingOutcome, ReplaySpeed, StrikeEffect, TRIAL_OPPONENT_NAME, TrialOutcome,
+    WANDERER_NAME,
 };
 use gpui_kit::base::TestSupportExt as _;
-use gpui_kit::component::Sizable as _;
+use gpui_kit::component::{Selectable as _, Sizable as _};
 use std::time::{Duration, Instant};
 
 /// How far apart two blows of the replay are shown.
@@ -29,10 +30,28 @@ use std::time::{Duration, Instant};
 /// that a reader can follow who is hitting whom.
 pub(super) const REVEAL_INTERVAL: Duration = Duration::from_millis(250);
 
+/// The same interval in microseconds, so a faster speed can cut it exactly.
+///
+/// The pacing arithmetic wants whole numbers, and 250ms does not divide by
+/// every speed: at 4x the gap is 62.5ms, which an integer millisecond count
+/// would quietly round to 62 — a speed a little faster than the one its button
+/// claims. Microseconds keep 1x/2x/4x/8x exact.
+const REVEAL_INTERVAL_US: i64 = REVEAL_INTERVAL.as_micros() as i64;
+
+/// How far apart two blows are drawn at `speed`.
+fn reveal_interval_us(speed: ReplaySpeed) -> i64 {
+    REVEAL_INTERVAL_US / i64::from(speed.divisor())
+}
+
 /// What one button of the popup does. A type of its own because the three of
 /// them are handed around together, and a bare `Rc<dyn Fn(..)>` in every
 /// signature is noise.
 type DuelAction = Rc<dyn Fn(&mut Window, &mut App)>;
+
+/// What choosing one of the four speeds does. The speed itself travels rather
+/// than the button's position, so the control can be reordered without the
+/// wiring changing.
+type DuelSpeed = Rc<dyn Fn(ReplaySpeed, &mut Window, &mut App)>;
 
 /// How wide the fight is drawn.
 ///
@@ -103,16 +122,37 @@ pub(crate) struct CultivationDuel {
     pub(crate) revealed: usize,
     /// When the replay started, which is what paces the blows.
     pub(crate) started: Instant,
+    /// How many times faster than real time the blows are shown.
+    ///
+    /// Held here rather than read from the snapshot every frame because the
+    /// control has to take effect on the click: a speed that only landed when
+    /// the worker answered would leave the popup playing at the old rate for a
+    /// moment after the user had already been shown the new one.
+    pub(crate) speed: ReplaySpeed,
 }
 
 impl CultivationDuel {
-    pub(crate) fn new(source: CultivationDuelSource, payload: CultivationDuelPayload) -> Self {
+    pub(crate) fn new(
+        source: CultivationDuelSource,
+        payload: CultivationDuelPayload,
+        speed: ReplaySpeed,
+    ) -> Self {
         Self {
             source,
             payload,
             revealed: 0,
             started: Instant::now(),
+            speed,
         }
+    }
+
+    /// Play the fight at another speed, without disturbing what is on screen.
+    ///
+    /// The clock is not restarted and `revealed` is not rewound: the blows
+    /// already shown stay shown, and the next one is simply due sooner. A speed
+    /// changed mid-fight is a reading preference, not a second replay.
+    pub(crate) fn set_speed(&mut self, speed: ReplaySpeed) {
+        self.speed = speed;
     }
 
     /// The blows of the fight, when one settled it.
@@ -234,7 +274,8 @@ impl CultivationDuel {
     /// no timer of its own. The elapsed time rather than a per-tick step is what
     /// keeps the pacing even when the poll and the interval drift apart.
     pub(crate) fn advance(&mut self) -> bool {
-        let owed = (self.started.elapsed().as_millis() / REVEAL_INTERVAL.as_millis()) as usize;
+        let interval = reveal_interval_us(self.speed);
+        let owed = (self.started.elapsed().as_micros() as i64 / interval) as usize;
         let owed = owed.min(self.rounds().len());
         if owed <= self.revealed {
             return false;
@@ -271,6 +312,7 @@ impl CultivationDuel {
 pub(super) struct CultivationDuelActions {
     pub(super) on_replay: DuelAction,
     pub(super) on_skip: DuelAction,
+    pub(super) on_speed: DuelSpeed,
     pub(super) on_close: DuelAction,
 }
 
@@ -296,6 +338,7 @@ pub(super) fn render(
     let rounds = &duel.rounds()[..shown];
     let on_replay = actions.on_replay;
     let on_skip = actions.on_skip;
+    let on_speed = actions.on_speed;
     let on_close = actions.on_close;
     let close_from_backdrop = on_close.clone();
     div()
@@ -328,7 +371,7 @@ pub(super) fn render(
                 .border_1()
                 .border_color(tokens.border)
                 .occlude()
-                .child(header(duel, locale, tokens, on_replay, on_close))
+                .child(header(duel, locale, tokens, on_replay, on_speed, on_close))
                 .children(health_bars(duel, locale, tokens))
                 .children(fighter_columns(duel, locale, tokens))
                 .child(log(
@@ -345,12 +388,19 @@ pub(super) fn render(
         .into_any_element()
 }
 
-/// The title, and the two buttons that act on the replay.
+/// The title, the speed the fight plays at, and the buttons that act on it.
+///
+/// The speed sits on the right, beside the two buttons rather than on its own
+/// row: it is read while the fight runs, and a control that only makes sense
+/// at the top of the popup is a control the reader has to look away from the
+/// blows to find. The title takes the remaining width and is allowed to wrap,
+/// so a long title cannot push the speeds off the panel.
 fn header(
     duel: &CultivationDuel,
     locale: &str,
     tokens: Tokens,
     on_replay: DuelAction,
+    on_speed: DuelSpeed,
     on_close: DuelAction,
 ) -> impl IntoElement {
     let title = title_line(duel, locale);
@@ -360,8 +410,11 @@ fn header(
         .flex_row()
         .items_center()
         .justify_between()
+        .gap_2()
         .child(
             div()
+                .flex_1()
+                .min_w_0()
                 .text_sm()
                 .font_semibold()
                 .text_color(tokens.text)
@@ -373,6 +426,8 @@ fn header(
                 .flex_row()
                 .items_center()
                 .gap_2()
+                .flex_shrink_0()
+                .child(speed_control(duel.speed, on_speed))
                 .child(
                     Button::new("cultivation-duel-replay")
                         .ghost()
@@ -388,6 +443,42 @@ fn header(
                         .on_click(move |_, window, cx| (on_close)(window, cx)),
                 ),
         )
+}
+
+/// The four speeds a fight can be played at, as one row of buttons.
+///
+/// A row rather than a dropdown: the speeds are four short numbers, and a
+/// control that hides three of them behind a click is a control whose current
+/// setting cannot be seen without opening it. The speed the fight is playing
+/// at is drawn pressed and marked as toggled, so it reads as a position rather
+/// than as four independent actions.
+fn speed_control(speed: ReplaySpeed, on_speed: DuelSpeed) -> impl IntoElement {
+    let mut row = div()
+        .id("cultivation-duel-speed")
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .test_support();
+    for option in ReplaySpeed::ALL {
+        row = row.child(speed_button(option, option == speed, on_speed.clone()));
+    }
+    row
+}
+
+/// One speed's button, drawn pressed and marked as the toggle that is on when it
+/// is the speed the fight is playing at.
+///
+/// Its own function so a test can read the state straight off the button: a
+/// highlight that nothing asserts is a highlight nobody has checked.
+fn speed_button(option: ReplaySpeed, active: bool, on_speed: DuelSpeed) -> Button {
+    Button::new(format!("cultivation-duel-speed-{}", option.divisor()))
+        .ghost()
+        .small()
+        .selected(active)
+        .toggled(active)
+        .label(option.label())
+        .on_click(move |_, window, cx| on_speed(option, window, cx))
 }
 
 /// What the fight is called, and — for a breakthrough — the two powers that
@@ -1376,6 +1467,7 @@ mod tests {
                 None,
                 Some(report(blows)),
             ),
+            ReplaySpeed::DEFAULT,
         )
     }
 
@@ -1408,6 +1500,7 @@ mod tests {
         let mut duel = CultivationDuel::new(
             CultivationDuelSource::Exploration,
             CultivationDuelPayload::Exploration(ExplorationOutcome::Nothing, None, None),
+            ReplaySpeed::DEFAULT,
         );
         assert!(duel.rounds().is_empty(), "there was no fight");
         assert!(!duel.fought(), "and so no verdict to draw");
@@ -1427,6 +1520,7 @@ mod tests {
         let duel = CultivationDuel::new(
             CultivationDuelSource::Exploration,
             CultivationDuelPayload::Exploration(ExplorationOutcome::Stones, None, Some(report(6))),
+            ReplaySpeed::DEFAULT,
         );
         assert!(
             duel.rounds().is_empty(),
@@ -1488,6 +1582,7 @@ mod tests {
                 stones: None,
                 seed: None,
             }),
+            ReplaySpeed::DEFAULT,
         );
         assert_eq!(guardian.opponent(), GUARDIAN_NAME);
         assert_eq!(walk(3).opponent(), WANDERER_NAME);
@@ -1500,6 +1595,7 @@ mod tests {
         let duel = CultivationDuel::new(
             CultivationDuelSource::Trial,
             CultivationDuelPayload::Replay(report(6)),
+            ReplaySpeed::DEFAULT,
         );
         assert_eq!(duel.rounds().len(), 6, "the blows are there to replay");
         assert!(duel.fought(), "and so there is a fight to draw");
@@ -1583,5 +1679,89 @@ mod tests {
         assert!(line.contains("磐石刀法"), "{line}");
         assert!(line.contains("2611"), "{line}");
         assert!(line.contains("寒劲 减速 18%"), "{line}");
+    }
+
+    /// The gap the replay paces itself by, at each of the four speeds.
+    ///
+    /// 4x and 8x do not divide 250ms into whole milliseconds — 62.5 and 31.25 —
+    /// so the arithmetic is in microseconds. A millisecond count would round
+    /// those down and leave the popup playing a little faster than the button it
+    /// has pressed claims.
+    #[test]
+    fn the_gap_between_blows_is_cut_by_the_speed_exactly() {
+        let interval = |divisor| {
+            reveal_interval_us(ReplaySpeed::from_divisor(divisor).expect("an offered speed"))
+        };
+        assert_eq!(interval(1), REVEAL_INTERVAL_US);
+        assert_eq!(interval(2), REVEAL_INTERVAL_US / 2);
+        assert_eq!(interval(4), 62_500);
+        assert_eq!(interval(8), 31_250);
+    }
+
+    /// The same stretch of time owes more blows at a faster speed: the speed is
+    /// how many times the fight is shown, not a promise about how it looks.
+    #[test]
+    fn a_faster_speed_shows_more_of_the_fight_in_the_same_time() {
+        // One interval at 1x, which is a fifth of the gap at 4x — enough for the
+        // arithmetic to separate the two without waiting on a clock.
+        let elapsed = REVEAL_INTERVAL;
+
+        let mut slow = walk(8);
+        slow.started = Instant::now() - elapsed;
+        assert!(slow.advance(), "the time that passed owes its blow");
+        assert_eq!(slow.revealed, 1, "1x shows one blow per interval");
+
+        let mut fast = CultivationDuel::new(
+            CultivationDuelSource::Exploration,
+            CultivationDuelPayload::Exploration(ExplorationOutcome::Victory, None, Some(report(8))),
+            ReplaySpeed::from_divisor(4).expect("4x is offered"),
+        );
+        fast.started = Instant::now() - elapsed;
+        assert!(
+            fast.advance(),
+            "4x owes the blows 1x has already waited out"
+        );
+        assert_eq!(fast.revealed, 4, "four of the fight's eight blows");
+    }
+
+    /// A speed changed while the fight runs is a reading preference, not a second
+    /// replay: what has been shown stays shown and the clock is not wound back.
+    #[test]
+    fn a_speed_changed_mid_fight_keeps_what_is_shown() {
+        let mut duel = walk(8);
+        duel.started = Instant::now() - REVEAL_INTERVAL;
+        assert!(duel.advance(), "the first blow is owed");
+        let shown = duel.revealed;
+
+        duel.set_speed(ReplaySpeed::from_divisor(8).expect("8x is offered"));
+        assert_eq!(duel.revealed, shown, "the blows already shown stay shown");
+        assert_eq!(duel.speed.divisor(), 8, "and the next one is due sooner");
+        // The clock was not restarted, so the time already spent still counts:
+        // at 8x that same interval owes eight blows, not one more.
+        duel.started = Instant::now() - REVEAL_INTERVAL;
+        assert!(duel.advance(), "the faster speed owes blows");
+        assert_eq!(duel.revealed, 8);
+    }
+
+    /// The control offers the four speeds the popup can play, in the order they
+    /// are drawn, and only the one being played reads as pressed.
+    #[test]
+    fn the_speed_control_presses_the_speed_it_is_playing_at() {
+        use gpui_kit::component::Selectable as _;
+
+        let on_speed: DuelSpeed = Rc::new(|_, _, _| {});
+        let playing = ReplaySpeed::from_divisor(4).expect("4x is offered");
+        let mut offered = Vec::new();
+        for option in ReplaySpeed::ALL {
+            let button = speed_button(option, option == playing, on_speed.clone());
+            assert_eq!(
+                button.is_selected(),
+                option == playing,
+                "only {} is the speed being played",
+                playing.label()
+            );
+            offered.push(option.label());
+        }
+        assert_eq!(offered, ["1x", "2x", "4x", "8x"]);
     }
 }

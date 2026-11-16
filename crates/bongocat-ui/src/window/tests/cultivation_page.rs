@@ -18,8 +18,8 @@ use bongocat_pomodoro::{
     CultivationDocument, DailyKind, DailyOutcome, Derived, DerivedSlot, DuelReport, DuelRound,
     EventDetail, EventRecord, ExplorationFindView, ExplorationOutcome, Fighter, ItemView, JobKind,
     JobRun, LAYERS_PER_STAGE, OwnedArt, PLAYER_NAME, PlotRecord, PomodoroCommand, PomodoroSnapshot,
-    PomodoroState, ProvingBlocked, Rarity, Realm, ResourceBag, SeedGrade, SeedStack, SessionMode,
-    ShopOffer, TrainingView, TrialBlocked, WANDERER_NAME, threshold_for,
+    PomodoroState, ProvingBlocked, Rarity, Realm, ReplaySpeed, ResourceBag, SeedGrade, SeedStack,
+    SessionMode, ShopOffer, TrainingView, TrialBlocked, WANDERER_NAME, threshold_for,
 };
 use gpui_kit::{PlatformInput, ScrollDelta, ScrollWheelEvent, point, px};
 
@@ -1220,20 +1220,37 @@ fn the_page_draws_the_learned_arts_in_their_own_panel(cx: &mut TestAppContext) {
 ///
 /// The settings window's own frame would put it behind a sidebar and a scroll
 /// view; the popup is what is under test, so the popup is the whole frame.
-struct DuelPopup(CultivationDuel);
+struct DuelPopup {
+    duel: CultivationDuel,
+    /// The speed the last click asked for, so a test can read what the control
+    /// sent without having to read the buttons back off the tree.
+    chosen: Rc<RefCell<Option<ReplaySpeed>>>,
+}
+
+/// The popup under test, with nowhere to report a speed change.
+fn duel_popup(duel: CultivationDuel) -> DuelPopup {
+    DuelPopup {
+        duel,
+        chosen: Rc::new(RefCell::new(None)),
+    }
+}
 
 impl Render for DuelPopup {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let chosen = self.chosen.clone();
         let actions = CultivationDuelActions {
             on_replay: Rc::new(|_, _| {}),
             on_skip: Rc::new(|_, _| {}),
+            on_speed: Rc::new(move |speed, _, _| {
+                *chosen.borrow_mut() = Some(speed);
+            }),
             on_close: Rc::new(|_, _| {}),
         };
         div()
             .id("duel-harness")
             .size_full()
             .child(cultivation_duel::render(
-                &self.0,
+                &self.duel,
                 "en-US",
                 Tokens::from_theme(cx),
                 actions,
@@ -1255,9 +1272,10 @@ fn the_fight_popup_shows_both_sides_and_their_health(cx: &mut TestAppContext) {
             None,
             Some(walk_report()),
         ),
+        ReplaySpeed::DEFAULT,
     );
     let (_, visual) =
-        cx.add_window_view(move |window, cx| Root::new(cx.new(|_| DuelPopup(duel)), window, cx));
+        cx.add_window_view(move |window, cx| Root::new(cx.new(|_| duel_popup(duel)), window, cx));
     visual.update(|window, cx| window.render_frame(cx));
     for id in [
         "cultivation-duel-health-player",
@@ -1279,9 +1297,10 @@ fn a_replay_from_the_log_is_drawn_like_any_other_fight(cx: &mut TestAppContext) 
     let duel = CultivationDuel::new(
         CultivationDuelSource::Trial,
         cultivation_duel::CultivationDuelPayload::Replay(walk_report()),
+        ReplaySpeed::DEFAULT,
     );
     let (_, visual) =
-        cx.add_window_view(move |window, cx| Root::new(cx.new(|_| DuelPopup(duel)), window, cx));
+        cx.add_window_view(move |window, cx| Root::new(cx.new(|_| duel_popup(duel)), window, cx));
     visual.update(|window, cx| window.render_frame(cx));
     for id in [
         "cultivation-duel-health-player",
@@ -1312,11 +1331,12 @@ fn the_log_splits_the_two_sides_left_and_right(cx: &mut TestAppContext) {
             None,
             Some(alternating_report()),
         ),
+        ReplaySpeed::DEFAULT,
     );
     // Every blow at once, so both columns have their lines to be laid out.
     assert!(duel.reveal_all(), "the fight has blows to show");
     let (_, visual) =
-        cx.add_window_view(move |window, cx| Root::new(cx.new(|_| DuelPopup(duel)), window, cx));
+        cx.add_window_view(move |window, cx| Root::new(cx.new(|_| duel_popup(duel)), window, cx));
     visual.update(|window, cx| window.render_frame(cx));
     let (player, opponent) = visual.update(|window, _| {
         let player = window
@@ -1336,6 +1356,67 @@ fn the_log_splits_the_two_sides_left_and_right(cx: &mut TestAppContext) {
     assert!(
         player.size.height > px(0.0) && opponent.size.height > px(0.0),
         "both sides landed blows, so neither column is empty"
+    );
+}
+
+/// The header offers the four speeds the fight can be played at, and the one
+/// clicked is the one the popup is told to play at.
+///
+/// A control whose click goes nowhere is the failure this catches: the four
+/// buttons can all be painted and still leave the replay at the speed it opened
+/// at, which is what a reader would experience as a button that does nothing.
+#[gpui_kit::test]
+fn the_fight_popup_offers_four_speeds_and_sends_the_one_clicked(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let chosen = Rc::new(RefCell::new(None));
+    let duel = CultivationDuel::new(
+        CultivationDuelSource::Exploration,
+        cultivation_duel::CultivationDuelPayload::Exploration(
+            ExplorationOutcome::Victory,
+            None,
+            Some(walk_report()),
+        ),
+        ReplaySpeed::DEFAULT,
+    );
+    let popup = DuelPopup {
+        duel,
+        chosen: chosen.clone(),
+    };
+    let (_, visual) =
+        cx.add_window_view(move |window, cx| Root::new(cx.new(|_| popup), window, cx));
+    visual.update(|window, cx| window.render_frame(cx));
+
+    for id in [
+        "cultivation-duel-speed-1",
+        "cultivation-duel-speed-2",
+        "cultivation-duel-speed-4",
+        "cultivation-duel-speed-8",
+    ] {
+        assert!(painted(visual, id), "the popup must paint {id}");
+    }
+    assert!(
+        chosen.borrow().is_none(),
+        "no speed is chosen before anything is clicked"
+    );
+
+    visual.update(|window, cx| {
+        window.click(ElementId::from("cultivation-duel-speed-8"), cx);
+    });
+    assert_eq!(
+        chosen.borrow().map(ReplaySpeed::divisor),
+        Some(8),
+        "the 8x button sends 8x"
+    );
+
+    // The choice is the reader's to change again: the same control has to carry
+    // a second click, not only the first.
+    visual.update(|window, cx| {
+        window.click(ElementId::from("cultivation-duel-speed-1"), cx);
+    });
+    assert_eq!(
+        chosen.borrow().map(ReplaySpeed::divisor),
+        Some(1),
+        "and the 1x button sends 1x"
     );
 }
 
