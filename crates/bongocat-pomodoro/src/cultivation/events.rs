@@ -265,14 +265,14 @@ pub enum EventDetail {
         /// read as exactly that, which is what they were.
         #[serde(default)]
         stones: Option<u32>,
-    /// How far the win moved the region, in tenths of a percent. A 试炼 is
-    /// one hour of the road, so a win advances it exactly as an hour of
-    /// walking would, floored at the road's smallest step; a loss moves
-    /// nothing and leaves the field absent. An old save's events predate the
-    /// field and read as a bout that did not move the road — which is what
-    /// they were.
-    #[serde(default)]
-    progress: Option<u32>,
+        /// How far the win moved the region, in tenths of a percent. A 试炼 is
+        /// one hour of the road, so a win advances it exactly as an hour of
+        /// walking would, floored at the road's smallest step; a loss moves
+        /// nothing and leaves the field absent. An old save's events predate the
+        /// field and read as a bout that did not move the road — which is what
+        /// they were.
+        #[serde(default)]
+        progress: Option<u32>,
         /// Every blow of the fight that settled it, kept so the line can be
         /// replayed from the log. An old save's events predate the field and
         /// read as a fight that cannot be replayed — which is what they were.

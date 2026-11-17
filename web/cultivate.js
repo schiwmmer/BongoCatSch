@@ -102,6 +102,28 @@ const BUILDINGS = {
   dojo: '道场',
 };
 const MODES = { Study: '修习', Woodcut: '伐木', Mine: '采石', study: '修习', woodcut: '伐木', mine: '采石' };
+// 实时任务的叫法，快照里的 `task`/`seclusion`/`battle` 见 `CultivationView`。
+const TASK_KINDS = { Meditate: '吐纳', Woodcut: '伐木', Stonecut: '采石', Work: '打工' };
+const GATHER_TIERS = { Common: '凡', Spirit: '灵', Divine: '神', Chaos: '混沌' };
+// 采集点阶与内核的门禁一一对应（`GatherTier::unlock_level`）：阶只在「开始」
+// 那一刻定，之后每回合按它结算。`need` 是对应采集等级，页面照抄内核读数，
+// 让够不着的阶直接点不动，而不是点一次被内核拒一次。
+const TASK_TIERS = [
+  ['common', '凡', 1],
+  ['spirit', '灵', 10],
+  ['divine', '神', 20],
+  ['chaos', '混沌', 30],
+];
+
+// 页面选的阶只是默认值：内核的 `optional_tier` 读不懂的字符串会拒命令，
+// 所以发出去之前先夹到表内，不把选择器里的脏值交给内核。
+function gatherTier(tier) {
+  return TASK_TIERS.some(([key]) => key === tier) ? tier : 'common';
+}
+const JOB_GRADE_NAMES = ['黄阶', '玄阶', '地阶', '天阶', '星阶'];
+const BATTLE_KINDS = { Trial: '锁妖塔之战', Proving: '试炼之战', Breakthrough: '破境之战' };
+// 一次闭关的回合数，内核常量 `SECLUSION_TICKS`。快照没带这个总数，先按它写死。
+const SECLUSION_TICKS = 250;
 const REGIONS = [
   ['azure_peaks', '青云山脉', '低阶妖兽盘踞的山脉，适合初入江湖的修士。'],
   ['frozen_wastes', '玄冰荒漠', '千里冰封的荒芜之地，寒属性的法宝与药草藏于其间。'],
@@ -143,6 +165,13 @@ const REFUSALS = {
   TrialNotSweepable: '守关者还不够弱，无法横扫',
   ProvingSpent: '没有试炼次数了',
   ProvingOut: '人不在家',
+  RegionLocked: '该区域尚未开启：先提升境界',
+  TaskRunning: '已有任务进行中，先停掉再开始',
+  TierLocked: '采集等级不足，先去采集升级',
+  SeclusionRunning: '正在闭关，先坐完这一回',
+  BattleRunning: '已有一场战斗在进行，先等它打完',
+  BreakthroughCooling: '破境尚在调息，稍后再来',
+  BattleUnavailable: '这一场现在还无法开始',
   Out: '人不在家',
   Working: '正在打工',
   Spent: '次数已用完',
@@ -207,6 +236,31 @@ function refusalText(refusal) {
   if (!refusal) return null;
   const key = typeof refusal === 'string' ? refusal : Object.keys(refusal)[0];
   return REFUSALS[key] ?? '条件不足';
+}
+
+// 当前任务那一行：任务 > 闭关 > 战斗 > 空闲。全部读快照，不在这里算数。
+function taskLine(c) {
+  const task = c.task;
+  if (task) {
+    const name = TASK_KINDS[task.kind] ?? task.kind ?? '任务';
+    const site = task.site ? SITES[task.site] ?? task.site : '';
+    const tier = task.tier && task.tier !== 'Common' ? GATHER_TIERS[task.tier] ?? '' : '';
+    const place = [site, tier].filter(Boolean).join(' · ');
+    const grade = task.grade != null ? JOB_GRADE_NAMES[task.grade] ?? '' : '';
+    const detail = place || grade;
+    const ticks = `${num(task.ticks_done)} 回合 · 每回合 ${task.tick_seconds} 秒`;
+    return detail ? `${name} · ${detail} · 已进行 ${ticks}` : `${name} · 已进行 ${ticks}`;
+  }
+  if (c.seclusion) {
+    return `闭关 · 回合 ${num(c.seclusion.ticks_done)}/${SECLUSION_TICKS}`;
+  }
+  const battle = c.battle;
+  if (battle) {
+    const name = BATTLE_KINDS[battle.kind] ?? battle.kind ?? '战斗';
+    const floor = battle.kind === 'Trial' && battle.floor ? ` · 第 ${battle.floor} 层` : '';
+    return `${name}${floor} · 回合 ${battle.rounds_done}/${battle.rounds_total}`;
+  }
+  return '空闲';
 }
 
 /* ---------- shared pieces ---------- */
@@ -322,6 +376,12 @@ function statusPage(c, snapshot, ctx) {
           <span class="chip">潜质 ${(c.aptitude_tenths / 10).toFixed(1)}</span>
           <span class="chip">下次专注 +${num(c.next_session_growth)} 成长</span>
           <span class="chip ${c.at_home ? 'jade' : 'accent'}">${c.at_home ? '在家' : '外出中'}</span>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <div class="row-main">
+            <div class="row-title">当前任务</div>
+            <div class="row-sub">${taskLine(c)}</div>
+          </div>
         </div>
         ${
           guardian
@@ -779,7 +839,6 @@ function regionRow(c, idx) {
 }
 
 function outingPage(c) {
-  const expedition = c.resources?.expedition;
   const walk = c.last_walk;
   const work = c.work;
   const idx = (c.explore_region_idx ?? c.region_idx ?? 0) | 0;
@@ -814,26 +873,6 @@ function outingPage(c) {
             ? `<div class="row"><div class="row-main"><div class="row-title">探索冷却</div><div class="row-sub">还需 ${until(c.exploration_ready_at)}</div></div></div>`
             : ''
         }
-        <div class="row">
-          <div class="row-main">
-            <div class="row-title">采集远征</div>
-            <div class="row-sub">
-              ${expedition ? `${SITES[expedition.site]} · ${expedition.hours} 小时 · ${until(expedition.ends_unix)}后归` : '去森林、山麓或矿洞搬木石铁煤'}
-            </div>
-          </div>
-          <div class="row-actions">
-            ${
-              expedition
-                ? `<button class="btn small danger" data-act="cult-return-early">提前收回</button>`
-                : ['forest', 'mountain', 'mine']
-                    .map(
-                      (site) =>
-                        `<button class="btn small" data-act="cult-expedition" data-site="${site}" data-hours="8">${SITES[site]} 8 小时</button>`,
-                    )
-                    .join('')
-            }
-          </div>
-        </div>
         ${
           c.walk_early || c.work_early
             ? `<div class="row"><div class="row-main"><div class="row-title">提前返程</div><div class="row-sub">路上的时间已经花了，这一趟不再结算</div></div><div class="row-actions"><button class="btn small danger" data-act="cult-return-early">叫人回来</button></div></div>`
@@ -1000,7 +1039,81 @@ function towerPage(c) {
 
 /* ---------- workshop ---------- */
 
-function workshopPage(c) {
+// 实时任务与闭关（`docs/0103` §4）。两件事共用一张卡：任务是「点开始 →
+// 实时跑 → 每回合发奖」的那一个槽，闭关不占槽、可以并行，所以它的开始钮
+// 不看 `c.task`。全部读数来自快照，页面不自己算进度。
+function taskCard(c, ctx) {
+  const resources = c.resources ?? {};
+  // 内核只按「这个任务自己的采集等级」门禁，页面取两者中更高的那个，让
+  // 伐木和采石看到同一排阶；被拒的阶点不动，就不必再靠 `last_refusal` 解释。
+  const gatherLevel = Math.max(resources.woodcut?.level ?? 0, resources.stonecut?.level ?? 0);
+  const running = !!c.task;
+  const chosen = gatherTier(ctx?.tier);
+  const tiers = TASK_TIERS.map(([key, label, need]) => {
+    const locked = gatherLevel < need;
+    return `<button class="btn small ${key === chosen ? 'jade' : ''}" data-act="cult-tier" data-tier="${key}" ${locked ? 'disabled' : ''}>${label}${locked ? ` Lv${need}` : ''}</button>`;
+  }).join('');
+  // 打工不走这里：它的开始钮是活计板上的「接下」，接下即开工（`cult-job`）。
+  const starts = [
+    ['cult-meditate', '吐纳'],
+    ['cult-woodcut', '伐木'],
+    ['cult-stonecut', '采石'],
+  ]
+    .map(([act, label]) => `<button class="btn small jade" data-act="${act}" ${running ? 'disabled' : ''}>${label}</button>`)
+    .join('');
+  const seclusion = c.seclusion;
+  return `
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">实时任务</div>
+        <div class="card-hint">${running ? '正在进行，可随时停止' : '当前没有进行中的任务'}</div>
+      </div>
+      <div class="rows">
+        <div class="row">
+          <div class="row-main">
+            <div class="row-title">当前任务</div>
+            <div class="row-sub">${taskLine(c)}</div>
+          </div>
+          <div class="row-actions">
+            ${running ? '<button class="btn small danger" data-act="cult-stop-task">停止</button>' : ''}
+          </div>
+        </div>
+        <div class="row">
+          <div class="row-main">
+            <div class="row-title">采集点阶</div>
+            <div class="row-sub">越深产出越高；伐木去森林，采石去山</div>
+          </div>
+          <div class="row-actions chips">${tiers}</div>
+        </div>
+      </div>
+      <div class="form-row" style="margin-top:14px">${starts}</div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">闭关</div>
+        <div class="card-hint">不占任务槽，可与采集或打工并行</div>
+      </div>
+      <div class="rows">
+        <div class="row">
+          <div class="row-main">
+            <div class="row-title">${seclusion ? `闭关中 · 回合 ${num(seclusion.ticks_done)}/${SECLUSION_TICKS}` : '未在闭关'}</div>
+            <div class="row-sub">${seclusion ? '坐下 25 分钟，出关时按回合结算成长' : '点开始坐下 25 分钟'}</div>
+          </div>
+          <div class="row-actions">
+            ${
+              seclusion
+                ? '<button class="btn small danger" data-act="cult-stop-seclusion">结束闭关</button>'
+                : '<button class="btn small primary" data-act="cult-start-seclusion">开始闭关</button>'
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function workshopPage(c, ctx) {
   const resources = c.resources ?? {};
   const bag = resources.bag ?? {};
   const cap = resources.cap ?? 0;
@@ -1015,6 +1128,8 @@ function workshopPage(c) {
     ['stonecut', '采石', resources.stonecut],
   ];
   return `
+    ${taskCard(c, ctx)}
+
     <div class="card">
       <div class="card-head">
         <div class="card-title">资源</div>
@@ -1117,7 +1232,7 @@ export function renderCultivation(tab, snapshot, ctx) {
     case 'tower':
       return towerPage(c);
     case 'workshop':
-      return workshopPage(c);
+      return workshopPage(c, ctx);
     default:
       return statusPage(c, snapshot, ctx);
   }
@@ -1125,9 +1240,15 @@ export function renderCultivation(tab, snapshot, ctx) {
 
 /* ---------- actions ---------- */
 
-export function handleCultivationAction(data, send, toast) {
+export function handleCultivationAction(data, ctx = {}) {
   const act = data.act;
   if (!act?.startsWith('cult-')) return false;
+  const { send, tier, setTier } = ctx;
+  // 采集点阶是纯页面状态：它只在「开始」那一刻随命令发给内核，选它不发命令。
+  if (act === 'cult-tier') {
+    if (TASK_TIERS.some(([key]) => key === data.tier)) setTier?.(data.tier);
+    return true;
+  }
   const payload = (() => {
     switch (act) {
       case 'cult-alloc':
@@ -1174,10 +1295,23 @@ export function handleCultivationAction(data, send, toast) {
         return { op: 'buy_from_shop', slot: Number(data.slot) };
       case 'cult-explore':
         return { op: 'explore', hours: Number(data.hours) };
-      case 'cult-expedition':
-        return { op: 'start_expedition', site: data.site, hours: Number(data.hours) };
       case 'cult-return-early':
         return { op: 'return_early' };
+      // 实时任务（`docs/0103` §4）：吐纳不挑地方，伐木去森林、采石去山；
+      // 阶是页面选的默认值，内核仍会按采集等级再门禁一次。打工不走这三个钮，
+      // 它在活计板上「接下」即开工。
+      case 'cult-meditate':
+        return { op: 'cult_start_task', kind: 'meditate' };
+      case 'cult-woodcut':
+        return { op: 'cult_start_task', kind: 'woodcut', site: 'forest', tier: gatherTier(tier) };
+      case 'cult-stonecut':
+        return { op: 'cult_start_task', kind: 'stonecut', site: 'mountain', tier: gatherTier(tier) };
+      case 'cult-stop-task':
+        return { op: 'cult_stop_task' };
+      case 'cult-start-seclusion':
+        return { op: 'cult_start_seclusion' };
+      case 'cult-stop-seclusion':
+        return { op: 'cult_stop_seclusion' };
       case 'cult-job':
         return { op: 'accept_job', slot: Number(data.slot) };
       case 'cult-refresh-jobs':

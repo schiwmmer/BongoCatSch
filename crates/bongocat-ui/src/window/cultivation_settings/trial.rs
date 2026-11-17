@@ -140,6 +140,29 @@ pub(super) fn trial_panel(
                 )
                 .child(button),
         );
+    // A fight under way is the panel's first answer to "what is happening": the
+    // tower click started a real-time battle (S5, §5.4), and until its last
+    // round is played the save is fighting. The line names which fight it is and
+    // how far it has got, read off the run rather than recomputed from the clock
+    // — the domain is the only thing that knows which rounds it has played.
+    if let Some(battle) = cultivation.battle.as_ref() {
+        panel = panel.child(
+            div()
+                .id("cultivation-trial-battle")
+                .text_xs()
+                .text_color(tokens.accent)
+                .child(format_text(
+                    locale,
+                    "cultivation.battle.running",
+                    &[
+                        ("kind", text(locale, battle.kind.key()).to_string()),
+                        ("done", battle.rounds_done.to_string()),
+                        ("total", battle.rounds_total.to_string()),
+                    ],
+                ))
+                .test_support(),
+        );
+    }
     // The climb behind the save, when there is one: the floor is the number the
     // user is working on, so the one under it belongs on the panel rather than
     // in a popup that has already closed.

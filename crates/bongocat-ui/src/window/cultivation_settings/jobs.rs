@@ -13,7 +13,7 @@
 
 use super::explore::cooldown_line;
 use super::*;
-use bongocat_pomodoro::JobKind;
+use bongocat_pomodoro::{JobKind, Realm};
 
 /// The board, and the job in flight if there is one.
 ///
@@ -68,9 +68,23 @@ pub(super) fn jobs_panel(
         .gap_1()
         .child(header)
         .children(work_lines(cultivation, locale, tokens));
+    // The 打工 task under way, if the cultivator is working one. A job is "in
+    // hand" on either of the two shapes a save can hold: the legacy hour-job
+    // (`job.working`, kept so a pre-S4 save still reads as taken) or the
+    // real-time 打工 task S4 starts (`view.task`). The task is what a fresh
+    // board writes now, so it is matched on the trade and the grade the row
+    // prints — the same two things the offer named.
+    let working_task = cultivation
+        .task
+        .as_ref()
+        .filter(|task| task.kind == TaskKind::Work);
     let rows = view.clone();
     for job in &cultivation.jobs {
-        panel = panel.child(job_row(&rows, job, locale, tokens));
+        let working = job.working
+            || working_task.is_some_and(|run| {
+                run.job_kind == Some(job.kind) && run.grade == Some(job.grade.index() as u8)
+            });
+        panel = panel.child(job_row(&rows, job, working, locale, tokens));
     }
     panel.test_support()
 }
@@ -159,6 +173,7 @@ fn work_lines(
 fn job_row(
     view: &Entity<SettingsView>,
     job: &bongocat_pomodoro::JobView,
+    working: bool,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
@@ -193,6 +208,13 @@ fn job_row(
         .child(
             div()
                 .text_xs()
+                .text_color(tokens.muted)
+                .truncate()
+                .child(tier_name(job.tier, locale)),
+        )
+        .child(
+            div()
+                .text_xs()
                 .truncate()
                 .child(requirement_line(job, locale)),
         )
@@ -213,7 +235,7 @@ fn job_row(
     // A job the cultivator is already on is not open: the board keeps the row
     // so the page can say 接取中 where the take button would be, and a second
     // click would only be refused.
-    let action = if job.working {
+    let action = if working {
         div()
             .id(format!("cultivation-job-taken-{}", job.slot))
             .text_xs()
@@ -254,6 +276,17 @@ fn job_row(
 /// attribute(s) it trains.
 fn kind_name(kind: JobKind, locale: &str) -> String {
     text(locale, kind.name_key()).to_string()
+}
+
+/// The realm a job is priced at, by name. The board rolls the cultivator's own
+/// tier ±1, and that tier is what the wage is read against — a 黄阶 job a rung
+/// up can pay as much as a 玄阶 one a rung down — so the row says which rung it
+/// is rather than leaving the user to infer it from the number.
+fn tier_name(tier: u8, locale: &str) -> String {
+    let index = usize::from(tier)
+        .saturating_sub(1)
+        .min(Realm::ALL.len() - 1);
+    text(locale, Realm::from_index(index).name_key()).to_string()
 }
 
 /// What the job asks of the cultivator, for the attribute(s) it trains, and how
@@ -334,6 +367,18 @@ mod tests {
         // A 黄阶 job asks the realm's baseline, which a low body can hold at
         // zero; the margin is still read rather than divided by nothing.
         assert_eq!(margin(5, 0), "+400");
+    }
+
+    #[test]
+    fn the_tier_is_named_and_clamped_to_the_ladder() {
+        // The tier is 1-based (realm index + 1) and the board rolls ±1, so a
+        // zero or an out-of-range value from an old save must still name a real
+        // realm rather than index past the table.
+        assert_eq!(tier_name(1, "zh-CN"), "炼气");
+        assert_eq!(tier_name(6, "zh-CN"), "炼虚");
+        assert_eq!(tier_name(10, "zh-CN"), "仙人");
+        assert_eq!(tier_name(0, "zh-CN"), "炼气");
+        assert_eq!(tier_name(99, "zh-CN"), "仙人");
     }
 
     #[test]

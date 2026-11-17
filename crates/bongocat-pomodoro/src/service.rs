@@ -751,6 +751,26 @@ fn tick(shared: &Arc<SharedState>, path: &Path, elapsed: Duration) -> bool {
         inner.publish();
         inner.write_document(path);
     }
+    // A task pays on the clock the same way a walk does, and it runs beside the
+    // countdown rather than inside it: a paused timer must not pause the task.
+    if inner.domain.apply_task_advance(now) {
+        inner.publish();
+        inner.write_document(path);
+    }
+    // 闭关 runs beside the task rather than in the slot, so the same tick moves
+    // it too: a sit left running has to find its whole ticks, pay them, and end
+    // at 250 without a click.
+    if inner.domain.apply_seclusion_advance(now) {
+        inner.publish();
+        inner.write_document(path);
+    }
+    // A battle is the cultivator's one action, so the same tick moves it: a
+    // fight left running has to find its rounds, pay them, and settle on the
+    // last one without a click.
+    if inner.domain.apply_battle_advance(now) {
+        inner.publish();
+        inner.write_document(path);
+    }
     if inner.domain.timer().state() != TimerState::Running {
         drop(inner);
         shared.changed.notify_all();
@@ -1057,8 +1077,13 @@ mod tests {
             document.schema_version,
             crate::POMODORO_TASKS_SCHEMA_VERSION
         );
-        assert_eq!(document.tasks.len(), 1);
-        assert_eq!(document.tasks[0].name, "focus");
+        // The board a weekday opens with already holds the two recurring stock
+        // tasks, so the count is read off the snapshot rather than assumed —
+        // what this test is about is that the autosave wrote back the document
+        // the worker actually holds, stock tasks and all. Hardcoding `1` made
+        // the case go red on every weekday.
+        assert_eq!(document.tasks.len(), client.snapshot().tasks.len());
+        assert!(document.tasks.iter().any(|task| task.name == "focus"));
 
         service.shutdown(TIMEOUT).expect("clean shutdown");
     }
@@ -1090,7 +1115,13 @@ mod tests {
                 estimated_pomodoros: 1,
             })
             .expect("create the second task");
-        wait_for(&client, |snapshot| snapshot.tasks.len() == 2);
+        // Matched by name rather than counted: a weekday board opens with the
+        // two recurring stock tasks, so the total is a function of the calendar
+        // and a hardcoded `2` fails every weekday.
+        wait_for(&client, |snapshot| {
+            snapshot.tasks.iter().any(|task| task.name == "first")
+                && snapshot.tasks.iter().any(|task| task.name == "second")
+        });
 
         // The document should have been written twice (once per command), but
         // only one delayed save should be pending.

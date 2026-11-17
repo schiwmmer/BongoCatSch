@@ -348,7 +348,7 @@ mod tests {
     fn a_finished_session_pays_into_the_purse() {
         let mut cultivation = Cultivation::default();
         assert_eq!(cultivation.stones(), 0);
-        cultivation.on_session_completed(1_000, crate::CalendarDay::from_day_number(20), 25);
+        cultivation.settle_sit_session(1_000, crate::CalendarDay::from_day_number(20));
         assert_eq!(cultivation.stones(), session_earnings(cultivation.realm()));
     }
 

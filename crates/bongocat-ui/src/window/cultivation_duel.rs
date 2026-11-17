@@ -239,9 +239,7 @@ impl CultivationDuel {
                 .duel
                 .as_ref()
                 .map(|duel| (&duel.player, &duel.opponent)),
-            CultivationDuelPayload::Replay(report) => {
-                Some((&report.player, &report.opponent))
-            }
+            CultivationDuelPayload::Replay(report) => Some((&report.player, &report.opponent)),
         }
     }
 
@@ -923,7 +921,12 @@ fn log(
     }
     if !rounds.is_empty() {
         log = log
-            .child(log_column("cultivation-duel-log-player", player, false, tokens))
+            .child(log_column(
+                "cultivation-duel-log-player",
+                player,
+                false,
+                tokens,
+            ))
             .child(log_column(
                 "cultivation-duel-log-opponent",
                 foe,
@@ -939,19 +942,8 @@ fn log(
 ///
 /// The cultivator's column hugs the left of the panel and their opponent's the
 /// right, so the pair reads across the way the health bars above do.
-fn log_column(
-    id: &'static str,
-    lines: Vec<String>,
-    foe: bool,
-    tokens: Tokens,
-) -> impl IntoElement {
-    let mut column = div()
-        .id(id)
-        .flex_1()
-        .min_w_0()
-        .flex()
-        .flex_col()
-        .gap_1();
+fn log_column(id: &'static str, lines: Vec<String>, foe: bool, tokens: Tokens) -> impl IntoElement {
+    let mut column = div().id(id).flex_1().min_w_0().flex().flex_col().gap_1();
     if foe {
         column = column.items_end();
     }

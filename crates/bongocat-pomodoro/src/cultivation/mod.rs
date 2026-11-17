@@ -10,11 +10,11 @@
 //!
 //! The rules, in one place:
 //!
-//! * Growth is the experience: a finished focus session adds
-//!   [`session_growth`] — [`SESSION_BASE_GROWTH`] for the first of the day, then
-//!   scaled by the session number and the realm — and every whole local day
-//!   without one charges [`absence_penalty`], which grows with the run of missed
-//!   days and the realm the cultivator has reached.
+//! * Growth is the experience: a finished focus session settles a whole 闭关
+//!   (`docs/0103` §5.1) — [`SECLUSION_TICKS`] ticks of [`meditate_tick_growth`]
+//!   with [`SECLUSION_BONUS_PERMILLE`] on top — and every whole local day without
+//!   one charges [`absence_penalty`], which grows with the run of missed days and
+//!   the realm the cultivator has reached.
 //! * Growth never falls below the floor of the realm already entered, so a
 //!   penalty costs progress but never a breakthrough.
 //! * A realm ends at layer 100 and the next one opens only by beating its
@@ -93,7 +93,9 @@ pub use duel::{
     EFFECT_DURATION_BLOWS, EffectSide, FightKind, Fighter, GUARDIAN_NAME, PLAYER_NAME, ReplaySpeed,
     WANDERER_NAME,
 };
-pub use events::{BATTLE_REPLAY_CAP, BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind};
+pub use events::{
+    BATTLE_REPLAY_CAP, BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind,
+};
 pub use explore::{
     BREAKTHROUGH_COOLDOWN_SECONDS, ExpeditionInProgress, ExplorationHours, ExplorationOutcome,
     Region, VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkInProgress, WalkRecord,
@@ -116,11 +118,11 @@ pub use proving::{ProvingOutcome, TRIAL_CHANCES_CAP};
 pub use resources::{
     BASE_COMMON_YIELD, BASE_RARE_YIELD, BASE_RESOURCE_CAP, BASE_SKILL_XP, Building,
     COAL_UNLOCK_LEVEL, CollectionYield, Cost, GATHER_HOURS_PER_REALM_PERMILLE, GatherSite,
-    GatherSkill, IRON_UNLOCK_LEVEL, MAX_BUILDING_LEVEL, MAX_TRADE_LEVEL, MAX_WAREHOUSE_LEVEL,
-    ROUNDS_PER_HOUR_PER_REALM_PERMILLE, Resource, ResourceBag, STAR_IRON_FROM_STAR, SessionMode,
-    WAREHOUSE_CAP_PER_LEVEL, building_upgrade_cost, collect, collect_scaled, expedition_yield,
-    gather_duration_permille, resource_cap, rounds_per_hour_permille, skill_ready, skill_xp_total,
-    smithy_multiplier_permille,
+    GatherSkill, GatherTier, IRON_UNLOCK_LEVEL, MAX_BUILDING_LEVEL, MAX_TRADE_LEVEL,
+    MAX_WAREHOUSE_LEVEL, ROUNDS_PER_HOUR_PER_REALM_PERMILLE, Resource, ResourceBag,
+    STAR_IRON_FROM_STAR, SessionMode, WAREHOUSE_CAP_PER_LEVEL, building_upgrade_cost, collect,
+    collect_scaled, collect_tick, expedition_yield, gather_duration_permille, resource_cap,
+    rounds_per_hour_permille, skill_ready, skill_xp_total, smithy_multiplier_permille,
 };
 pub use shop::SESSION_EARNINGS;
 pub use shop::{
@@ -129,11 +131,18 @@ pub use shop::{
     star_up_cost,
 };
 pub use state::{
-    AbsenceCharge, AptitudeUse, BreakthroughOutcome, BuildingOutcome, BuildingView, CollectOutcome,
-    CropView, Cultivation, CultivationView, DailyOutcome, Drop, DropView, ExpeditionView,
-    ExplorationFindView, GuardianView, HarvestOutcome, ItemView, JobView, PlantOutcome, PlotView,
-    PowerBreakdown, ProvingBlocked, RegionView, ResourcesView, SeedView, SessionReward,
-    StarOutcome, TradeView, TrainingView, TrialBlocked, TrialOutcome, TrialSweepOutcome, WorkPaid,
+    AbsenceCharge, ActiveTask, AptitudeUse, BATTLE_TICK_SECONDS, BattleFound, BattleKind,
+    BattleOutcome, BattlePreview, BattleRun, BreakthroughApply, BreakthroughOutcome,
+    BreakthroughWin, BuildingOutcome, BuildingView, CollectOutcome, CropView, Cultivation,
+    CultivationView, DailyOutcome, Drop, DropView, ExpeditionView, ExplorationFindView, FirstClear,
+    GATHER_TICK_SECONDS, GROWTH_REALM_STEP, GuardianView, HarvestOutcome, ItemView,
+    JOB_POINT_EVERY_TICKS, JobView, LostGear, PlannedBattle, PlantOutcome, PlotView,
+    PowerBreakdown, ProvingApply, ProvingBlocked, RegionView, ResourcesView,
+    SECLUSION_BONUS_PERMILLE, SECLUSION_TICK_SECONDS, SECLUSION_TICKS, SeclusionRun, SeedReward,
+    SeedView, SessionReward, StarOutcome, TASK_BASE_GROWTH, TASK_CHANCE_EVERY_TICKS,
+    TASK_JOB_BASE_STONES, TASK_OFFLINE_CAP_SECONDS, TaskKind, TradeView, TrainingView, TrialApply,
+    TrialBlocked, TrialOutcome, TrialSweepOutcome, WORK_TICK_SECONDS, WorkPaid,
+    meditate_tick_growth, sit_growth,
 };
 pub use trade::{TradeRefusal, session_earnings};
 pub use trial::{
@@ -163,14 +172,17 @@ pub enum Refusal {
     /// reach this — it is the refusal a hand-made call would get.
     NotOut,
     /// An expedition was asked for while the cultivator is already out on one,
-    /// or a walk or a job was started while one is under way: an expedition is
-    /// hours of the same day, and the cultivator is only in one place at a time.
+    /// or a walk, a job or a task was started while one is under way: an
+    /// expedition is hours of the same day, and the cultivator is only in one
+    /// place at a time.
     ExpeditionOut,
     /// A trial was asked for while the cultivator is still out on a walk: the
-    /// tower is climbed at home, so an unreturned walk closes it.
+    /// tower is climbed at home, so an unreturned walk closes it. The same
+    /// "out on a walk" closes a task start, which is hours of the same day.
     TrialOut,
-    /// A job was taken while the cultivator is already at one, or a walk was
-    /// started while they are working: both are hours of the same day, and the
+    /// A job was taken while the cultivator is already at one, a walk was
+    /// started while they are working, or a task was started while a pre-S4
+    /// hour-job is still in hand: all are hours of the same day, and the
     /// cultivator is only in one place at a time.
     Working,
     /// A job was taken in a slot the board no longer holds — a day turned over
@@ -192,6 +204,31 @@ pub enum Refusal {
     /// A region was chosen that the cultivator's realm has not reached: the
     /// road is walked down the ladder, never up it.
     RegionLocked,
+    /// A task was started while another is still running, or a walk or an
+    /// expedition was asked for while one is: the slot is one and the day is
+    /// one, so the click has to be answered rather than silently dropped.
+    TaskRunning,
+    /// A 闭关 was started while another is still running: a cultivator sits one
+    /// sit at a time, and the click has to be answered rather than silently
+    /// dropped.
+    SeclusionRunning,
+    /// A battle was started while another is still under way, or a task, a walk,
+    /// an expedition or a job was started while one is: a battle is fought at
+    /// home and runs on the clock, so it takes the cultivator's whole attention
+    /// the way an outing does (`docs/0103` §5.4).
+    BattleRunning,
+    /// A 破境 was asked for inside its twelve-hour cooldown: a loss costs the
+    /// attempt *and* the night, so the click has to be answered rather than
+    /// silently dropped.
+    BreakthroughCooling,
+    /// A battle was asked for that the ladder cannot offer: the realm is not at
+    /// its last layer, or the ladder has no next realm.
+    BattleUnavailable,
+    /// A gathering task was started at a tier whose unlock level the
+    /// cultivator's trade has not reached: a deeper point is a deeper hand, so
+    /// the click is answered rather than quietly worked at a poorer rate
+    /// (`docs/0103` §5.2).
+    TierLocked,
 }
 
 impl Refusal {
@@ -209,26 +246,17 @@ impl Refusal {
             Self::ProvingSpent => "cultivation.proving.refuse_empty",
             Self::ProvingOut => "cultivation.proving.refuse_out",
             Self::RegionLocked => "cultivation.explore.refuse_region",
+            Self::TaskRunning => "cultivation.task.refuse_running",
+            Self::SeclusionRunning => "cultivation.seclusion.refuse_running",
+            Self::BattleRunning => "cultivation.battle.refuse_running",
+            Self::BreakthroughCooling => "cultivation.breakthrough.refuse_cooling",
+            Self::BattleUnavailable => "cultivation.battle.refuse_unavailable",
+            Self::TierLocked => "cultivation.tier.refuse_locked",
             Self::Working => "cultivation.jobs.refuse_working",
             Self::JobGone => "cultivation.jobs.refuse_gone",
         }
     }
 }
-
-/// Growth the first finished focus session of a local day pays.
-///
-/// Every further session the same day is worth more: see [`session_growth`]. A
-/// single flat base keeps the first sit-down of the day honest, and the growth it
-/// pays is deliberately large so one finished pomodoro is felt on the ladder.
-pub const SESSION_BASE_GROWTH: u32 = 500;
-
-/// How much each extra session the same day multiplies the base growth by, per
-/// step past the first.
-///
-/// The second session of the day is `BASE * STEP`, the third `BASE * STEP^2`, and
-/// so on; the escalation rewards a day of repeated focus without letting a single
-/// long session out-earn several short ones.
-const SESSION_GROWTH_STEP: f64 = 1.1;
 
 /// How many layers of the realm the cultivator is standing in one missed day
 /// costs: five.
@@ -350,7 +378,7 @@ pub const STAGE_COUNT: usize = 10;
 ///
 /// The index is the realm's position on the ladder and the value stored in the
 /// document, so a realm is never persisted by name.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum Realm {
     QiRefining,
     Foundation,
@@ -1198,11 +1226,11 @@ const PRACTICE_CAP_PERMILLE: [u32; STAGE_COUNT] = [
     200, 500, 800, 1_200, 1_600, 2_000, 2_400, 2_800, 3_000, 3_000,
 ];
 
-/// The most one finished session can be worth, in parts per thousand of the flat
-/// [`session_growth`].
+/// The most the four disciplines can multiply one tick's growth by, in parts per
+/// thousand.
 ///
-/// A session that has trained everything is four times a bare one. The cap is
-/// what keeps the formula honest: the ladder is meant to take years, and a
+/// A cultivator who has trained everything is four times a bare one. The cap is
+/// what keeps the curve honest: the ladder is meant to take years, and a
 /// multiplier that could reach ten would be a different game.
 pub const GROWTH_MULTIPLIER_CAP_PERMILLE: u32 = 4_000;
 
@@ -1280,27 +1308,6 @@ pub fn base_attributes(level: u16) -> Attributes {
         mana: 8 + level * 2 + stage * 60,
         agility: 6 + level + stage * 40,
     }
-}
-
-/// The growth one finished session pays, given which number it is in the local
-/// day (one-based) and the cultivator's realm (one-based stage).
-///
-/// The first session of the day is a flat [`SESSION_BASE_GROWTH`]. Every further
-/// one is the base grown by [`SESSION_GROWTH_STEP`] for each step past the first
-/// and by the realm's stage, so sitting down again the same day — or climbing the
-/// ladder — is rewarded harder. The realm factor means a missed day hurts more
-/// the higher a cultivator has climbed, the same way a longer fall lands harder.
-pub fn session_growth(session_number: u32, stage: u32) -> u32 {
-    if session_number <= 1 {
-        return SESSION_BASE_GROWTH;
-    }
-    let exponent = f64::from(session_number - 1);
-    let value = f64::from(SESSION_BASE_GROWTH)
-        * SESSION_GROWTH_STEP.powf(exponent)
-        * f64::from(stage.max(1));
-    // Growth is an unsigned whole number; the float product saturates rather than
-    // wrapping if a long run of same-day sessions somehow overflowed it.
-    value as u32
 }
 
 /// Growth a missed day costs after `missed_streak` consecutive missed days, at a

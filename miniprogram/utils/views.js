@@ -12,6 +12,36 @@ const SET_EFFECTS = {
   weaken: '蛊蚀',
 };
 
+// 一次闭关的回合数，内核常量 `SECLUSION_TICKS`。快照没带这个总数，先按它写死。
+const SECLUSION_TICKS = 250;
+const JOB_GRADE_NAMES = ['黄阶', '玄阶', '地阶', '天阶', '星阶'];
+const BATTLE_KINDS = { Trial: '锁妖塔之战', Proving: '试炼之战', Breakthrough: '破境之战' };
+
+/// 当前任务那一行：任务 > 闭关 > 战斗 > 空闲。全部读快照，不在这里算数。
+function taskText(c) {
+  const task = c.task;
+  if (task) {
+    const name = L.TASK_KINDS[task.kind] || task.kind || '任务';
+    const site = task.site ? L.SITES[task.site] || task.site : '';
+    const tier = task.tier && task.tier !== 'Common' ? L.GATHER_TIERS[task.tier] || '' : '';
+    const place = [site, tier].filter(Boolean).join(' · ');
+    const grade = task.grade != null ? JOB_GRADE_NAMES[task.grade] || '' : '';
+    const detail = place || grade;
+    const ticks = `${L.num(task.ticks_done)} 回合 · 每回合 ${task.tick_seconds} 秒`;
+    return detail ? `${name} · ${detail} · 已进行 ${ticks}` : `${name} · 已进行 ${ticks}`;
+  }
+  if (c.seclusion) {
+    return `闭关 · 回合 ${L.num(c.seclusion.ticks_done)}/${SECLUSION_TICKS}`;
+  }
+  const battle = c.battle;
+  if (battle) {
+    const name = BATTLE_KINDS[battle.kind] || battle.kind || '战斗';
+    const floor = battle.kind === 'Trial' && battle.floor ? ` · 第 ${battle.floor} 层` : '';
+    return `${name}${floor} · 回合 ${battle.rounds_done}/${battle.rounds_total}`;
+  }
+  return '空闲';
+}
+
 /* ---------- 通用 ---------- */
 
 function header(snapshot) {
@@ -131,13 +161,24 @@ function pomodoro(snapshot, calendar, cursor, remaining) {
     }),
     cal: calendarView(calendar, cursor),
     minuteOptions: [25, 30, 45, 60].map((value) => ({ value, active: value === minutes })),
+    // What the next finished pomodoro is for, chosen where the session starts.
+    // The same three modes and the same command as the other surfaces, so a
+    // choice made here shows up everywhere else.
+    modes: L.MODES.map(([key, label]) => ({
+      key: key.toLowerCase(),
+      label,
+      active: snapshot.cultivation?.session_mode === key,
+    })),
+    // 采集按钮下面的存货：伐木/采石能把哪个袋子填多少，看的就是这一行。
+    purse: L.RESOURCES.map(
+      ([key, label]) => `${label} ${L.num((snapshot.cultivation?.resources?.bag || {})[key] || 0)}`,
+    ).join(' · '),
   };
 }
 
 /* ---------- 修仙 · 外出 ---------- */
 
 function outing(c) {
-  const expedition = c.resources && c.resources.expedition;
   const regionIndex = c.explore_region_idx || 0;
   const region = L.REGIONS[regionIndex] || ['', `区域 ${regionIndex + 1}`];
   const regionProgress = (c.region_progress && c.region_progress[regionIndex]) || 0;
@@ -171,6 +212,10 @@ function outing(c) {
     };
   });
 
+  // 正在进行的打工任务：S4 之后 `accept_job` 启动的是 Work 任务，旧档的
+  // `work` 字段为空。页面上「提前收工」要能停它，所以这里认任务形态。
+  const workTask = c.task && c.task.kind === 'Work' ? c.task : null;
+
   const found = c.last_exploration_found;
   const chips = [];
   if (found) {
@@ -190,18 +235,18 @@ function outing(c) {
     explorationReady: !!c.exploration_ready,
     cooldownText: c.exploration_ready_at ? `探索冷却，还需 ${L.until(c.exploration_ready_at)}` : '',
     hours: [4, 8, 12].map((value) => ({ value, primary: value === 8 })),
-    expedition: expedition
-      ? {
-          text: `${L.SITES[expedition.site] || expedition.site} · ${expedition.hours} 小时 · ${L.until(expedition.ends_unix)}后归`,
-        }
-      : null,
-    sites: L.SITE_KEYS.map((key) => ({ key, name: L.SITES[key] })),
     earlyReturn: !!(c.walk_early || c.work_early),
     found: chips,
     regions,
     jobs,
-    workText: c.work ? `正在干活，${L.until(c.work.ends_unix)}后收工` : `刷新一次 ${L.num(c.job_refresh_cost)} 灵石`,
-    work: !!c.work,
+    // S4 之后打工是实时任务（`accept_job` 启动 Work 任务），旧档的 hour-job
+    // 字段不再有值；「提前收工」两种都要能停，所以这里把 Work 任务也算上。
+    workText: c.work
+      ? `正在干活，${L.until(c.work.ends_unix)}后收工`
+      : workTask
+        ? `正在干活，已进行 ${L.num(workTask.ticks_done)} 回合`
+        : `刷新一次 ${L.num(c.job_refresh_cost)} 灵石`,
+    work: !!c.work || !!workTask,
     refreshCost: L.num(c.job_refresh_cost),
     lastWork: c.last_work ? `上次工钱 ${L.num(c.last_work.stones || 0)} 灵石` : '',
   };
@@ -263,7 +308,7 @@ function tower(c) {
 
 /* ---------- 修仙 · 洞府 ---------- */
 
-function workshop(c) {
+function workshop(c, tier) {
   const resources = c.resources || {};
   const bag = resources.bag || {};
   const cap = resources.cap || 0;
@@ -301,11 +346,42 @@ function workshop(c) {
       percent: bar(need ? xp / need : 0),
     };
   });
+  const running = !!c.task;
+  const selectedTier = tier || 'common';
+  const task = {
+    running,
+    text: taskText(c),
+    idleText: '当前没有进行中的任务',
+    stopText: '停止',
+    tiers: L.TIER_CHOICES.map(([key, label]) => ({ key, label, active: key === selectedTier })),
+    starts: [
+      { act: 'cult-meditate', label: L.TASK_KINDS.Meditate, disabled: running },
+      { act: 'cult-woodcut', label: L.TASK_KINDS.Woodcut, disabled: running },
+      { act: 'cult-stonecut', label: L.TASK_KINDS.Stonecut, disabled: running },
+    ],
+  };
+  const seclusion = c.seclusion
+    ? {
+        running: true,
+        text: `${L.SECLUSION.title}进行中 · ${L.num(c.seclusion.ticks_done)}/${SECLUSION_TICKS} 回合`,
+        hint: L.SECLUSION.hint,
+        startText: L.SECLUSION.start,
+        stopText: L.SECLUSION.stop,
+      }
+    : {
+        running: false,
+        text: L.SECLUSION.title,
+        hint: L.SECLUSION.hint,
+        startText: L.SECLUSION.start,
+        stopText: L.SECLUSION.stop,
+      };
   return {
     cap: L.num(cap),
     bag: L.RESOURCES.map(([key, label]) => ({ key, label, value: L.num(bag[key] || 0) })),
     skills,
     buildings,
+    task,
+    seclusion,
   };
 }
 
@@ -426,6 +502,7 @@ function statusSection(c) {
     aptitude: (c.aptitude_tenths / 10).toFixed(1),
     nextGrowth: L.num(c.next_session_growth),
     atHome: !!c.at_home,
+    taskText: taskText(c),
     guardian: guardian
       ? {
           target: L.realmText(guardian.target),

@@ -29,8 +29,8 @@
 use std::{cell::RefCell, time::Duration};
 
 use bongocat_pomodoro::{
-    AptitudeHerb, Attribute, Building, EquipSlot, ExplorationHours, GatherSite, PomodoroCommand,
-    PomodoroState, SeedGrade, SessionMode,
+    AptitudeHerb, Attribute, Building, EquipSlot, ExplorationHours, GatherSite, GatherTier,
+    JobKind, PomodoroCommand, PomodoroState, SeedGrade, SessionMode, TaskKind,
 };
 use serde_json::Value;
 
@@ -178,6 +178,15 @@ pub extern "C" fn web_tick(now: f64, elapsed_ms: u32) -> i32 {
         changed |= app.state.apply_expedition_return(now_unix);
         changed |= app.state.apply_garden_reveal(now_unix);
         changed |= app.state.apply_daily_event(now_unix);
+        changed |= app.state.apply_task_advance(now_unix);
+        // 闭关 is not a task, so it gets its own line on the same tick: the
+        // desktop worker settles it beside the task, and the two surfaces have
+        // to agree.
+        changed |= app.state.apply_seclusion_advance(now_unix);
+        // A battle is the cultivator's one action, so it advances on the same
+        // tick as the task and the sit: the desktop worker settles it beside
+        // them, and the two surfaces have to agree.
+        changed |= app.state.apply_battle_advance(now_unix);
         let completed = app
             .state
             .advance(Duration::from_millis(u64::from(elapsed_ms)), now_unix)
@@ -370,6 +379,26 @@ fn parse_command(value: &Value) -> Option<PomodoroCommand> {
             times: u8::try_from(u32_value(value, "times")?).ok()?,
         },
         "select_session_mode" => PomodoroCommand::SelectSessionMode { mode: mode(value)? },
+        // The four real-time cultivation ops (`docs/0103` §4): the `cult-`
+        // prefix keeps them one family on the wire, the way `select_session_mode`
+        // already names the mode that arms a finished pomodoro. The task's tempo
+        // is chosen in `apply`, so the page sends the kind and nothing else
+        // about the rhythm; `site`/`tier`/`grade`/`job_kind` are all optional
+        // because 吐纳 takes none of them and a page that has not picked a tier
+        // yet must still be able to start a breath.
+        "cult_start_task" => PomodoroCommand::CultStartTask {
+            kind: task_kind(value)?,
+            site: optional_site(value)?,
+            tier: optional_tier(value)?,
+            grade: optional_u8(value, "grade"),
+            job_kind: optional_job_kind(value),
+        },
+        "cult_stop_task" => PomodoroCommand::CultStopTask,
+        // 闭关 is not a task and does not take the slot, so it is a pair of ops
+        // of its own rather than a fifth task kind: a page that offered it as a
+        // task would be offering a sit that refuses beside a running one.
+        "cult_start_seclusion" => PomodoroCommand::CultStartSeclusion,
+        "cult_stop_seclusion" => PomodoroCommand::CultStopSeclusion,
         "use_aptitude_herb" => PomodoroCommand::UseAptitudeHerb { herb: herb(value)? },
         "use_marrow_pill" => PomodoroCommand::UseMarrowPill,
         "acknowledge_daily_event" => PomodoroCommand::AcknowledgeDailyEvent {
@@ -467,4 +496,76 @@ fn hours(value: &Value) -> Option<ExplorationHours> {
         12 => ExplorationHours::Twelve,
         _ => return None,
     })
+}
+
+/// Which of the four real-time tasks a `cult_start_task` asks for.
+fn task_kind(value: &Value) -> Option<TaskKind> {
+    Some(match value.get("kind")?.as_str()? {
+        "meditate" => TaskKind::Meditate,
+        "woodcut" => TaskKind::Woodcut,
+        "stonecut" => TaskKind::Stonecut,
+        "work" => TaskKind::Work,
+        _ => return None,
+    })
+}
+
+/// The site a gathering task works, when the op names one.
+///
+/// The outer `Option` is whether the op is well-formed at all; the inner one is
+/// whether it named a site. Both halves matter: 吐纳 and 打工 take no site, so
+/// an absent `site` has to be accepted, while a `site` the bridge cannot read is
+/// a command the page got wrong and is refused rather than silently started as a
+/// site-less 伐木.
+fn optional_site(value: &Value) -> Option<Option<GatherSite>> {
+    let Some(raw) = value.get("site") else {
+        return Some(None);
+    };
+    let site = match raw {
+        Value::Null => return Some(None),
+        raw => raw.as_str()?,
+    };
+    Some(Some(match site {
+        "forest" => GatherSite::Forest,
+        "mountain" => GatherSite::Mountain,
+        "mine" => GatherSite::Mine,
+        _ => return None,
+    }))
+}
+
+/// The tier a gathering task works, when the op names one. Absent is 凡, which
+/// is what `apply` falls back to — the tier a fresh save can work. An
+/// unreadable tier is refused rather than dropped, for the same reason
+/// [`optional_site`] refuses one.
+fn optional_tier(value: &Value) -> Option<Option<GatherTier>> {
+    let Some(raw) = value.get("tier") else {
+        return Some(None);
+    };
+    let tier = match raw {
+        Value::Null => return Some(None),
+        raw => raw.as_str()?,
+    };
+    Some(Some(match tier {
+        "common" => GatherTier::Common,
+        "spirit" => GatherTier::Spirit,
+        "divine" => GatherTier::Divine,
+        "chaos" => GatherTier::Chaos,
+        _ => return None,
+    }))
+}
+
+/// A `u8` field the op may leave out, as `grade` and `times` are.
+fn optional_u8(value: &Value, key: &str) -> Option<u8> {
+    u8::try_from(value.get(key)?.as_u64()?).ok()
+}
+
+/// The trade a 打工 task was taken at, by its place in [`JobKind::ALL`].
+///
+/// An index rather than a name because [`JobKind`] is a pair of attributes with
+/// no wire name of its own; the board that offers the job already knows the
+/// index, so the page sends the number and the kernel reads the kind. Absent is
+/// the common case: the desktop board's accept button is what starts a 打工
+/// task, and it passes the offer itself.
+fn optional_job_kind(value: &Value) -> Option<JobKind> {
+    let index = usize_value(value, "job_kind")?;
+    JobKind::ALL.get(index).copied()
 }

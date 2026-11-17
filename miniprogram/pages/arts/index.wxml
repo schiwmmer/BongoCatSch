@@ -63,6 +63,13 @@
         <text class="chip {{view.atHome ? 'jade' : 'accent'}}">{{view.atHome ? '在家' : '外出中'}}</text>
       </view>
 
+      <view class="row">
+        <view class="row-main">
+          <view class="row-title">当前任务</view>
+          <view class="row-sub">{{view.taskText}}</view>
+        </view>
+      </view>
+
       <view class="row" wx:if="{{view.guardian}}">
         <view class="row-main">
           <view class="row-title">境界守关者 · {{view.guardian.target}}</view>

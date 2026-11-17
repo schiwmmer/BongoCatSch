@@ -959,6 +959,22 @@ pub(crate) fn roll_equipment_solo(
     roll_equipment_with(id, tier, rarity, None, true, rng)
 }
 
+/// The primary line's share of the attribute budget, in permille.
+///
+/// `primary_percent` is the slot's nominal split in **percent** (55..=75) and
+/// `sway` is the per-piece drift in **permille** (920..=1080, i.e. 92%..=108%).
+/// Percent × permille ÷ 100 lands back in permille: a 60% boot at 108% drift
+/// reads 648. Inside the real band the share stays within 506..=810, so the
+/// primary line always outranks its drawn second.
+///
+/// The clamp is a backstop for absurd inputs, not the working range. A previous
+/// revision divided by 1_000 here, collapsing every player drop to a flat 300
+/// permille and inverting the split — the contract and guard test on this
+/// function exist so that cannot come back.
+fn primary_share_permille(primary_percent: u32, sway: i64) -> i64 {
+    (i64::from(primary_percent) * sway / 100).clamp(300, 900)
+}
+
 fn roll_equipment_with(
     id: u64,
     tier: u8,
@@ -1010,9 +1026,10 @@ fn roll_equipment_with(
     if !solo || attribute_lines(rarity) >= 2 {
         // The split itself sways a little per piece, inside a band that keeps the
         // slot's character: a weapon is still mostly 力量, it just is not always
-        // seventy percent of it.
+        // seventy percent of it. The drift is permille (920..=1080, i.e.
+        // 92%..=108%); `primary_share_permille` carries the unit arithmetic.
         let sway = 920 + rng.below(161) as i64;
-        let primary_share = (i64::from(primary_percent) * sway / 1_000).clamp(300, 900);
+        let primary_share = primary_share_permille(primary_percent, sway);
         primary.add_to(
             &mut attributes,
             points_for(budget * primary_share / 1_000, attribute_weight(primary)),
@@ -1134,6 +1151,65 @@ fn mix(mut value: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The primary line's share stays above half the budget for every slot.
+    ///
+    /// 证红: the formula this guard replaced divided by 1_000, so a 60% slot
+    /// read 55..=64 permille at any drift — every one of those fails the floor
+    /// below, which is exactly how the old code hid for so long.
+    #[test]
+    fn the_primary_share_stays_above_half_the_budget() {
+        for slot in EquipSlot::ALL {
+            let (_, percent, _, _) = slot.split();
+            for sway in [920i64, 1_000, 1_080] {
+                let share = primary_share_permille(percent, sway);
+                assert!(
+                    (500..=900).contains(&share),
+                    "{} at {percent}% and sway {sway} reads {share} permille",
+                    slot.name_key()
+                );
+            }
+        }
+        for sway in [920i64, 1_000, 1_080] {
+            let obsolete = i64::from(60u8) * sway / 1_000;
+            assert!(
+                obsolete < 500,
+                "the replaced formula must fail this guard: {obsolete} permille"
+            );
+        }
+        // The clamp is a backstop, not the working range.
+        assert_eq!(primary_share_permille(55, 100), 300);
+        assert_eq!(primary_share_permille(75, 10_000), 900);
+    }
+
+    /// A drop pays its primary line the larger share of its budget, end to end.
+    ///
+    /// Read in power so the attribute weights cancel: the primary line must
+    /// clear 40% of the piece's attribute power. The old ÷1_000 formula paid
+    /// it 30%, so this is the same guard one level up.
+    #[test]
+    fn a_drop_pays_its_primary_line_the_larger_share() {
+        for id in 1..=240u64 {
+            let mut rng = Rng::seeded(id);
+            let item = roll_equipment(id, 5, Rarity::Common, &mut rng);
+            let (primary, _, _, _) = item.slot.split();
+            let mut total = 0i64;
+            let mut primary_power = 0i64;
+            for attribute in Attribute::ALL {
+                let power = i64::from(attribute.of(item.attributes)) * attribute_weight(attribute);
+                total += power;
+                if attribute.index() == primary.index() {
+                    primary_power = power;
+                }
+            }
+            assert!(
+                primary_power * 10 >= total * 4,
+                "{} pays its primary {} only {primary_power} of {total}",
+                item.name.as_deref().unwrap_or("the piece"),
+                primary.name_key()
+            );
+        }
+    }
 
     /// Two pieces of one slot, one tier and one quality are two pieces.
     ///

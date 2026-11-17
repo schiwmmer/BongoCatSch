@@ -1,29 +1,27 @@
-//! The resource economy: the purse, the three sites, the two trades and the
-//! four buildings — the half of the page that turns a finished pomodoro's
-//! spare time into the ore and timber the forge and the estate need.
+//! The resource economy: the real-time tasks, the purse, the two trades and the
+//! four buildings — the half of the page that turns the cultivator's attention
+//! into the ore and timber the forge and the estate need.
 //!
-//! The panel is packed rather than stacked, unlike the panels whose content is
-//! a sentence per row: the purse's four counts in one line, one length spent by
-//! the three sites, the two trades on one line, and the four buildings two to a
-//! row. Nothing here owns state — a gathering is one click whose result is
-//! already in the snapshot.
+//! Gathering is a task, not an outing: 伐木 and 采石 start a run that pays a
+//! tick at a time (`docs/0103` §4), so there is no length to pick here and no
+//! "out gathering" line to draw. What is left is packed rather than stacked,
+//! unlike the panels whose content is a sentence per row: the purse's four counts
+//! in one line, the two trades on one line, and the four buildings two to a row.
 
-use super::explore::cooldown_line;
 use super::*;
 
-/// The panel: the purse, the sites to gather at, and the buildings to raise.
+/// The panel: the tasks to start, the purse, and the buildings to raise.
 ///
-/// Seven rows rather than eleven. Every line here used to own a row of its own,
+/// Packed rather than stacked. Every line here used to own a row of its own,
 /// which made the panel the longest on the page for the least information: the
-/// three trades were one line each, the three sites one row each with three
-/// lengths repeated on every row, and the four buildings one row each. The
+/// three trades were one line each, and the four buildings one row each. The
 /// information is the same now, packed into the rows that were mostly empty —
-/// the mode buttons share a line with the trades, the length is chosen once for
-/// the sites below it, and the buildings sit two to a row.
+/// the mode buttons share a line with the trades, and the buildings sit two to a
+/// row.
 pub(super) fn resources_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
-    hours: ExplorationHours,
+    tier: GatherTier,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
@@ -45,9 +43,9 @@ pub(super) fn resources_panel(
                 .child(mode_row(view, cultivation.session_mode, locale))
                 .child(trades_line(resources, locale)),
         )
+        .child(task_row(view, cultivation, tier, locale, tokens))
+        .child(seclusion_row(view, cultivation, locale, tokens))
         .child(bag_row(resources, locale))
-        .child(expedition_status(resources, locale))
-        .child(gather_row(view, resources, hours, locale, tokens))
         .child(building_grid(view, resources, locale, tokens))
         .test_support()
 }
@@ -85,6 +83,294 @@ fn mode_row(view: &Entity<SettingsView>, current: SessionMode, locale: &str) -> 
     row
 }
 
+/// The real-time task area (`docs/0103` §4): the task under way, and the three
+/// a click can start.
+///
+/// This is a row of its own beside [`mode_row`] rather than a replacement for
+/// it. A session mode decides what a *finished pomodoro* pays; a task is
+/// started and stopped by hand and pays on the clock. Merging the two would put
+/// one set of buttons behind two different jobs, and a user who clicked 伐木 to
+/// chop would have armed their next session instead of starting the work.
+fn task_row(
+    view: &Entity<SettingsView>,
+    cultivation: &CultivationView,
+    tier: GatherTier,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    let mut panel = div()
+        .id("cultivation-task")
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(section_title(locale, "cultivation.task.title", tokens));
+    panel = match cultivation.task.as_ref() {
+        Some(task) => panel
+            .child(task_status_line(task, locale, tokens))
+            .child(task_stop_button(view, locale)),
+        None => panel.child(
+            div()
+                .id("cultivation-task-idle")
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(text(locale, "cultivation.task.idle"))
+                .test_support(),
+        ),
+    };
+    panel
+        .child(task_start_row(view, cultivation, tier, locale, tokens))
+        .test_support()
+}
+
+/// The task under way as one line: what it is, where it works, how many ticks
+/// the clock has already paid and how long one tick is.
+///
+/// The tick count and the tempo are both read off the task rather than
+/// recomputed from the clock: the domain is the only thing that knows which
+/// ticks it has settled, and a page that divided the elapsed seconds itself
+/// would drift from the save the moment a tick was capped or a relaunch landed
+/// mid-tick.
+fn task_status_line(task: &ActiveTask, locale: &str, tokens: Tokens) -> impl IntoElement {
+    let kind = text(locale, task.kind.key()).to_string();
+    let ticks = task.ticks_done.to_string();
+    let seconds = task.tick_seconds.to_string();
+    let line = match task.site {
+        Some(site) => format_text(
+            locale,
+            "cultivation.task.current_gather",
+            &[
+                ("kind", kind),
+                ("site", text(locale, site.key()).to_string()),
+                ("tier", text(locale, task.tier.key()).to_string()),
+                ("ticks", ticks),
+                ("seconds", seconds),
+            ],
+        ),
+        None => format_text(
+            locale,
+            "cultivation.task.current_plain",
+            &[("kind", kind), ("ticks", ticks), ("seconds", seconds)],
+        ),
+    };
+    div()
+        .id("cultivation-task-status")
+        .text_xs()
+        .text_color(tokens.accent)
+        .child(line)
+        .test_support()
+}
+
+/// The one button that ends the task under way.
+fn task_stop_button(view: &Entity<SettingsView>, locale: &str) -> impl IntoElement {
+    Button::new("cultivation-task-stop")
+        .ghost()
+        .small()
+        .label(text(locale, "cultivation.task.stop"))
+        .on_click({
+            let view = view.clone();
+            move |_, _, cx| {
+                view.update(cx, |view, cx| {
+                    let _ = view.pomodoro.try_publish(PomodoroCommand::CultStopTask);
+                    view.poll_pomodoro(cx);
+                });
+            }
+        })
+}
+
+/// The three tasks a click can start, at the tier the chips name.
+///
+/// The tier is chosen once for both gathering tasks: the real choice is "how
+/// deep", not a per-button decision. 伐木 works the forest and 采石 the
+/// mountain, so the site is the kind's own rather than a second picker — a
+/// 伐木 task in the mountain is a task the design does not define. The 矿洞's
+/// dual-skill point has no [`TaskKind`] of its own yet, so it is not offered
+/// here.
+///
+/// A task already running disables the three: the slot is one, and a second
+/// start would only be refused. The running task's own stop button is the way
+/// out, and it is drawn directly above.
+fn task_start_row(
+    view: &Entity<SettingsView>,
+    cultivation: &CultivationView,
+    tier: GatherTier,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    let running = cultivation.task.is_some();
+    let chips = GatherTier::ALL.into_iter().map(|choice| {
+        let selected = choice == tier;
+        let mut chip = div()
+            .id(format!("cultivation-task-tier-{choice:?}"))
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .text_xs()
+            .child(text(locale, choice.key()))
+            .on_click({
+                let view = view.clone();
+                move |_, _, cx| {
+                    view.update(cx, |view, cx| {
+                        view.cultivation_task_tier = choice;
+                        cx.notify();
+                    });
+                }
+            })
+            .test_support();
+        if selected {
+            chip = chip
+                .bg(tokens.overlay)
+                .text_color(tokens.accent)
+                .font_semibold();
+        } else {
+            chip = chip.text_color(tokens.muted);
+        }
+        chip
+    });
+    // One builder for the three starts, so the command each click publishes is
+    // spelled once: the kind names the task, the site is the kind's own, and
+    // the tier is the chip the user lit.
+    let start_button = |kind: TaskKind, site: Option<GatherSite>, id: &'static str| {
+        let mut button = Button::new(id)
+            .ghost()
+            .small()
+            .label(text(locale, kind.key()))
+            .disabled(running);
+        button = button.on_click({
+            let view = view.clone();
+            move |_, _, cx| {
+                view.update(cx, |view, cx| {
+                    let _ = view.pomodoro.try_publish(PomodoroCommand::CultStartTask {
+                        kind,
+                        site,
+                        tier: Some(tier),
+                        grade: None,
+                        // None of the three starts here is a 打工: the board
+                        // takes those, and the trade a job was taken at is
+                        // what `accept_job` passes. Carried as a field so a
+                        // future start that is a job does not have to grow
+                        // the variant.
+                        job_kind: None,
+                    });
+                    view.poll_pomodoro(cx);
+                });
+            }
+        });
+        button
+    };
+    div()
+        .id("cultivation-task-starts")
+        .flex()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .gap_1()
+        .children(chips)
+        .child(start_button(
+            TaskKind::Meditate,
+            None,
+            "cultivation-task-start-meditate",
+        ))
+        .child(start_button(
+            TaskKind::Woodcut,
+            Some(GatherSite::Forest),
+            "cultivation-task-start-woodcut",
+        ))
+        .child(start_button(
+            TaskKind::Stonecut,
+            Some(GatherSite::Mountain),
+            "cultivation-task-start-stonecut",
+        ))
+        .test_support()
+}
+
+/// The 闭关 under way, as its own row beside the task (`docs/0103` §4).
+///
+/// 闭关 is not a task and does not take the slot, so it is drawn apart from the
+/// task's start buttons rather than as one of them: a user who can gather and
+/// sit at the same time would otherwise be offered a button that silently
+/// refuses. The progress is the sit's own tick count against the 250 a full sit
+/// runs, read off the run rather than recomputed.
+fn seclusion_row(
+    view: &Entity<SettingsView>,
+    cultivation: &CultivationView,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
+    let total = bongocat_pomodoro::SECLUSION_TICKS.to_string();
+    let mut row = div()
+        .id("cultivation-seclusion")
+        .flex()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .justify_between()
+        .gap_2();
+    match cultivation.seclusion.as_ref() {
+        Some(run) => {
+            row = row.child(
+                div()
+                    .id("cultivation-seclusion-progress")
+                    .text_xs()
+                    .text_color(tokens.accent)
+                    .child(format_text(
+                        locale,
+                        "cultivation.seclusion.progress",
+                        &[("ticks", run.ticks_done.to_string()), ("total", total)],
+                    ))
+                    .test_support(),
+            );
+            row = row.child(seclusion_button(
+                view,
+                "cultivation-seclusion-stop",
+                "cultivation.seclusion.stop",
+                PomodoroCommand::CultStopSeclusion,
+                locale,
+            ));
+        }
+        None => {
+            row = row.child(
+                div()
+                    .id("cultivation-seclusion-progress")
+                    .text_xs()
+                    .text_color(tokens.muted)
+                    .child(text(locale, "cultivation.seclusion.title"))
+                    .test_support(),
+            );
+            row = row.child(seclusion_button(
+                view,
+                "cultivation-seclusion-start",
+                "cultivation.seclusion.start",
+                PomodoroCommand::CultStartSeclusion,
+                locale,
+            ));
+        }
+    }
+    row.test_support()
+}
+
+/// One 闭关 button: the command is the only thing the two states differ by.
+fn seclusion_button(
+    view: &Entity<SettingsView>,
+    id: &'static str,
+    label_key: &'static str,
+    command: PomodoroCommand,
+    locale: &str,
+) -> impl IntoElement {
+    Button::new(id)
+        .ghost()
+        .small()
+        .label(text(locale, label_key))
+        .on_click({
+            let view = view.clone();
+            move |_, _, cx| {
+                view.update(cx, |view, cx| {
+                    let _ = view.pomodoro.try_publish(command.clone());
+                    view.poll_pomodoro(cx);
+                });
+            }
+        })
+}
+
 /// The purse: one line, each resource's count against its ceiling.
 fn bag_row(resources: &ResourcesView, locale: &str) -> impl IntoElement {
     let mut parts = Vec::new();
@@ -104,121 +390,6 @@ fn bag_row(resources: &ResourcesView, locale: &str) -> impl IntoElement {
         .id("cultivation-resources-bag")
         .text_xs()
         .child(parts.join(" · "))
-}
-
-/// The gathering expedition under way, as one line: the site, the length and
-/// the time left. Nothing while the cultivator is home.
-fn expedition_status(resources: &ResourcesView, locale: &str) -> impl IntoElement {
-    let Some(out) = resources.expedition.as_ref() else {
-        return div().id("cultivation-expedition-status").test_support();
-    };
-    let key = if out.early {
-        "cultivation.expedition.returning_in"
-    } else {
-        "cultivation.expedition.eta"
-    };
-    let eta = cooldown_line(Some(out.ends_unix), key, locale);
-    div()
-        .id("cultivation-expedition-status")
-        .text_xs()
-        .child(format_text(
-            locale,
-            "cultivation.expedition.status",
-            &[
-                ("site", text(locale, out.site.key()).to_string()),
-                ("hours", out.hours.to_string()),
-                ("eta", eta),
-            ],
-        ))
-        .test_support()
-}
-
-/// The gathering line: one length, then the three sites.
-///
-/// The length used to be repeated as three buttons on each of the three site
-/// rows — nine buttons where the choice was really "how long, then where". Now
-/// it is picked once and the three sites spend it, so the row is two decisions
-/// instead of nine buttons and the picked length is the one every site uses.
-fn gather_row(
-    view: &Entity<SettingsView>,
-    resources: &ResourcesView,
-    chosen: ExplorationHours,
-    locale: &str,
-    tokens: Tokens,
-) -> impl IntoElement {
-    let out = resources.expedition.is_some();
-    let chips = ExplorationHours::ALL.into_iter().map(move |hours| {
-        let selected = hours == chosen;
-        let mut chip = div()
-            .id(format!("cultivation-gather-hours-{}", hours.hours()))
-            .px_2()
-            .py_1()
-            .rounded_md()
-            .text_xs()
-            .child(format_text(
-                locale,
-                "cultivation.expedition.hours",
-                &[("hours", hours.hours().to_string())],
-            ))
-            .on_click({
-                let view = view.clone();
-                move |_, _, cx| {
-                    view.update(cx, |view, cx| {
-                        view.cultivation_gather_hours = hours.hours();
-                        cx.notify();
-                    });
-                }
-            })
-            .test_support();
-        chip = if selected {
-            chip.bg(tokens.overlay)
-                .text_color(tokens.accent)
-                .font_semibold()
-        } else {
-            chip.text_color(tokens.muted)
-        };
-        chip
-    });
-    // One button per site, each labelled with the trade it works: the site and
-    // the length together are the whole command.
-    let sites = [GatherSite::Forest, GatherSite::Mountain, GatherSite::Mine]
-        .into_iter()
-        .map(|site| {
-            Button::new(format!("cultivation-expedition-{site:?}"))
-                .ghost()
-                .small()
-                .label(text(locale, site.key()))
-                .disabled(out)
-                .on_click({
-                    let view = view.clone();
-                    move |_, _, cx| {
-                        view.update(cx, |view, cx| {
-                            let _ = view.pomodoro.try_publish(PomodoroCommand::StartExpedition {
-                                site,
-                                hours: chosen,
-                            });
-                            view.poll_pomodoro(cx);
-                        });
-                    }
-                })
-        })
-        .collect::<Vec<_>>();
-    div()
-        .id("cultivation-resources-sites")
-        .flex()
-        .flex_row()
-        .flex_wrap()
-        .items_center()
-        .gap_2()
-        .child(
-            div()
-                .text_xs()
-                .text_color(tokens.muted)
-                .child(text(locale, "cultivation.resources.length")),
-        )
-        .child(div().flex().flex_row().gap_1().children(chips))
-        .child(div().flex().flex_row().gap_1().children(sites))
-        .test_support()
 }
 
 /// The two trades on one line: each level and the xp banked toward the next.

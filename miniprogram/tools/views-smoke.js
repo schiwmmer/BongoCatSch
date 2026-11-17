@@ -40,6 +40,8 @@ step([], 26 * 60); // 完成一次，发一次掉落
 step([{ op: 'explore', hours: 4 }], 0);
 step([], 4 * 3600 + 30);
 step([{ op: 'tower' }], 0);
+// 锁妖塔是实时战斗（`docs/0103` §5.4）：不推进几秒，这一场还没打完，战报是空的。
+step([], 30);
 step([{ op: 'prove' }], 0);
 step([{ op: 'refresh_jobs' }], 0);
 step([{ op: 'accept_job', slot: 0 }], 0);
@@ -59,6 +61,18 @@ const outputs = {
   me: views.me(snapshot, { nickname: '休谟', avatar: 'cloud://x/y.png' }),
   meFresh: views.me(snapshot, null),
 };
+
+// 实时任务（`docs/0103` §4）的空转态由上面那份快照覆盖；进行中的任务用同一份
+// 快照克隆后塞一个任务进去，两种状态都过一遍构建器。
+const runningCultivation = JSON.parse(JSON.stringify(snapshot.cultivation));
+runningCultivation.task = {
+  kind: 'Woodcut',
+  site: 'forest',
+  tier: 'Common',
+  ticks_done: 3,
+  tick_seconds: 8,
+};
+const workshopRunning = views.workshop(runningCultivation);
 
 let failures = 0;
 
@@ -106,9 +120,14 @@ const checks = [
   ['番茄钟有任务列表', outputs.pomodoro.tasks.length === 1],
   ['番茄钟日历有格子', outputs.pomodoro.cal.cells.length > 0],
   ['修仙外出有 3 个时长', outputs.outing.hours.length === 3],
-  ['修仙外出有 5 个区域', outputs.outing.regions.length === 5],
+  ['修仙外出有 10 个区域', outputs.outing.regions.length === 10],
   ['塔有战报记录', outputs.tower.record.length >= 1],
   ['洞府有 4 个建筑', outputs.workshop.buildings.length === 4],
+  ['任务卡有 3 个开始钮', outputs.workshop.task.starts.length === 3],
+  ['任务卡空转时不画进行中', outputs.workshop.task.running === false],
+  ['闭关卡空转时待机', outputs.workshop.seclusion.running === false],
+  ['进行中的任务画出回合数', workshopRunning.task.running && workshopRunning.task.text.includes('3 回合')],
+  ['进行中的任务禁用开始钮', workshopRunning.task.starts.every((item) => item.disabled === true)],
   ['灵草园有 4 块地', outputs.garden.plots.length >= 4],
   ['集市有报价', outputs.market.offers.length >= 1],
   ['状态有 4 个属性', outputs.status.attributes.length === 4],

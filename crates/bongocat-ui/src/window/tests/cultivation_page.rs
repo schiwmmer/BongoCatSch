@@ -1928,9 +1928,7 @@ fn the_replay_button_sits_inside_the_history_popup(cx: &mut TestAppContext) {
         let panel = window.find("cultivation-events-panel").bounds();
         let short = window.find("cultivation-history-event-0").bounds();
         let plain_walk = window.find("cultivation-history-event-1").bounds();
-        let button = window
-            .find("cultivation-history-event-2-replay")
-            .bounds();
+        let button = window.find("cultivation-history-event-2-replay").bounds();
 
         assert!(
             plain_walk.size.height == short.size.height,
@@ -2809,12 +2807,12 @@ fn the_module_bar_stays_at_the_top_while_the_page_scrolls(cx: &mut TestAppContex
 }
 
 /// 资源与采集 is the panel a user keeps open while a pomodoro runs, so it is
-/// packed rather than stacked: one length spent by the three sites, the two
-/// trades on one line, the four buildings two to a row.
+/// packed rather than stacked: the two trades on one line, the four buildings
+/// two to a row.
 ///
-/// The walk here is the one the panel exists for — pick a length once, then
-/// pick a site — plus the geometry that makes it short: the buildings share
-/// rows instead of owning one each.
+/// The walk here is what the panel exists for — a gathering task started by
+/// hand, not an outing taken for hours — plus the geometry that makes it short:
+/// the buildings share rows instead of owning one each.
 #[gpui_kit::test]
 fn the_resources_panel_is_packed_and_still_works(cx: &mut TestAppContext) {
     let cultivation = Cultivation::new(CultivationDocument {
@@ -2824,44 +2822,35 @@ fn the_resources_panel_is_packed_and_still_works(cx: &mut TestAppContext) {
     })
     .view();
     let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
-    let (view, visual) = cultivation_page_with(cx, pomodoro);
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
     visual.update(|window, cx| window.render_frame(cx));
 
-    // One length control for all three sites, not three buttons on each of the
-    // three rows.
-    scroll_until_visible(visual, "cultivation-gather-hours-12");
-    for hours in [
+    // Gathering is a task, not an outing: there is no length to pick and no
+    // site to send a four-hour trip to. The expedition the panel used to carry
+    // is gone, and 伐木 — the task that replaced it — is what a click starts.
+    for gone in [
         "cultivation-gather-hours-4",
-        "cultivation-gather-hours-8",
         "cultivation-gather-hours-12",
+        "cultivation-expedition-Forest",
     ] {
-        assert!(painted(visual, hours), "{hours} is missing");
+        assert!(!painted(visual, gone), "{gone} is still drawn");
     }
+    scroll_until_visible(visual, "cultivation-task-start-woodcut");
     visual.update(|window, cx| {
         window.render_frame(cx);
-        window.click("cultivation-gather-hours-12", cx);
-    });
-    assert_eq!(
-        visual.update(|_, cx| view.read(cx).cultivation_gather_hours),
-        12,
-        "the picked length is what the sites below it will spend"
-    );
-
-    scroll_until_visible(visual, "cultivation-expedition-Forest");
-    visual.update(|window, cx| {
-        window.render_frame(cx);
-        window.click("cultivation-expedition-Forest", cx);
+        window.click("cultivation-task-start-woodcut", cx);
     });
     let commands = published(&sink);
     assert!(
         matches!(
             commands.as_slice(),
-            [PomodoroCommand::StartExpedition {
-                site: bongocat_pomodoro::GatherSite::Forest,
-                hours: bongocat_pomodoro::ExplorationHours::Twelve,
+            [PomodoroCommand::CultStartTask {
+                kind: bongocat_pomodoro::TaskKind::Woodcut,
+                site: Some(bongocat_pomodoro::GatherSite::Forest),
+                ..
             }]
         ),
-        "the site spends the length that was picked: {commands:?}"
+        "the task that replaced the expedition starts the forest run: {commands:?}"
     );
 
     // Two buildings to a row: the pair shares a line, and the second pair sits
@@ -2887,5 +2876,221 @@ fn the_resources_panel_is_packed_and_still_works(cx: &mut TestAppContext) {
     assert!(
         painted(visual, "cultivation-trades"),
         "the two trades share one line"
+    );
+}
+
+/// The real-time task row starts a task and stops the one under way.
+///
+/// The click has to reach the worker: a button that paints and publishes
+/// nothing is the failure this page had once already. The tier the click
+/// carries is the chip the user lit, not the row's default — the same
+/// "one choice, spent by the button" rule the walk's lengths follow.
+#[gpui_kit::test]
+fn starting_a_task_carries_the_tier_that_was_picked(cx: &mut TestAppContext) {
+    let (pomodoro, sink) = PomodoroClient::with_sink();
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    for start in [
+        "cultivation-task-start-meditate",
+        "cultivation-task-start-woodcut",
+        "cultivation-task-start-stonecut",
+    ] {
+        assert!(painted(visual, start), "the task row offers {start}");
+    }
+    scroll_until_visible(visual, "cultivation-task-tier-Spirit");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-task-tier-Spirit", cx);
+    });
+    assert!(
+        published(&sink).is_empty(),
+        "picking a tier asks for nothing"
+    );
+    scroll_until_visible(visual, "cultivation-task-start-woodcut");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-task-start-woodcut", cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(
+            commands.as_slice(),
+            [PomodoroCommand::CultStartTask {
+                kind: bongocat_pomodoro::TaskKind::Woodcut,
+                site: Some(bongocat_pomodoro::GatherSite::Forest),
+                tier: Some(bongocat_pomodoro::GatherTier::Spirit),
+                grade: None,
+                job_kind: None,
+            }]
+        ),
+        "the click starts the task at the picked tier: {commands:?}"
+    );
+}
+
+/// A task under way is read on the row, and its stop button ends it.
+///
+/// The row has to say what is running rather than only offer the three
+/// starts: a task started from the board (打工) or left running from a
+/// previous launch is invisible otherwise, and the user has no way to stop
+/// it. The status line carries the tick count and the tempo off the task
+/// itself, so the page never recomputes them from the clock.
+#[gpui_kit::test]
+fn a_task_under_way_reads_as_running_and_stops(cx: &mut TestAppContext) {
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        growth: threshold_for(120),
+        realm: 1,
+        // 寒铁窟 asks for 采石 20 (`docs/0103` §5.2).
+        stonecut_level: 20,
+        ..CultivationDocument::default()
+    });
+    cultivation
+        .start_gathering_task(
+            bongocat_pomodoro::TaskKind::Stonecut,
+            Some(bongocat_pomodoro::GatherSite::Mountain),
+            bongocat_pomodoro::GatherTier::Divine,
+            None,
+            None,
+            0,
+            bongocat_pomodoro::GATHER_TICK_SECONDS,
+        )
+        .expect("the task starts");
+    let view = cultivation.view();
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(view));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    scroll_until_visible(visual, "cultivation-task-status");
+    assert!(
+        painted(visual, "cultivation-task-status"),
+        "the running task has to be named on the row"
+    );
+    assert!(
+        !painted(visual, "cultivation-task-idle"),
+        "an idle line and a running task are not both on the page"
+    );
+    scroll_until_visible(visual, "cultivation-task-stop");
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-task-stop", cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(commands.as_slice(), [PomodoroCommand::CultStopTask]),
+        "the click ends the task: {commands:?}"
+    );
+}
+
+/// 闭关 runs beside a task, so it is started and ended from its own row.
+///
+/// The two states of the row are the two commands: nothing under way offers
+/// 开始闭关, a sit under way offers 结束闭关 and the tick count against the
+/// 250 a full sit runs.
+#[gpui_kit::test]
+fn seclusion_is_started_and_stopped_from_its_row(cx: &mut TestAppContext) {
+    let (pomodoro, sink) = PomodoroClient::with_sink();
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    scroll_until_visible(visual, "cultivation-seclusion-start");
+    assert!(
+        painted(visual, "cultivation-seclusion-start"),
+        "an idle cultivator is offered the sit"
+    );
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-seclusion-start", cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(commands.as_slice(), [PomodoroCommand::CultStartSeclusion]),
+        "the click begins the sit: {commands:?}"
+    );
+
+    let mut cultivation = Cultivation::default();
+    cultivation.start_seclusion(0).expect("the sit starts");
+    let view = cultivation.view();
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(view));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    scroll_until_visible(visual, "cultivation-seclusion-stop");
+    assert!(
+        painted(visual, "cultivation-seclusion-stop"),
+        "a sit under way offers the way out"
+    );
+    assert!(
+        !painted(visual, "cultivation-seclusion-start"),
+        "a sit already running is not offered a second one"
+    );
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-seclusion-stop", cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(commands.as_slice(), [PomodoroCommand::CultStopSeclusion]),
+        "the click ends the sit: {commands:?}"
+    );
+}
+
+/// A 打工 task under way reads as taken on the board.
+///
+/// The board cannot offer a second copy of work already running: the take
+/// button is gone and a 接取中 tag is in its place. The marker reads the
+/// task, not only the legacy hour-job, so a real-time 打工 started from the
+/// board is closed the same way a pre-S4 job was.
+#[gpui_kit::test]
+fn a_work_task_reads_as_taken_on_the_board(cx: &mut TestAppContext) {
+    let mut cultivation = Cultivation::default().view();
+    let job = cultivation
+        .jobs
+        .first()
+        .cloned()
+        .expect("the board has a job to take");
+    cultivation.task = Some(bongocat_pomodoro::ActiveTask {
+        kind: bongocat_pomodoro::TaskKind::Work,
+        site: None,
+        tier: bongocat_pomodoro::GatherTier::Common,
+        grade: Some(job.grade.index() as u8),
+        job_kind: Some(job.kind),
+        start_unix: 0,
+        ticks_done: 3,
+        tick_seconds: bongocat_pomodoro::WORK_TICK_SECONDS,
+    });
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    scroll_until_visible(visual, "cultivation-jobs");
+    assert!(
+        painted(visual, "cultivation-job-taken-0"),
+        "the job the task is working reads as taken"
+    );
+    assert!(
+        !painted(visual, "cultivation-job-take-0"),
+        "a job already worked has no take button"
+    );
+}
+
+/// A battle under way is read on the tower panel, not only in the duel screen.
+///
+/// The fight is real-time now: it runs a round a second and settles at the
+/// end. A panel that offered 攀爬 while a fight was already running would be
+/// offering a second battle the domain refuses, so the panel says the fight is
+/// under way and how far it has got.
+#[gpui_kit::test]
+fn a_battle_under_way_is_read_on_the_tower_panel(cx: &mut TestAppContext) {
+    let mut cultivation = Cultivation::default();
+    let run = cultivation
+        .start_battle(bongocat_pomodoro::BattleKind::Trial, 0, 0, None, false)
+        .expect("the tower is open for a first climb");
+    assert!(
+        run.rounds_total > 0,
+        "the fixture has to be a fight with rounds to play"
+    );
+    let view = cultivation.view();
+    let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(view));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    scroll_until_visible(visual, "cultivation-trial-battle");
+    assert!(
+        painted(visual, "cultivation-trial-battle"),
+        "a fight under way has to be named on the tower panel"
     );
 }

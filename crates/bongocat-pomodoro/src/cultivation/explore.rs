@@ -1367,8 +1367,12 @@ mod tests {
             // Two identical seeds: the hour's gain reads the same base draw the
             // walk's own does, so the two can be compared draw for draw.
             let mut walk_rng = Rng::seeded(seed);
-            let (_, permille) =
-                walk_gain_permille(&mut walk_rng, ExplorationHours::Four, requirement, requirement);
+            let (_, permille) = walk_gain_permille(
+                &mut walk_rng,
+                ExplorationHours::Four,
+                requirement,
+                requirement,
+            );
             let walk_tenths = (permille + 5) / 10;
             let mut hour_rng = Rng::seeded(seed);
             let hour_tenths = proving_gain_tenths(&mut hour_rng, requirement, requirement);
@@ -1406,10 +1410,19 @@ mod tests {
         // A body five times the floor draws the capped gain: the four-hour
         // band times five, a sixth of it, rounded to tenths — two tenths at
         // the top of the band.
-        assert!(high > 1, "a strong body's 试炼 moves the region further: {high}");
+        assert!(
+            high > 1,
+            "a strong body's 试炼 moves the region further: {high}"
+        );
         let weak = proving_gain_tenths(&mut Rng::seeded(1), requirement / 10, requirement);
-        assert!(weak < high, "a hopeless body moves no further: {weak} vs {high}");
-        assert!(weak >= 1, "a win moves the road by at least a tenth: {weak}");
+        assert!(
+            weak < high,
+            "a hopeless body moves no further: {weak} vs {high}"
+        );
+        assert!(
+            weak >= 1,
+            "a win moves the road by at least a tenth: {weak}"
+        );
     }
 
     /// The walk's gain reads as the page prints it: parts per thousand of the

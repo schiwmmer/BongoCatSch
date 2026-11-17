@@ -185,6 +185,16 @@ fn send(payload: &str, now: f64) -> i32 {
     bongocat_pomodoro_web::web_command(bytes.len() as u32, now)
 }
 
+/// Boot the page on a save written as JSON, the way a reload reads one back.
+fn boot_with(document: &str, now: f64) -> u32 {
+    let bytes = document.as_bytes();
+    let input = bongocat_pomodoro_web::web_input_ptr();
+    // SAFETY: same buffer contract as `send` — the module owns `INPUT` and the
+    // document is a few hundred bytes against a two-megabyte buffer.
+    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), input, bytes.len()) };
+    bongocat_pomodoro_web::web_boot(bytes.len() as u32, 8 * 3600, now, 7.0)
+}
+
 /// The snapshot the page would draw right now.
 fn snapshot_json(now: f64) -> serde_json::Value {
     bongocat_pomodoro_web::web_render(now);
@@ -237,5 +247,87 @@ fn the_page_cannot_credit_keyboard_or_mouse_input() {
     assert_eq!(
         send(r#"{"op":"set_focus_minutes","minutes":30}"#, now),
         COMMAND_APPLIED
+    );
+}
+
+/// The four real-time cultivation ops reach the state machine through the same
+/// buffer the page writes, and the snapshot carries what they started.
+///
+/// Driven through the exported boundary rather than through `parse_command`
+/// because the page's whole contract with this crate is the buffer and the code
+/// it reads back: a whitelist that holds inside a private match arm is not the
+/// contract the page actually sees.
+#[test]
+fn the_page_can_start_and_stop_the_real_time_tasks() {
+    let now = 1_800_000_000.0;
+    // 灵木林 asks for 伐木 10 (`docs/0103` §5.2), so the save working it is a
+    // level-ten one rather than the fresh default.
+    assert_eq!(
+        boot_with(
+            r#"{"schema_version":1,"cultivation":{"woodcut_level":10}}"#,
+            now
+        ),
+        1
+    );
+
+    // A gathering task carries the site and the tier the page picked.
+    assert_eq!(
+        send(
+            r#"{"op":"cult_start_task","kind":"woodcut","site":"forest","tier":"spirit"}"#,
+            now
+        ),
+        COMMAND_APPLIED
+    );
+    let task = &snapshot_json(now)["cultivation"]["task"];
+    assert!(
+        task.is_object(),
+        "the task under way is on the snapshot: {task}"
+    );
+
+    assert_eq!(send(r#"{"op":"cult_stop_task"}"#, now), COMMAND_APPLIED);
+    assert!(
+        snapshot_json(now)["cultivation"]["task"].is_null(),
+        "stopping clears the slot"
+    );
+
+    // A breath takes no site or tier, and the same op has to accept it.
+    assert_eq!(
+        send(r#"{"op":"cult_start_task","kind":"meditate"}"#, now),
+        COMMAND_APPLIED
+    );
+    assert!(
+        snapshot_json(now)["cultivation"]["task"].is_object(),
+        "a site-less 吐纳 still starts"
+    );
+
+    // 闭关 is not a task and does not take the slot, so it is its own pair of
+    // ops — and it starts beside the breath that is still running.
+    assert_eq!(
+        send(r#"{"op":"cult_start_seclusion"}"#, now),
+        COMMAND_APPLIED
+    );
+    let cultivation = &snapshot_json(now)["cultivation"];
+    assert!(
+        cultivation["seclusion"].is_object(),
+        "the sit is on the snapshot: {cultivation}"
+    );
+    assert!(
+        cultivation["task"].is_object(),
+        "the sit runs beside the task rather than replacing it"
+    );
+    assert_eq!(
+        send(r#"{"op":"cult_stop_seclusion"}"#, now),
+        COMMAND_APPLIED
+    );
+    assert!(snapshot_json(now)["cultivation"]["seclusion"].is_null());
+
+    // A site the bridge cannot read is refused rather than silently started as
+    // a site-less 伐木: an unreadable command is a bug in the page, not a task.
+    assert_eq!(
+        send(
+            r#"{"op":"cult_start_task","kind":"woodcut","site":"swamp"}"#,
+            now
+        ),
+        COMMAND_UNKNOWN
     );
 }

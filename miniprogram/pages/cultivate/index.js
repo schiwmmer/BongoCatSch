@@ -19,6 +19,7 @@ Page({
     loading: true,
     error: '',
     busy: false,
+    taskTier: 'common',
   },
 
   onLoad(query) {
@@ -67,7 +68,7 @@ Page({
         view = V.tower(c);
         break;
       case 'workshop':
-        view = V.workshop(c);
+        view = V.workshop(c, this.data.taskTier);
         break;
       case 'garden':
         view = V.garden(c);
@@ -120,13 +121,50 @@ Page({
           .then(() => this.render())
           .catch((error) => this.setData({ loading: false, error: error.message }));
         return;
+      case 'task-tier':
+        this.setData({ taskTier: data.tier });
+        this.render();
+        return;
+      case 'cult-meditate':
+        this.send({ op: 'cult_start_task', kind: 'meditate' });
+        return;
+      case 'cult-woodcut':
+        this.send({
+          op: 'cult_start_task',
+          kind: 'woodcut',
+          site: 'forest',
+          tier: this.data.taskTier,
+        });
+        return;
+      case 'cult-stonecut':
+        this.send({
+          op: 'cult_start_task',
+          kind: 'stonecut',
+          site: 'mountain',
+          tier: this.data.taskTier,
+        });
+        return;
+      case 'cult-stop-task':
+        this.send({ op: 'cult_stop_task' }, '已停止');
+        return;
+      case 'cult-start-seclusion':
+        this.send({ op: 'cult_start_seclusion' }, '已开始闭关');
+        return;
+      case 'cult-stop-seclusion':
+        this.send({ op: 'cult_stop_seclusion' }, '已结束闭关');
+        return;
       case 'explore':
         this.send({ op: 'explore', hours: Number(data.hours) });
         return;
-      case 'expedition':
-        this.send({ op: 'start_expedition', site: data.site, hours: 8 });
-        return;
-      case 'return-early':
+      case 'return-early': {
+        // S4 之后打工是实时任务，`return_early` 只叫得动探索/旧档 hour-job，
+        // 叫不动 Work 任务。按当前任务的 kind 分发：是打工任务就发停止任务。
+        const cultivation = (store.state.snapshot && store.state.snapshot.cultivation) || {};
+        const task = cultivation.task;
+        if (task && task.kind === 'Work') {
+          this.send({ op: 'cult_stop_task' }, '已收工');
+          return;
+        }
         wx.showModal({
           title: '提前返回？',
           content: '路上花掉的时间不会折算成收益。',
@@ -136,6 +174,7 @@ Page({
           },
         });
         return;
+      }
       case 'job':
         this.send({ op: 'accept_job', slot: Number(data.slot) });
         return;

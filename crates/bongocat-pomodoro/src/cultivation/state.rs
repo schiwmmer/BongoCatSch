@@ -37,7 +37,10 @@ use super::{
         roll_kind,
     },
     duel::{DUEL_RECORD_CAP, DuelRecord, FightKind, duel},
-    events::{BATTLE_REPLAY_CAP, BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource, SaleKind},
+    events::{
+        BATTLE_REPLAY_CAP, BonusFind, EVENT_LOG_CAP, EventDetail, EventRecord, MarrowSource,
+        SaleKind,
+    },
     expedition_yield,
     explore::{
         BONUS_STONES, GUARDIAN_STONES, TRIAL_STONES, WalkRecord, breakthrough_ready, roll_stones,
@@ -329,6 +332,11 @@ pub struct CollectOutcome {
     pub site: GatherSite,
     /// What the purse actually gained, after the 仓库's ceiling.
     pub gained: ResourceBag,
+    /// What the purse could not hold: the find the tick made, minus what fit
+    /// under the 仓库's ceiling. Empty when nothing was swallowed, so a surface
+    /// can say "仓库已满" out loud instead of showing a gain of nothing and
+    /// leaving the player to guess why the resource did not move.
+    pub lost: ResourceBag,
     /// The 伐木 xp banked by this gathering.
     pub woodcut_xp: u32,
     /// The 采石 xp banked by this gathering.
@@ -792,6 +800,18 @@ pub struct CultivationView {
     pub garden_upgrade_cost: Option<u32>,
     /// The guardian offered right now: present only at a realm's last layer.
     pub guardian: Option<GuardianView>,
+    /// The real-time battle under way, if one is (S5, §5.4). `None` while the
+    /// cultivator is not fighting, which is the whole of a pre-S5 save.
+    pub battle: Option<BattleRun>,
+    /// The real-time task under way, if one is (S1, §4): 吐纳, 伐木, 采石 or
+    /// 打工. Carried whole so a surface can draw what it is, where it works, how
+    /// many ticks the clock has already paid and how long one tick is — the
+    /// four things a task row has to read.
+    pub task: Option<ActiveTask>,
+    /// The 闭关 under way, if one is (S3, §5.1). It is deliberately not a task
+    /// and does not occupy the slot, so it is carried beside [`Self::task`]
+    /// rather than instead of it.
+    pub seclusion: Option<SeclusionRun>,
     pub last_breakthrough: Option<BreakthroughOutcome>,
     pub last_absence: Option<AbsenceCharge>,
     pub last_drop: Option<DropView>,
@@ -1859,64 +1879,6 @@ impl Cultivation {
         Some(charge)
     }
 
-    /// Fold one finished focus session into the ladder.
-    pub fn on_session_completed(
-        &mut self,
-        now_unix: i64,
-        today: CalendarDay,
-        _focus_minutes: u32,
-    ) -> SessionReward {
-        let absence = self.apply_absence(today, now_unix);
-        let today_number = today.day_number();
-        // The session number resets on a new local day, which `last_active_day`
-        // already records: the first sit-down of the day is number one, every
-        // further one the same day escalates. The count is the realm's stage
-        // aware, so the growth formula rewards climbing as well as repeating.
-        if self.document.last_active_day != Some(today_number) {
-            self.document.session_count_today = 0;
-        }
-        let session_number = self.document.session_count_today.saturating_add(1);
-        self.document.session_count_today = session_number;
-        let stage = self.realm().index() as u32 + 1;
-        // The four disciplines say what this save has been doing, and a session
-        // is worth what that is worth: a trained cultivator's pomodoro is several
-        // times a bare one, up to the ceiling [`scaled_growth`] enforces.
-        let growth = scaled_growth(
-            super::session_growth(session_number, stage),
-            self.growth_multiplier_permille(),
-        );
-        self.document.growth = self.document.growth.saturating_add(growth);
-        self.document.last_active_day = Some(today_number);
-        self.document.missed_streak = 0;
-        self.document.charged_through_day = Some(today_number);
-        self.note_peak_level();
-        // The log says a session happened and what it paid, newest behind the
-        // training it caused: the 功法's turn is the more telling line of the two.
-        self.push_event(now_unix, EventDetail::Session { growth });
-        // The session also trains whatever 功法 is selected: the pomodoro is the
-        // only honest measure of time spent training, so learning rides the same
-        // event that pays the growth.
-        self.train_selected(now_unix);
-        // The session's cut of 灵石, credited here so it lands exactly when the
-        // growth does: a purse that paid on a different day than the work would
-        // be a second, quieter ladder sitting next to the first.
-        self.credit_session_earnings();
-        // The session also buys one 试炼 chance: the training is the faucet for
-        // the courtyard's other half, and ten chances is the bank it feeds.
-        self.document.proving_tokens = self
-            .document
-            .proving_tokens
-            .saturating_add(1)
-            .min(TRIAL_CHANCES_CAP);
-        let drop = self.roll_drop(now_unix);
-        self.last_drop = drop.clone();
-        SessionReward {
-            growth,
-            absence,
-            drop,
-        }
-    }
-
     /// The chance one 练功 session pays its points, in parts per thousand.
     ///
     /// A finished pomodoro with no 功法 in study is a 练功 session, and it is a
@@ -2165,7 +2127,13 @@ impl Cultivation {
     /// announces the rarer thing — a thousandth beating a hundred-and-tenth is
     /// the one line worth reading. Both are read through the session's own
     /// strength: nothing fought here, so the cultivator's power is the source.
-    fn roll_drop(&mut self, now_unix: i64) -> Option<Drop> {
+    ///
+    /// `pub(super)` because 吐纳's tenth tick rolls the same find a session does
+    /// (`docs/0103` §5.1): the roll and its event are the session's path, and a
+    /// second copy for the task would be a second path. It is deliberately not
+    /// session-shaped — it reads only the clock and the cultivator's own power,
+    /// so a task tick can call it without a session context.
+    pub(super) fn roll_drop(&mut self, now_unix: i64) -> Option<Drop> {
         let mut rng = self.rng(now_unix);
         let strength = Strength::of(self.power());
         if rng.below(1_000) < SESSION_BONUS_PERMILLE
@@ -2462,8 +2430,25 @@ pub struct PlantOutcome {
 // compile into this module's type, so every public path stays unchanged.
 #[path = "state_actions.rs"]
 mod actions;
+#[path = "battle_run.rs"]
+mod battle_run;
 #[path = "state_queries.rs"]
 mod queries;
+#[path = "task.rs"]
+mod task;
+
+pub use battle_run::{
+    BATTLE_TICK_SECONDS, BattleFound, BattleKind, BattleOutcome, BattlePreview, BattleRun,
+    BreakthroughApply, BreakthroughWin, FirstClear, LostGear, PlannedBattle, ProvingApply,
+    SeedReward, TrialApply,
+};
+
+pub use task::{
+    ActiveTask, GATHER_TICK_SECONDS, GROWTH_REALM_STEP, JOB_POINT_EVERY_TICKS,
+    SECLUSION_BONUS_PERMILLE, SECLUSION_TICK_SECONDS, SECLUSION_TICKS, SeclusionRun,
+    TASK_BASE_GROWTH, TASK_CHANCE_EVERY_TICKS, TASK_JOB_BASE_STONES, TASK_OFFLINE_CAP_SECONDS,
+    TaskKind, WORK_TICK_SECONDS, meditate_tick_growth, sit_growth,
+};
 
 #[cfg(test)]
 #[path = "state_tests.rs"]

@@ -189,7 +189,7 @@ pub fn seed_price(tier: u8, grade: SeedGrade) -> u32 {
 /// what makes a run of failures readable as a run of the same bet rather than
 /// as an escalating one.
 ///
-/// The tribute climbs with the star: wood rises four a star, stone two, and
+/// The tribute climbs with the star: wood rises twenty a star, stone ten, and
 /// the rare finds join in — 煤 from the fourth star, 铁 from the sixth —
 /// because a high star is a rare find's craft. The whole tribute is then
 /// scaled by the piece's tier ([`tier_multiplier_permille`]), so an
@@ -199,13 +199,17 @@ pub fn seed_price(tier: u8, grade: SeedGrade) -> u32 {
 /// attempt, not the 灵石 alone, so the forge's level is what makes the deep
 /// stars reachable.
 ///
-/// The tribute's base is the old curve doubled: a failure drops only a half
-/// star, so it costs half the attempts to reach a given star, and the tribute
-/// takes that back — the floor the forge's material asks for is the floor it
-/// always was, only the setback is kinder. Buying stars back at a profit is
-/// still a no: the sell price is the piece's tier and quality alone, so a
-/// ten-star piece sells exactly what an unstarred one does, and the 灵石 purse
-/// stays closed against the arbitrage.
+/// The tribute's base is the S7 rework (`docs/0103` §5.6): the common finds
+/// are five times the pre-S7 curve and 铁 double, so a first-tier piece
+/// starred 0→10 costs 1100 wood, 550 stone, 60 iron and 56 coal — about
+/// 73 minutes of bare L1 伐木 in wood alone. That is the point: the S2
+/// gathering faucet pays 900 wood an hour at the first site, so a full set
+/// of starred gear has to be hours of work or the forge is an afterthought.
+/// 煤 keeps its old curve — it is already gated behind 伐木 level five, and
+/// its 56 is a depth reward rather than a wall. Buying stars back at a profit
+/// is still a no: the sell price is the piece's tier and quality alone, so a
+/// ten-star piece sells exactly what an unstarred one does, and the 灵石
+/// purse stays closed against the arbitrage.
 pub fn star_up_cost(item: &EquipmentRecord, smithy_level: u8) -> super::Cost {
     let star = u32::from(item.star.min(super::MAX_STAR));
     let target = star.saturating_add(1);
@@ -213,15 +217,15 @@ pub fn star_up_cost(item: &EquipmentRecord, smithy_level: u8) -> super::Cost {
     let smithy_m = super::smithy_multiplier_permille(smithy_level);
     // A star's tribute is the piece's tier scaled, then the forge's discount
     // applied: the two multiply, and the result is what one attempt costs in
-    // raw coin. The base is the old curve doubled — see the doc comment above.
+    // raw coin. The base is the S7 table — see the doc comment above.
     let scale = |base: u32| base.saturating_mul(tier_m).saturating_mul(smithy_m) / 1_000 / 1_000;
     let mut resources = super::ResourceBag::default();
-    resources.add(super::Resource::Wood, scale(4 + 4 * star));
-    resources.add(super::Resource::Stone, scale(2 + 2 * star));
+    resources.add(super::Resource::Wood, scale(20 + 20 * star));
+    resources.add(super::Resource::Stone, scale(10 + 10 * star));
     if target >= u32::from(super::STAR_IRON_FROM_STAR) {
         resources.add(
             super::Resource::Iron,
-            scale(2 + 2 * (target - u32::from(super::STAR_IRON_FROM_STAR))),
+            scale(4 + 4 * (target - u32::from(super::STAR_IRON_FROM_STAR))),
         );
     }
     if target >= 4 {

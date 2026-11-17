@@ -10,8 +10,8 @@ impl Cultivation {
     /// Plant one owned seed in the first empty plot.
     ///
     /// The roll happens **now**, while the seed is still in hand, and never at
-    /// harvest: a tenth-rank seed asks for ten days of the user's bed, and an
-    /// answer ten days late is a punishment they will simply stop asking for.
+    /// harvest: a bed is committed for its tier's whole wait, and an answer that
+    /// late is a punishment the player will simply stop asking for.
     /// A crop that survived its planting cannot be lost afterwards, which is why
     /// the plot below is only ever handed to a planting that has already come up.
     ///
@@ -560,6 +560,12 @@ impl Cultivation {
         // An expedition whose time is up is settled before a new one is judged,
         // so an old expedition already home cannot block a fresh one.
         self.settle_expedition(now_unix);
+        // S5: a fight under way is the cultivator's whole attention, so an
+        // expedition cannot be set out beside it either.
+        if self.document.battle.is_some() {
+            self.note_refusal(Refusal::BattleRunning);
+            return None;
+        }
         if self.document.expedition.is_some() {
             self.note_refusal(Refusal::ExpeditionOut);
             return None;
@@ -570,6 +576,12 @@ impl Cultivation {
         }
         if self.document.work.is_some() {
             self.note_refusal(Refusal::ExpeditionOut);
+            return None;
+        }
+        // A task is hours of the same day as an outing, so the road is closed
+        // while one is running.
+        if self.document.task.is_some() {
+            self.note_refusal(Refusal::TaskRunning);
             return None;
         }
         let expedition = ExpeditionInProgress::started(now_unix, site, hours);
@@ -676,14 +688,27 @@ impl Cultivation {
     /// Bank a collection into the purse and the trades: the 仓库's ceiling per
     /// resource, the xp, and the levels the xp buys. Shared by a manual click
     /// and a finished gathering session, so the two pay the same way.
-    fn bank_collection(&mut self, site: GatherSite, yield_: CollectionYield) -> CollectOutcome {
+    ///
+    /// `pub(super)` so the task module's per-tick gathering can pay the same
+    /// way too, rather than growing a second copy of the ceiling and the xp.
+    pub(super) fn bank_collection(
+        &mut self,
+        site: GatherSite,
+        yield_: CollectionYield,
+    ) -> CollectOutcome {
         // The 仓库's ceiling is per resource: a purse at the top of one kind
         // keeps the find of the other, so a full purse is never a lost day.
         let cap = resource_cap(self.document.warehouse_level);
         let mut gained = ResourceBag::default();
+        let mut lost = ResourceBag::default();
         for resource in Resource::ALL {
             let room = cap.saturating_sub(self.document.resources.get(resource));
-            gained.add(resource, yield_.gained.get(resource).min(room));
+            let found = yield_.gained.get(resource);
+            gained.add(resource, found.min(room));
+            // The swallowed part is reported, not absorbed: a tick that found
+            // three wood and banked none looks identical to a tick that found
+            // nothing unless the difference is carried out here.
+            lost.add(resource, found - found.min(room));
         }
         self.document.resources.add_bag(&gained);
         // The trades bank xp; the while-loop lets a big 道场 climb two ranks.
@@ -702,6 +727,7 @@ impl Cultivation {
         let outcome = CollectOutcome {
             site,
             gained,
+            lost,
             woodcut_xp: yield_.woodcut_xp,
             stonecut_xp: yield_.stonecut_xp,
             woodcut_level: self.document.woodcut_level,
@@ -872,102 +898,16 @@ impl Cultivation {
     /// last layer, or the ladder has no next realm. A loss costs nothing but
     /// the attempt; a win opens the next realm, lifts the growth to that
     /// realm's floor and pays one piece of the new tier's gear.
+    ///
+    /// S5: the fight is a real-time battle now, and this entry is its thin
+    /// immediate form — [`Self::start_battle`] decides the whole fight with the
+    /// same rolls in the same order, and [`Self::settle_battle_now`] writes the
+    /// decided result. Nothing about the judgment moved; only the timing did.
     pub fn breakthrough(&mut self, now_unix: i64) -> Option<BreakthroughOutcome> {
-        let current = self.realm();
-        if self.level() < current.cap_level() {
-            return None;
-        }
-        if !breakthrough_ready(self.document.breakthrough_blocked_until, now_unix) {
-            return None;
-        }
-        let guardian = guardian_for(current)?;
-        // The count is taken here, where a fight is actually joined: it is what
-        // tells a surface there is a report it has not shown yet, and "the
-        // snapshot revision moved" cannot say that — a running pomodoro bumps
-        // it every second.
-        self.breakthrough_attempts = self.breakthrough_attempts.saturating_add(1);
-        let mut rng = self.rng(now_unix);
-        let report = resolve(self.attributes(), guardian);
-        // The fight is what decides, not the number above: the panel prints the
-        // comparison so the user knows where they stand, and then the two of
-        // them actually trade blows.
-        let fighter = self.fighter(&mut rng);
-        // The guardian is the same opponent every time it is met: its power is
-        // printed before the fight, so a roll per attempt would make that number
-        // a lie. What it wears is what makes it harder than the naked rung, and
-        // that gear is what a win takes.
-        let rival = opponent::guardian(current, guardian.target);
-        let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
-        // Won fights are what train the 战斗 dimension; a loss is not counted
-        // there, and only ever shows up in the record below.
-        self.record_duel(duel.won, FightKind::Guardian, now_unix);
-        if !duel.won {
-            self.document.breakthrough_failures =
-                self.document.breakthrough_failures.saturating_add(1);
-            self.document.breakthrough_blocked_until =
-                Some(now_unix.saturating_add(BREAKTHROUGH_COOLDOWN_SECONDS));
-            // A loss can cost a piece of gear. One in four, and only one: the
-            // point is that a loss stings, not that it sets the cultivator back.
-            let lost = (rng.below(1_000) < LOST_GEAR_PERMILLE)
-                .then(|| self.drop_one_item(&mut rng))
-                .flatten();
-            let outcome = BreakthroughOutcome {
-                report,
-                target: guardian.target,
-                reward: None,
-                duel: duel.clone(),
-                lost,
-                granted_art: None,
-                stones: None,
-                seed: None,
-            };
-            self.last_breakthrough = Some(outcome.clone());
-            // The realm it failed to open is still named: a loss is history
-            // too, and one line with the realm on it beats two kinds of line.
-            self.push_event(
-                now_unix,
-                EventDetail::Breakthrough {
-                    won: false,
-                    stage: Some(guardian.target.index() as u8),
-                    stones: None,
-                    gear: None,
-                    art: None,
-                    seed: None,
-                    duel: Some(duel),
-                },
-            );
-            return Some(outcome);
-        }
-        // The guardian is the strongest thing on the page, so a win here is
-        // where the pill's odds are best — and it is rolled before the realm
-        // opens, so the newest line in the log is the find rather than the
-        // breakthrough it came with.
-        self.roll_marrow_from_combat(guardian.power, &mut rng, now_unix);
-        self.enter_realm(guardian, &rival, duel, now_unix);
-        let outcome = self.last_breakthrough.clone();
-        // The log is written after the settlement so the line carries the
-        // realm that was opened *and* everything that came with it — purse,
-        // 功法, gear and herb: the event is one line about one event, not two
-        // half-lines about a fight and a buy. A win that left its finds out of
-        // the log left a bag the user could not check against it.
-        self.push_event(
-            now_unix,
-            EventDetail::Breakthrough {
-                won: true,
-                stage: Some(guardian.target.index() as u8),
-                stones: outcome.as_ref().and_then(|outcome| outcome.stones),
-                gear: outcome
-                    .as_ref()
-                    .and_then(|outcome| outcome.reward.as_ref())
-                    .and_then(|item| item.name.clone()),
-                art: outcome
-                    .as_ref()
-                    .and_then(|outcome| outcome.granted_art.clone()),
-                seed: outcome.as_ref().and_then(|outcome| outcome.seed.clone()),
-                duel: outcome.as_ref().map(|outcome| outcome.duel.clone()),
-            },
-        );
-        outcome
+        self.start_battle(BattleKind::Breakthrough, now_unix, 0, None, false)
+            .ok()?;
+        self.settle_battle_now(now_unix)?;
+        self.last_breakthrough.clone()
     }
 
     /// Roll one 洗髓丹 after a won fight.
@@ -1049,7 +989,9 @@ impl Cultivation {
     /// A win is also what trains the 战斗 dimension, so the count and the line of
     /// history are written together: a record that disagreed with the dimension
     /// would be two truths about the same fight.
-    fn record_duel(&mut self, won: bool, kind: FightKind, now_unix: i64) {
+    /// `pub(super)` because a battle's apply phase writes the same record a
+    /// fight does (`battle_run.rs`); the two must not keep two ledgers.
+    pub(super) fn record_duel(&mut self, won: bool, kind: FightKind, now_unix: i64) {
         if won {
             self.document.battle_wins = self.document.battle_wins.saturating_add(1);
         }
@@ -1244,27 +1186,13 @@ impl Cultivation {
         })
     }
 
-    /// Give up one owned item and say which. Equipped or not, one item only —
-    /// and the cultivator is never left with nothing they can wear.
-    fn drop_one_item(&mut self, rng: &mut Rng) -> Option<String> {
-        if self.document.equipment.is_empty() {
-            return None;
-        }
-        let index = rng.below(self.document.equipment.len() as u64) as usize;
-        let item = self.document.equipment.remove(index);
-        let name = item
-            .name
-            .clone()
-            .unwrap_or_else(|| item.slot.name_key().to_owned());
-        self.document
-            .equipped
-            .iter_mut()
-            .filter(|slot| **slot == Some(item.id))
-            .for_each(|slot| *slot = None);
-        Some(name)
-    }
-
     /// Open the realm the guardian defended and pay its trophy.
+    ///
+    /// `cfg(test)`: S5 moved the live win into the battle preview/apply split
+    /// (`battle_run::plan_breakthrough` decides it, `settle_battle` writes it),
+    /// so the only callers left are the two tests that pin the realm's
+    /// inheritance rule and the trophy's provenance directly.
+    #[cfg(test)]
     pub(super) fn enter_realm(
         &mut self,
         guardian: Guardian,
@@ -1422,6 +1350,12 @@ impl Cultivation {
         region: super::super::explore::Region,
     ) -> Option<super::super::WalkInProgress> {
         self.settle_walk(now_unix);
+        // S5: a fight under way is the cultivator's whole attention, so the
+        // road is closed while one runs — the same wall a task start answers to.
+        if self.document.battle.is_some() {
+            self.note_refusal(Refusal::BattleRunning);
+            return None;
+        }
         if self.document.walk.is_some() {
             self.note_refusal(Refusal::ExploreCooldown);
             return None;
@@ -1436,6 +1370,12 @@ impl Cultivation {
         // same day — so the road is closed while one is being worked.
         if self.document.work.is_some() {
             self.note_refusal(Refusal::Working);
+            return None;
+        }
+        // A task is hours of the same day too, so the road is closed while one
+        // is running: a cultivator cannot walk and work at once.
+        if self.document.task.is_some() {
+            self.note_refusal(Refusal::TaskRunning);
             return None;
         }
         // A region ahead of the cultivator's own realm is a road they have not
@@ -1750,7 +1690,10 @@ impl Cultivation {
     /// Add a walk's progress to the region's current level. When the progress
     /// crosses a whole level — a hundred tenths of a percent — the level is
     /// cleared and the excess rolls into the next.
-    fn accumulate_progress(&mut self, region_index: usize, gain: u32) {
+    ///
+    /// `pub(super)` because a 试炼's apply phase settles the same progress a
+    /// walk does (`battle_run.rs`), and the two must not keep two copies.
+    pub(super) fn accumulate_progress(&mut self, region_index: usize, gain: u32) {
         let slot = self
             .document
             .region_progress
@@ -1904,17 +1847,23 @@ impl Cultivation {
         super::super::jobs::roll_jobs(&mut rng, tier)
     }
 
-    /// Take the job in that slot of the board.
+    /// Take the job in that slot of the board, as the 打工 task it names.
     ///
-    /// Refused while the cultivator is out on a walk or already at a job: both are
+    /// Refused while the cultivator is out on a walk or an expedition: both are
     /// hours of the same day, and a cultivator who can be in two places at once
-    /// has no reason to choose between them.
+    /// has no reason to choose between them. A job is a task now (`docs/0103`
+    /// §4, §5.3, §9-S4), so the one-slot rule is [`Self::start_work_task`]'s:
+    /// a cultivator already at a task is refused with [`Refusal::TaskRunning`].
+    ///
+    /// Returns the offer that was taken, which is the row the board printed;
+    /// the task it started rides [`ActiveTask::grade`] and
+    /// [`ActiveTask::job_kind`] and is read back with [`Self::task`].
     pub fn accept_job(
         &mut self,
         slot: usize,
         now_unix: i64,
         day: i64,
-    ) -> Result<super::super::JobRun, Refusal> {
+    ) -> Result<super::super::JobOffer, Refusal> {
         if self.document.walk.is_some() {
             return Err(Refusal::TrialOut);
         }
@@ -1923,15 +1872,23 @@ impl Cultivation {
         if self.document.expedition.is_some() {
             return Err(Refusal::ExpeditionOut);
         }
+        // A save written before S4 can still hold an hour-job in hand. It is
+        // settled by [`Self::settle_legacy_work`] on the tick, and until then
+        // it holds the cultivator the way it always did; new jobs never write
+        // this field again.
         if self.document.work.is_some() {
             return Err(Refusal::Working);
+        }
+        // A job is a task now, so the one slot is the task's: a cultivator
+        // already at a task cannot take another, whatever that task is.
+        if self.document.task.is_some() {
+            return Err(Refusal::TaskRunning);
         }
         let Some(offer) = self.jobs(day).get(slot).copied() else {
             return Err(Refusal::JobGone);
         };
-        let run = super::super::JobRun::started(offer, now_unix);
-        self.document.work = Some(run);
-        Ok(run)
+        self.start_work_task(offer, now_unix)?;
+        Ok(offer)
     }
 
     /// Pay for a fresh board.
@@ -1950,13 +1907,21 @@ impl Cultivation {
         Ok(cost)
     }
 
-    /// Settle a job that has come due. Returns what it paid.
+    /// Settle an hour-job a save written before S4 still holds. Returns what it
+    /// paid.
+    ///
+    /// **Legacy path.** S4 turned a job into a 打工 task (`docs/0103` §9), and
+    /// [`Self::accept_job`] no longer writes `document.work`; a job
+    /// taken from here on pays tick by tick through [`Self::settle_task_tick`].
+    /// This remains only so an in-flight shift from an older save still comes
+    /// home and pays on the tick, rather than being stranded by the redesign;
+    /// it goes with the field in S8.
     ///
     /// Called by the worker's tick the way a walk's return is: a job is hours of
     /// the cultivator's day, so it comes home on the clock rather than on a click,
     /// and an app that was shut for the whole of it has to pay on the next launch
     /// rather than lose the hours.
-    pub fn settle_work(&mut self, now_unix: i64) -> Option<WorkPaid> {
+    pub fn settle_legacy_work(&mut self, now_unix: i64) -> Option<WorkPaid> {
         let run = self.document.work?;
         if !run.is_done(now_unix) {
             return None;
@@ -2155,94 +2120,16 @@ impl Cultivation {
     /// moves the frontier up one and rolls what it turned up; a loss costs
     /// nothing but the attempt, and leaves the frontier where it stood, so the
     /// tower is a wall to be worn down rather than a ladder that drops.
+    ///
+    /// S5: the floor is a real-time battle now. This entry is its thin
+    /// immediate form — [`Self::start_battle`] decides the whole fight with the
+    /// same rolls in the same order, and [`Self::settle_battle_now`] writes the
+    /// decided result, so a click settles exactly what it settled before.
     pub fn trial(&mut self, now_unix: i64, day: i64) -> Option<TrialOutcome> {
-        // A walk that is home is settled first: the courtyard is closed to a
-        // walk that is *out*, not to one whose find has not been read yet. The
-        // same for the job in hand — the fight waits for the road, not for the
-        // tick that pays the wage.
-        self.settle_walk(now_unix);
-        self.settle_work(now_unix);
-        if let Some(blocked) = self.trial_blocked(now_unix, day) {
-            self.note_refusal(blocked.refusal());
-            return None;
-        }
-        // The day is stamped on the first floor of it, so the count the page
-        // reads and the count the next attempt spends cannot disagree.
-        if self.document.trial_day != Some(day) {
-            self.document.trial_day = Some(day);
-            self.document.trial_attempts_today = 0;
-        }
-        let floor = self.trial_next_floor();
-        self.document.trial_attempts_today = self.document.trial_attempts_today.saturating_add(1);
-        self.document.trials = self.document.trials.saturating_add(1);
-        self.trial_attempts = self.trial_attempts.saturating_add(1);
-        let mut rng = self.rng(now_unix);
-        let fighter = self.fighter(&mut rng);
-        // A floor's warden is drawn from a band around the floor's own rung each
-        // attempt: the page prints the band's middle, and the duel settles the
-        // draw — so the climb is a gamble at the frontier, not a formality.
-        let rival = opponent::warden(floor, &mut rng);
-        let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
-        self.record_duel(duel.won, FightKind::Trial, now_unix);
-        let mut found = ExplorationFindView::default();
-        if duel.won {
-            self.document.trial_floor = floor.min(TRIAL_MAX_FLOOR);
-            // The warden is the source, so what the floor pays is read off the
-            // body that defended it: a floor reached past the save's own realm
-            // hands over that realm's goods, which is how the tower is a way
-            // down the ladder rather than a second one.
-            let strength = Strength::of(rival.attributes.power());
-            match roll_reward(&mut rng) {
-                TrialReward::Seed => {
-                    let attribute =
-                        Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
-                    let grade = roll_seed_grade(&mut rng);
-                    found.seed = Some(self.push_seed(attribute, strength.tier(), grade, &mut rng));
-                }
-                TrialReward::Gear => {
-                    if let Some(item) = self.take_gear(&rival, strength, &mut rng) {
-                        found.gear = Some(self.item_view(&item));
-                    }
-                }
-                TrialReward::Art => {
-                    found.art = self.take_art(&rival, floor_realm(floor), now_unix);
-                }
-                TrialReward::Nothing => {}
-            }
-            // The floor's purse, drawn beside the finding: a cleared floor
-            // always pays a little, so a run of empty rolls is still a run that
-            // bought something.
-            // Opened at the floor's own realm, so a deeper floor pays more even
-            // within one realm's climb.
-            if let Some(amount) = Some(roll_stones(
-                &mut rng,
-                TRIAL_STONES,
-                floor_realm(floor).index() as u8 + 1,
-            )) {
-                self.document.stones = self.document.stones.saturating_add(amount);
-                found.stones = Some(amount);
-            }
-        }
-        self.push_event(
-            now_unix,
-            EventDetail::Trial {
-                floor,
-                won: duel.won,
-                art: found.art.clone(),
-                gear: found.gear.as_ref().and_then(|item| item.name.clone()),
-                seed: found.seed.as_ref().and_then(|seed| seed.name.clone()),
-                stones: found.stones,
-                duel: Some(duel.clone()),
-            },
-        );
-        let outcome = TrialOutcome {
-            floor,
-            warden_power: warden_power(floor),
-            duel,
-            found,
-        };
-        self.last_trial = Some(outcome.clone());
-        Some(outcome)
+        self.start_battle(BattleKind::Trial, now_unix, day, None, false)
+            .ok()?;
+        self.settle_battle_now(now_unix)?;
+        self.last_trial.clone()
     }
 
     /// Whether the next floor would be a sweep rather than a fight: the
@@ -2272,8 +2159,15 @@ impl Cultivation {
     /// sweep spends one of the day's attempts — the floors are the reward for
     /// being the stronger body, not a second ration of the day.
     pub fn trial_sweep(&mut self, now_unix: i64, day: i64) -> Option<TrialSweepOutcome> {
+        // A sweep is a stretch of fights, so it answers to the battle slot as
+        // much as a single climb does: a fight already on screen is not a moment
+        // to skip another ten.
+        if self.document.battle.is_some() {
+            self.note_refusal(Refusal::BattleRunning);
+            return None;
+        }
         self.settle_walk(now_unix);
-        self.settle_work(now_unix);
+        self.settle_legacy_work(now_unix);
         if let Some(blocked) = self.trial_blocked(now_unix, day) {
             self.note_refusal(blocked.refusal());
             return None;
@@ -2363,144 +2257,16 @@ impl Cultivation {
     /// same table a walk reads — so a finished pomodoro is worth a short walk
     /// on the road the save is already on. The find is the 锁妖塔's base table,
     /// so the two differ in when they pay, not in what.
+    ///
+    /// S5: the 试炼 is a real-time battle now. This entry is its thin immediate
+    /// form — [`Self::start_battle`] decides the whole fight with the same rolls
+    /// in the same order, and [`Self::settle_battle_now`] writes the decided
+    /// result, so a click settles exactly what it settled before.
     pub fn proving(&mut self, now_unix: i64, region: Option<u8>) -> Option<ProvingOutcome> {
-        // The walk that is home is settled before the courtyard is asked, the
-        // way the tower does it: the gate is where the cultivator is, not
-        // whether the tick has come round.
-        self.settle_walk(now_unix);
-        self.settle_work(now_unix);
-        if let Some(blocked) = self.proving_blocked(now_unix) {
-            self.note_refusal(blocked.refusal());
-            return None;
-        }
-        // The 试炼 stands on the road the user selected for exploration, not on
-        // the realm they happen to stand in. The two used to be the same ladder,
-        // but an explored region can be older than the current realm, and the
-        // courtyard must not silently move to a deeper road just because the
-        // cultivator advanced. The command names that region, so a page with no
-        // menu still sends the save's remembered road; anything past the reached
-        // ladder is refused before the chance is spent.
-        let region = region.map_or_else(
-            || {
-                super::super::explore::Region::from_index(
-                    usize::from(self.document.exploration_region),
-                )
-            },
-            |index| super::super::explore::Region::from_index(usize::from(index)),
-        );
-        if region.index() > self.realm().index() {
-            self.note_refusal(Refusal::RegionLocked);
-            return None;
-        }
-        self.document.proving_tokens = self.document.proving_tokens.saturating_sub(1);
-        self.provings = self.provings.saturating_add(1);
-        let mut rng = self.rng(now_unix);
-        let fighter = self.fighter(&mut rng);
-        let level = self
-            .cleared_level(region.index())
-            .saturating_add(1)
-            .min(super::super::explore::MAX_LEVEL);
-        // The opponent stands where the region's progress stands, multiplied
-        // by a draw between one and a half and three: the road's own
-        // requirement is the floor, and the spread is what makes a 试炼 a fight
-        // rather than a formality. The requirement is read in parts per
-        // thousand, which is what the region's progress is converted to here.
-        let progress = self
-            .document
-            .region_progress
-            .get(region.index())
-            .copied()
-            .unwrap_or(0);
-        let requirement = super::super::explore::region_requirement(region, progress * 10);
-        let span = super::super::proving::TRIAL_CHALLENGE_MAX_PERMILLE
-            - super::super::proving::TRIAL_CHALLENGE_MIN_PERMILLE
-            + 1;
-        let challenge =
-            super::super::proving::TRIAL_CHALLENGE_MIN_PERMILLE + rng.below(u64::from(span)) as u32;
-        let target = requirement.saturating_mul(challenge) / 1_000;
-        let tier = region.tier();
-        // The opponent is levelled to the target rather than to the cultivator:
-        // the fight is tied to the road, so its body is the road's own
-        // requirement through the draw, not the save's own rung.
-        let name = super::super::trial::TRIAL_OPPONENT_NAME.to_owned();
-        let seed = rng.below(u64::MAX);
-        // `level_near` returns the rung whose body is nearest the target; the
-        // full opponent is then wound up from that rung, the way a floor's
-        // warden is.
-        let rung = opponent::level_near(target, tier, name.clone(), seed);
-        let rival = opponent::opponent(opponent::Stance::Wanderer, rung, tier, name, seed);
-        let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
-        self.record_duel(duel.won, FightKind::Wanderer, now_unix);
-        let mut found = ExplorationFindView::default();
-        // How far a win moves the region, in tenths of a percent. A loss moves
-        // nothing and leaves it `None`, the way a walk that was beaten moves
-        // nothing.
-        let mut moved = None;
-        if duel.won {
-            let strength = Strength::of(rival.attributes.power());
-            match roll_reward(&mut rng) {
-                TrialReward::Seed => {
-                    let attribute =
-                        Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
-                    let grade = roll_seed_grade(&mut rng);
-                    found.seed = Some(self.push_seed(attribute, strength.tier(), grade, &mut rng));
-                }
-                TrialReward::Gear => {
-                    if let Some(item) = self.take_gear(&rival, strength, &mut rng) {
-                        found.gear = Some(self.item_view(&item));
-                    }
-                }
-                TrialReward::Art => {
-                    found.art = self.take_art(&rival, self.realm(), now_unix);
-                }
-                TrialReward::Nothing => {}
-            }
-            // The purse is the road's own for one hour at the region the 试炼
-            // is tied to: a finished pomodoro is worth a short walk on the road
-            // the save is already on, and the purse follows the road's tier
-            // exactly as a walk's does.
-            let stones = roll_stones(
-                &mut rng,
-                super::super::explore::proving_purse(region, level),
-                tier,
-            );
-            self.document.stones = self.document.stones.saturating_add(stones);
-            found.stones = Some(stones);
-            // A beaten challenger can leave a 洗髓丹 behind, on the same odds
-            // every other fight rolls: the pill is not a tower's privilege.
-            self.roll_marrow_from_combat(rival.attributes.power(), &mut rng, now_unix);
-            // The win moves the region by what the body earned, exactly as a
-            // walk does: a 试炼 is one hour of the road, so its progress is the
-            // road's own gain at one hour, read against the requirement where
-            // the fight stood — the same floor the opponent was levelled to.
-            // Crossing the last level pays the one-off haul, the way a walk
-            // that reaches the end of the road does.
-            let gain = super::super::explore::proving_gain_tenths(&mut rng, self.power(), requirement);
-            self.accumulate_progress(region.index(), gain);
-            self.first_clear_haul(region, &mut rng, now_unix);
-            moved = Some(gain);
-        }
-        self.push_event(
-            now_unix,
-            EventDetail::Proving {
-                won: duel.won,
-                art: found.art.clone(),
-                gear: found.gear.as_ref().and_then(|item| item.name.clone()),
-                seed: found.seed.as_ref().and_then(|seed| seed.name.clone()),
-                stones: found.stones,
-                progress: moved,
-                duel: Some(duel.clone()),
-            },
-        );
-        let outcome = ProvingOutcome {
-            duel,
-            found,
-            opponent_power: rival.attributes.power(),
-            region: region.index() as u8,
-            progress: moved,
-        };
-        self.last_proving = Some(outcome.clone());
-        Some(outcome)
+        self.start_battle(BattleKind::Proving, now_unix, 0, region, false)
+            .ok()?;
+        self.settle_battle_now(now_unix)?;
+        self.last_proving.clone()
     }
 
     /// What the day opened with, once per local day.
@@ -2843,6 +2609,14 @@ impl Cultivation {
                 target: guardian.target,
                 power: guardian.power,
             }),
+            // S5: the real-time battle under way, carried whole so a surface can
+            // draw the fight it already decided and the rounds it has left.
+            battle: self.document.battle.clone(),
+            // S1/S3: the real-time task and the 闭关, carried whole for the same
+            // reason — a surface draws the task it is running and the sit beside
+            // it, rather than recomputing either from the clock.
+            task: self.document.task.clone(),
+            seclusion: self.document.seclusion.clone(),
             last_breakthrough: self.last_breakthrough.clone(),
             last_absence: self.last_absence,
             last_work: self.last_work,
@@ -2996,7 +2770,7 @@ impl Cultivation {
             walk_gain: self.document.last_walk_gain,
             resources: self.resources_view(),
             session_mode: self.session_mode(),
-            next_session_growth: self.next_session_growth(day),
+            next_session_growth: self.next_session_growth(),
             derived_breakdowns: attribute_derived.breakdowns(attributes, bonus, level),
             duel_record: self.document.duel_record.clone(),
             duel_replay_speed: self.document.duel_replay_speed,
@@ -3015,22 +2789,20 @@ impl Cultivation {
     /// The number rather than the multiplier the four disciplines add up to: the
     /// disciplines are not shown, so a percentage would be a rule the user can
     /// neither see nor move. This is the growth the next pomodoro is worth, and
-    /// it is read from the same formula the session itself is paid by, so the
-    /// two cannot disagree.
+    /// it is read from the same arithmetic the session is paid by, so the two
+    /// cannot disagree.
     ///
-    /// The session number is the one the next session will actually be: the
-    /// counter resets when the day changes, so a session that lands on a new day
-    /// is the first of that day rather than the next of this one.
-    fn next_session_growth(&self, day: i64) -> u32 {
-        let stage = self.realm().index() as u32 + 1;
-        let session_number = if self.document.last_active_day == Some(day) {
-            self.document.session_count_today.saturating_add(1)
-        } else {
-            1
-        };
-        scaled_growth(
-            super::super::session_growth(session_number, stage),
-            self.growth_multiplier_permille(),
+    /// A session is a whole 闭关 (`docs/0103` §5.1), so the number is the sit's
+    /// own: [`SECLUSION_TICKS`] ticks at the sit's bonus. It does not climb with
+    /// the session of the day — the old per-session escalation is gone with the
+    /// old formula.
+    fn next_session_growth(&self) -> u32 {
+        sit_growth(
+            meditate_tick_growth(
+                self.realm().index() as u32,
+                self.growth_multiplier_permille(),
+            ),
+            SECLUSION_TICKS,
         )
     }
 
@@ -3046,7 +2818,11 @@ impl Cultivation {
     }
 
     /// One owned item as a surface reads it, worn or not.
-    fn item_view(&self, item: &EquipmentRecord) -> ItemView {
+    ///
+    /// `pub(super)` because a battle's apply phase rebuilds the haul a surface
+    /// reads from the bag (`battle_run.rs`), and it has to read the item the
+    /// same way every other path does.
+    pub(super) fn item_view(&self, item: &EquipmentRecord) -> ItemView {
         ItemView {
             id: item.id,
             slot: item.slot,

@@ -431,7 +431,7 @@ impl SettingsView {
             cultivation_ladder_open: false,
             cultivation_explore_hours: 8,
             cultivation_explore_region: None,
-            cultivation_gather_hours: 8,
+            cultivation_task_tier: bongocat_pomodoro::GatherTier::Common,
             cultivation_daily_seen_day: None,
             // No fight is being replayed when the window opens, and none is
             // waiting on the worker either.
@@ -752,7 +752,9 @@ impl SettingsView {
             return;
         };
         let source = match detail {
-            bongocat_pomodoro::EventDetail::Breakthrough { .. } => CultivationDuelSource::Breakthrough,
+            bongocat_pomodoro::EventDetail::Breakthrough { .. } => {
+                CultivationDuelSource::Breakthrough
+            }
             bongocat_pomodoro::EventDetail::Trial { .. } => CultivationDuelSource::Trial,
             bongocat_pomodoro::EventDetail::Proving { .. } => CultivationDuelSource::Proving,
             bongocat_pomodoro::EventDetail::Daily { .. } => CultivationDuelSource::Daily,

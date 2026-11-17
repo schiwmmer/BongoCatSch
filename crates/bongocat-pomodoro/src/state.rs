@@ -10,8 +10,9 @@
 use std::{collections::BTreeMap, time::Duration};
 
 use crate::{
-    CalendarDay, CalendarDayTotal, CalendarTaskActivity, Cultivation, CultivationView, EquipSlot,
-    MAX_FOCUS_MINUTES, MAX_TASK_NAME_CHARS, MIN_FOCUS_MINUTES, Refusal, ReplaySpeed, SessionMode,
+    BattleKind, CalendarDay, CalendarDayTotal, CalendarTaskActivity, Cultivation, CultivationView,
+    EquipSlot, MAX_FOCUS_MINUTES, MAX_TASK_NAME_CHARS, MIN_FOCUS_MINUTES, Refusal, ReplaySpeed,
+    SessionMode,
     document::{Document, LiveSessionRecord, TaskRecord, TaskStatus, read_document},
 };
 use serde::Serialize;
@@ -361,6 +362,38 @@ pub enum PomodoroCommand {
     /// or gathers at one site — so choosing one replaces the other. A running
     /// session is not disturbed: the mode is read when it finishes.
     SelectSessionMode { mode: crate::SessionMode },
+    /// Start one of the four real-time tasks (`docs/0103` §4): 吐纳, 伐木,
+    /// 采石 or 打工.
+    ///
+    /// The name is `CultStartTask` rather than `StartTask` because
+    /// [`Self::StartTask`] is already the pomodoro focus session's command —
+    /// two different "start a task" clicks cannot share one variant without
+    /// making every caller guess which task is meant. The `Cult` prefix is
+    /// also what the web command channel keys its ops on, so the four
+    /// cultivation ops read as one family there. `site`/`tier` are the
+    /// gathering point a 伐木 or 采石 task works (`tier` defaults to 凡),
+    /// `grade` is the 打工 grade the offer carried, and `job_kind` is the trade
+    /// that grade was taken at — the roll a 打工 task's 积分 is made on, which
+    /// is why it travels with the start rather than being re-derived. The tick
+    /// tempo is the kind's own, chosen in `apply` so a caller cannot start a
+    /// task at a tempo the design did not give it.
+    ///
+    /// Refused — and the refusal recorded by the kernel — while a battle, a
+    /// walk, an expedition, a job or another task holds the one slot.
+    CultStartTask {
+        kind: crate::TaskKind,
+        site: Option<crate::GatherSite>,
+        tier: Option<crate::GatherTier>,
+        grade: Option<u8>,
+        job_kind: Option<crate::JobKind>,
+    },
+    /// Stop the real-time task under way, paying the whole ticks it finished.
+    CultStopTask,
+    /// Begin a 闭关: a 25-minute sit that pays like 250 吐纳 ticks with the sit's
+    /// bonus. It does not occupy the task slot, so it runs beside 采集 or 打工.
+    CultStartSeclusion,
+    /// Stop the 闭关 early, paying the ticks it finished.
+    CultStopSeclusion,
     /// Choose how fast a replayed fight plays, as the divisor of the reveal
     /// interval — 1, 2, 4 or 8.
     ///
@@ -439,6 +472,10 @@ impl PomodoroCommand {
             | Self::UpgradeBuilding { .. }
             | Self::UpgradeBuildingMany { .. }
             | Self::SelectSessionMode { .. }
+            | Self::CultStartTask { .. }
+            | Self::CultStopTask
+            | Self::CultStartSeclusion
+            | Self::CultStopSeclusion
             | Self::UseAptitudeHerb { .. }
             | Self::UseMarrowPill
             | Self::AcknowledgeDailyEvent { .. } => true,
@@ -730,7 +767,17 @@ impl PomodoroState {
                 }
             }
             PomodoroCommand::Breakthrough => {
-                self.cultivation.breakthrough(now_unix);
+                // S5: the click starts a real-time battle rather than settling
+                // it. `start_battle` decides the whole fight and records the
+                // refusal when there is nothing to fight, so the page still has
+                // a reason to print.
+                let _ = self.cultivation.start_battle(
+                    BattleKind::Breakthrough,
+                    now_unix,
+                    0,
+                    None,
+                    false,
+                );
             }
             PomodoroCommand::SelectArt { art_id } => {
                 self.cultivation.select_art(art_id);
@@ -763,14 +810,25 @@ impl PomodoroState {
             }
             PomodoroCommand::Tower => {
                 let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
-                self.cultivation.trial(now_unix, today.day_number());
+                // S5: the click starts a real-time battle, and a tower click
+                // keeps climbing while it wins (§5.4) — until a loss or the
+                // day's five attempts run out.
+                let _ = self.cultivation.start_battle(
+                    BattleKind::Trial,
+                    now_unix,
+                    today.day_number(),
+                    None,
+                    true,
+                );
             }
             PomodoroCommand::TowerSweep => {
                 let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
                 self.cultivation.trial_sweep(now_unix, today.day_number());
             }
             PomodoroCommand::Prove { region } => {
-                self.cultivation.proving(now_unix, region);
+                let _ =
+                    self.cultivation
+                        .start_battle(BattleKind::Proving, now_unix, 0, region, false);
             }
             PomodoroCommand::RecordInput { count } => {
                 for _ in 0..count {
@@ -841,6 +899,54 @@ impl PomodoroState {
             PomodoroCommand::SelectSessionMode { mode } => {
                 self.cultivation.set_session_mode(mode);
             }
+            PomodoroCommand::CultStartTask {
+                kind,
+                site,
+                tier,
+                grade,
+                job_kind,
+            } => {
+                // The tempo is the kind's own (`docs/0103` §4): 吐纳 breathes at
+                // the 闭关 tempo, 伐木/采石 gather at eight seconds, 打工 works
+                // at four. Choosing it here rather than taking it from the
+                // caller is what keeps a task's rhythm a design table rather
+                // than a number a surface can get wrong.
+                let tick_seconds = match kind {
+                    crate::TaskKind::Meditate => crate::SECLUSION_TICK_SECONDS,
+                    crate::TaskKind::Woodcut | crate::TaskKind::Stonecut => {
+                        crate::GATHER_TICK_SECONDS
+                    }
+                    crate::TaskKind::Work => crate::WORK_TICK_SECONDS,
+                };
+                // `start_gathering_task` records the refusal itself — a battle,
+                // a walk, an expedition, a job or another task holding the slot
+                // — so the error is dropped here rather than noted a second
+                // time, exactly as the battle commands above do.
+                let _ = self.cultivation.start_gathering_task(
+                    kind,
+                    site,
+                    tier.unwrap_or_default(),
+                    grade,
+                    job_kind,
+                    now_unix,
+                    tick_seconds,
+                );
+            }
+            PomodoroCommand::CultStopTask => {
+                // The kernel pays the finished ticks and clears the slot; there
+                // is no refusal to record, because stopping what is not running
+                // is a no-op rather than a denial.
+                self.cultivation.stop_task(now_unix);
+            }
+            PomodoroCommand::CultStartSeclusion => {
+                // 闭关 is not a task and does not take the slot, so it can run
+                // beside 采集 or 打工; the only refusal is a second sit, which
+                // the kernel records.
+                let _ = self.cultivation.start_seclusion(now_unix);
+            }
+            PomodoroCommand::CultStopSeclusion => {
+                self.cultivation.stop_seclusion(now_unix);
+            }
             PomodoroCommand::SetReplaySpeed { speed } => {
                 // A divisor outside the four is refused here and reported as a
                 // no-change by `changes_the_document`, so a bad caller costs a
@@ -909,15 +1015,16 @@ impl PomodoroState {
         true
     }
 
-    /// Settle a job that has come due, if one has. Returns whether anything
-    /// happened.
+    /// Settle an hour-job a pre-S4 save still holds, if it has come due. Returns
+    /// whether anything happened.
     ///
-    /// The same tick that brings a walk home brings a job home: a job is hours of
-    /// the cultivator's day, and hours spent while the application was shut have
-    /// to be paid on the next launch rather than lost.
+    /// The same tick that brings a walk home brings a legacy job home: it is
+    /// hours of the cultivator's day, and hours spent while the application was
+    /// shut have to be paid on the next launch rather than lost. Jobs taken from
+    /// S4 on are 打工 tasks and pay through [`Self::apply_task_advance`].
     pub fn apply_work_return(&mut self, now_unix: i64) -> bool {
         let before = self.cultivation.document().work;
-        let paid = self.cultivation.settle_work(now_unix);
+        let paid = self.cultivation.settle_legacy_work(now_unix);
         // A shift called home settles with nothing to pay — the payout is what
         // says "a job came home", not the clock — so the tick has to read the
         // shift itself: a page left saying "仍在外" about an early shift that is
@@ -976,6 +1083,55 @@ impl PomodoroState {
             return false;
         }
         self.create_daily_stock_tasks(today, now_unix);
+        self.sync_cultivation();
+        true
+    }
+
+    /// Settle the repeatable task's elapsed ticks, if one is running. Returns
+    /// whether anything was paid.
+    ///
+    /// The same tick that brings a walk or a job home advances the task: a task
+    /// pays on the clock rather than on a click, so a machine left running — or
+    /// launched after a night away — has to find the ticks already owed and pay
+    /// them, up to the task's offline cap.
+    pub fn apply_task_advance(&mut self, now_unix: i64) -> bool {
+        if self.cultivation.advance_task(now_unix) == 0 {
+            return false;
+        }
+        self.sync_cultivation();
+        true
+    }
+
+    /// Settle the 闭关's elapsed ticks, if one is running. Returns whether
+    /// anything was paid.
+    ///
+    /// Called on the same tick as [`Self::apply_task_advance`] and immediately
+    /// after it: 闭关 does not occupy the task slot (`docs/0103` §4), so it runs
+    /// beside 采集/打工 and advances on the same clock. Keeping the two calls
+    /// side by side is what makes "a task and a sit at once" one tick's work
+    /// rather than a second timer.
+    pub fn apply_seclusion_advance(&mut self, now_unix: i64) -> bool {
+        if self.cultivation.advance_seclusion(now_unix) == 0 {
+            return false;
+        }
+        self.sync_cultivation();
+        true
+    }
+
+    /// Settle the real-time battle's elapsed rounds, if one is under way.
+    /// Returns whether anything moved.
+    ///
+    /// Called on the same tick as [`Self::apply_task_advance`] and immediately
+    /// after it: a battle is the cultivator's one action, so it runs beside the
+    /// task rather than inside it, and a machine left running — or launched
+    /// after a night away — has to find the rounds already owed and pay them.
+    /// Unlike a task, a battle carries no offline cap (§5.7): it is paid once,
+    /// at the last round, so a late tick only decides when that one payment
+    /// lands.
+    pub fn apply_battle_advance(&mut self, now_unix: i64) -> bool {
+        if !self.cultivation.advance_battle(now_unix) {
+            return false;
+        }
         self.sync_cultivation();
         true
     }
@@ -1235,16 +1391,22 @@ impl PomodoroState {
     }
 
     /// Pay a finished session: one thing and one thing only, the thing the mode
-    /// names. A 修习 session pays the ladder's growth and its one roll; a
-    /// gathering session pays the site's yield and its trade xp instead, and
-    /// nothing of the ladder.
+    /// names. A 修习 session settles a whole 闭关 — its 250 ticks of growth, its
+    /// one 试炼 chance and its roll; a gathering session pays the site's yield
+    /// and its trade xp instead, and nothing of the ladder.
     fn record_cultivation_session(&mut self, now_unix: i64) {
         let today = CalendarDay::from_unix(now_unix, self.utc_offset_seconds);
         match self.cultivation.session_mode() {
+            // A 修习 session and a 闭关 are the same sit (`docs/0103` §4, §5.1),
+            // so the session settles the sit rather than a second formula: the
+            // two can no longer pay different numbers for the same 25 minutes.
             SessionMode::Study => {
-                self.cultivation
-                    .on_session_completed(now_unix, today, self.document.focus_minutes);
+                self.cultivation.settle_sit_session(now_unix, today);
             }
+            // Legacy gathering entry, kept only until S8 retires it with the UI:
+            // 采集 is a real-time task now (S2), and a session that still arms a
+            // site pays through `collect_session` so an old surface keeps working
+            // instead of silently paying nothing. Do not add new callers.
             mode => {
                 if let Some(site) = mode.site() {
                     self.cultivation.collect_session(site, now_unix, today);
@@ -1514,7 +1676,7 @@ fn is_invisible(character: char) -> bool {
 mod tests {
     use super::*;
     use crate::DEFAULT_FOCUS_MINUTES;
-    use crate::{EventDetail, GatherSite};
+    use crate::{CultivationDocument, EventDetail, GatherSite};
 
     #[test]
     fn a_fresh_state_has_no_tasks_and_no_session() {
@@ -1696,13 +1858,27 @@ mod tests {
     /// tick that finds it home reports that something happened even though
     /// nothing was paid — a page left saying 外出, or a save that kept the dead
     /// shift, would be a shift the user cannot get out of.
+    ///
+    /// S4 takes a job as a 打工 task, so this page keeps the pre-S4 hour-job
+    /// shape on purpose: an old save that was mid-shift when the app last closed
+    /// still has to be called home and settled, or its cultivator is stuck in
+    /// 外出 forever.
     #[test]
     fn a_shift_called_home_settles_on_the_tick_without_paying() {
         let mut state = PomodoroState::empty();
-        state.apply(PomodoroCommand::AcceptJob { slot: 0 }, 1_000);
+        let offer = crate::JobOffer {
+            tier: 1,
+            hours: 2,
+            grade: crate::ArtGrade::Yellow,
+            kind: crate::JobKind::default(),
+        };
+        state.cultivation = Cultivation::new(CultivationDocument {
+            work: Some(crate::JobRun::started(offer, 1_000)),
+            ..CultivationDocument::default()
+        });
         assert!(
             state.snapshot(1).cultivation.work.is_some(),
-            "the job is taken"
+            "the legacy job is taken"
         );
         // Two hours stood, so the way home is forty minutes.
         let stood = 1_000 + 2 * 3_600;
@@ -1770,6 +1946,161 @@ mod tests {
             matches!(&newest.detail, EventDetail::SessionGather { site, .. } if *site == GatherSite::Forest),
             "the completion routed to the forest: {:?}",
             newest.detail
+        );
+    }
+
+    /// The real-time task commands are the page's whole loop: a click starts a
+    /// task at the kind's own tempo, the clock carries it, and a second click
+    /// stops it. The tempo is chosen in `apply` rather than sent by the caller,
+    /// so a 伐木 task reads eight seconds and a 吐纳 one the 闭关 six.
+    #[test]
+    fn a_real_time_task_starts_at_its_own_tempo_and_stops_on_the_click() {
+        let mut state = PomodoroState::empty();
+        // 灵木林 asks for 伐木 10 (`docs/0103` §5.2), so the save working it is a
+        // level-ten one rather than the fresh default.
+        state.cultivation = Cultivation::new(CultivationDocument {
+            woodcut_level: 10,
+            ..CultivationDocument::default()
+        });
+        state.apply(
+            PomodoroCommand::CultStartTask {
+                kind: crate::TaskKind::Woodcut,
+                site: Some(GatherSite::Forest),
+                tier: Some(crate::GatherTier::Spirit),
+                grade: None,
+                job_kind: None,
+            },
+            1_000,
+        );
+        let task = state
+            .snapshot(1)
+            .cultivation
+            .task
+            .expect("the task is under way");
+        assert_eq!(task.kind, crate::TaskKind::Woodcut);
+        assert_eq!(task.site, Some(GatherSite::Forest));
+        assert_eq!(task.tier, crate::GatherTier::Spirit);
+        assert_eq!(task.tick_seconds, crate::GATHER_TICK_SECONDS);
+        assert_eq!(task.ticks_done, 0, "a click starts the clock, not a tick");
+        // One tick is paid on the clock, not on the click that started it.
+        assert!(state.apply_task_advance(1_000 + i64::from(crate::GATHER_TICK_SECONDS)));
+        assert_eq!(
+            state
+                .snapshot(2)
+                .cultivation
+                .task
+                .expect("still running")
+                .ticks_done,
+            1
+        );
+        // Stopping pays what is done and clears the slot.
+        state.apply(PomodoroCommand::CultStopTask, 1_080);
+        assert!(state.snapshot(3).cultivation.task.is_none());
+        // 吐纳 breathes at the 闭关 tempo: six seconds, not the gather's eight.
+        state.apply(
+            PomodoroCommand::CultStartTask {
+                kind: crate::TaskKind::Meditate,
+                site: None,
+                tier: None,
+                grade: None,
+                job_kind: None,
+            },
+            2_000,
+        );
+        assert_eq!(
+            state
+                .snapshot(4)
+                .cultivation
+                .task
+                .expect("the breath is under way")
+                .tick_seconds,
+            crate::SECLUSION_TICK_SECONDS
+        );
+    }
+
+    /// 闭关 is not a task: it starts beside one, runs its ticks on the same
+    /// clock, and stops on its own click without touching the task. `tier: None`
+    /// reads as 凡, the tier every pre-S2 call site means.
+    #[test]
+    fn a_seclusion_starts_alongside_a_task_and_stops_on_the_click() {
+        let mut state = PomodoroState::empty();
+        state.apply(
+            PomodoroCommand::CultStartTask {
+                kind: crate::TaskKind::Stonecut,
+                site: Some(GatherSite::Mountain),
+                tier: None,
+                grade: None,
+                job_kind: None,
+            },
+            1_000,
+        );
+        state.apply(PomodoroCommand::CultStartSeclusion, 1_000);
+        let view = state.snapshot(1).cultivation;
+        assert!(view.task.is_some(), "the sit does not take the task slot");
+        assert_eq!(view.task.expect("the task").tier, crate::GatherTier::Common);
+        assert_eq!(view.seclusion.expect("the sit is under way").ticks_done, 0);
+        // A second sit is refused, and the refusal is recorded exactly once.
+        state.apply(PomodoroCommand::CultStartSeclusion, 1_000);
+        let view = state.snapshot(2).cultivation;
+        assert_eq!(view.refusal_count, 1, "one click, one refusal");
+        assert_eq!(
+            view.last_refusal.map(|reason| reason.key()),
+            Some("cultivation.seclusion.refuse_running")
+        );
+        assert!(state.apply_seclusion_advance(1_000 + i64::from(crate::SECLUSION_TICK_SECONDS)));
+        assert_eq!(
+            state
+                .snapshot(3)
+                .cultivation
+                .seclusion
+                .expect("still sitting")
+                .ticks_done,
+            1
+        );
+        state.apply(PomodoroCommand::CultStopSeclusion, 1_060);
+        let view = state.snapshot(4).cultivation;
+        assert!(view.seclusion.is_none(), "the sit is over");
+        assert!(view.task.is_some(), "and the task beside it is untouched");
+    }
+
+    /// A second task is refused, and the refusal is recorded exactly once: the
+    /// kernel notes it on the way out, so `apply` must not note it again — a
+    /// count that moves by two reads as two refusals the user only made one of.
+    #[test]
+    fn a_second_task_is_refused_once_and_the_reason_surfaces() {
+        let mut state = PomodoroState::empty();
+        state.apply(
+            PomodoroCommand::CultStartTask {
+                kind: crate::TaskKind::Meditate,
+                site: None,
+                tier: None,
+                grade: None,
+                job_kind: None,
+            },
+            1_000,
+        );
+        assert_eq!(state.snapshot(1).cultivation.refusal_count, 0);
+        state.apply(
+            PomodoroCommand::CultStartTask {
+                kind: crate::TaskKind::Woodcut,
+                site: Some(GatherSite::Forest),
+                tier: None,
+                grade: None,
+                job_kind: None,
+            },
+            1_000,
+        );
+        let view = state.snapshot(2).cultivation;
+        assert_eq!(view.refusal_count, 1, "one click, one refusal");
+        assert_eq!(
+            view.last_refusal.map(|reason| reason.key()),
+            Some("cultivation.task.refuse_running")
+        );
+        // The first task is still the one running: a refused click changes
+        // nothing.
+        assert_eq!(
+            view.task.expect("the first task").kind,
+            crate::TaskKind::Meditate
         );
     }
 

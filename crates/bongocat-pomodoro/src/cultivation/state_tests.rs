@@ -1,8 +1,7 @@
 use super::super::{
     AptitudeHerb, DISCIPLINE_STEP_CAP, DISCIPLINE_STEP_PERMILLE, Discipline, DuelRound,
-    ExplorationHours, GROWTH_MULTIPLIER_CAP_PERMILLE, LAYERS_PER_STAGE, STAGE_COUNT,
-    WANDERER_NAME, discipline_bonus, discipline_cap, growth_permille, scaled_growth,
-    session_growth, threshold_for,
+    ExplorationHours, GROWTH_MULTIPLIER_CAP_PERMILLE, LAYERS_PER_STAGE, STAGE_COUNT, WANDERER_NAME,
+    discipline_bonus, discipline_cap, growth_permille, scaled_growth, threshold_for,
 };
 use super::*;
 use crate::CalendarDay;
@@ -204,7 +203,7 @@ fn a_session_buys_a_chance_and_a_chance_buys_a_fight() {
     // Twelve finished sessions, one local day: the bank fills to its cap
     // and stays there rather than growing past it.
     for step in 0..12 {
-        cultivation.on_session_completed(1_000 + step * 10, day(1), 25);
+        cultivation.settle_sit_session(1_000 + step * 10, day(1));
     }
     let filled = cultivation.view();
     assert_eq!(filled.proving_tokens, TRIAL_CHANCES_CAP, "ten at most");
@@ -302,9 +301,7 @@ fn a_won_proving_moves_the_region_by_the_gain_it_reports() {
             continue;
         }
         wins += 1;
-        let gain = outcome
-            .progress
-            .expect("a win reports the ground it moved");
+        let gain = outcome.progress.expect("a win reports the ground it moved");
         assert!(gain > 0, "step {step}: a body this deep moves the road");
         // The slot rolls over at a whole level, so the gain is read across the
         // boundary: the slot the win left is the slot it found plus the gain,
@@ -404,9 +401,7 @@ fn a_proving_that_clears_a_region_pays_the_haul() {
         if !outcome.duel.won {
             continue;
         }
-        let gain = outcome
-            .progress
-            .expect("a win reports the ground it moved");
+        let gain = outcome.progress.expect("a win reports the ground it moved");
         // A win always moves the road by at least the tenth it earned, so a
         // region a tenth short of its last level is carried across the line.
         assert!(
@@ -501,7 +496,7 @@ fn a_locked_proving_selection_spends_no_chance() {
 fn a_proving_waits_for_the_walk_to_come_home() {
     let mut cultivation = Cultivation::default();
     for step in 0..3 {
-        cultivation.on_session_completed(1_000 + step * 10, day(1), 25);
+        cultivation.settle_sit_session(1_000 + step * 10, day(1));
     }
     let tokens = cultivation.view().proving_tokens;
     assert!(tokens > 0, "three sessions banked three chances");
@@ -523,13 +518,13 @@ fn a_proving_waits_for_the_walk_to_come_home() {
     );
 }
 
-/// 试炼 closes with a job in hand, the way the tower does: both are fights
-/// fought at home, and a job is hours of the same day as a walk. The wall
-/// falls when the hours are up — before the tick has come round to pay the
-/// wage — so a fight refused on a job that is already done would be reading
-/// the clock wrong.
+/// 试炼 is a fight at home, and a job is a task now: a 打工 task holds the one
+/// task slot, and a battle is a task too (`docs/0103` §4, §9-S5), so the
+/// courtyard is closed while one runs and the chance stays banked. The
+/// hour-job a save written before S4 still holds closes it the old way, until
+/// its hours are up.
 #[test]
-fn a_proving_waits_for_the_job_to_come_home() {
+fn a_work_task_closes_the_courtyard() {
     let mut cultivation = Cultivation::new(CultivationDocument {
         proving_tokens: 3,
         ..CultivationDocument::default()
@@ -538,38 +533,53 @@ fn a_proving_waits_for_the_job_to_come_home() {
     let out = 2_000 + hours.seconds();
     cultivation.explore(2_000, hours);
     cultivation.settle_walk(out);
-    let run = cultivation
+    cultivation
         .accept_job(0, out + 1, 1)
         .expect("the job is taken once the walk is home");
-    assert_eq!(
-        cultivation.proving_blocked(out + 60),
-        Some(ProvingBlocked::Working),
-        "the job in hand is the wall the page should print"
-    );
     assert!(
         cultivation.proving(out + 60, None).is_none(),
-        "an unreturned job closes the courtyard too"
+        "a 打工 task holds the one slot; the courtyard is closed"
     );
-    assert_eq!(cultivation.last_refusal, Some(Refusal::Working));
+    assert_eq!(cultivation.last_refusal, Some(Refusal::TaskRunning));
     assert_eq!(
         cultivation.view().proving_tokens,
         3,
         "a refused 试炼 spends no chance"
     );
-    // The hours are up: no wall left, even before the wage has been paid.
+    // The wall is hours tall, not a moment: it is still up a task-length on.
+    assert!(
+        cultivation.proving(out + 600, None).is_none(),
+        "the task is not done, so the courtyard is still closed"
+    );
+    assert_eq!(cultivation.view().proving_tokens, 3);
+}
+
+/// The pre-S4 hour-job still closes the courtyard: the legacy gate reads the
+/// same field it always did, and the wall falls the moment the hours are up.
+#[test]
+fn a_pre_s4_job_still_closes_the_courtyard() {
+    let offer = super::super::JobOffer {
+        tier: 1,
+        hours: 4,
+        grade: ArtGrade::Yellow,
+        kind: super::super::JobKind::default(),
+    };
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        proving_tokens: 3,
+        work: Some(super::super::JobRun::started(offer, 2_000)),
+        ..CultivationDocument::default()
+    });
     assert_eq!(
-        cultivation.proving_blocked(run.ends_unix),
+        cultivation.proving_blocked(2_060),
+        Some(ProvingBlocked::Working)
+    );
+    assert!(cultivation.proving(2_060, None).is_none());
+    assert_eq!(cultivation.last_refusal, Some(Refusal::Working));
+    // The hours are up: no wall left, even before the legacy tick pays.
+    assert_eq!(
+        cultivation.proving_blocked(2_000 + offer.seconds()),
         None,
         "the clock is home"
-    );
-    assert!(
-        cultivation.proving(run.ends_unix, None).is_some(),
-        "back home, the chance buys its fight"
-    );
-    assert_eq!(
-        cultivation.view().proving_tokens,
-        2,
-        "and this one spent its chance"
     );
 }
 
@@ -775,19 +785,17 @@ fn an_action_dimension_stops_at_twenty_acts() {
 ///
 /// The page prints the growth the next session pays rather than the
 /// multiplier behind it, so this reads that number and checks the session
-/// against it: the two are the same formula read twice.
+/// against it: the two are the same arithmetic read twice.
 #[test]
 fn a_finished_session_pays_what_the_page_says_it_pays() {
     let mut cultivation = Cultivation::default();
     // The page is asked first, before the session happens: it says what the
-    // next pomodoro is worth, and the session then pays that.
+    // next pomodoro is worth, and the session then pays that. A session is a
+    // whole 闭关, so an untrained save's page reads the sit at a bare 炼气.
+    let bare_sit = sit_growth(meditate_tick_growth(0, 1_000), SECLUSION_TICKS);
     let promised = cultivation.view().next_session_growth;
-    assert_eq!(
-        promised,
-        session_growth(1, 1),
-        "an untrained save pays the base"
-    );
-    let flat = cultivation.on_session_completed(1_000, day(20), 25).growth;
+    assert_eq!(promised, bare_sit, "an untrained save pays the bare sit");
+    let flat = cultivation.settle_sit_session(1_000, day(20)).growth;
     assert_eq!(
         flat, promised,
         "and the session pays exactly what the page printed"
@@ -805,12 +813,12 @@ fn a_finished_session_pays_what_the_page_says_it_pays() {
     }
     let view = cultivation.view();
     assert!(
-        view.next_session_growth > session_growth(1, 1),
+        view.next_session_growth > bare_sit,
         "walking has to be worth something: {}",
         view.next_session_growth
     );
 
-    let reward = cultivation.on_session_completed(1_000_000, day(30), 25);
+    let reward = cultivation.settle_sit_session(1_000_000, day(30));
     assert_eq!(
         reward.growth, view.next_session_growth,
         "the session pays exactly what the page printed"
@@ -2160,5 +2168,441 @@ fn a_chosen_replay_speed_is_kept_and_read_back_off_the_view() {
         cultivation.replay_speed().divisor(),
         4,
         "a refused speed leaves the last one chosen standing"
+    );
+}
+
+/// A document with the two timestamps zeroed, so two runs that differ only in
+/// *when* they settled compare equal. A battle's real-time layer decides the
+/// instant the already-decided result lands; it must not decide anything else.
+///
+/// `breakthrough_blocked_until` is forgiven because it is anchored to the
+/// click rather than to the landing, which is a rule about the attempt and not
+/// a difference between the two paths.
+fn without_timestamps(document: &CultivationDocument) -> CultivationDocument {
+    let mut copy = document.clone();
+    for event in &mut copy.events {
+        event.at_unix = 0;
+    }
+    for duel in &mut copy.duel_record {
+        duel.at_unix = 0;
+    }
+    copy.breakthrough_blocked_until = None;
+    copy
+}
+
+/// The click opens a fight rather than settling it: a [`BattleRun`] stands in
+/// the document, the clock counts whole one-second rounds, and the last round
+/// is what applies the fight the click already decided.
+#[test]
+fn a_click_opens_a_battle_and_the_clock_counts_whole_rounds() {
+    // A floor at the cultivator's own rung: a fight close enough to last more
+    // than one round, so the clock's per-second step is visible at all.
+    let mut cultivation = a_bare_save_at(20);
+    cultivation.document.trial_floor = 19;
+    let run = cultivation
+        .start_battle(BattleKind::Trial, 1_000, 9, None, false)
+        .expect("the floor at the cultivator's own rung is owed");
+    assert_eq!(run.kind, BattleKind::Trial);
+    assert_eq!(run.floor, 20);
+    assert_eq!(run.rounds_done, 0);
+    assert_eq!(run.tick_seconds, BATTLE_TICK_SECONDS);
+    assert_eq!(run.tick_seconds, 1, "§5.4: a fight is a second a blow");
+    assert!(
+        run.rounds_total >= 1
+            && run.rounds_total <= u16::try_from(crate::DUEL_ROUND_CAP).expect("thirty fits"),
+        "a fight runs between one round and the engine's cap"
+    );
+    assert!(
+        !run.autoclimb,
+        "the climb is the tower click's to ask for, not the floor's"
+    );
+    assert_eq!(cultivation.document.battle.as_ref(), Some(&run));
+    // The attempt is spent when the fight settles, not when it opens: the
+    // surfaces read this count as "a report has landed", and the report is
+    // `last_trial`, which only exists once the last round is played.
+    assert_eq!(cultivation.document.trial_attempts_today, 0);
+    assert_eq!(cultivation.trial_attempts_left(9), TRIAL_ATTEMPTS_PER_DAY);
+    // The clock: a tick at the instant the fight opened is a no-op.
+    assert!(!cultivation.advance_battle(1_000));
+    assert_eq!(
+        cultivation
+            .battle_run()
+            .expect("the fight is still on screen")
+            .rounds_done,
+        0
+    );
+    assert!(
+        run.rounds_total > 1,
+        "a floor at the cultivator's own rung is a fight, not a formality"
+    );
+    // A round is a second, and the same second twice is one round.
+    assert!(cultivation.advance_battle(1_001));
+    assert_eq!(
+        cultivation
+            .battle_run()
+            .expect("the fight is still on screen")
+            .rounds_done,
+        1
+    );
+    assert!(
+        !cultivation.advance_battle(1_001),
+        "the same second twice is one round, not two"
+    );
+    assert_eq!(
+        cultivation
+            .battle_run()
+            .expect("the fight is still on screen")
+            .rounds_done,
+        1
+    );
+    // The sub-round remainder stays pending, the way a task's does: a tick one
+    // second short of the last round leaves the fight on screen.
+    let total = i64::from(run.rounds_total);
+    assert!(cultivation.advance_battle(1_000 + total - 1));
+    assert!(cultivation.document.battle.is_some());
+    assert!(cultivation.advance_battle(1_000 + total));
+    assert!(cultivation.document.battle.is_none());
+    let settled = cultivation
+        .last_trial
+        .as_ref()
+        .expect("the last round settled the floor");
+    assert_eq!(settled.floor, 20);
+    assert_eq!(settled.duel, run.preview.duel);
+    // The attempt is taken with the settlement, as the old click took it.
+    assert_eq!(cultivation.document.trial_attempts_today, 1);
+    assert_eq!(
+        cultivation.trial_attempts_left(9),
+        TRIAL_ATTEMPTS_PER_DAY - 1
+    );
+}
+
+/// The real-time layer changes *when* the result lands and nothing else: the
+/// same save, the same click, settled on the last round lands on exactly the
+/// document and the same outcome the click-and-settle entry lands on.
+#[test]
+fn a_real_time_battle_lands_exactly_where_the_click_settlement_landed() {
+    let base = a_dressed_save_at(30);
+    let mut immediate = base.clone();
+    let mut realtime = base.clone();
+    let clicked = immediate
+        .trial(1_000, 9)
+        .expect("the click settles the floor");
+    let run = realtime
+        .start_battle(BattleKind::Trial, 1_000, 9, None, false)
+        .expect("the same click opens the fight");
+    // The judgment was taken at the click: the replay and the win are already
+    // the ones the immediate path settled.
+    assert_eq!(run.preview.duel, clicked.duel);
+    assert_eq!(run.preview.won, clicked.duel.won);
+    realtime.advance_battle(1_000 + i64::from(run.rounds_total));
+    assert!(realtime.document.battle.is_none());
+    assert_eq!(realtime.last_trial, immediate.last_trial);
+    assert_eq!(
+        without_timestamps(&realtime.document),
+        without_timestamps(&immediate.document),
+        "the thirty seconds moved nothing but the clock"
+    );
+}
+
+/// The same equality holds for the 试炼, whose win moves a region and can pay
+/// the one-off haul.
+#[test]
+fn a_real_time_proving_lands_where_the_click_settlement_landed() {
+    let base = Cultivation::new(CultivationDocument {
+        proving_tokens: 3,
+        ..CultivationDocument::default()
+    });
+    let mut immediate = base.clone();
+    let mut realtime = base.clone();
+    let clicked = immediate
+        .proving(1_000, None)
+        .expect("a banked chance buys its fight");
+    let run = realtime
+        .start_battle(BattleKind::Proving, 1_000, 0, None, false)
+        .expect("the same click opens the fight");
+    assert_eq!(run.preview.duel, clicked.duel);
+    assert_eq!(run.preview.won, clicked.duel.won);
+    realtime.advance_battle(1_000 + i64::from(run.rounds_total));
+    assert!(realtime.document.battle.is_none());
+    assert_eq!(realtime.last_proving, immediate.last_proving);
+    assert_eq!(
+        without_timestamps(&realtime.document),
+        without_timestamps(&immediate.document)
+    );
+}
+
+/// And for the 破境, won and lost: the win opens the realm, the loss costs the
+/// attempt and opens the twelve-hour cooldown.
+#[test]
+fn a_real_time_breakthrough_lands_where_the_click_settlement_landed() {
+    for (label, allocated) in [
+        ("a loss", Attributes::new(0, 0, 0, 0)),
+        ("a win", Attributes::new(2_000, 2_000, 2_000, 2_000)),
+    ] {
+        let base = Cultivation::new(CultivationDocument {
+            growth: threshold_for(LAYERS_PER_STAGE),
+            allocated,
+            ..CultivationDocument::default()
+        });
+        let mut immediate = base.clone();
+        let mut realtime = base.clone();
+        let clicked = immediate.breakthrough(1_000).expect("the guardian is met");
+        let run = realtime
+            .start_battle(BattleKind::Breakthrough, 1_000, 0, None, false)
+            .expect("the same click opens the fight");
+        assert_eq!(run.preview.duel, clicked.duel, "{label}");
+        assert_eq!(run.preview.won, clicked.duel.won, "{label}");
+        let landed = 1_000 + i64::from(run.rounds_total);
+        realtime.advance_battle(landed);
+        assert!(realtime.document.battle.is_none());
+        assert_eq!(
+            realtime.last_breakthrough, immediate.last_breakthrough,
+            "{label}"
+        );
+        assert_eq!(
+            without_timestamps(&realtime.document),
+            without_timestamps(&immediate.document),
+            "{label}"
+        );
+        // The cooldown is anchored to the click, not to the landing: the
+        // attempt was made then, and the two paths therefore agree on it. It is
+        // the one field `without_timestamps` has to forgive.
+        if !clicked.report.won {
+            let expected = 1_000 + BREAKTHROUGH_COOLDOWN_SECONDS;
+            assert_eq!(
+                realtime.document.breakthrough_blocked_until,
+                Some(expected),
+                "{label}"
+            );
+            assert_eq!(
+                immediate.document.breakthrough_blocked_until,
+                Some(expected),
+                "{label}"
+            );
+        }
+    }
+}
+
+/// A battle is not offline-settled (§5.7): a machine closed mid-fight and
+/// reopened an hour later finds the fight still running and finishes it on the
+/// first tick. Nothing is paid for the absence itself.
+#[test]
+fn a_battle_is_not_settled_for_the_hours_the_app_was_closed() {
+    let mut cultivation = a_bare_save_at(20);
+    let run = cultivation
+        .start_battle(BattleKind::Trial, 1_000, 9, None, false)
+        .expect("the first floor is owed");
+    assert!(cultivation.advance_battle(1_000 + 10_000));
+    assert!(cultivation.document.battle.is_none());
+    let settled = cultivation
+        .last_trial
+        .expect("the first tick after reopening settled it");
+    assert_eq!(settled.floor, run.floor);
+    assert_eq!(settled.duel, run.preview.duel);
+    assert_eq!(cultivation.document.trials, 1, "one floor, one attempt");
+    assert_eq!(
+        cultivation.document.events.len(),
+        1,
+        "the absence wrote no line of its own"
+    );
+}
+
+/// A loss costs the attempt and refunds nothing: the price is taken with the
+/// settlement, and the frontier holds.
+#[test]
+fn a_lost_floor_costs_its_attempt_and_refunds_nothing() {
+    let mut cultivation = a_bare_save_at(30);
+    cultivation.document.trial_floor = TRIAL_MAX_FLOOR - 1;
+    let run = cultivation
+        .start_battle(BattleKind::Trial, 1_000, 9, None, false)
+        .expect("the top floor is still owed");
+    assert!(
+        !run.preview.won,
+        "the top of the tower is not cleared by a bare level 30 save"
+    );
+    cultivation.advance_battle(1_000 + i64::from(run.rounds_total));
+    assert_eq!(
+        cultivation.document.trial_attempts_today, 1,
+        "a loss spends its attempt like a win does"
+    );
+    assert_eq!(
+        cultivation.trial_attempts_left(9),
+        TRIAL_ATTEMPTS_PER_DAY - 1
+    );
+    assert_eq!(cultivation.document.trials, 1);
+    assert_eq!(
+        cultivation.document.trial_floor,
+        TRIAL_MAX_FLOOR - 1,
+        "a loss costs the attempt, not the ground already held"
+    );
+    assert!(
+        cultivation
+            .last_trial
+            .expect("the floor settled")
+            .found
+            .is_empty()
+    );
+}
+
+/// §5.4: the tower's click keeps climbing while it wins, and stops when the
+/// day's five are spent. Each floor is a fresh fight with a fresh roll, exactly
+/// as a second click would have been.
+#[test]
+fn the_towers_autoclimb_keeps_climbing_while_it_wins_and_stops_when_the_day_is_spent() {
+    let mut cultivation = a_bare_save_at(500);
+    let first = cultivation
+        .start_battle(BattleKind::Trial, 1_000, 9, None, true)
+        .expect("the tower is open");
+    assert!(first.autoclimb, "the tower's click carries the climb");
+    assert_eq!(first.floor, 1);
+    let mut now = 1_000;
+    let mut floors = 0u32;
+    while let Some(run) = cultivation.battle_run() {
+        now += i64::from(run.rounds_total);
+        assert!(cultivation.advance_battle(now), "the floor was due");
+        floors += 1;
+        assert!(
+            floors <= TRIAL_ATTEMPTS_PER_DAY,
+            "the climb cannot pass the day's five"
+        );
+    }
+    assert_eq!(floors, TRIAL_ATTEMPTS_PER_DAY);
+    assert_eq!(cultivation.document.trials, TRIAL_ATTEMPTS_PER_DAY);
+    assert_eq!(
+        cultivation.document.trial_floor, TRIAL_ATTEMPTS_PER_DAY as u16,
+        "five won floors move the frontier five floors"
+    );
+    assert_eq!(cultivation.trial_attempts_left(9), 0);
+    assert!(cultivation.last_trial.is_some());
+}
+
+/// And the climb stops on the floor it loses, leaving that floor as the only
+/// one the day spent.
+#[test]
+fn the_towers_autoclimb_stops_on_the_floor_it_loses() {
+    let mut cultivation = a_bare_save_at(30);
+    cultivation.document.trial_floor = TRIAL_MAX_FLOOR - 1;
+    let run = cultivation
+        .start_battle(BattleKind::Trial, 1_000, 9, None, true)
+        .expect("the top floor is still owed");
+    assert!(run.autoclimb);
+    cultivation.advance_battle(1_000 + i64::from(run.rounds_total));
+    assert!(
+        cultivation.document.battle.is_none(),
+        "a loss ends the climb"
+    );
+    assert_eq!(
+        cultivation.document.trials, 1,
+        "the lost floor is the only one spent"
+    );
+}
+
+/// The cultivator is only in one place at a time, whichever of the two asks
+/// first: a fight refuses a task, a walk, an expedition and a sweep, and each
+/// of those refuses a fight (`docs/0103` §4, §9-S5).
+#[test]
+fn a_battle_holds_the_whole_cultivator_and_is_held_by_it() {
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        proving_tokens: 3,
+        ..CultivationDocument::default()
+    });
+    cultivation
+        .start_battle(BattleKind::Proving, 1_000, 0, None, false)
+        .expect("the chance buys its fight");
+    assert_eq!(
+        cultivation.last_refusal, None,
+        "a joined fight is not a refusal"
+    );
+    assert!(
+        cultivation.explore(1_001, ExplorationHours::Four).is_none(),
+        "a walk cannot be set out mid-fight"
+    );
+    assert_eq!(cultivation.last_refusal, Some(Refusal::BattleRunning));
+    assert!(
+        cultivation
+            .start_expedition(GatherSite::Forest, ExplorationHours::Four, 1_001)
+            .is_none()
+    );
+    assert_eq!(cultivation.last_refusal, Some(Refusal::BattleRunning));
+    assert!(cultivation.accept_job(0, 1_001, 1).is_err());
+    assert_eq!(
+        cultivation.last_refusal,
+        Some(Refusal::BattleRunning),
+        "the fight is what closes the board, and the reason names it"
+    );
+    assert!(cultivation.trial_sweep(1_001, 1).is_none());
+    assert_eq!(cultivation.last_refusal, Some(Refusal::BattleRunning));
+
+    // The other way: a walk and a task each refuse the fight.
+    let mut busy = Cultivation::new(CultivationDocument {
+        proving_tokens: 3,
+        ..CultivationDocument::default()
+    });
+    let out = 1_000 + ExplorationHours::Four.seconds();
+    busy.explore(1_000, ExplorationHours::Four);
+    assert_eq!(
+        busy.start_battle(BattleKind::Trial, 1_001, 9, None, false),
+        Err(Refusal::TrialOut)
+    );
+    busy.settle_walk(out);
+    busy.accept_job(0, out + 1, 1)
+        .expect("the job is taken once the walk is home");
+    assert_eq!(
+        busy.start_battle(BattleKind::Proving, out + 60, 0, None, false),
+        Err(Refusal::TaskRunning)
+    );
+    assert_eq!(
+        busy.view().proving_tokens,
+        3,
+        "a refused 试炼 spends no chance"
+    );
+}
+
+/// The fight under way is part of the save: written mid-fight and read back, it
+/// is the same fight and finishes on the next tick. A save written before S5
+/// carries no `battle` key at all, and reads as no battle.
+#[test]
+fn a_battle_survives_the_save_and_an_old_save_has_none() {
+    let mut cultivation = a_bare_save_at(20);
+    cultivation.document.trial_floor = 19;
+    let run = cultivation
+        .start_battle(BattleKind::Trial, 1_000, 9, None, false)
+        .expect("the floor at the cultivator's own rung is owed");
+    assert!(run.rounds_total > 1, "the fight lasts more than one round");
+    cultivation.advance_battle(1_001);
+    assert_eq!(
+        cultivation
+            .battle_run()
+            .expect("the fight is still on screen")
+            .rounds_done,
+        1
+    );
+    let saved = serde_json::to_string(&cultivation.document).expect("the document serializes");
+    let mut loaded: CultivationDocument = serde_json::from_str(&saved).expect("the document loads");
+    assert_eq!(
+        loaded.battle.as_ref().map(|run| run.rounds_done),
+        Some(1),
+        "the half-fought fight comes back half-fought"
+    );
+    // Resuming it settles exactly what the uninterrupted fight would have.
+    let rounds_total = loaded
+        .battle
+        .as_ref()
+        .expect("the fight came back")
+        .rounds_total;
+    loaded
+        .battle
+        .as_mut()
+        .expect("the fight came back")
+        .start_unix = 1_001;
+    let mut resumed = Cultivation::new(loaded);
+    assert!(resumed.advance_battle(1_001 + i64::from(rounds_total)));
+    assert!(resumed.document.battle.is_none());
+    assert!(resumed.last_trial.is_some());
+
+    let legacy: CultivationDocument = serde_json::from_str("{}").expect("a pre-S5 save loads");
+    assert!(
+        legacy.battle.is_none(),
+        "a save written before S5 has no battle under way"
     );
 }

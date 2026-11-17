@@ -100,20 +100,28 @@ fn a_fresh_cultivator_starts_at_the_first_layer_of_the_first_realm() {
 }
 
 #[test]
-fn a_session_pays_growth_in_proportion_to_its_length() {
-    // The first session of a day is the flat base, whatever its length.
+fn a_finished_session_settles_a_whole_sit() {
+    // A session is a 闭关: 250 ticks of the 吐纳 curve at the sit's bonus, plus
+    // the sit's one 试炼 chance. It no longer escalates by session of the day.
     let mut cultivation = Cultivation::default();
-    let reward = cultivation.on_session_completed(1_000, day(20_000), 25);
-    assert_eq!(reward.growth, SESSION_BASE_GROWTH);
-    assert_eq!(cultivation.document().growth, SESSION_BASE_GROWTH);
+    let expected = sit_growth(meditate_tick_growth(0, 1_000), SECLUSION_TICKS);
+    let reward = cultivation.settle_sit_session(1_000, day(20_000));
+    assert_eq!(reward.growth, expected);
+    assert_eq!(cultivation.document().growth, expected);
     assert_eq!(cultivation.document().last_active_day, Some(20_000));
-    // A second session the same day is worth more, and counts as number two.
-    let second = cultivation.on_session_completed(2_000, day(20_000), 25);
-    assert_eq!(second.growth, session_growth(2, 1));
-    assert!(second.growth > SESSION_BASE_GROWTH);
-    // The session counter resets on a new local day.
-    let third = cultivation.on_session_completed(3_000, day(20_001), 25);
-    assert_eq!(third.growth, SESSION_BASE_GROWTH, "a new day starts at one");
+    assert_eq!(
+        cultivation.document().proving_tokens,
+        1,
+        "one sit banks one chance"
+    );
+    // A second session the same day pays the same sit, not a larger one, and a
+    // new local day changes nothing either.
+    let second = cultivation.settle_sit_session(2_000, day(20_000));
+    assert_eq!(second.growth, expected, "the sit does not escalate");
+    assert_eq!(cultivation.document().proving_tokens, 2);
+    let third = cultivation.settle_sit_session(3_000, day(20_001));
+    assert_eq!(third.growth, expected, "a new day is the same sit");
+    assert_eq!(cultivation.document().proving_tokens, 3);
 }
 
 #[test]
@@ -131,7 +139,7 @@ fn a_new_day_records_the_level_and_power_it_opens_with() {
     // A session on that day moves the level and the power, and the view reads
     // the difference against the recorded opening rather than against the save's
     // whole history.
-    cultivation.on_session_completed(1_000, day(20_000), 25);
+    cultivation.settle_sit_session(1_000, day(20_000));
     let view = cultivation.view_on(2_000, 20_000);
     assert_eq!(
         view.today_level_delta,
@@ -147,7 +155,7 @@ fn a_new_day_records_the_level_and_power_it_opens_with() {
 fn a_new_day_resets_the_delta_to_zero() {
     let mut cultivation = Cultivation::default();
     cultivation.ensure_day_baseline(20_000);
-    cultivation.on_session_completed(1_000, day(20_000), 25);
+    cultivation.settle_sit_session(1_000, day(20_000));
     assert_ne!(cultivation.view_on(2_000, 20_000).today_power_delta, 0);
 
     // The next local day opens at its own baseline, so the previous day's gain
@@ -167,19 +175,6 @@ fn a_save_written_before_the_baseline_existed_reports_zero_until_the_day_is_reco
     let view = cultivation.view_on(1_000, 20_000);
     assert_eq!(view.today_level_delta, 0);
     assert_eq!(view.today_power_delta, 0);
-}
-
-#[test]
-fn session_growth_scales_with_the_day_and_the_realm() {
-    assert_eq!(session_growth(1, 1), 500);
-    assert_eq!(session_growth(2, 1), 550, "500 * 1.1, truncated");
-    assert_eq!(
-        session_growth(1, 5),
-        500,
-        "the realm does not touch the first session"
-    );
-    // 500 * 1.1^2 * 2 = 1210.
-    assert_eq!(session_growth(3, 2), 1210);
 }
 
 #[test]
@@ -620,6 +615,64 @@ fn a_planted_seed_ripens_on_the_clock_and_pays_an_attribute() {
     );
 }
 
+/// The reworked wait drives the bed end to end: a crop is ripe ten minutes
+/// times its tier after planting, the halfway reveal lands at half that, and
+/// the harvest pays the same points it always did — online and after an absence
+/// alike, because the bed is on the wall clock and needs no settle to mature.
+#[test]
+fn a_crop_matures_on_the_minute_level_ladder() {
+    let mut cultivation = tended(Cultivation::default());
+    let at = 1_000;
+    for (tier, wait) in [(1, 600), (5, 3_000), (10, 6_000)] {
+        document_seed(&mut cultivation, Attribute::Root, tier, SeedGrade::Earth);
+        assert!(
+            cultivation
+                .plant(Attribute::Root, tier, SeedGrade::Earth, at)
+                .is_some(),
+            "tier {tier} is planted"
+        );
+        // A top-rank garden shortens the wait, so read the bed's own rate.
+        let bed = grow_seconds_at(MAX_GARDEN_RANK, tier);
+        assert!(
+            bed <= wait,
+            "tier {tier} waits no more than ten minutes times its tier"
+        );
+        // The record, not the view: the halfway mark is a domain instant the
+        // surface does not render, so it is read where it is written.
+        let crop = cultivation.document().plots[0]
+            .crop
+            .clone()
+            .expect("a crop in the first plot");
+        assert_eq!(
+            crop.ready_at_unix,
+            at + bed,
+            "tier {tier} is ripe after its wait"
+        );
+        assert_eq!(
+            crop.revealed_at_unix,
+            at + bed / 2,
+            "tier {tier} says how it is doing at the halfway mark"
+        );
+        // Online: one second early is refused.
+        assert!(
+            cultivation.harvest(0, at + bed - 1).is_none(),
+            "tier {tier} is not ripe a second early"
+        );
+        // Offline: a long absence needs no settle — the same harvest after the
+        // gap pays the same points.
+        let before = cultivation.crop_attributes().root;
+        let harvested = cultivation
+            .harvest(0, at + bed + 10_000)
+            .expect("tier {tier} is ripe after an absence");
+        assert_eq!(harvested.crop.tier, tier);
+        assert_eq!(
+            cultivation.crop_attributes().root - before,
+            harvest_points(tier, SeedGrade::Earth),
+            "tier {tier} pays what it always paid"
+        );
+    }
+}
+
 /// A harvest line says which herb came up and what it paid: the plot is empty
 /// afterwards, so a line that said only "a crop was pulled" left nothing to
 /// check the attribute gain against.
@@ -1017,7 +1070,7 @@ fn drops_are_rare_next_to_the_growth_a_session_pays() {
     let mut drops = 0u32;
     let mut sessions = 0u32;
     for second in 1..=1_000i64 {
-        let reward = cultivation.on_session_completed(second * 7, day(20_000 + second), 25);
+        let reward = cultivation.settle_sit_session(second * 7, day(20_000 + second));
         sessions += 1;
         if reward.drop.is_some() {
             drops += 1;
@@ -1417,7 +1470,7 @@ fn every_level_pays_one_point_the_user_places() {
 
     // One session already jumps several layers; the points scale with the level
     // reached rather than being one per session.
-    cultivation.on_session_completed(1_000, day(20_000), 25);
+    cultivation.settle_sit_session(1_000, day(20_000));
     let level = cultivation.level();
     assert!(level > 1, "a session moved the ladder");
     // The balance is what the levels granted plus what 练功 paid, less what is
@@ -1463,7 +1516,7 @@ fn a_pomodoro_with_no_book_trains_the_body_and_can_pay_points() {
     let mut paid = 0u32;
     for second in 1..=400i64 {
         let before = cultivation.document().training_points;
-        cultivation.on_session_completed(second * 7, day(20_000), 25);
+        cultivation.settle_sit_session(second * 7, day(20_000));
         let after = cultivation.document().training_points;
         if after > before {
             let gain = after - before;
@@ -1523,7 +1576,7 @@ fn a_reached_level_is_not_paid_twice() {
         ..CultivationDocument::default()
     });
     for second in 1..=20i64 {
-        cultivation.on_session_completed(second * 7, day(20_000), 25);
+        cultivation.settle_sit_session(second * 7, day(20_000));
     }
     // Twenty sessions in one day compound the growth, but the free points are paid
     // once against the highest level reached, never once per session.
@@ -1646,7 +1699,7 @@ fn a_finished_session_trains_the_selected_art() {
     // Ninety-odd sessions is more than any 黄阶 art needs, so the ladder ends
     // the same way whatever the rolls were: mastered, with progress cleared.
     for offset in 0..40_i64 {
-        cultivation.on_session_completed(1_000 + offset, day(30_000 + offset), 25);
+        cultivation.settle_sit_session(1_000 + offset, day(30_000 + offset));
     }
     let view = cultivation.view();
     // The book has been read to the end, so it is no longer a book: it has
@@ -1683,7 +1736,7 @@ fn a_trained_internal_art_feeds_the_attribute_total() {
         .expect("the book is kept");
     cultivation.select_art(Some(internal.id));
     for offset in 0..20_i64 {
-        cultivation.on_session_completed(2_000 + offset, day(40_000 + offset), 25);
+        cultivation.settle_sit_session(2_000 + offset, day(40_000 + offset));
     }
     let paid = cultivation.art_attributes().total();
     assert!(paid > 0, "a trained 内功 pays something");
@@ -1857,68 +1910,185 @@ fn one_walk_at_a_time_and_it_pays_when_it_comes_home() {
     );
 }
 
-/// A job is taken, held, and paid on the clock — and the board hands over a new
-/// three when it comes home.
+/// A job is taken as the 打工 task it names: the offer's grade and trade ride
+/// the task, the one slot is the task's, and the wage is paid tick by tick
+/// rather than once when the hours are up.
 #[test]
-fn a_job_is_taken_and_paid_when_it_comes_due() {
+fn a_job_starts_a_four_second_work_task() {
     let mut cultivation = Cultivation::default();
     let board = cultivation.jobs(20_000);
     assert_eq!(board.len(), JOB_OFFER_COUNT);
     let offer = board[0];
     let before = cultivation.document().stones;
-    let run = cultivation
+    let taken = cultivation
         .accept_job(0, 1_000, 20_000)
         .expect("the job is taken");
-    assert_eq!(run.ends_unix, 1_000 + offer.seconds());
-    // A second job is refused while the first is in hand: both are hours of the
-    // same day.
-    assert!(cultivation.accept_job(1, 1_100, 20_000).is_err());
-    // Not due yet, so nothing is paid.
-    assert!(cultivation.settle_work(1_000).is_none());
-    let wage = offer.stones();
-    let paid = cultivation
-        .settle_work(run.ends_unix)
-        .expect("the job is paid");
-    // The wage is the wage: the work coming off never changes what it paid.
-    assert_eq!(paid.stones, wage, "{paid:?} against the wage {wage}");
-    assert!(
-        paid.success_rate <= 1_000 && paid.success_rate >= 100,
-        "{paid:?}"
-    );
-    assert!(paid.gain.is_none() || paid.gain.unwrap().1 >= 1, "{paid:?}");
-    assert_eq!(cultivation.document().stones, before + paid.stones);
+    assert_eq!(taken, offer, "the board's row is what was taken");
+    let task = cultivation.task().expect("the job is a task");
+    assert_eq!(task.kind, TaskKind::Work);
+    assert_eq!(task.tick_seconds, WORK_TICK_SECONDS);
+    assert_eq!(task.grade, Some(offer.grade.index() as u8));
+    assert_eq!(task.job_kind, Some(offer.kind));
+    // The legacy hour-job field is left empty: a job is a task now.
     assert!(cultivation.document().work.is_none());
-    // The board turned over: a finished job hands the cultivator a new three.
-    assert_eq!(cultivation.document().jobs_roll, 1);
-    // And the log says what it paid, which is the only place it survives a quit.
-    let logged = cultivation.view().events.iter().any(|event| {
-        matches!(
-            event.detail,
-            EventDetail::Work { stones, .. } if stones == paid.stones
-        )
-    });
-    assert!(logged, "the purse has to be readable after the quit");
+    // A second job is refused while the first holds the one slot.
+    assert_eq!(
+        cultivation.accept_job(1, 1_100, 20_000),
+        Err(Refusal::TaskRunning)
+    );
+    // One tick pays the grade's own wage, and a second pays it again.
+    let per_tick = u32::try_from(
+        u64::from(TASK_JOB_BASE_STONES)
+            * super::jobs::JOB_GRADE_MULTIPLIER_PERMILLE[offer.grade.index()]
+            / 1_000,
+    )
+    .unwrap_or(u32::MAX);
+    assert_eq!(cultivation.advance_task(1_004), 1);
+    assert_eq!(cultivation.document().stones, before + per_tick);
+    assert_eq!(cultivation.advance_task(1_008), 1);
+    assert_eq!(cultivation.document().stones, before + 2 * per_tick);
 }
 
-/// The pool a job pays is the pool the fighter reads: a gain lands in the nine
-/// numbers `derived()` returns, and no gain leaves the pool alone.
+/// A gathering task holds the one slot too, so the board is closed while it
+/// runs: 打工 is a task now, and a running task is a running task, whatever it
+/// happens to gather.
+#[test]
+fn a_running_gathering_task_closes_the_job_board() {
+    let mut cultivation = Cultivation::default();
+    cultivation
+        .start_gathering_task(
+            TaskKind::Woodcut,
+            Some(GatherSite::Forest),
+            GatherTier::Common,
+            None,
+            None,
+            1_000,
+            6,
+        )
+        .expect("the gathering task starts");
+    assert_eq!(
+        cultivation.accept_job(0, 1_100, 20_000),
+        Err(Refusal::TaskRunning),
+        "a 伐木 task holds the slot a 打工 task would need"
+    );
+    assert!(cultivation.task().is_some(), "the first task is untouched");
+    // The slot freed, the board opens again.
+    cultivation.stop_task(1_100);
+    cultivation
+        .accept_job(0, 1_200, 20_000)
+        .expect("the board opens once the task is stopped");
+}
+
+/// A running task is hours of the same day, so it closes the road and the
+/// expedition the way a walk closes the job board: one cultivator, one place.
+/// The road opens again the moment the task is stopped.
+#[test]
+fn a_running_task_closes_the_road_and_the_expedition() {
+    let mut cultivation = Cultivation::default();
+    cultivation
+        .start_gathering_task(
+            TaskKind::Woodcut,
+            Some(GatherSite::Forest),
+            GatherTier::Common,
+            None,
+            None,
+            1_000,
+            6,
+        )
+        .expect("the task starts");
+    assert!(
+        cultivation.explore(1_100, ExplorationHours::Four).is_none(),
+        "a running task closes the road"
+    );
+    assert_eq!(
+        cultivation.view_on(1_100, 20_000).last_refusal,
+        Some(Refusal::TaskRunning)
+    );
+    assert!(
+        cultivation
+            .start_expedition(GatherSite::Forest, ExplorationHours::Four, 1_100)
+            .is_none(),
+        "a running task closes the expedition"
+    );
+    assert_eq!(
+        cultivation.view_on(1_100, 20_000).last_refusal,
+        Some(Refusal::TaskRunning)
+    );
+    // The task stopped, the road opens again.
+    cultivation.stop_task(1_100);
+    assert!(
+        cultivation.explore(1_200, ExplorationHours::Four).is_some(),
+        "the road opens once the task is stopped"
+    );
+}
+
+/// A walk, an expedition or a pre-S4 hour-job holds the cultivator, so none of
+/// them can be out while a task starts. Each cause keeps its own refusal, so
+/// the page can say which one rather than a single "busy".
+#[test]
+fn an_outing_closes_the_task_slot() {
+    let mut cultivation = Cultivation::default();
+    cultivation
+        .explore(1_000, ExplorationHours::Four)
+        .expect("the walk sets out");
+    assert_eq!(
+        cultivation.start_task(TaskKind::Woodcut, Some(GatherSite::Forest), None, 1_100, 6),
+        Err(Refusal::TrialOut),
+        "a walk out closes the task slot"
+    );
+    cultivation.settle_walk(1_000 + WALK_SECONDS);
+    cultivation
+        .start_expedition(GatherSite::Forest, ExplorationHours::Four, 2_000)
+        .expect("the expedition sets out");
+    assert_eq!(
+        cultivation.start_task(TaskKind::Woodcut, Some(GatherSite::Forest), None, 2_100, 6),
+        Err(Refusal::ExpeditionOut),
+        "an expedition out closes the task slot"
+    );
+    cultivation.settle_expedition(2_000 + WALK_SECONDS);
+    // A save written before S4 can still hold an hour-job, and it holds the
+    // cultivator the way it always did.
+    let offer = cultivation.jobs(20_000)[0];
+    cultivation = Cultivation::new(CultivationDocument {
+        work: Some(JobRun::started(offer, 3_000)),
+        ..CultivationDocument::default()
+    });
+    assert_eq!(
+        cultivation.start_task(TaskKind::Woodcut, Some(GatherSite::Forest), None, 3_100, 6),
+        Err(Refusal::Working),
+        "a legacy hour-job closes the task slot"
+    );
+}
+
+/// The pool a job pays is the pool the fighter reads: a 积分 roll lands in the
+/// nine numbers `derived()` returns, and a miss leaves the pool alone.
 #[test]
 fn the_pool_a_job_pays_is_the_pool_the_fight_reads() {
     let mut cultivation = Cultivation::default();
-    let run = cultivation
+    cultivation
         .accept_job(0, 1_000, 20_000)
         .expect("the job is taken");
     let before = cultivation.job_bonus();
-    let paid = cultivation.settle_work(run.ends_unix).expect("paid");
+    // Sixty ticks is one 积分 roll; whether it hits is the seed's business, but
+    // a hit is one slot and one to five points, and a miss is nothing.
+    assert_eq!(
+        cultivation.advance_task(1_000 + 60 * i64::from(WORK_TICK_SECONDS)),
+        60
+    );
     let after = cultivation.job_bonus();
-    match paid.gain {
-        Some((slot, points)) => {
-            let mut expected = before;
-            slot.add_to(&mut expected, points);
-            assert_eq!(after, expected, "the gain lands in the pool");
-        }
-        None => assert_eq!(after, before, "no gain leaves the pool alone"),
-    }
+    let deltas = [
+        after.attack.saturating_sub(before.attack),
+        after.health.saturating_sub(before.health),
+        after.inner.saturating_sub(before.inner),
+        after.spell.saturating_sub(before.spell),
+        after.resist.saturating_sub(before.resist),
+        after.speed.saturating_sub(before.speed),
+        after.hit.saturating_sub(before.hit),
+        after.evade.saturating_sub(before.evade),
+    ];
+    let hits = deltas.iter().filter(|delta| **delta > 0).count();
+    assert!(hits <= 1, "one roll pays one slot: {deltas:?}");
+    assert!(deltas.iter().all(|delta| *delta <= 5), "{deltas:?}");
     // And the pool is one of the shares the fighter is built from, so a gain
     // moves the number the fight reads rather than a figure nobody uses.
     assert_eq!(
@@ -1933,18 +2103,18 @@ fn the_pool_a_job_pays_is_the_pool_the_fight_reads() {
     );
 }
 
-/// The job in hand keeps its row on the board, but the board reads it as taken
-/// rather than open: the row is the same job the working line names, so it is
-/// marked and a second take would be refused.
+/// A pre-S4 save's hour-job still marks its board row and still comes home:
+/// S4 stopped writing the field, but a save already holding one is drained by
+/// the legacy path rather than stranded.
 #[test]
-fn the_taken_job_is_marked_on_the_board() {
-    let mut cultivation = Cultivation::default();
+fn a_pre_s4_job_is_still_marked_and_settled() {
     let day = 20_000;
-    let board = cultivation.jobs(day);
+    let board = Cultivation::default().jobs(day);
     let offer = board[1];
-    cultivation
-        .accept_job(1, 1_000, day)
-        .expect("the job is taken");
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        work: Some(JobRun::started(offer, 1_000)),
+        ..CultivationDocument::default()
+    });
     let view = cultivation.view_on(1_100, day);
     let taken = view
         .jobs
@@ -1955,36 +2125,46 @@ fn the_taken_job_is_marked_on_the_board() {
     assert_eq!(
         taken,
         vec![1],
-        "only the job in hand reads as taken: {taken:?}"
+        "the legacy job in hand reads as taken: {taken:?}"
     );
     assert!(
         view.jobs[1].tier == offer.tier
             && view.jobs[1].hours == offer.hours
             && view.jobs[1].grade == offer.grade,
-        "the taken row is the accepted job"
+        "the taken row is the job the save holds"
     );
+    // And it still pays on the clock, the way it always did.
+    let paid = cultivation
+        .settle_legacy_work(1_000 + offer.seconds())
+        .expect("the legacy job is paid");
+    assert_eq!(paid.stones, offer.stones());
+    assert!(cultivation.document().work.is_none());
 }
 
-/// A job and a walk are the same hours, so neither can be taken while the other
-/// is in hand.
+/// A walk and a job cannot be taken at once: the road is closed while the
+/// cultivator is out, and the one task slot is closed once a job is taken.
 #[test]
-fn a_job_and_a_walk_cannot_be_done_at_once() {
+fn a_walk_and_a_job_cannot_be_taken_at_once() {
     let mut cultivation = Cultivation::default();
     cultivation
         .explore(1_000, ExplorationHours::Four)
         .expect("the walk sets out");
-    assert!(
-        cultivation.accept_job(0, 1_100, 20_000).is_err(),
+    assert_eq!(
+        cultivation.accept_job(0, 1_100, 20_000),
+        Err(Refusal::TrialOut),
         "the road is closed while the walk is out"
     );
     cultivation.settle_walk(1_000 + WALK_SECONDS);
-    let run = cultivation
+    cultivation
         .accept_job(0, 2_000, 20_000)
         .expect("the job is taken once the walk is home");
-    assert!(cultivation.explore(2_100, ExplorationHours::Four).is_none());
-    // Working closes the tower for the same reason: it is climbed at home.
-    assert!(cultivation.trial_blocked(2_100, 20_000).is_some());
-    let _ = run;
+    // The job is a task now, so the slot is the task's. A walk does not yet
+    // refuse while a task runs — that reverse mutex is part of the S8 command
+    // integration, not of S4's kernel change.
+    assert_eq!(
+        cultivation.accept_job(1, 2_100, 20_000),
+        Err(Refusal::TaskRunning)
+    );
 }
 
 /// A walk outlives the quit: the document keeps it, so reopening the app finds
@@ -2044,16 +2224,22 @@ fn a_called_walk_pays_nothing() {
     assert_eq!(cultivation.stones(), 0, "and fills no purse");
 }
 
-/// 提前返回 from a job reads the same way as from a walk: the shift comes home
-/// with no wage, no point and no fresh board, and the trip back is a third of
-/// the hours already stood.
+/// 提前返回 from a pre-S4 job reads the same way as from a walk: the shift
+/// comes home with no wage, no point and no fresh board, and the trip back is a
+/// third of the hours already stood.
 #[test]
 fn a_called_shift_pays_nothing() {
     let start = 1_000;
-    let mut cultivation = Cultivation::default();
-    cultivation
-        .accept_job(0, start, 20_000)
-        .expect("the job is taken");
+    let offer = JobOffer {
+        tier: 1,
+        hours: 4,
+        grade: ArtGrade::Yellow,
+        kind: JobKind::default(),
+    };
+    let mut cultivation = Cultivation::new(CultivationDocument {
+        work: Some(JobRun::started(offer, start)),
+        ..CultivationDocument::default()
+    });
     let before = cultivation.document().stones;
     // Two hours stood, so the way home is forty minutes.
     let stood = start + 2 * 3_600;
@@ -2080,7 +2266,7 @@ fn a_called_shift_pays_nothing() {
     assert!(!cultivation.return_early(stood + 120));
     // Home again, and paid nothing at all.
     assert!(
-        cultivation.settle_work(called.ends_unix).is_none(),
+        cultivation.settle_legacy_work(called.ends_unix).is_none(),
         "a called shift pays no wage"
     );
     let home = cultivation.view_on(called.ends_unix, 20_000);
@@ -2420,7 +2606,7 @@ fn a_mastered_art_leaves_the_books_and_joins_the_learned_ones() {
         .grant_art(ArtGrade::Yellow, 1_000)
         .expect("a 黄阶 art");
     for offset in 0..40_i64 {
-        cultivation.on_session_completed(1_000 + offset, day(30_000 + offset), 25);
+        cultivation.settle_sit_session(1_000 + offset, day(30_000 + offset));
     }
     let view = cultivation.view();
     assert!(
@@ -2444,7 +2630,7 @@ fn a_second_copy_of_a_book_carries_on_where_the_first_left_off() {
     // A few sessions in: some land and some fail, and either way the book is no
     // longer at its first page.
     for offset in 0..6_i64 {
-        cultivation.on_session_completed(1_000 + offset, day(30_000 + offset), 25);
+        cultivation.settle_sit_session(1_000 + offset, day(30_000 + offset));
     }
     let before = cultivation
         .view()
@@ -2498,7 +2684,7 @@ fn selling_a_learned_art_takes_nothing_it_pays_with_it() {
     let id = 1;
     // Learn it: enough sessions for any 黄阶 art to reach its last 阶.
     for offset in 0..40_i64 {
-        cultivation.on_session_completed(1_000 + offset, day(30_000 + offset), 25);
+        cultivation.settle_sit_session(1_000 + offset, day(30_000 + offset));
     }
     let learned_before = cultivation.art_attributes().total();
     // A combat-paying shape pays no attributes, so the payout this is about is
@@ -2587,7 +2773,7 @@ fn a_learned_internal_art_pays_its_mastery_for_good() {
         .expect("the book is kept");
     cultivation.select_art(Some(internal.id));
     for offset in 0..40_i64 {
-        cultivation.on_session_completed(1_000 + offset, day(30_000 + offset), 25);
+        cultivation.settle_sit_session(1_000 + offset, day(30_000 + offset));
     }
     let learned = mastered_art_attributes(&[internal.id]);
     assert!(learned.total() > 0, "a learned 内功 pays its attributes");
@@ -2784,7 +2970,7 @@ fn a_spare_is_sold_before_the_book_being_read() {
     let mut cultivation = Cultivation::default();
     cultivation.grant_art_book(1).expect("a book for art 1");
     for offset in 0..6_i64 {
-        cultivation.on_session_completed(1_000 + offset, day(30_000 + offset), 25);
+        cultivation.settle_sit_session(1_000 + offset, day(30_000 + offset));
     }
     cultivation.grant_art_book(1).expect("a spare");
     let before = cultivation
@@ -3397,6 +3583,172 @@ fn a_full_piece_refuses_the_wager() {
     );
 }
 
+/// The S7 star table (`docs/0103` §5.6), pinned against the code: a
+/// first-tier piece starred 0→10 with no 铁匠铺 discount costs exactly the
+/// documented 1100 wood, 550 stone, 60 iron and 56 coal. This is the table's
+/// own arithmetic, so a base or a gate star that moves fails here rather than
+/// quietly rebalancing the whole sink.
+#[test]
+fn the_s7_star_table_costs_the_documented_full_piece() {
+    let item = EquipmentRecord {
+        id: 21,
+        slot: EquipSlot::Weapon,
+        tier: 1,
+        rarity: Rarity::Common,
+        attributes: Attributes::new(0, 0, 0, 0),
+        bonus: Derived::default(),
+        star: 0,
+        half_star: false,
+        effect: None,
+        name: None,
+        set: None,
+    };
+    let (mut wood, mut stone, mut iron, mut coal) = (0, 0, 0, 0);
+    for star in 0..MAX_STAR {
+        let mut at = item.clone();
+        at.star = star;
+        let cost = star_up_cost(&at, 0);
+        wood += cost.resources.wood;
+        stone += cost.resources.stone;
+        iron += cost.resources.iron;
+        coal += cost.resources.coal;
+    }
+    assert_eq!(wood, 1_100, "木材 0→10 合计");
+    assert_eq!(stone, 550, "石料 0→10 合计");
+    assert_eq!(iron, 60, "铁 0→10 合计");
+    assert_eq!(coal, 56, "煤 0→10 合计");
+    // The gates are the table's: a first star burns no rare find, the fourth
+    // target brings 煤, the sixth 铁.
+    let mut at = item.clone();
+    at.star = 0;
+    let first = star_up_cost(&at, 0);
+    assert_eq!((first.resources.wood, first.resources.stone), (20, 10));
+    assert_eq!((first.resources.iron, first.resources.coal), (0, 0));
+    at.star = 3; // target 4
+    assert_eq!(star_up_cost(&at, 0).resources.coal, 2, "煤从第四星起");
+    at.star = 5; // target 6
+    assert_eq!(star_up_cost(&at, 0).resources.iron, 4, "铁从第六星起");
+}
+
+/// The 升星 sink is hours of the S2 gathering faucet, not minutes: a full
+/// first-tier piece's 1100 wood is 1.2 hours at the bare L1 凡木林 rate (900
+/// wood/h) and 0.6 hours at the L30 凡木林 rate (1800 wood/h). Both ends sit
+/// in the §5.6 band [0.5h, 3h]. The 混沌 tier at L30 pays 14 wood a tick
+/// (6300/h) — the table's "L30 1800/h" is the 凡木林 figure, not 混沌.
+#[test]
+fn a_full_piece_of_wood_is_hours_of_gathering() {
+    // §5.2: an 8s round, so 450 rounds an hour.
+    const GATHER_TICKS_PER_HOUR: u32 = 450;
+    let low = collect_tick(GatherSite::Forest, GatherTier::Common, 1, 1, 0, 0, 0)
+        .gained
+        .wood;
+    let high = collect_tick(GatherSite::Forest, GatherTier::Common, 30, 1, 0, 0, 0)
+        .gained
+        .wood;
+    assert_eq!(low, 2, "L1 凡木林 无建筑 is the §5.2 base");
+    assert_eq!(high, 4, "L30 凡木林 无建筑");
+    let low_rate = f64::from(low * GATHER_TICKS_PER_HOUR);
+    let high_rate = f64::from(high * GATHER_TICKS_PER_HOUR);
+    assert_eq!(low_rate, 900.0, "凡木林 L1 无建筑 900 木/h");
+    assert_eq!(high_rate, 1_800.0, "凡木林 L30 无建筑 1800 木/h");
+    let hours = |rate: f64| 1_100.0 / rate;
+    assert!(
+        (0.5..=3.0).contains(&hours(low_rate)),
+        "一件满星木料在 L1 凡木林要 {:.2}h",
+        hours(low_rate)
+    );
+    assert!(
+        (0.5..=3.0).contains(&hours(high_rate)),
+        "一件满星木料在 L30 凡木林要 {:.2}h",
+        hours(high_rate)
+    );
+    // The deepest site is a different thing, and the table's 1800 is not it.
+    let chaos = collect_tick(GatherSite::Forest, GatherTier::Chaos, 30, 1, 0, 0, 0)
+        .gained
+        .wood;
+    assert_eq!(chaos, 14, "混沌神木 L30 是深度奖励，不是基准");
+}
+
+/// The S7 building sink (`docs/0103` §5.6): the primary base is 25, so a
+/// full ten-rank building asks 25×(1.45^10−1)/0.45 ≈ 2227 of its primary
+/// material, and the four buildings together ≈ 6800 — the same days-of-
+/// gathering band as a starred set. The design's "≈1025/座, ≈4100 总" read
+/// 25×1.45^10 instead of the geometric sum; this pins the formula the code
+/// actually runs.
+#[test]
+fn a_full_building_costs_the_documented_primary_tribute() {
+    let primary_resource = |building: Building| match building {
+        Building::Workshop | Building::Dojo | Building::Warehouse => Resource::Wood,
+        Building::Smithy => Resource::Stone,
+    };
+    let sum_primary = |building: Building| {
+        (0..10)
+            .map(|level| {
+                building_upgrade_cost(building, level)
+                    .resources
+                    .get(primary_resource(building))
+            })
+            .sum::<u32>()
+    };
+    // The curve's shape is unchanged: the tenth rank is still twenty-eight
+    // times the first, and the secondary is half, the rare a fifth.
+    let first = building_upgrade_cost(Building::Workshop, 0);
+    assert_eq!(first.resources.wood, 25, "主材料基数 ×5");
+    assert_eq!(first.resources.stone, 12, "副资源 = 主/2");
+    assert_eq!(first.resources.coal, 0, "工坊第三级才烧煤");
+    let tenth = building_upgrade_cost(Building::Workshop, 9);
+    assert_eq!(tenth.resources.wood, 708);
+    assert_eq!(tenth.resources.stone, 354);
+    assert_eq!(tenth.resources.coal, 141, "稀有 = 主/5");
+    let geometric = 25.0 * (1.45_f64.powi(10) - 1.0) / 0.45;
+    assert_eq!(sum_primary(Building::Workshop), 2_227);
+    assert_eq!(sum_primary(Building::Smithy), 2_227, "同一曲线");
+    assert_eq!(sum_primary(Building::Dojo), 2_227, "同一曲线");
+    assert_eq!(sum_primary(Building::Warehouse), 152, "仓库自己的浅曲线");
+    assert_eq!(geometric.round() as u32, 2_227, "几何和公式");
+    assert_eq!(
+        sum_primary(Building::Workshop)
+            + sum_primary(Building::Smithy)
+            + sum_primary(Building::Dojo)
+            + sum_primary(Building::Warehouse),
+        6_833,
+        "四座全满主材料"
+    );
+}
+
+/// The 灵石 axis stays in the same minutes-of-打工 band as the material axis:
+/// one 升星 wager is `sell_price / 10` (the code's own expression), which for
+/// a first-tier piece is a handful of 黄阶 ticks and for a top-tier piece a
+/// few minutes of 黄阶 打工. The §5.6 "≈5 分钟" is the high-tier end — the
+/// wager is flat per attempt, so the tier is what moves it.
+#[test]
+fn a_star_wager_is_minutes_of_work_at_most() {
+    let ticks_per_hour = 3_600 / WORK_TICK_SECONDS;
+    let yellow_per_hour = TASK_JOB_BASE_STONES * ticks_per_hour;
+    assert_eq!(yellow_per_hour, 5_400, "黄阶打工 5400/h (§5.3)");
+    let wager = |tier: u8, rarity: Rarity| {
+        let item = EquipmentRecord {
+            id: 31,
+            slot: EquipSlot::Clothes,
+            tier,
+            rarity,
+            ..Default::default()
+        };
+        ShopOffer::Equipment(item).sell_price() / 10
+    };
+    let work_seconds = |stones: u32| f64::from(stones) / f64::from(yellow_per_hour) * 3_600.0;
+    let low = wager(1, Rarity::Common);
+    let high = wager(10, Rarity::Transcendent);
+    assert_eq!(low, 6, "tier1 凡品售价 66，赌注取其一是 6 灵石");
+    assert_eq!(high, 276, "tier10 超凡售价 2761，赌注 276 灵石");
+    assert_eq!(work_seconds(low), 4.0, "§5.6 的低阶「≈4s」");
+    assert!(
+        (183.0..=185.0).contains(&work_seconds(high)),
+        "§5.6 的顶阶「≈3 分钟」，实得 {:.1}s",
+        work_seconds(high)
+    );
+}
+
 /// One expedition at the forest fills the purse with wood and banks 伐木 xp; a
 /// 炼气 four-hour expedition is four base rounds, and the 仓库's ceiling clips
 /// a full purse rather than overflowing it.
@@ -3775,10 +4127,11 @@ fn a_bulk_building_buy_stops_early_but_never_pays_more_than_it_can() {
     );
 
     // A purse that can pay two ranks but not the third buys exactly two: the
-    // 工坊's first two ranks cost 5/2 and 7/3 (wood/stone), the third 11/5/2.
+    // 工坊's first two ranks cost 25/12 and 36/18 (wood/stone), the third
+    // 53/26/10 — the S7 ×5 base, so the purse is sized to the new table.
     let mut partial = Cultivation::new(CultivationDocument {
         stones: 1_000,
-        resources: afford(12, 5, 0),
+        resources: afford(61, 30, 0),
         ..CultivationDocument::default()
     });
     let bought = partial
@@ -3791,6 +4144,7 @@ fn a_bulk_building_buy_stops_early_but_never_pays_more_than_it_can() {
         0,
         "both ranks paid in wood"
     );
+    assert_eq!(partial.document().resources.stone, 0, "and both in stone");
 }
 
 /// A 神装's effect is a debuff the other side walks in with, read when the
@@ -4369,5 +4723,213 @@ fn a_one_click_planting_skips_the_pill_in_the_satchel() {
     assert!(
         cultivation.view().seeds[0].herb == Some(AptitudeHerb::Marrow),
         "and it is the pill that stayed"
+    );
+}
+
+/// The §5.1 吐纳 ladder, read off the realm table rather than off a constant.
+///
+/// `docs/0103` §5.1 writes `round(2 × (1000 + 750·realm_index)/1000)` before the
+/// 功法 multiplier, so 炼气 pays 2 a tick and 仙人 16 — the step is what makes a
+/// realm a visible pay rise rather than a rounding nudge. The rounding is half
+/// up on purpose (3.5 reads 4), and the 功法 multiplier stacks on the realm
+/// term instead of being rounded between the two.
+#[test]
+fn the_s5_1_realm_ladder_pays_two_to_sixteen() {
+    let bare = |realm_index| meditate_tick_growth(realm_index, 1_000);
+    let ladder: Vec<u32> = (0..10).map(bare).collect();
+    assert_eq!(ladder[0], 2, "炼气 is the base");
+    assert_eq!(ladder[1], 4, "筑基 is 2 × 1.75, rounded half up");
+    assert_eq!(ladder[9], 16, "仙人 is 2 × 7.75 = 15.5, rounded half up");
+    // Every step is exactly 75% of the base, so the ladder is arithmetic.
+    for (index, paid) in ladder.iter().enumerate() {
+        assert_eq!(*paid, meditate_tick_growth(index as u32, 1_000));
+    }
+    // The 功法 multiplier rides the realm term: a 20% art at 仙人 is
+    // 16 × 1.2 = 19.2 → 19, not the realm rounded first and then scaled.
+    assert_eq!(
+        meditate_tick_growth(0, 1_250),
+        3,
+        "2 × 1.25 = 2.5 rounds up"
+    );
+    assert_eq!(
+        meditate_tick_growth(9, 1_200),
+        19,
+        "the realm is scaled whole"
+    );
+    // Past the cap the multiplier is the cap: an absurd art cannot pay an
+    // absurd tick.
+    assert_eq!(
+        meditate_tick_growth(0, 90_000),
+        2 * GROWTH_MULTIPLIER_CAP_PERMILLE / 1_000,
+        "the cap is the ceiling, not a suggestion"
+    );
+}
+
+/// The §5.2 gathering table: the four tiers' multipliers, their unlock levels,
+/// and what each tier actually pays at the level it opens.
+///
+/// The table's `base` column is the tier's own multiplier of the trade's base
+/// (凡 2, 灵 3, 神 4, 混沌 6); the tick's realized yield also carries the
+/// trade's +5% a level and the realm's +15% a step, so 灵木林 at level ten pays
+/// 2 × 1.45 × 1.5 = 4.35 → 4. One truncation at the end, the same discipline as
+/// every other path — which is why 混沌 at level thirty is 14 and not 15.
+#[test]
+fn the_s5_2_tier_table_pays_its_documented_base() {
+    assert_eq!(
+        GatherTier::ALL.map(GatherTier::base_permille),
+        [1_000, 1_500, 2_000, 3_000],
+        "the tier multipliers are the table's base column over the trade's base"
+    );
+    assert_eq!(
+        GatherTier::ALL.map(GatherTier::unlock_level),
+        [1, 10, 20, 30],
+        "each tier opens at its own trade level"
+    );
+    let at = |tier, level| {
+        collect_tick(GatherSite::Forest, tier, level, level, 0, 0, 0)
+            .gained
+            .wood
+    };
+    assert_eq!(at(GatherTier::Common, 1), 2, "凡木林 L1");
+    assert_eq!(at(GatherTier::Spirit, 10), 4, "灵木林 L10 = 2 × 1.45 × 1.5");
+    assert_eq!(at(GatherTier::Divine, 20), 7, "神木林 L20 = 2 × 1.95 × 2.0");
+    assert_eq!(
+        at(GatherTier::Chaos, 30),
+        14,
+        "混沌神木 L30 = 2 × 2.45 × 3.0"
+    );
+    // The mountain reads the same table through 采石.
+    let mountain = collect_tick(GatherSite::Mountain, GatherTier::Chaos, 30, 30, 0, 0, 0)
+        .gained
+        .stone;
+    assert_eq!(mountain, 14, "同一张表，另一门手艺");
+    // A tick is eight seconds, so an hour is 450 ticks — the rate the §5.6
+    // self-consistency section divides every sink by.
+    assert_eq!(GATHER_TICK_SECONDS, 8);
+    assert_eq!(3_600 / GATHER_TICK_SECONDS, 450);
+}
+
+/// The §5.2 rare gates: 煤 at 伐木 five, 铁 at 采石 three, and nothing before.
+///
+/// The gate is a *level*, not a count, which is what makes the rares the reward
+/// for depth rather than a second yield the player has to be told about. A hand
+/// one level short finds nothing where the trained one finds the base amount.
+#[test]
+fn the_s5_2_rare_finds_open_at_the_documented_levels() {
+    let forest =
+        |woodcut| collect_tick(GatherSite::Forest, GatherTier::Common, woodcut, 1, 0, 0, 0);
+    assert_eq!(COAL_UNLOCK_LEVEL, 5);
+    assert_eq!(forest(4).gained.coal, 0, "四级伐木还看不见煤");
+    assert_eq!(forest(5).gained.coal, 1, "五级伐木见煤，基础量 1");
+    let mountain = |stonecut| {
+        collect_tick(
+            GatherSite::Mountain,
+            GatherTier::Common,
+            1,
+            stonecut,
+            0,
+            0,
+            0,
+        )
+    };
+    assert_eq!(IRON_UNLOCK_LEVEL, 3);
+    assert_eq!(mountain(2).gained.iron, 0, "两级采石还看不见铁");
+    assert_eq!(mountain(3).gained.iron, 1, "三级采石见铁");
+    // The 矿洞 works both trades, so it carries both gates at once.
+    let mine = collect_tick(GatherSite::Mine, GatherTier::Common, 5, 3, 0, 0, 0);
+    assert_eq!(mine.gained.iron, 1);
+    assert_eq!(mine.gained.coal, 1);
+    assert_eq!(
+        mine.gained.wood, 0,
+        "矿洞不产常见资源——它的常见资源就是两门手艺本身"
+    );
+}
+
+/// The §5.2 skill curve and the hours the table claims.
+///
+/// `xp_total(L) = 3000·L + 1800·L·(L−1)/2` gives 111,000 / 402,000 / 873,000 at
+/// ten, twenty and thirty. At 100 xp a tick and 450 ticks an hour those are
+/// 2.5 / 8.9 / 19.4 hours; a full 道场 (180 xp a tick) compresses the ladder to
+/// 10.8. The old curve topped out at 6,400 for ten levels, which is why
+/// [`super::document`](crate::cultivation::document)'s `trade_curve_rev`
+/// migration maps old saves up rather than leaving them at level one.
+#[test]
+fn the_s5_2_skill_curve_is_the_documented_ladder() {
+    assert_eq!(skill_xp_total(1), 3_000);
+    assert_eq!(skill_xp_total(10), 111_000);
+    assert_eq!(skill_xp_total(20), 402_000);
+    assert_eq!(skill_xp_total(30), 873_000);
+    assert_eq!(MAX_TRADE_LEVEL, 30, "三十级是这张表的顶");
+    // 无道场：每回合 100，八秒一回合。
+    let ticks_per_hour = 3_600 / GATHER_TICK_SECONDS;
+    let hours =
+        |xp: u32, per_tick: u32| f64::from(xp) / f64::from(per_tick) / f64::from(ticks_per_hour);
+    let bare = collect_tick(GatherSite::Forest, GatherTier::Common, 1, 1, 0, 0, 0);
+    assert_eq!(bare.woodcut_xp, 100, "道场零级是每回合 100");
+    assert!(
+        (2.4..=2.6).contains(&hours(skill_xp_total(10), bare.woodcut_xp)),
+        "1→10 级 ≈2.5 小时，实得 {:.2}",
+        hours(skill_xp_total(10), bare.woodcut_xp)
+    );
+    assert!(
+        (8.8..=9.0).contains(&hours(skill_xp_total(20), bare.woodcut_xp)),
+        "1→20 级 ≈8.9 小时，实得 {:.2}",
+        hours(skill_xp_total(20), bare.woodcut_xp)
+    );
+    assert!(
+        (19.3..=19.5).contains(&hours(skill_xp_total(30), bare.woodcut_xp)),
+        "1→30 级 ≈19.4 小时，实得 {:.2}",
+        hours(skill_xp_total(30), bare.woodcut_xp)
+    );
+    // 满道场：每回合 180，把整条梯子压到 10.8 小时。
+    let dojo = collect_tick(GatherSite::Forest, GatherTier::Common, 1, 1, 0, 10, 0);
+    assert_eq!(dojo.woodcut_xp, 180, "道场十级是每回合 180");
+    assert!(
+        (10.7..=10.9).contains(&hours(skill_xp_total(30), dojo.woodcut_xp)),
+        "满道场 1→30 级 ≈10.8 小时，实得 {:.2}",
+        hours(skill_xp_total(30), dojo.woodcut_xp)
+    );
+}
+
+/// The §5.3 wage table: six 灵石 a tick at 黄阶, each grade's multiplier on top,
+/// and the per-hour figures the table prints.
+///
+/// The per-tick wage is truncated before it is multiplied by the hour
+/// (`6 × 1.6 / 1000 = 9.6 → 9`), which is why 玄 is 8,100 an hour rather than
+/// the exact 9,600 — the truncation is the design's, not a rounding artifact.
+#[test]
+fn the_s5_3_grade_table_pays_its_documented_wage() {
+    let ticks_per_hour = 3_600 / WORK_TICK_SECONDS;
+    assert_eq!(WORK_TICK_SECONDS, 4, "打工是四秒一回合");
+    assert_eq!(ticks_per_hour, 900);
+    let table = [
+        (0, 5_400, "黄"),
+        (1, 8_100, "玄"),
+        (2, 14_400, "地"),
+        (3, 24_300, "天"),
+        (4, 38_700, "星"),
+    ];
+    for (grade, per_hour, name) in table {
+        let multiplier = super::jobs::JOB_GRADE_MULTIPLIER_PERMILLE[grade];
+        let per_tick = TASK_JOB_BASE_STONES as u64 * multiplier / 1_000;
+        assert_eq!(
+            per_tick * u64::from(ticks_per_hour),
+            per_hour,
+            "{}阶每小时 {}",
+            name,
+            per_hour
+        );
+    }
+    // The truncation the doc calls out by name.
+    assert_eq!(TASK_JOB_BASE_STONES as u64 * 1_600 / 1_000, 9, "玄 9.6→9");
+    assert_eq!(
+        TASK_JOB_BASE_STONES as u64 * 2_800 / 1_000,
+        16,
+        "地 16.8→16"
+    );
+    assert_eq!(
+        TASK_JOB_BASE_STONES as u64 * 7_200 / 1_000,
+        43,
+        "星 43.2→43"
     );
 }

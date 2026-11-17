@@ -79,11 +79,17 @@ const JOB_OVER_TRIAL_PERMILLE: u64 = 2_000;
 
 /// What the five grades multiply a job's purse by, in parts per thousand.
 ///
-/// The same ladder the 外功 multipliers walk, read from one: a 黄阶 job is the
-/// baseline and a 神阶 one is a windfall. Every step is half again the one below
-/// it, so the grade is the first thing a user reads on the row rather than the
-/// last.
-const JOB_GRADE_MULTIPLIER_PERMILLE: [u64; 5] = [1_000, 1_600, 2_400, 3_600, 5_400];
+/// 黄 1.0, 玄 1.6, 地 2.8, 天 4.5, 神 7.2: the first step is 1.6 and the rest
+/// run 1.6~1.75, so the top is 7.2× the bottom — a 黄阶 job is the baseline and a
+/// 神阶 one is a windfall. The steps stay wide enough to read at a glance, which
+/// is what makes the grade the first thing on the row rather than the last.
+///
+/// 黄 stays at 1.0 so the walk purse, which is anchored to the 黄阶 wage (see
+/// [`super::explore::walk_purse`]), does not move with the ladder.
+///
+/// `pub(crate)` so the S1 打工 task can price a tick off the same table a board
+/// offer is priced off, rather than a second copy of the numbers.
+pub(crate) const JOB_GRADE_MULTIPLIER_PERMILLE: [u64; 5] = [1_000, 1_600, 2_800, 4_500, 7_200];
 
 /// What the five grades raise a job's attribute requirement by, in parts per
 /// thousand.
@@ -347,7 +353,7 @@ impl JobRun {
     /// The return trip is [`super::explore::return_trip_seconds`] — a third of
     /// the hours already stood, with a floor so the button is never a way to
     /// undo a shift for nothing. The shift has not been worked, so it is marked
-    /// early and [`crate::Cultivation::settle_work`] will pay it nothing.
+    /// early and [`crate::Cultivation::settle_legacy_work`] will pay it nothing.
     pub fn called_home(self, now_unix: i64) -> Self {
         let spent = now_unix.saturating_sub(self.started_unix).max(0);
         Self {

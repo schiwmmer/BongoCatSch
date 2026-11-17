@@ -386,12 +386,11 @@ fn event_row(
         .gap_2()
         .text_xs()
         .text_color(tokens.muted)
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(event_line_with_stamp(event, locale, offset_seconds)),
-        );
+        .child(div().flex_1().min_w_0().child(event_line_with_stamp(
+            event,
+            locale,
+            offset_seconds,
+        )));
     if event.detail.is_battle() {
         row = row.child(replay_button(
             format!("{id}-replay"),
@@ -740,7 +739,12 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
                 // The region the 试炼 is tied to moves by the hour's own gain,
                 // so the line says how far it went the way a walk's does.
                 if let Some(gain) = *progress {
-                    push_progress(&mut line, gain, "cultivation.record.proving_progress", locale);
+                    push_progress(
+                        &mut line,
+                        gain,
+                        "cultivation.record.proving_progress",
+                        locale,
+                    );
                 }
             }
             line

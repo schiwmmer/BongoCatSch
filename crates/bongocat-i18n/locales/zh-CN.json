@@ -49,6 +49,10 @@
     "window": {
       "title": "番茄钟"
     },
+    "session_mode": {
+      "title": "番茄钟修仙选择",
+      "resource": "%{resource} %{count}"
+    },
     "picker": {
       "new_task": "新建任务",
       "continue_last": "继续上次未完成的任务",
@@ -808,8 +812,7 @@
       "trade": "%{skill} Lv %{level} · 经验 %{xp}/%{next}",
       "building": "%{building} Lv %{level}/%{max}",
       "cost": "%{stones} 灵石 %{tribute}",
-      "upgrade_five": "×5",
-      "length": "时长"
+      "upgrade_five": "×5"
     },
     "mode": {
       "study": "修习",
@@ -820,6 +823,20 @@
       "forest": "森林·伐木",
       "mountain": "山·采石",
       "mine": "矿洞·双技能"
+    },
+    "tier": {
+      "common": "凡",
+      "spirit": "灵",
+      "divine": "神",
+      "chaos": "混沌",
+      "refuse_locked": "这个采集点还没解锁：先提升对应的采集等级。"
+    },
+    "seclusion": {
+      "title": "闭关",
+      "start": "开始闭关",
+      "stop": "结束闭关",
+      "progress": "闭关进行中 · %{ticks}/%{total} 回合",
+      "refuse_running": "已在闭关中，先结束再开始。"
     },
     "skill": {
       "woodcut": "伐木",
@@ -838,10 +855,6 @@
       "dojo": "每级 +10% 采集经验；修习功法成功率 +1‰。"
     },
     "expedition": {
-      "status": "正在%{site}外出 · %{hours} 小时 · %{eta}",
-      "hours": "%{hours} 小时",
-      "eta": "%{hours} 小时 %{minutes} 分后归来",
-      "returning_in": "归返途中 · 尚需 %{hours} 小时 %{minutes} 分",
       "refuse_out": "正在采集，归来后方可行动。"
     },
     "breakthrough": {
@@ -853,7 +866,8 @@
       "won": "破境成功，晋入%{stage}。",
       "max": "已至仙人境圆满。",
       "held": "%{hours} 小时 %{minutes} 分后可再次闯关",
-      "banner": "本境圆满 · 击败守卫即可晋入%{stage}"
+      "banner": "本境圆满 · 击败守卫即可晋入%{stage}",
+      "refuse_cooling": "破境尚在调息，稍后再来。"
     },
     "duel": {
       "blow": "普通一击",
@@ -941,6 +955,18 @@
         "hit_evade": "听风"
       }
     },
+    "task": {
+      "meditate": "吐纳",
+      "woodcut": "伐木",
+      "stonecut": "采石",
+      "work": "打工",
+      "title": "实时任务",
+      "idle": "当前没有进行中的任务",
+      "stop": "停止",
+      "current_gather": "正在进行：%{kind} · %{site} %{tier} · 已完成 %{ticks} 回合 · 每回合 %{seconds} 秒",
+      "current_plain": "正在进行：%{kind} · 已完成 %{ticks} 回合 · 每回合 %{seconds} 秒",
+      "refuse_running": "已有任务进行中，先停掉再开始。"
+    },
     "explore": {
       "attempt": "外出探索",
       "defeat": "遭遇战败北，幸而未失。",
@@ -987,6 +1013,14 @@
       "sweep_result": "横扫 %{floors} 层 · 仙草 ×%{seeds} · 装备 ×%{gear} · 功法 ×%{arts} · 灵石「%{stones}」",
       "refuse_not_sweepable": "战力需超过守关人三成，方可横扫。"
     },
+    "battle": {
+      "trial": "锁妖塔之战",
+      "proving": "试炼之战",
+      "breakthrough": "破境之战",
+      "running": "战斗进行中：%{kind} · 第 %{done}/%{total} 回合",
+      "refuse_running": "已有一场战斗在进行，先等它打完。",
+      "refuse_unavailable": "这一场现在还无法开始。"
+    },
     "notice": {
       "absence": "%{days} 天未修炼，成长值 -%{charged}",
       "drop_equipment": "获得装备 %{item}",
@@ -998,6 +1032,7 @@
       "drop_herb": "千分之一：获得 %{item}",
       "drop_stones": "千分之一：获得 %{item} 灵石",
       "collect": "%{site}：获得 %{gained}，采集经验 +%{xp}",
+      "collect_capped": "%{site}：仓库已满，%{gained} 未能入袋，采集经验 +%{xp}",
       "building_upgrade": "%{building} 升至 %{level} 级"
     },
     "record": {

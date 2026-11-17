@@ -15,15 +15,15 @@
 use super::*;
 use bongocat_i18n::{compact_number, format_text, group_thousands, text};
 use bongocat_pomodoro::{
-    AptitudeHerb, ArtGrade, ArtKind, ArtOutcome, ArtOwnership, ArtView, Attribute, Attributes,
-    BonusFind, Building, BuildingView, Cost, CultivationView, DailyKind, Derived, DropView,
-    EquipSlot, EventDetail, EventRecord, ExplorationHours, ExplorationOutcome, GatherSite,
-    GatherSkill, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR, MarrowSource, MasteredArtView,
-    PlotView, PomodoroCommand, Rarity, Realm, Region, Resource, ResourceBag, ResourcesView,
-    SaleKind, SeedGrade, SeedView, SessionMode, ShopOffer, ShopOfferView, StrikeEffect,
-    TRIAL_ATTEMPTS_PER_DAY, TradeView, TrialBlocked, art_bonus_at, art_payout_at, blueprint,
-    grow_seconds_at, harvest_points, herb_tier, mastered_art_bonus_payout, mastered_art_payout,
-    plant_permille, star_multiplier_permille,
+    ActiveTask, AptitudeHerb, ArtGrade, ArtKind, ArtOutcome, ArtOwnership, ArtView, Attribute,
+    Attributes, BonusFind, Building, BuildingView, Cost, CultivationView, DailyKind, Derived,
+    DropView, EquipSlot, EventDetail, EventRecord, ExplorationHours, ExplorationOutcome,
+    GatherSite, GatherSkill, GatherTier, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR,
+    MarrowSource, MasteredArtView, PlotView, PomodoroCommand, Rarity, Realm, Region, Resource,
+    ResourceBag, ResourcesView, SaleKind, SeedGrade, SeedView, SessionMode, ShopOffer,
+    ShopOfferView, StrikeEffect, TRIAL_ATTEMPTS_PER_DAY, TaskKind, TradeView, TrialBlocked,
+    art_bonus_at, art_payout_at, blueprint, grow_seconds_at, harvest_points, herb_tier,
+    mastered_art_bonus_payout, mastered_art_payout, plant_permille, star_multiplier_permille,
 };
 
 use gpui_kit::component::Sizable as _;
@@ -225,7 +225,7 @@ pub(super) fn content(
             resources::resources_panel(
                 &view,
                 &cultivation,
-                ExplorationHours::from_hours(view.read(cx).cultivation_gather_hours),
+                view.read(cx).cultivation_task_tier,
                 locale,
                 tokens,
             ),
@@ -787,17 +787,30 @@ fn notices(
         );
     }
     // What the last gathering turned up: the site, the find and the trade's xp,
-    // one line, so a click that yielded nothing the purse had room for says so.
+    // one line. A tick whose find would not fit under the 仓库's ceiling says
+    // so by name — a gain of nothing on its own reads as a broken line, not as
+    // a full purse.
     if let Some(collect) = &cultivation.last_collect {
+        let (key, gained) = if collect.lost.is_empty() {
+            (
+                "cultivation.notice.collect",
+                resource_bag_text(locale, &collect.gained),
+            )
+        } else {
+            (
+                "cultivation.notice.collect_capped",
+                resource_bag_text(locale, &collect.lost),
+            )
+        };
         notices.push(
             notice(
                 "cultivation-notice-collect",
                 format_text(
                     locale,
-                    "cultivation.notice.collect",
+                    key,
                     &[
                         ("site", text(locale, collect.site.key()).to_string()),
-                        ("gained", resource_bag_text(locale, &collect.gained)),
+                        ("gained", gained),
                         ("xp", (collect.woodcut_xp + collect.stonecut_xp).to_string()),
                     ],
                 ),

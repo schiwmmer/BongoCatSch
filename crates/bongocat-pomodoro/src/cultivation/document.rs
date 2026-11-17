@@ -10,16 +10,17 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ART_COUNT, Attributes, Derived, EquipmentRecord, FREE_PLOT_COUNT, MAX_GARDEN_RANK, MAX_LEVEL,
-    MAX_PLOT_COUNT, OwnedArt, PlotRecord, RECENT_ARTS_CAP, SLOT_COUNT, STAGE_COUNT, SeedStack,
-    blueprint,
+    ART_COUNT, ActiveTask, Attributes, Derived, EquipmentRecord, FREE_PLOT_COUNT, MAX_GARDEN_RANK,
+    MAX_LEVEL, MAX_PLOT_COUNT, OwnedArt, PlotRecord, RECENT_ARTS_CAP, SLOT_COUNT, STAGE_COUNT,
+    SeclusionRun, SeedStack, blueprint,
     curve::{self, level_for_growth, stage_floor},
-    duel::{DUEL_RECORD_CAP, DuelRecord, ReplaySpeed},
+    duel::{DUEL_RECORD_CAP, DUEL_ROUND_CAP, DuelRecord, ReplaySpeed},
     events::{EVENT_LOG_CAP, EventRecord},
     explore::Region,
     explore::WalkInProgress,
     explore::WalkRecord,
     garden::rank_for_xp,
+    skill_xp_total,
 };
 
 /// The [`curve::CURVE_REV`] a document carries when nothing was stored: a fresh
@@ -28,6 +29,18 @@ use super::{
 fn first_curve_rev() -> u32 {
     1
 }
+
+/// The [`super::resources::skill_xp_total`] ramp a document carries when
+/// nothing was stored: `1` is the old ten-level curve a save written before S2
+/// used, and [`CultivationDocument::migrate_trade_curve`] brings it up to the
+/// current one.
+fn default_trade_curve_rev() -> u32 {
+    1
+}
+
+/// The current gathering-xp ramp. `1` was the old ten-level curve; `2` is the
+/// Melvor redesign's thirty-level curve (`docs/0103` §5.2).
+const TRADE_CURVE_REV: u32 = 2;
 
 /// Everything a cultivator keeps between launches.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -38,6 +51,11 @@ pub struct CultivationDocument {
     /// Which growth ramp `growth` was counted on; see [`curve::CURVE_REV`].
     #[serde(default = "first_curve_rev")]
     pub curve_rev: u32,
+    /// Which gathering-xp ramp the two trades' banked xp was counted on; see
+    /// [`CultivationDocument::migrate_trade_curve`]. A save written before S2
+    /// reads as `1` — the old ten-level curve — and is migrated by level.
+    #[serde(default = "default_trade_curve_rev")]
+    pub trade_curve_rev: u32,
     /// The realm the cultivator has entered, as its ladder position.
     #[serde(default)]
     pub realm: u8,
@@ -48,11 +66,6 @@ pub struct CultivationDocument {
     /// This is the doubling exponent, not a count of all missed days.
     #[serde(default)]
     pub missed_streak: u32,
-    /// How many sessions have been completed on `last_active_day`, so the growth
-    /// of the next one knows which number it is. Reset to zero whenever a session
-    /// lands on a new local day, which is decided against `last_active_day`.
-    #[serde(default)]
-    pub session_count_today: u32,
     /// The last local day whose absence has been charged, so a re-launch on the
     /// same day cannot charge the same day twice.
     #[serde(default)]
@@ -181,7 +194,12 @@ pub struct CultivationDocument {
     /// by a fresh three.
     #[serde(default)]
     pub jobs_roll: u32,
-    /// The job being worked, if the cultivator is at one.
+    /// The hour-job a save written before S4 still holds, if it was at one.
+    ///
+    /// **Legacy field.** S4 turned a job into a 打工 task (`docs/0103` §9), and
+    /// `accept_job` no longer writes this; it is drained by
+    /// `Cultivation::settle_legacy_work` so an in-flight shift from an older
+    /// save is still paid. It leaves with the pre-S4 UI in S8.
     ///
     /// A job holds the cultivator the way a walk does — it is hours of their day —
     /// so the two cannot be done at once, and the one in flight has to outlive the
@@ -381,6 +399,32 @@ pub struct CultivationDocument {
     /// is one thing and one thing only, and a session picks it before it starts.
     #[serde(default)]
     pub session_mode: super::SessionMode,
+    /// The repeatable task under way, if the cultivator is working one.
+    ///
+    /// One slot and one only: the task is the redesign's centre (`docs/0103`
+    /// §4), and it excludes itself so "which action" stays a decision. It does
+    /// not exclude a 闭关 session, which is a pomodoro and not a task. `None`
+    /// for every save written before S1, which is the whole migration.
+    #[serde(default)]
+    pub task: Option<ActiveTask>,
+    /// The 闭关 under way, if the cultivator is sitting one.
+    ///
+    /// Not a task: 闭关 does not occupy the one task slot and runs beside
+    /// 采集/打工 (`docs/0103` §4), so it is persisted apart from
+    /// [`Self::task`]. `None` for every save written before S3, which is the
+    /// whole migration.
+    #[serde(default)]
+    pub seclusion: Option<SeclusionRun>,
+    /// The real-time battle under way, if the cultivator is fighting one.
+    ///
+    /// S5 (`docs/0103` §4, §5.4): the 锁妖塔, the 试炼 and the 破境 are fought
+    /// one round a second rather than settled on the click. The click decides
+    /// the whole fight into [`BattleRun::preview`] and the clock only counts
+    /// rounds, so this is the one field that makes a battle a *run* rather than
+    /// an outcome. `None` for every save written before S5, which is the whole
+    /// migration.
+    #[serde(default)]
+    pub battle: Option<super::state::BattleRun>,
     /// The furthest level cleared in each region, as a per-region array.
     ///
     /// The index is the region's [`Region::index`], and the value is the
@@ -544,11 +588,32 @@ impl CultivationDocument {
         self.curve_rev = curve::CURVE_REV;
     }
 
+    /// Bring the two trades' banked xp onto the current ramp, once.
+    ///
+    /// The move keeps the *level*: a save's old level is floored up to the new
+    /// curve's cumulative xp for that same level, so a maxed ten (6,400 xp on
+    /// the old curve) lands on the new ten (111,000 xp) and a three stays a
+    /// three. This is the “老曲线满级保底映射” — the old curve's ten levels were
+    /// the whole ladder, and the new one stretches to thirty, so the levels
+    /// already earned are paid forward rather than replayed. A second run is a
+    /// no-op because the revision is stamped.
+    fn migrate_trade_curve(&mut self) {
+        if self.trade_curve_rev >= TRADE_CURVE_REV {
+            return;
+        }
+        let woodcut_level = self.woodcut_level.min(super::MAX_TRADE_LEVEL);
+        self.woodcut_xp = self.woodcut_xp.max(skill_xp_total(woodcut_level));
+        let stonecut_level = self.stonecut_level.min(super::MAX_TRADE_LEVEL);
+        self.stonecut_xp = self.stonecut_xp.max(skill_xp_total(stonecut_level));
+        self.trade_curve_rev = TRADE_CURVE_REV;
+    }
+
     /// The document as written back out: the slots and the plots are the fixed
     /// size the surfaces draw, the realm is on the ladder, and the growth never
     /// sits below the floor of the realm it is in.
     pub(crate) fn normalized(mut self) -> Self {
         self.migrate_curve();
+        self.migrate_trade_curve();
         let realm = usize::from(self.realm).min(STAGE_COUNT - 1);
         self.realm = realm as u8;
         self.growth = self.growth.max(stage_floor(realm));
@@ -607,6 +672,31 @@ impl CultivationDocument {
         self.trial_floor = self.trial_floor.min(super::TRIAL_MAX_FLOOR);
         self.trial_attempts_today = self.trial_attempts_today.min(super::TRIAL_ATTEMPTS_PER_DAY);
         self.proving_tokens = self.proving_tokens.min(super::TRIAL_CHANCES_CAP);
+        // A task's tempo is a positive number [`Cultivation::start_task`] asserts
+        // on; a hand-edited save could write zero, which would divide by zero on
+        // the next advance, so it is clamped here like the other hand-edited
+        // numbers rather than trusted.
+        if let Some(task) = &mut self.task {
+            task.tick_seconds = task.tick_seconds.max(1);
+        }
+        // A 闭关's tick count is a window of [`SECLUSION_TICKS`]; a hand-edited
+        // save could carry more, which would make the next advance pay a
+        // settlement for ticks the sit never ran, so it is cut back here like
+        // the other hand-edited numbers.
+        if let Some(seclusion) = &mut self.seclusion {
+            seclusion.ticks_done = seclusion.ticks_done.min(super::SECLUSION_TICKS);
+        }
+        // A battle's round count is the fight's own blow count, capped at the
+        // engine's cap: a hand-edited save could carry zero rounds, which would
+        // never settle, or more than a fight can run. `rounds_done` is cut back
+        // to `rounds_total` so a save cannot claim rounds the fight never ran,
+        // and the tempo is clamped like every other hand-edited tempo.
+        if let Some(battle) = &mut self.battle {
+            battle.rounds_total = battle.rounds_total.max(1).min(DUEL_ROUND_CAP as u16);
+            battle.rounds_done = battle.rounds_done.min(battle.rounds_total);
+            battle.tick_seconds = battle.tick_seconds.max(1);
+            battle.region = battle.region.min(Region::ALL.len() as u8 - 1);
+        }
         // A save written before region progress carried a decimal read parts
         // per thousand in the same slot; a tenths-of-a-percent slot can never
         // hold more than a whole level (a hundred), so a slot above that line
@@ -967,6 +1057,60 @@ mod tests {
         let once = parsed.clone().normalized();
         let twice = once.clone().normalized();
         assert_eq!(once, twice, "the migration runs once and only once");
+    }
+
+    #[test]
+    fn an_old_curve_save_is_mapped_up_by_level() {
+        // 旧满级 10（旧曲线 6400xp）→ 新 10 级（111000xp）；旧 3 级 → 新 3 级。
+        let parsed: CultivationDocument = serde_json::from_str(
+            r#"{"growth":1000,"woodcut_level":10,"woodcut_xp":6400,"stonecut_level":3,"stonecut_xp":1000}"#,
+        )
+        .expect("the old shape loads");
+        assert_eq!(
+            parsed.trade_curve_rev, 1,
+            "a save before S2 is on the old ramp"
+        );
+        let document = parsed.normalized();
+        assert_eq!(document.trade_curve_rev, 2);
+        assert_eq!(document.woodcut_level, 10);
+        assert_eq!(document.woodcut_xp, 111_000);
+        assert_eq!(document.stonecut_level, 3);
+        assert_eq!(document.stonecut_xp, 14_400, "新 3 级累计 14400");
+    }
+
+    #[test]
+    fn a_fresh_document_keeps_its_zero_trade_levels() {
+        let document = CultivationDocument::default().normalized();
+        assert_eq!(document.woodcut_level, 0);
+        assert_eq!(document.woodcut_xp, 0);
+        assert_eq!(document.stonecut_level, 0);
+        assert_eq!(document.stonecut_xp, 0);
+        assert_eq!(document.trade_curve_rev, 2);
+    }
+
+    #[test]
+    fn a_save_already_on_the_new_curve_is_left_alone() {
+        let parsed: CultivationDocument = serde_json::from_str(
+            r#"{"growth":1000,"trade_curve_rev":2,"woodcut_level":7,"woodcut_xp":50000}"#,
+        )
+        .expect("the new shape loads");
+        let document = parsed.normalized();
+        assert_eq!(
+            document.woodcut_xp, 50_000,
+            "already on the new ramp: no remap"
+        );
+        assert_eq!(document.woodcut_level, 7);
+    }
+
+    #[test]
+    fn mapping_the_old_curve_is_idempotent() {
+        let parsed: CultivationDocument =
+            serde_json::from_str(r#"{"growth":1000,"woodcut_level":10,"woodcut_xp":6400}"#)
+                .expect("the old shape loads");
+        let once = parsed.normalized();
+        let twice = once.clone().normalized();
+        assert_eq!(once.woodcut_xp, twice.woodcut_xp);
+        assert_eq!(once.woodcut_level, twice.woodcut_level);
     }
 
     #[test]

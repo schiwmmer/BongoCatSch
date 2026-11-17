@@ -69,31 +69,6 @@
       </view>
       <view wx:if="{{view.cooldownText}}" class="hint">{{view.cooldownText}}</view>
 
-      <view class="row">
-        <view class="row-main">
-          <view class="row-title">采集远征</view>
-          <view class="row-sub">{{view.expedition ? view.expedition.text : '去森林、山麓或矿洞搬木石铁煤'}}</view>
-        </view>
-      </view>
-      <view class="btn-row">
-        <button
-          wx:if="{{view.expedition}}"
-          class="btn small danger"
-          data-act="return-early"
-          bindtap="onAction"
-        >提前收回</button>
-        <block wx:else>
-          <button
-            wx:for="{{view.sites}}"
-            wx:key="key"
-            class="btn small"
-            data-act="expedition"
-            data-site="{{item.key}}"
-            bindtap="onAction"
-          >{{item.name}} 8 小时</button>
-        </block>
-      </view>
-
       <view class="row" wx:if="{{view.earlyReturn}}">
         <view class="row-main">
           <view class="row-title">提前返程</view>
@@ -232,6 +207,80 @@
 
   <!-- ================= 洞府 ================= -->
   <block wx:elif="{{section === 'workshop'}}">
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">实时任务</text>
+        <text class="card-hint">{{view.task.running ? '正在进行，可随时停止' : view.task.idleText}}</text>
+      </view>
+      <view class="row">
+        <view class="row-main">
+          <view class="row-title">当前任务</view>
+          <view class="row-sub">{{view.task.text}}</view>
+        </view>
+        <view class="row-actions">
+          <button
+            wx:if="{{view.task.running}}"
+            class="btn small danger"
+            data-act="cult-stop-task"
+            bindtap="onAction"
+          >{{view.task.stopText}}</button>
+        </view>
+      </view>
+      <view class="row">
+        <view class="row-main">
+          <view class="row-title">采集点阶</view>
+          <view class="row-sub">越深产出越高；伐木去森林，采石去山</view>
+        </view>
+      </view>
+      <view class="seg">
+        <view
+          wx:for="{{view.task.tiers}}"
+          wx:key="key"
+          class="seg-item {{item.active ? 'active' : ''}}"
+          data-act="task-tier"
+          data-tier="{{item.key}}"
+          bindtap="onAction"
+        >{{item.label}}</view>
+      </view>
+      <view class="btn-row">
+        <button
+          wx:for="{{view.task.starts}}"
+          wx:key="act"
+          class="btn small jade"
+          data-act="{{item.act}}"
+          bindtap="onAction"
+          disabled="{{item.disabled}}"
+        >{{item.label}}</button>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">{{view.seclusion.title}}</text>
+        <text class="card-hint">{{view.seclusion.hint}}</text>
+      </view>
+      <view class="row">
+        <view class="row-main">
+          <view class="row-title">{{view.seclusion.text}}</view>
+          <view class="row-sub">不占任务槽，可与采集或打工并行</view>
+        </view>
+        <view class="row-actions">
+          <button
+            wx:if="{{view.seclusion.running}}"
+            class="btn small danger"
+            data-act="cult-stop-seclusion"
+            bindtap="onAction"
+          >{{view.seclusion.stopText}}</button>
+          <button
+            wx:else
+            class="btn small primary"
+            data-act="cult-start-seclusion"
+            bindtap="onAction"
+          >{{view.seclusion.startText}}</button>
+        </view>
+      </view>
+    </view>
+
     <view class="card">
       <view class="card-head">
         <text class="card-title">资源</text>

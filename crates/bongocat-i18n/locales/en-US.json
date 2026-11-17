@@ -49,6 +49,10 @@
     "window": {
       "title": "Pomodoro"
     },
+    "session_mode": {
+      "title": "Pomodoro Cultivation",
+      "resource": "%{resource} %{count}"
+    },
     "picker": {
       "new_task": "New task",
       "continue_last": "Pick up where you left off",
@@ -808,8 +812,7 @@
       "trade": "%{skill} Lv %{level} · %{xp}/%{next} xp",
       "building": "%{building} Lv %{level}/%{max}",
       "cost": "%{stones} stones %{tribute}",
-      "upgrade_five": "×5",
-      "length": "Length"
+      "upgrade_five": "×5"
     },
     "mode": {
       "study": "Study",
@@ -820,6 +823,20 @@
       "forest": "Forest·Woodcut",
       "mountain": "Mountain·Stonecut",
       "mine": "Mine·Both"
+    },
+    "tier": {
+      "common": "Common",
+      "spirit": "Spirit",
+      "divine": "Divine",
+      "chaos": "Chaos",
+      "refuse_locked": "This gathering point is locked: raise the matching gathering level first."
+    },
+    "seclusion": {
+      "title": "Seclusion",
+      "start": "Begin seclusion",
+      "stop": "End seclusion",
+      "progress": "Seclusion under way · %{ticks}/%{total} ticks",
+      "refuse_running": "Already in seclusion — end it before starting another."
     },
     "skill": {
       "woodcut": "Woodcut",
@@ -838,10 +855,6 @@
       "dojo": "+10% gathering xp per level; +1‰ art training success."
     },
     "expedition": {
-      "status": "Out %{site} for %{hours}h · %{eta}",
-      "hours": "%{hours}h",
-      "eta": "Home in %{hours}h %{minutes}m",
-      "returning_in": "On the way back · %{hours}h %{minutes}m to go",
       "refuse_out": "Out gathering — act once home."
     },
     "breakthrough": {
@@ -853,7 +866,8 @@
       "won": "Breakthrough! You have entered %{stage}.",
       "max": "The immortal realm is complete.",
       "held": "The next attempt in %{hours}h %{minutes}m",
-      "banner": "This realm is full — beat its guardian to enter %{stage}"
+      "banner": "This realm is full — beat its guardian to enter %{stage}",
+      "refuse_cooling": "The breakthrough is still recovering. Come back shortly."
     },
     "duel": {
       "blow": "a plain blow",
@@ -941,6 +955,18 @@
         "hit_evade": "Wind Listen"
       }
     },
+    "task": {
+      "meditate": "Breath Cycling",
+      "woodcut": "Woodcutting",
+      "stonecut": "Quarrying",
+      "work": "Odd Jobs",
+      "title": "Live task",
+      "idle": "No task under way",
+      "stop": "Stop",
+      "current_gather": "Running: %{kind} · %{site} %{tier} · %{ticks} ticks done · %{seconds}s per tick",
+      "current_plain": "Running: %{kind} · %{ticks} ticks done · %{seconds}s per tick",
+      "refuse_running": "A task is already running — stop it first."
+    },
     "explore": {
       "attempt": "Take a walk",
       "defeat": "The wanderer was too much; nothing was lost but the walk.",
@@ -987,6 +1013,14 @@
       "sweep_result": "Swept %{floors} floors · herbs ×%{seeds} · gear ×%{gear} · arts ×%{arts} · stones %{stones}",
       "refuse_not_sweepable": "A sweep needs three tenths over the warden’s power."
     },
+    "battle": {
+      "trial": "Tower Battle",
+      "proving": "Trial Battle",
+      "breakthrough": "Breakthrough Battle",
+      "running": "Battle under way: %{kind} · round %{done}/%{total}",
+      "refuse_running": "A battle is already under way — let it finish first.",
+      "refuse_unavailable": "This battle cannot be started yet."
+    },
     "notice": {
       "absence": "%{days} days without practice — growth -%{charged}",
       "drop_equipment": "Found gear: %{item}",
@@ -998,6 +1032,7 @@
       "drop_herb": "One in a thousand: %{item}",
       "drop_stones": "One in a thousand: %{item} stones",
       "collect": "%{site}: got %{gained}, +%{xp} gathering xp",
+      "collect_capped": "%{site}: the warehouse is full — %{gained} could not be stored, +%{xp} gathering xp",
       "building_upgrade": "%{building} rose to level %{level}"
     },
     "record": {

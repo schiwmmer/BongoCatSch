@@ -89,7 +89,37 @@ const SITES = {
   mine: '矿洞',
 };
 
-const SITE_KEYS = ['forest', 'mountain', 'mine'];
+// 实时任务的叫法。快照里 `task.kind` 是内核枚举名（首字母大写），
+// 而发给内核的 op 值是小写（`cultivation.task.*` 的 wire 名），两者别混。
+const TASK_KINDS = {
+  Meditate: '吐纳',
+  Woodcut: '伐木',
+  Stonecut: '采石',
+  Work: '打工',
+};
+
+// 采集点阶，快照显示用（键为内核枚举名）。
+const GATHER_TIERS = {
+  Common: '凡',
+  Spirit: '灵',
+  Divine: '神',
+  Chaos: '混沌',
+};
+
+// 采集点阶选项，发 op 用（键为 wire 小写名，与 `parse_command` 一致）。
+const TIER_CHOICES = [
+  ['common', '凡'],
+  ['spirit', '灵'],
+  ['divine', '神'],
+  ['chaos', '混沌'],
+];
+
+const SECLUSION = {
+  title: '闭关',
+  start: '开始闭关',
+  stop: '结束闭关',
+  hint: '25 分钟一次，不占任务槽',
+};
 
 const BUILDINGS = [
   ['workshop', '工坊', '产量'],
@@ -142,6 +172,13 @@ const REFUSALS = {
   TrialNotSweepable: '守关者还不够弱，无法横扫',
   ProvingSpent: '没有试炼次数了',
   ProvingOut: '人不在家',
+  RegionLocked: '该区域尚未开启：先提升境界',
+  TaskRunning: '已有任务进行中，先停掉再开始',
+  TierLocked: '采集点还没解锁：先提升采集等级',
+  SeclusionRunning: '正在闭关，先坐完这一回',
+  BattleRunning: '已有一场战斗在进行，先等它打完',
+  BreakthroughCooling: '破境尚在调息，稍后再来',
+  BattleUnavailable: '这一场现在还无法开始',
   Out: '人不在家',
   Spent: '次数已用完',
   Drained: '今日次数已用完',
@@ -256,9 +293,12 @@ module.exports = {
   REGIONS,
   REALMS,
   RESOURCES,
-  SITE_KEYS,
   SITES,
   SLOTS,
+  TASK_KINDS,
+  GATHER_TIERS,
+  TIER_CHOICES,
+  SECLUSION,
   attributeText,
   bonusLine,
   clock,
