@@ -144,6 +144,9 @@ Page({
       case 'minutes':
         this.send({ op: 'set_focus_minutes', minutes: Number(data.value) }, `每次 ${data.value} 分钟`);
         return;
+      case 'mode':
+        this.send({ op: 'select_session_mode', mode: data.mode });
+        return;
       case 'create':
         this.createTask();
         return;

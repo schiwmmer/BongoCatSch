@@ -15,9 +15,10 @@
 use super::*;
 use crate::SettingsLanguage;
 use crate::window::PomodoroEditorTarget;
+use bongocat_i18n::format_text;
 use bongocat_pomodoro::{
-    CalendarDay, MAX_FOCUS_MINUTES, MIN_FOCUS_MINUTES, PomodoroClient, PomodoroCommand,
-    PomodoroSnapshot, PomodoroTaskStatus, PomodoroTaskView,
+    CalendarDay, CultivationView, MAX_FOCUS_MINUTES, MIN_FOCUS_MINUTES, PomodoroClient,
+    PomodoroCommand, PomodoroSnapshot, PomodoroTaskStatus, PomodoroTaskView, Resource, SessionMode,
 };
 use gpui_kit::component::input::InputState;
 use gpui_kit::{AppContext, Entity, FocusHandle, Focusable, Window};
@@ -108,6 +109,32 @@ pub(super) fn focus_minutes(snapshot: &PomodoroSnapshot) -> u32 {
     snapshot
         .focus_minutes
         .clamp(MIN_FOCUS_MINUTES, MAX_FOCUS_MINUTES)
+}
+
+/// The purse as the session-mode row prints it: one `木 12` per resource, in
+/// [`Resource::ALL`] order, joined by ` · `.
+///
+/// A count rather than a count against the ceiling, because the row sits beside
+/// the two gathering arms and answers "what is in the purse right now" — the
+/// ceiling belongs to the settings page, which is where a full purse is
+/// widened. The names come from the catalog so the row reads in the window's
+/// language.
+pub(super) fn session_mode_purse(cultivation: &CultivationView, locale: &str) -> String {
+    let bag = &cultivation.resources.bag;
+    Resource::ALL
+        .iter()
+        .map(|resource| {
+            format_text(
+                locale,
+                "pomodoro.session_mode.resource",
+                &[
+                    ("resource", text(locale, resource.key()).to_string()),
+                    ("count", bag.get(*resource).to_string()),
+                ],
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
 /// The expected-session count a typed field reads as.
@@ -214,6 +241,20 @@ impl PomodoroView {
         let _ = self
             .client
             .try_publish(PomodoroCommand::StartTask { task_id });
+        cx.notify();
+    }
+
+    /// Choose what a finished pomodoro is for — 修习, 伐木 or 采石.
+    ///
+    /// The same `SelectSessionMode` the settings page publishes, so there is
+    /// one writer for the fact and the poll paints the choice made here (or
+    /// there) within a tick. It is offered beside the session it will pay for
+    /// rather than only in the settings window: the user decides what the next
+    /// tomato is *for* before starting it.
+    pub(super) fn select_session_mode(&mut self, mode: SessionMode, cx: &mut Context<Self>) {
+        let _ = self
+            .client
+            .try_publish(PomodoroCommand::SelectSessionMode { mode });
         cx.notify();
     }
 
@@ -419,7 +460,7 @@ impl PomodoroView {
 mod tests {
     use super::*;
     use bongocat_pomodoro::{
-        Cultivation, DEFAULT_FOCUS_MINUTES, PomodoroWorkerState, TimerState, TimerView,
+        Cultivation, DEFAULT_FOCUS_MINUTES, PomodoroWorkerState, ResourceBag, TimerState, TimerView,
     };
 
     fn task(id: u64, status: PomodoroTaskStatus, running: bool) -> PomodoroTaskView {
@@ -541,5 +582,26 @@ mod tests {
         assert_eq!(sessions_from_typed("-2"), DEFAULT_EXPECTED_SESSIONS);
         assert_eq!(sessions_from_typed(" 7 "), 7);
         assert_eq!(sessions_from_typed("300"), 300);
+    }
+
+    #[test]
+    fn the_session_mode_row_prints_every_resource_count_in_order() {
+        let mut cultivation = Cultivation::default().view();
+        cultivation.resources.bag = ResourceBag {
+            wood: 12,
+            stone: 8,
+            iron: 3,
+            coal: 0,
+        };
+        assert_eq!(
+            session_mode_purse(&cultivation, "zh-CN"),
+            "木 12 · 石 8 · 铁 3 · 煤 0",
+            "one count per resource, in the order the page reads them"
+        );
+        assert_eq!(
+            session_mode_purse(&cultivation, "en-US"),
+            "wood 12 · stone 8 · iron 3 · coal 0",
+            "the names follow the window's language"
+        );
     }
 }

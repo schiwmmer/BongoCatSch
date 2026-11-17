@@ -30,6 +30,24 @@
       </view>
     </view>
 
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">番茄钟修仙选择</text>
+        <text class="card-hint">一次专注只做一件事</text>
+      </view>
+      <view class="seg">
+        <view
+          wx:for="{{view.modes}}"
+          wx:key="key"
+          class="seg-item {{item.active ? 'active' : ''}}"
+          data-act="mode"
+          data-mode="{{item.key}}"
+          bindtap="onAction"
+        >{{item.label}}</view>
+      </view>
+      <text class="card-hint" style="margin-top:8rpx">{{view.purse}}</text>
+    </view>
+
     <view class="card timer-card">
       <view class="timer-state">{{view.stateText}}</view>
       <view class="timer-clock">{{view.clock}}</view>

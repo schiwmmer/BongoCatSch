@@ -13,9 +13,9 @@
 //! protocol, `product_window` the product's windows, and the rest one concern
 //! each.
 
+mod app_menu;
 #[cfg(test)]
 mod binary_tests;
-mod app_menu;
 mod gamepad_observer;
 mod model_cover;
 mod overlay_placement;

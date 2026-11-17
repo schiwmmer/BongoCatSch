@@ -13,7 +13,7 @@ use crate::pomodoro_window::{PomodoroView, view};
 use crate::{SettingsClient, SettingsLanguage, SettingsServiceEndpoint, SettingsTheme};
 use bongocat_pomodoro::{
     Cultivation, DEFAULT_FOCUS_MINUTES, PomodoroClient, PomodoroCommand, PomodoroSnapshot,
-    PomodoroTaskStatus, PomodoroTaskView, PomodoroWorkerState, TimerState, TimerView,
+    PomodoroTaskStatus, PomodoroTaskView, PomodoroWorkerState, SessionMode, TimerState, TimerView,
 };
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
@@ -426,4 +426,41 @@ fn the_create_button_publishes_a_new_task(cx: &mut TestAppContext) {
     });
     assert_eq!(name, "");
     assert!(editor.is_none());
+}
+
+/// The mode is chosen where the session starts, and the choice is the same
+/// command the settings page publishes.
+///
+/// Driven through a real pointer dispatch, so a row of buttons that only
+/// *looks* like a choice but was never wired fails here. The default mode is
+/// 修习, so clicking the second button is the 伐木 choice.
+#[gpui_kit::test]
+fn the_session_mode_is_chosen_beside_the_session_it_pays_for(cx: &mut TestAppContext) {
+    let mut harness = harness(cx);
+    let mut snapshot = snapshot(PomodoroWorkerState::Ready);
+    snapshot.cultivation.session_mode = SessionMode::Study;
+    harness.set_snapshot(cx, snapshot);
+    assert!(
+        harness.paints(cx, "pomodoro-session-mode".into()),
+        "the three modes belong at the top of the window that starts the session"
+    );
+    assert!(
+        harness.paints(cx, "pomodoro-session-mode-title".into()),
+        "the row is headed by what it is choosing"
+    );
+    assert!(
+        harness.paints(cx, "pomodoro-session-mode-resources".into()),
+        "the purse's counts sit beneath the gathering arms"
+    );
+    let _ = cx.update_window(harness.handle.into(), |_, window, cx| {
+        window.click("pomodoro-session-mode-Woodcut", cx);
+    });
+    match harness
+        .commands
+        .try_recv()
+        .expect("choosing a mode must publish SelectSessionMode")
+    {
+        PomodoroCommand::SelectSessionMode { mode } => assert_eq!(mode, SessionMode::Woodcut),
+        other => panic!("expected SelectSessionMode, got {other:?}"),
+    }
 }

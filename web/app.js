@@ -32,6 +32,23 @@ const REALMS = {
   Immortal: '仙人',
 };
 
+// What a finished pomodoro is for. The same three modes the cultivation page
+// offers, named once so the focus page and that page cannot drift apart.
+const MODES = [
+  ['Study', '修习'],
+  ['Woodcut', '伐木'],
+  ['Mine', '采石'],
+];
+
+// The purse, named once for the session-mode row. The cultivation page keeps
+// its own copy for the workshop panel.
+const RESOURCES = [
+  ['wood', '木'],
+  ['stone', '石'],
+  ['iron', '铁'],
+  ['coal', '煤'],
+];
+
 const RAIL = [
   { group: '专注' },
   { id: 'focus', label: '番茄钟' },
@@ -46,6 +63,9 @@ const app = {
   tab: 'focus',
   editingTask: null,
   calCursor: null,
+  // 修仙页的采集点阶。纯页面默认值：每次「开始」才随命令发给内核，内核仍会
+  // 按采集等级自己门禁一次（`docs/0103` §4）。
+  cultTier: 'common',
   clockBase: 0,
   clockAt: 0,
   busy: false,
@@ -336,6 +356,30 @@ function calendarMarkup() {
   `;
 }
 
+// What the next finished pomodoro is for, chosen where the session starts.
+// The same three modes the cultivation page offers and the same command, so a
+// choice made on either page shows up on the other.
+function sessionModeMarkup(snapshot) {
+  const current = snapshot?.cultivation?.session_mode;
+  const bag = snapshot?.cultivation?.resources?.bag ?? {};
+  const purse = RESOURCES.map(([key, label]) => `${label} ${bag[key] ?? 0}`).join(' · ');
+  return `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head">
+        <div class="card-title">番茄钟修仙选择</div>
+        <div class="card-hint">一次专注只做一件事</div>
+      </div>
+      <div class="tabs">
+        ${MODES.map(
+          ([key, label]) =>
+            `<button class="tab ${current === key ? 'active' : ''}" data-act="cult-mode" data-mode="${key.toLowerCase()}">${label}</button>`,
+        ).join('')}
+      </div>
+      <div class="card-hint" style="margin-top:8px">${purse}</div>
+    </div>
+  `;
+}
+
 function focusPage() {
   const snapshot = app.snapshot;
   const { timer } = timerView();
@@ -343,6 +387,7 @@ function focusPage() {
   const open = tasks.filter((t) => t.status !== 'done');
   const focusMinutes = snapshot.focus_minutes;
   return `
+    ${sessionModeMarkup(snapshot)}
     <div class="grid-2">
       <div style="display:flex;flex-direction:column;gap:16px">
       <div class="card timer-card">
@@ -433,7 +478,21 @@ function render() {
     stage.innerHTML = focusPage();
     return;
   }
-  stage.innerHTML = renderCultivation(app.tab, app.snapshot, { send, toast });
+  stage.innerHTML = renderCultivation(app.tab, app.snapshot, cultivationCtx());
+}
+
+// 修仙页的渲染/动作共用一份上下文：命令通道 + 页面上暂存的采集点阶。
+// `setTier` 顺手重画一次，好让选中的那一阶立刻亮起来。
+function cultivationCtx() {
+  return {
+    send,
+    toast,
+    tier: app.cultTier,
+    setTier: (tier) => {
+      app.cultTier = tier;
+      render();
+    },
+  };
 }
 
 /* ---------- events ---------- */
@@ -535,7 +594,7 @@ function handleAction(data, button) {
     }
     default:
       // The cultivation page owns its own verbs.
-      handleCultivationAction(data, send, toast);
+      handleCultivationAction(data, cultivationCtx());
   }
 }
 

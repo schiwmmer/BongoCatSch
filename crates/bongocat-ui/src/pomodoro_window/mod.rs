@@ -74,6 +74,11 @@ pub(super) const POMODORO_LOCALIZED_KEYS: &[&str] = &[
     "pomodoro.task.section",
     "pomodoro.picker.session_length",
     "pomodoro.worker_lost",
+    "cultivation.mode.study",
+    "cultivation.mode.woodcut",
+    "cultivation.mode.mine",
+    "pomodoro.session_mode.title",
+    "pomodoro.session_mode.resource",
 ];
 
 /// The open pomodoro window.

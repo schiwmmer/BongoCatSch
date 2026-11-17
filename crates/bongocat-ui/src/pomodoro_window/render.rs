@@ -7,9 +7,10 @@
 use super::*;
 use crate::window::Tokens;
 use bongocat_i18n::{format_text, text};
-use bongocat_pomodoro::TimerState;
+use bongocat_pomodoro::{SessionMode, TimerState};
 use gpui_kit::component::Disableable as _;
 use gpui_kit::component::Icon;
+use gpui_kit::component::Selectable as _;
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::checkbox::Checkbox;
@@ -41,6 +42,7 @@ impl Render for PomodoroView {
             .p_4()
             .text_color(tokens.text)
             .children(self.render_worker_lost(locale, tokens))
+            .child(self.render_session_mode(locale, tokens, &view))
             .children(self.render_countdown(locale, tokens))
             .child(self.render_new_task(locale, tokens, cx, &view))
             .child(self.render_session_length(locale, tokens))
@@ -68,6 +70,79 @@ impl PomodoroView {
                 .test_support()
                 .into_any_element(),
         ]
+    }
+
+    /// The three things a finished pomodoro can be for, under a heading, with
+    /// the purse's counts beneath.
+    ///
+    /// The mode decides what a completion yields — 修习 pays aptitude, 伐木
+    /// timber, 采石 ore — so it is chosen here, beside the session that will
+    /// earn it, rather than only on the settings page. The selected button
+    /// carries the selection styling; a choice made on another surface shows
+    /// up here on the next poll because both write the same fact.
+    ///
+    /// The heading says what the row is choosing, and the counts sit under the
+    /// two gathering arms because they are what those arms fill: 伐木 is worth
+    /// deciding differently once the purse is heavy with timber, and the number
+    /// is the reason to look. The purse is read whole from the snapshot, so a
+    /// gathering that finished on another surface is already counted here.
+    fn render_session_mode(
+        &self,
+        locale: &str,
+        tokens: Tokens,
+        view: &WeakEntity<PomodoroView>,
+    ) -> gpui_kit::AnyElement {
+        let current = self.snapshot.cultivation.session_mode;
+        let purse = view::session_mode_purse(&self.snapshot.cultivation, locale);
+        div()
+            .id("pomodoro-session-mode")
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .id("pomodoro-session-mode-title")
+                    .text_sm()
+                    .child(text(locale, "pomodoro.session_mode.title"))
+                    .test_support(),
+            )
+            .child(
+                div()
+                    .id("pomodoro-session-mode-buttons")
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .children(
+                        [SessionMode::Study, SessionMode::Woodcut, SessionMode::Mine]
+                            .into_iter()
+                            .map(|mode| {
+                                let selected = current == mode;
+                                let mode_view = view.clone();
+                                Button::new(format!("pomodoro-session-mode-{mode:?}"))
+                                    .small()
+                                    .label(text(locale, mode.key()))
+                                    .selected(selected)
+                                    .toggled(selected)
+                                    .disabled(selected)
+                                    .on_click(move |_, _, cx| {
+                                        let _ = mode_view.update(cx, |view, cx| {
+                                            view.select_session_mode(mode, cx)
+                                        });
+                                    })
+                            }),
+                    ),
+            )
+            .child(
+                div()
+                    .id("pomodoro-session-mode-resources")
+                    .text_xs()
+                    .text_color(tokens.muted)
+                    .child(purse)
+                    .test_support(),
+            )
+            .test_support()
+            .into_any_element()
     }
 
     /// The countdown, as `mm:ss`, plus whether it is paused.
