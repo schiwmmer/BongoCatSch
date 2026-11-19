@@ -19,7 +19,7 @@ use bongocat_pomodoro::{
     EventDetail, EventRecord, ExplorationFindView, ExplorationOutcome, Fighter, ItemView, JobKind,
     JobRun, LAYERS_PER_STAGE, OwnedArt, PLAYER_NAME, PlotRecord, PomodoroCommand, PomodoroSnapshot,
     PomodoroState, ProvingBlocked, Rarity, Realm, ReplaySpeed, ResourceBag, SeedGrade, SeedStack,
-    SessionMode, ShopOffer, TrainingView, TrialBlocked, WANDERER_NAME, threshold_for,
+    ShopOffer, TrainingView, TrialBlocked, WANDERER_NAME, threshold_for,
 };
 use gpui_kit::{PlatformInput, ScrollDelta, ScrollWheelEvent, point, px};
 
@@ -314,37 +314,6 @@ fn clicking_the_walk_asks_the_worker_for_one(cx: &mut TestAppContext) {
     assert!(
         matches!(commands.as_slice(), [PomodoroCommand::Explore { .. }]),
         "the click asks the worker for a walk: {commands:?}"
-    );
-}
-
-/// The three session-mode buttons arm what the next finished pomodoro pays:
-/// clicking 伐木 publishes the mode, and the armed one is the one that is
-/// disabled — a mode already chosen is not offered again.
-#[gpui_kit::test]
-fn the_mode_buttons_arm_the_next_session(cx: &mut TestAppContext) {
-    let (pomodoro, sink) = PomodoroClient::with_sink();
-    let (_view, visual) = cultivation_page_with(cx, pomodoro);
-    visual.update(|window, cx| window.render_frame(cx));
-    for mode in ["Study", "Woodcut", "Mine"] {
-        assert!(
-            painted(visual, format!("cultivation-mode-{mode}")),
-            "the mode row offers {mode}"
-        );
-    }
-    scroll_until_visible(visual, "cultivation-mode-Woodcut");
-    visual.update(|window, cx| {
-        window.render_frame(cx);
-        window.click("cultivation-mode-Woodcut", cx);
-    });
-    let commands = published(&sink);
-    assert!(
-        matches!(
-            commands.as_slice(),
-            [PomodoroCommand::SelectSessionMode {
-                mode: SessionMode::Woodcut
-            }]
-        ),
-        "clicking 伐木 arms the forest: {commands:?}"
     );
 }
 
@@ -2939,8 +2908,8 @@ fn a_task_under_way_reads_as_running_and_stops(cx: &mut TestAppContext) {
     let mut cultivation = Cultivation::new(CultivationDocument {
         growth: threshold_for(120),
         realm: 1,
-        // 寒铁窟 asks for 采石 20 (`docs/0103` §5.2).
-        stonecut_level: 20,
+        // 混沌神石 asks for 采石 80 (`docs/0104` §4.2).
+        stonecut_level: 80,
         ..CultivationDocument::default()
     });
     cultivation
@@ -3053,6 +3022,7 @@ fn a_work_task_reads_as_taken_on_the_board(cx: &mut TestAppContext) {
         start_unix: 0,
         ticks_done: 3,
         tick_seconds: bongocat_pomodoro::WORK_TICK_SECONDS,
+        stones_remainder_permille: 0,
     });
     let (pomodoro, _sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
     let (_view, visual) = cultivation_page_with(cx, pomodoro);

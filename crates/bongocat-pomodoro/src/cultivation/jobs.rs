@@ -116,17 +116,47 @@ const JOB_CLEAR_RATIO_PERMILLE: u64 = 1_150;
 /// The least chance any job comes off at, in parts per thousand: a tenth.
 const JOB_FLOOR_PERMILLE: u64 = 100;
 
-/// What the board charges to be re-rolled, per tier of the cultivator's own
-/// realm, in 灵石.
+/// One tick's exact wage in thousandths of a stone, before truncation.
+///
+/// The number [`crate::Cultivation::pay_work_ticks`] actually banks: since the
+/// base is one stone (`docs/0104` §3), a 玄阶 tick is 1.6 stones and a 地阶 one
+/// 2.8, and truncating the tick would eat a third of the 玄阶's wage over a
+/// shift. Where a whole number is wanted — a board line, a comparison — it is
+/// read off [`Self`] and divided once, rather than off a per-tick truncation.
+pub fn job_tick_milli_stones(grade: ArtGrade) -> u64 {
+    let multiplier = JOB_GRADE_MULTIPLIER_PERMILLE[grade.index()];
+    u64::from(super::state::TASK_JOB_BASE_STONES) * multiplier
+}
+
+/// What an hour of a 打工 task pays at a grade: the exact tick's wage times the
+/// ticks an hour holds (`3600 / WORK_TICK_SECONDS` = 900).
+///
+/// 黄 900 / 玄 1,440 / 地 2,520 / 天 4,050 / 神 6,480 — the `docs/0104` §3
+/// table. The hour is read off the exact thousandths rather than off a truncated
+/// tick, so 玄 is 1,440 and not 900: at the one-stone base a truncated tick
+/// would understate every grade above 黄 by up to a third.
+pub fn job_hourly_stones(grade: ArtGrade) -> u32 {
+    let milli = job_tick_milli_stones(grade)
+        .saturating_mul(u64::from(3_600 / super::state::WORK_TICK_SECONDS))
+        / 1_000;
+    u32::try_from(milli).unwrap_or(u32::MAX)
+}
+
+/// How many hours of the 黄阶 rate the re-roll toll is worth: half of the
+/// board's cheapest honest four-hour job.
+const JOB_REFRESH_HOURS: u32 = 2;
+
+/// What the board charges to be re-rolled, in 灵石.
 ///
 /// A free re-roll would make the board a slot machine: three draws at a
 /// ten-thousandth, refreshed until a 神阶 job turns up. The toll is half of the
-/// board's cheapest honest work — a four-hour 黄阶 job at the cultivator's own
-/// tier — so re-rolling is a decision about money rather than about patience:
-/// cheap enough to try, dear enough that trying has a cost.
-pub fn refresh_cost(tier: u8) -> u32 {
-    job_stones(tier, 4, ArtGrade::Yellow)
-        .saturating_div(2)
+/// board's cheapest honest work — a four-hour 黄阶 job, which since S4 is
+/// [`JOB_REFRESH_HOURS`] of the 黄阶 hourly rate — so re-rolling is a decision
+/// about money rather than about patience. It does not scale with the realm:
+/// the wage does not, so the toll does not either.
+pub fn refresh_cost() -> u32 {
+    job_hourly_stones(ArtGrade::Yellow)
+        .saturating_mul(JOB_REFRESH_HOURS)
         .max(1)
 }
 
@@ -304,8 +334,18 @@ pub struct JobOffer {
 
 impl JobOffer {
     /// What this job pays, as the one figure the board can be read against.
+    ///
+    /// **Legacy purse.** This is the pre-S4 session wallet, kept for
+    /// [`crate::Cultivation::settle_legacy_work`] and the saves it settles. A
+    /// job taken now pays [`Self::hourly_stones`] tick by tick, so the board
+    /// prints that rate rather than this figure.
     pub fn stones(self) -> u32 {
         job_stones(self.tier, self.hours, self.grade)
+    }
+
+    /// What this job pays per hour, the figure the board is read against.
+    pub fn hourly_stones(self) -> u32 {
+        job_hourly_stones(self.grade)
     }
 
     /// How long this job takes, in seconds.
@@ -545,17 +585,25 @@ mod tests {
     }
 
     #[test]
-    fn the_refresh_toll_is_half_a_four_hour_yellow_job_at_the_tier() {
-        // The board's cheapest honest work — a four-hour 黄阶 job — prices the
-        // toll at half, so a re-roll is a decision about money, not a free draw.
-        for tier in 1..=10 {
-            let toll = refresh_cost(tier);
-            let job = job_stones(tier, 4, ArtGrade::Yellow);
-            assert_eq!(toll, (job / 2).max(1), "tier {tier}");
+    fn the_refresh_toll_is_half_a_four_hour_yellow_job() {
+        // The board's cheapest honest work — a four-hour 黄阶 job, which since
+        // S4 is two hours of the 黄阶 hourly rate — prices the toll at half, so
+        // a re-roll is a decision about money, not a free draw.
+        assert_eq!(
+            refresh_cost(),
+            job_hourly_stones(ArtGrade::Yellow) * JOB_REFRESH_HOURS
+        );
+        assert!(refresh_cost() >= 1, "a re-roll is never free");
+    }
+
+    #[test]
+    fn the_grade_table_pays_its_documented_hourly_wage() {
+        // `docs/0104` §3: 黄 900 / 玄 1,440 / 地 2,520 / 天 4,050 / 神 6,480,
+        // read off the exact thousandths rather than a truncated tick.
+        let expected = [900, 1_440, 2_520, 4_050, 6_480];
+        for (grade, wage) in ArtGrade::ALL.into_iter().zip(expected) {
+            assert_eq!(job_hourly_stones(grade), wage, "{grade:?}");
         }
-        assert!(refresh_cost(1) >= 1, "a re-roll is never free");
-        // A better realm pays more to re-roll, the way it pays more for work.
-        assert!(refresh_cost(10) > refresh_cost(1));
     }
 
     #[test]

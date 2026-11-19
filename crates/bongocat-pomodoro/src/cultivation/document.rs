@@ -38,9 +38,54 @@ fn default_trade_curve_rev() -> u32 {
     1
 }
 
-/// The current gathering-xp ramp. `1` was the old ten-level curve; `2` is the
-/// Melvor redesign's thirty-level curve (`docs/0103` §5.2).
-const TRADE_CURVE_REV: u32 = 2;
+/// The current gathering-xp ramp. `1` was the old ten-level curve, `2` the
+/// Melvor redesign's thirty-level curve (`docs/0103` §5.2), and `3` is the
+/// v3 ninety-nine-level curve with the re-spaced site gates (`docs/0104`
+/// §4.2–§4.4).
+const TRADE_CURVE_REV: u32 = 3;
+
+/// What each old *site* gate is worth on the v3 trade ladder.
+///
+/// The sites moved from 1 / 10 / 20 / 30 to 1 / 20 / 50 / 80 (`docs/0104`
+/// §4.2). A save at or above an old gate must keep the place it could already
+/// work — losing a site the save has been gathering at would be a regression
+/// dressed as a retune — so the migration lifts its level to the matching new
+/// gate. The table is read from the top down and the highest match wins.
+const KEPT_SITE_GATES: [(u8, u8); 3] = [(30, 80), (20, 50), (10, 20)];
+
+/// The old 伐木 level that found 煤 and the v3 level that keeps it.
+const KEPT_WOODCUT_RARE: (u8, u8) = (5, 6);
+
+/// The old 采石 level that found 铁 and the v3 level that keeps it.
+const KEPT_STONECUT_RARE: (u8, u8) = (3, 12);
+
+/// The least v3 level that keeps every gate an `old` level of `trade` had
+/// passed. The rare gate is per trade — a seven-伐木 hand had 煤 but no 铁, so
+/// applying 采石's gate to it would hand it a site it never earned.
+fn kept_gate_level(old: u8, rare: (u8, u8)) -> u8 {
+    let mut level = old;
+    for &(old_gate, new_gate) in &KEPT_SITE_GATES {
+        if old >= old_gate {
+            level = level.max(new_gate);
+        }
+    }
+    if old >= rare.0 {
+        level = level.max(rare.1);
+    }
+    level
+}
+
+/// The [`CultivationDocument::migrate_stones`] revision a document carries when
+/// nothing was stored: `1` is the six-stone 打工 base a save written before the
+/// economy re-anchor earned its balance on (`docs/0104` §14), and the migration
+/// divides it by six.
+fn default_stones_rev() -> u32 {
+    1
+}
+
+/// The current 灵石 base revision: `2` is the one-stone base of `docs/0104`
+/// §3, where the 黄阶 打工 wage is nine hundred an hour.
+const STONES_REV: u32 = 2;
 
 /// Everything a cultivator keeps between launches.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -56,6 +101,12 @@ pub struct CultivationDocument {
     /// reads as `1` — the old ten-level curve — and is migrated by level.
     #[serde(default = "default_trade_curve_rev")]
     pub trade_curve_rev: u32,
+    /// Which 灵石 base the stored balance was earned on; see
+    /// [`CultivationDocument::migrate_stones`]. A save written before the
+    /// economy re-anchor reads as `1` — the six-stone 打工 base — and its
+    /// balance is re-denominated once.
+    #[serde(default = "default_stones_rev")]
+    pub stones_rev: u32,
     /// The realm the cultivator has entered, as its ladder position.
     #[serde(default)]
     pub realm: u8,
@@ -298,6 +349,14 @@ pub struct CultivationDocument {
     /// tower that forgot its height would make the daily attempt a chore.
     #[serde(default)]
     pub trial_floor: u16,
+    /// How many cleared floors have passed since the tower last paid a 功法.
+    ///
+    /// The [`super::TRIAL_ART_PITY_FLOORS`] counter (`docs/0104` §6.1): a floor
+    /// that clears without a 功法 adds one, and one that pays a 功法 resets it,
+    /// so the guarantee is "two hundred floors without one", not "every
+    /// two-hundredth floor". A loss clears nothing and moves nothing.
+    #[serde(default)]
+    pub trial_since_art: u16,
     /// The local day the trial attempts belong to.
     ///
     /// The count is per local day, so the day it was counted on has to be
@@ -590,22 +649,64 @@ impl CultivationDocument {
 
     /// Bring the two trades' banked xp onto the current ramp, once.
     ///
-    /// The move keeps the *level*: a save's old level is floored up to the new
-    /// curve's cumulative xp for that same level, so a maxed ten (6,400 xp on
-    /// the old curve) lands on the new ten (111,000 xp) and a three stays a
-    /// three. This is the “老曲线满级保底映射” — the old curve's ten levels were
-    /// the whole ladder, and the new one stretches to thirty, so the levels
-    /// already earned are paid forward rather than replayed. A second run is a
-    /// no-op because the revision is stamped.
+    /// Two moves, in order: the *level* is kept (a save's old level is floored
+    /// up to the new curve's cumulative xp for that same level, so a maxed ten
+    /// of the old curve lands on the new ten and a three stays a three), and
+    /// then every gate it had passed on the old spacing is lifted to the new
+    /// one ([`kept_gate_level`]) so no site or rare find is taken away. A second
+    /// run is a no-op because the revision is stamped.
     fn migrate_trade_curve(&mut self) {
+        // A derived default carries `0`, which means "this build's document",
+        // not "a save from before the field existed" — the serde default is the
+        // `1` that marks an old save. A fresh document is stamped and left
+        // alone, or a test that builds a level-twenty hand would have it lifted
+        // to the twenty-level gate as though it were a save that had earned it.
+        if self.trade_curve_rev == 0 {
+            self.trade_curve_rev = TRADE_CURVE_REV;
+            return;
+        }
         if self.trade_curve_rev >= TRADE_CURVE_REV {
             return;
         }
-        let woodcut_level = self.woodcut_level.min(super::MAX_TRADE_LEVEL);
-        self.woodcut_xp = self.woodcut_xp.max(skill_xp_total(woodcut_level));
-        let stonecut_level = self.stonecut_level.min(super::MAX_TRADE_LEVEL);
-        self.stonecut_xp = self.stonecut_xp.max(skill_xp_total(stonecut_level));
+        let woodcut_old = self.woodcut_level.min(super::MAX_TRADE_LEVEL);
+        let stonecut_old = self.stonecut_level.min(super::MAX_TRADE_LEVEL);
+        if self.trade_curve_rev == 1 {
+            // The ten-level curve's byte was its level; pay the same level
+            // forward on the curve it was earned on before the gate map runs.
+            self.woodcut_xp = self.woodcut_xp.max(skill_xp_total(woodcut_old));
+            self.stonecut_xp = self.stonecut_xp.max(skill_xp_total(stonecut_old));
+        }
+        let woodcut = kept_gate_level(woodcut_old, KEPT_WOODCUT_RARE).min(super::MAX_TRADE_LEVEL);
+        let stonecut =
+            kept_gate_level(stonecut_old, KEPT_STONECUT_RARE).min(super::MAX_TRADE_LEVEL);
+        self.woodcut_level = woodcut;
+        self.stonecut_level = stonecut;
+        self.woodcut_xp = self.woodcut_xp.max(skill_xp_total(woodcut));
+        self.stonecut_xp = self.stonecut_xp.max(skill_xp_total(stonecut));
         self.trade_curve_rev = TRADE_CURVE_REV;
+    }
+
+    /// Bring the stored 灵石 balance onto the one-stone base, once.
+    ///
+    /// `docs/0104` §3 divides the 打工 base by six and re-anchors every purse and
+    /// price on the new wage, so a balance earned at the old base is worth a sixth
+    /// of it: an untouched save could buy the whole shop on the first load. The
+    /// division rounds half up, and a second run is a no-op because the revision
+    /// is stamped. Zero stays zero.
+    fn migrate_stones(&mut self) {
+        // Zero is a document this build just built, not an old save: the serde
+        // default is the `1` that marks the six-stone base.
+        if self.stones_rev == 0 {
+            self.stones_rev = STONES_REV;
+            return;
+        }
+        if self.stones_rev >= STONES_REV {
+            return;
+        }
+        if self.stones_rev == 1 {
+            self.stones = self.stones.saturating_add(3) / 6;
+        }
+        self.stones_rev = STONES_REV;
     }
 
     /// The document as written back out: the slots and the plots are the fixed
@@ -614,6 +715,7 @@ impl CultivationDocument {
     pub(crate) fn normalized(mut self) -> Self {
         self.migrate_curve();
         self.migrate_trade_curve();
+        self.migrate_stones();
         let realm = usize::from(self.realm).min(STAGE_COUNT - 1);
         self.realm = realm as u8;
         self.growth = self.growth.max(stage_floor(realm));
@@ -1071,11 +1173,13 @@ mod tests {
             "a save before S2 is on the old ramp"
         );
         let document = parsed.normalized();
-        assert_eq!(document.trade_curve_rev, 2);
-        assert_eq!(document.woodcut_level, 10);
-        assert_eq!(document.woodcut_xp, 111_000);
-        assert_eq!(document.stonecut_level, 3);
-        assert_eq!(document.stonecut_xp, 14_400, "新 3 级累计 14400");
+        assert_eq!(document.trade_curve_rev, 3);
+        // 旧 伐木 10 级=最高级，按旧 10 级门槛映射到新 20 级（保留灵木林）。
+        assert_eq!(document.woodcut_level, 20);
+        assert_eq!(document.woodcut_xp, 268_000);
+        // 旧 采石 3 级=刚见铁，按旧 3 级门槛映射到新 12 级（保留铁矿）。
+        assert_eq!(document.stonecut_level, 12);
+        assert_eq!(document.stonecut_xp, 103_200, "新 12 级累计 103200");
     }
 
     #[test]
@@ -1085,13 +1189,13 @@ mod tests {
         assert_eq!(document.woodcut_xp, 0);
         assert_eq!(document.stonecut_level, 0);
         assert_eq!(document.stonecut_xp, 0);
-        assert_eq!(document.trade_curve_rev, 2);
+        assert_eq!(document.trade_curve_rev, 3);
     }
 
     #[test]
     fn a_save_already_on_the_new_curve_is_left_alone() {
         let parsed: CultivationDocument = serde_json::from_str(
-            r#"{"growth":1000,"trade_curve_rev":2,"woodcut_level":7,"woodcut_xp":50000}"#,
+            r#"{"growth":1000,"trade_curve_rev":3,"woodcut_level":7,"woodcut_xp":50000}"#,
         )
         .expect("the new shape loads");
         let document = parsed.normalized();
@@ -1100,6 +1204,27 @@ mod tests {
             "already on the new ramp: no remap"
         );
         assert_eq!(document.woodcut_level, 7);
+    }
+
+    /// A save on the thirty-level curve keeps its level and is lifted only as
+    /// far as the gates it had already passed — 伐木 seven had 煤 but neither 铁
+    /// nor 灵木林, so it keeps 煤 (six) and stays seven.
+    #[test]
+    fn a_thirty_level_save_keeps_the_gates_it_had_not_the_ones_it_had_not() {
+        let parsed: CultivationDocument = serde_json::from_str(
+            r#"{"growth":1000,"trade_curve_rev":2,"woodcut_level":7,"woodcut_xp":50000,"stonecut_level":7,"stonecut_xp":50000}"#,
+        )
+        .expect("the shape loads");
+        let document = parsed.normalized();
+        assert_eq!(
+            document.woodcut_level, 7,
+            "伐木 seven had 煤 (five) but not 灵木林 (ten), so six is its only new gate"
+        );
+        assert_eq!(document.woodcut_xp, 50_000);
+        assert_eq!(
+            document.stonecut_level, 12,
+            "采石 seven had 铁 (three), so it keeps the v3 iron gate"
+        );
     }
 
     #[test]

@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use super::*;
 use crate::cultivation::explore::{
     MAX_LEVEL, PROGRESS_TENTHS_PER_LEVEL, Region, proving_gain_tenths, proving_purse,
-    region_requirement, walk_purse,
+    region_requirement, trial_purse, walk_purse,
 };
 use crate::cultivation::proving::{TRIAL_CHALLENGE_MAX_PERMILLE, TRIAL_CHALLENGE_MIN_PERMILLE};
 use crate::{DUEL_ROUND_CAP, ExplorationHours, TRIAL_OPPONENT_NAME};
@@ -151,6 +151,12 @@ pub struct TrialApply {
     /// What a warden of this floor prints, carried so the outcome matches the
     /// old path's without recomputing it.
     pub warden_power: u32,
+    /// The [`CultivationDocument::trial_since_art`] counter after this floor.
+    ///
+    /// Carried like the other counters: the preview decides it and the apply
+    /// writes it, so the 功法 guarantee cannot be read twice from two places.
+    #[serde(default)]
+    pub since_art: u16,
 }
 
 /// What one 试炼's apply phase writes.
@@ -278,6 +284,72 @@ pub struct BattleRun {
     pub autoclimb: bool,
     /// The decided fight, applied on the last round.
     pub preview: BattlePreview,
+}
+
+impl BattleRun {
+    /// How far the round under way has run, in permille (`0..=1000`).
+    ///
+    /// [`Self::start_unix`] is the last whole-round edge rather than the instant
+    /// the fight began (`docs/0103` §5.4), so the gap to `now` is the part of the
+    /// current round that has already passed. Clamped at both ends for the same
+    /// reason [`ActiveTask::progress_permille`] is: a clock behind the edge is
+    /// empty, and a gap past one round is full rather than wrapping. `now_ms` is
+    /// milliseconds since the epoch, for the same reason: a round is one second
+    /// long, so a reading in whole seconds could only ever be empty or full.
+    pub fn progress_permille(&self, now_ms: i64) -> u32 {
+        super::task::tick_progress_permille(self.start_unix, self.tick_seconds, now_ms)
+    }
+
+    /// How far the whole fight has run, in permille (`0..=1000`).
+    ///
+    /// The round bar is the smooth part; this is the number a fight's own
+    /// progress is read from — the finished rounds plus the one under way, over
+    /// [`Self::rounds_total`]. A surface that draws one bar for a battle draws
+    /// this, so a thirty-round fight reads as a fight a tenth done rather than
+    /// as a bar that resets every second. Because the round fraction is read in
+    /// milliseconds and reaches exactly 1000 on the edge where
+    /// [`Self::rounds_done`] moves forward, the whole-fight bar is continuous
+    /// across that edge rather than stepping.
+    pub fn total_progress_permille(&self, now_ms: i64) -> u32 {
+        battle_total_progress_permille(
+            u32::from(self.rounds_done),
+            u32::from(self.rounds_total),
+            self.start_unix,
+            self.tick_seconds,
+            now_ms,
+        )
+    }
+}
+
+/// How far a whole fight has run, in permille (`0..=1000`), from the three
+/// numbers a page already holds in the snapshot.
+///
+/// The free function exists so the wasm bridge can export it
+/// (`web_battle_progress`) without constructing a [`BattleRun`]: the page has
+/// `rounds_done`, `rounds_total`, `start_unix` and `tick_seconds` in the
+/// snapshot, and that is the whole input. See
+/// [`BattleRun::total_progress_permille`] for why the finished rounds are
+/// added to the round fraction rather than read on their own.
+pub fn battle_total_progress_permille(
+    rounds_done: u32,
+    rounds_total: u32,
+    start_unix: i64,
+    tick_seconds: u32,
+    now_ms: i64,
+) -> u32 {
+    let total = u64::from(rounds_total.max(1));
+    let done = u64::from(rounds_done);
+    let sub = u64::from(super::task::tick_progress_permille(
+        start_unix,
+        tick_seconds,
+        now_ms,
+    ));
+    (done
+        .saturating_mul(1000)
+        .saturating_add(sub)
+        .min(total.saturating_mul(1000))
+        / total)
+        .min(1000) as u32
 }
 
 /// A battle whose preview is computed but whose clock has not started.
@@ -585,12 +657,22 @@ impl Cultivation {
         let duel = self.duel_with_effects(fighter, rival.fighter.clone(), &mut rng);
         let won = duel.won;
         let mut found = BattleFound::default();
+        let mut since_art = self.document.trial_since_art;
         if won {
             // The warden is the source, so what the floor pays is read off the
             // body that defended it.
             let strength = Strength::of(rival.attributes.power());
             let mut ids = IdCursor::new(&self.document);
-            match roll_reward(&mut rng) {
+            let reward = roll_reward_with_pity(&mut rng, since_art);
+            // The pity is a counter of *cleared floors without a 功法*, so a
+            // find that is not one adds a floor and one that is resets it —
+            // whether or not the tome could actually be taken.
+            since_art = if reward == TrialReward::Art {
+                0
+            } else {
+                since_art.saturating_add(1)
+            };
+            match reward {
                 TrialReward::Seed => {
                     let attribute =
                         Attribute::from_index(rng.below(Attribute::ALL.len() as u64) as usize);
@@ -611,13 +693,11 @@ impl Cultivation {
                 }
                 TrialReward::Nothing => {}
             }
-            // The floor's purse, drawn beside the finding and opened at the
-            // floor's own realm.
-            found.stones = Some(roll_stones(
-                &mut rng,
-                TRIAL_STONES,
-                floor_realm(floor).index() as u8 + 1,
-            ));
+            // The floor's purse, drawn beside the finding. It is paid once
+            // ever: the frontier only moves forward, so a floor cannot be paid
+            // twice (`docs/0104` §6.1), and the depth multiplier rides the
+            // floor rather than its realm.
+            found.stones = Some(roll_stones(&mut rng, trial_purse(floor), 1));
         }
         let event = EventDetail::Trial {
             floor,
@@ -644,6 +724,7 @@ impl Cultivation {
                     trials,
                     trial_attempts,
                     warden_power: warden_power(floor),
+                    since_art,
                 }),
             },
         })
@@ -1033,6 +1114,7 @@ impl Cultivation {
                 if won {
                     self.document.trial_floor = run.floor.min(TRIAL_MAX_FLOOR);
                 }
+                self.document.trial_since_art = apply.since_art;
                 self.apply_found(&found);
                 self.push_event(now_unix, event);
                 self.last_trial = Some(TrialOutcome {

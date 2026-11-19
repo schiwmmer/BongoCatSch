@@ -65,6 +65,15 @@ pub const TRIAL_SEED_PERMILLE: u64 = 300;
 pub const TRIAL_GEAR_PERMILLE: u64 = 60;
 pub const TRIAL_ART_PERMILLE: u64 = 10;
 
+/// How many cleared floors without a 功法 force the next one to pay one.
+///
+/// `docs/0104` §6.1: two hundred. At the ten-per-thousand rate the expected
+/// wait is a hundred floors and the tail past two hundred is about one clear in
+/// eight; a player who clears two hundred floors and sees no 功法 has hit
+/// variance, not a rule, and the floor should say so with a find. It is a
+/// variance control, not a second rate: the ordinary roll is unchanged.
+pub const TRIAL_ART_PITY_FLOORS: u16 = 200;
+
 /// The catalog key naming the thing standing on a floor. A surface translates
 /// it; the domain never holds a translated word.
 pub const TRIAL_OPPONENT_NAME: &str = "cultivation.trial.opponent";
@@ -127,6 +136,19 @@ pub(crate) fn roll_reward(rng: &mut Rng) -> TrialReward {
         return TrialReward::Art;
     }
     TrialReward::Nothing
+}
+
+/// Roll a cleared floor's reward, with the [`TRIAL_ART_PITY_FLOORS`] guarantee.
+///
+/// `since_art` is how many cleared floors have passed without a 功法; at the
+/// threshold the floor pays one outright and the ordinary roll is not drawn at
+/// all. Every other case is [`roll_reward`], so the pity changes nothing until
+/// the tail it exists for.
+pub(crate) fn roll_reward_with_pity(rng: &mut Rng, since_art: u16) -> TrialReward {
+    if since_art >= TRIAL_ART_PITY_FLOORS {
+        return TrialReward::Art;
+    }
+    roll_reward(rng)
 }
 
 #[cfg(test)]

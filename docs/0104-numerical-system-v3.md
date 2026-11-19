@@ -407,3 +407,40 @@ TRIAL（按层）与 WALK（按 4h 时段）排除在链外，注释写明原因
 3. **试炼 purse 是平的**（§6.2）：随品阶门槛提高，其占日收入比例自然下降（80% → 20%），设计接受漂移；若实机感到后期试炼无意义，归因后再动。
 4. **建筑在后期贬值**（§7.2）：四座全满后材料 sink 只剩升星；合道以后材料需求 = 升星单轴。与 v2.2 §8 的「采集经济寿命」局限同源，本次不扩 sink。
 5. **阶段表基于假设**：任务预算 9h-equiv/天、吐纳 6h-equiv 是设计假设（替换 0103 H1），实机分布未知——这正是 §11 第 3 条要用实机对账的原因。
+
+---
+
+## 17. 落地状态（S1–S3 已进代码）
+
+本节记录代码侧实际口径，供后续实机对账与偏差追溯；上文 §1–§13 的推导不变。
+
+### 17.1 已落地
+
+| 切片 | 常量 / 函数 | 值 |
+|---|---|---|
+| S1 | `TASK_JOB_BASE_STONES` | 1（`job_hourly_stones` → 900 / 1,440 / 2,520 / 4,050 / 6,480） |
+| S1 | `ActiveTask::stones_remainder_permille` | `#[serde(default)]`，千分位结转（`pay_work_ticks`） |
+| S1 | `TASK_ONLINE_GRACE_SECONDS` / `OFFLINE_EFFICIENCY_PERMILLE` | 60 / 500（gap ≥60s 记为离线，对齐仍推进到窗口远端） |
+| S1 | 探索四 purse | `WALK {800,1050}/4h`、`PROVING {300,500}`、`WANDERER {9k,13k}`、`GUARDIAN {15k,25k}` |
+| S1 | 塔灵石 / 功法保底 | `TRIAL_STONES {60,90} ×(100+floor)/100`、`TRIAL_ART_PITY_FLOORS = 200` |
+| S1 | 迁移 | `STONES_REV = 2`，`migrate_stones` = `(stones+3)/6`，幂等 |
+| S2 | 技能与站点 | `MAX_TRADE_LEVEL 99`、`skill_xp_total = 2000L + 600L(L−1)`、门 `1/20/50/80`、煤@6 / 铁@12 |
+| S2 | 产出 | 删 `REALM_YIELD_STEP`；`SKILL_YIELD_STEP 20`；`tier_multiplier_permille` 777→1,500 |
+| S2 | 仓库 | `BASE_RESOURCE_CAP 400`、`WAREHOUSE_CAP_PER_LEVEL 1,800`（50 级 90,400）、升级主材料基数 90 |
+| S2 | 迁移 | `TRADE_CURVE_REV = 3` + `KEPT_SITE_GATES [(30,80),(20,50),(10,20)]`、`KEPT_WOODCUT_RARE (5,6)`、`KEPT_STONECUT_RARE (3,12)` |
+| S3 | 修为 | `GROWTH_PER_REALM [2,3,6,8,15,35,55,88,142,230]`，`TASK_BASE_GROWTH = 2`，查表越界取末项 |
+
+`rev == 0` 在本 build 表示「刚构造的文档」（`derive(Default)` 的零值），与 serde default 的 `1`（老档）分开处理：0 只打戳不迁移。否则新建的高等级文档会被 gate 映射当成老档抬级。
+
+### 17.2 与文档的偏差（4 处，均为实现口径修正）
+
+1. **塔复通 farm 未实现**。`trial_floor` 是单调递增的 frontier，`plan_trial` 只打 `trial_floor + 1`，所以「首通制」在结构上天然成立——不需要 `first_clear` 字段，但 §6.1 的「复通降额 farm 循环（100/25/5‰）」也就没有入口。要做需新增 `BattleKind` / `plan_trial` 重打入口 + 三端 UI，独立于本次数值重锚，列为 **S1b**。
+2. **试炼 purse 改为独立 `{300,500}`**（原文由 WALK 派生），walk 也去掉 level 乘数，只按 `ExplorationHours::multiplier_permille`（1000/2100/3200）展宽。
+3. **walk / 时薪比值在高阶漂移**：低阶 ≈0.89，高阶 ≈1.15（原目标 0.6:1 是以 12h 探索对 12h 打工计的整段口径，单点比值允许漂移）。
+4. **老档 gate 保底映射**：旧 10 级门 → 新 20 级门、旧 20 → 50、旧 30 → 80；煤 5→6、铁 3→12。目的是「已解锁的不让渡」，代价是老档在映射后等级被抬高一级门槛，属可接受的一次性补偿。
+
+### 17.3 验证
+
+- `cargo test -p bongocat-pomodoro --lib`：**524 passed**（含锚点测试）。
+- `cargo check --locked --workspace`：通过。
+- 三端（`bongocat-pomodoro-web` / `bongocat-ui` / `web` / `miniprogram`）未发现旧工资常量硬编码；快照测试随 workspace 测试一并跑。

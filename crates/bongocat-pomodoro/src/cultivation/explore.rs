@@ -145,38 +145,67 @@ impl StonePurse {
     }
 }
 
-/// What a quiet walk turns up, as the *four-hour* walk opens it. The smallest
-/// purse of the four: a walk costs nothing but time, so it is a trickle beside a
-/// fight — but it always pays one, because a walk that came home with nothing
-/// would read as a bug rather than as a quiet road.
+/// What a quiet walk turns up, as the *four-hour* walk opens it.
 ///
-/// Read per walk and then widened by the length: a day holds six of these or two
-/// twelve-hour ones, and the two have to come to about the same purse or the
-/// shortest length is simply the better button.
-pub(crate) const WALK_STONES: StonePurse = StonePurse { min: 3, max: 5 };
+/// `docs/0104` §8 re-anchors the road on the 黄阶 hourly wage of nine hundred:
+/// a four-hour walk pays 800–1,050, about a quarter of the wage at its base,
+/// and the length widens it ([`StonePurse::scaled`]) so a twelve-hour walk is
+/// `3.2 ×` the base. The road's total — the purse plus the encounter purse a
+/// walk's ~one-in-three chance opens — lands near sixty percent of a twelve-hour
+/// wage at the first tier, which is the 0.6:1 the walk is designed on.
+///
+/// Read per four hours and then widened by the length: a day holds six of these
+/// or two twelve-hour ones, and the two have to come to about the same purse or
+/// the shortest length is simply the better button.
+pub(crate) const WALK_STONES: StonePurse = StonePurse {
+    min: 800,
+    max: 1_050,
+};
 
-/// What clearing a trial floor pays. Above a walk because the tower is a fight,
-/// and below a wanderer because a floor is a level-matched opponent rather than
-/// someone who has been out on the road longer.
-pub(crate) const TRIAL_STONES: StonePurse = StonePurse { min: 12, max: 18 };
+/// What clearing a trial floor pays at the first floor, before the floor's own
+/// depth multiplier.
+///
+/// Above a four-hour walk's base because a floor is a fight, and below a
+/// wanderer because a floor is a level-matched opponent rather than someone who
+/// has been out on the road longer. A floor is paid **once ever** — the tower's
+/// frontier only moves forward, so every payment is a first clear (`docs/0104`
+/// §6.1) — and the purse climbs with the floor: `× (1 + floor/100)`
+/// ([`trial_purse`]).
+pub(crate) const TRIAL_STONES: StonePurse = StonePurse { min: 60, max: 90 };
 
 /// What beating a wanderer pays — the road's own purse, which is what an ambush
-/// is for. Its finding roll leans the same way: gear over herbs.
+/// is for.
 ///
-/// A wanderer is a walk's richest find, so its purse carries the road's money:
-/// the two are what make a twelve-hour walk worth three-fifths of a 黄阶 job of
-/// the same hours — below a job, because the walk also drops gear and seeds a
-/// job cannot, and the 灵石 is only the road's cash on top of them.
-pub(crate) const WANDERER_STONES: StonePurse = StonePurse { min: 48, max: 68 };
+/// `docs/0104` §8: 9,000–13,000 at the first tier, so a victory on a twelve-hour
+/// walk is worth about a third of that walk's *total* expectation on its own.
+/// A fight's purse is not widened by the length: a wanderer carries what they
+/// carry whatever time it is, and the length is already paid by the odds of
+/// meeting one at all.
+pub(crate) const WANDERER_STONES: StonePurse = StonePurse {
+    min: 9_000,
+    max: 13_000,
+};
 
 /// What beating a realm's guardian pays. The richest purse, because a guardian
 /// guards a realm and its treasury both, and because it is the rarest fight on
 /// the ladder.
 ///
-/// A guardian stands above a wanderer, so its purse has to widen as the
-/// wanderer's does: a breakthrough is the ladder's gate, and the guardian that
-/// guards it is worth more than the road it closes off.
-pub(crate) const GUARDIAN_STONES: StonePurse = StonePurse { min: 70, max: 120 };
+/// `docs/0104` §6.2: 15,000–25,000, seventeen to twenty-eight hours of 黄阶
+/// wages. A breakthrough is a once-per-realm event, so its purse is an event and
+/// not a wage.
+pub(crate) const GUARDIAN_STONES: StonePurse = StonePurse {
+    min: 15_000,
+    max: 25_000,
+};
+
+/// What one 试炼 chance pays at the first tier, before the region's tier.
+///
+/// `docs/0104` §6.2: 300–500, so a ten-chance day is about a third of the day's
+/// 黄阶 wage and the early game's single largest discretionary income. It is its
+/// own purse rather than a fraction of the walk's: a 试炼 is bought with banked
+/// training, and pricing it off the road would make a finished pomodoro pay a
+/// sixth of a walk it never took.
+pub(crate) const PROVING_STONES: StonePurse = StonePurse { min: 300, max: 500 };
 
 /// What one pomodoro's thousandth pays when the purse is the shape it took.
 ///
@@ -185,17 +214,18 @@ pub(crate) const GUARDIAN_STONES: StonePurse = StonePurse { min: 70, max: 120 };
 /// of a road's walk would be a strange thing to be a thousandth.
 pub(crate) const BONUS_STONES: StonePurse = StonePurse { min: 50, max: 90 };
 
-/// The purses are ordered on purpose — a walk under a floor, a floor under a
-/// wanderer, a wanderer under a guardian — because that ordering is both the
-/// difficulty and the emphasis, and a retune that broke it would flatten the
-/// sources into one.
+/// The single-event purses are ordered on purpose — a 试炼 under a wanderer, a
+/// wanderer under a guardian — because that ordering is both the difficulty and
+/// the emphasis, and a retune that broke it would flatten the sources into one.
 ///
-/// A 试炼 no longer has a purse of its own: it is a submodule of the road and
-/// pays what the road pays for one hour there (see [`super::proving`]), so it
-/// sits inside the walk's own band rather than between the walk and the tower.
-const _: () = assert!(WALK_STONES.max < TRIAL_STONES.min);
-const _: () = assert!(TRIAL_STONES.max < WANDERER_STONES.min);
-const _: () = assert!(WANDERER_STONES.max < GUARDIAN_STONES.min);
+/// The tower's purse is deliberately *outside* this chain: it is paid per floor
+/// and once ever, not per event, so a floor's 60–90 at the first floor sits
+/// under the 试炼 by construction while a deep floor's `× (1 + floor/100)` is
+/// worth hundreds. Comparing it to the others would be comparing a rung to a
+/// bout. The walk's base is outside it too: it is widened by the length, so the
+/// four-hour number is not a single event's price.
+const _: () = assert!(PROVING_STONES.min < WANDERER_STONES.min);
+const _: () = assert!(WANDERER_STONES.min < GUARDIAN_STONES.min);
 
 /// What one walk came to.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -886,59 +916,55 @@ pub fn region_seed_permille(level: u8) -> u64 {
 /// cultivator's own satchel (and body), not off the wanderer's back.
 pub const DEFEAT_DROP_PERMILLE: u64 = 200;
 
-/// The purse a clear walk opens: the first tier's `黄阶 × 0.6` purse.
+/// The purse a clear walk opens: [`WALK_STONES`] widened by the walk's length.
 ///
-/// The walk is the safe counterpart to a job, and its purse is the job's at
-/// sixty percent — the brief's 0.6:1 ratio. The purse is built from the first
-/// tier's 黄阶 job so that [`StonePurse::at`] can scale it by the region's tier
-/// exactly once; a purse built at the region's own tier would be scaled again
-/// when it is opened, and the walk would pay double.
+/// The walk is the safe counterpart to a job, and its purse is the 黄阶 wage's
+/// own `docs/0104` §8 table: 800–1,050 for four hours, widened by
+/// [`ExplorationHours::multiplier_permille`] so a twelve-hour walk is `3.2 ×` the
+/// base. The region's tier scales it exactly once, when it is rolled
+/// ([`roll_stones`]), which is why the number here is always the first tier's.
 ///
-/// The level re-purses the band: a level-ten walk pays a third again more than
-/// a level-one, so a deep walk reads as a real step up inside the band.
-///
-/// `hours` is the walk's length; a 试炼 is one hour of the road and is priced
-/// by [`proving_purse`] through the same table.
-pub fn walk_purse(_region: Region, hours: ExplorationHours, level: u8) -> StonePurse {
-    let job = u64::from(super::jobs::job_stones(1, 4, super::arts::ArtGrade::Yellow));
-    // The brief's 0.6:1 — the walk pays the job's own purse at sixty percent.
-    let scaled = job * 600 / 1_000;
-    // The level re-purses the band: a level-ten walk pays a third again more
-    // than a level-one, so a deep walk reads as a real step up inside the band.
-    let level_factor = 1_000 + 30 * level as u64;
-    let purse = (scaled * level_factor / 1_000) as u32;
-    StonePurse {
-        min: purse,
-        max: purse,
-    }
-    .scaled(hours.multiplier_permille())
+/// The level is deliberately not read: the road's *purse* is a property of how
+/// long the walk was, and the level already moves the odds (a deeper level meets
+/// more wanderers and finds more gear). A second level multiplier on top of the
+/// tier would make the deep road pay twice for the same step.
+pub fn walk_purse(_region: Region, hours: ExplorationHours, _level: u8) -> StonePurse {
+    WALK_STONES.scaled(hours.multiplier_permille())
 }
 
-/// The purse a victorious fight opens: the purse of the clear walk, plus a half
-/// for the trouble of beating someone on the road.
-pub fn combat_purse(region: Region, hours: ExplorationHours, level: u8) -> StonePurse {
-    let quiet = walk_purse(region, hours, level);
-    StonePurse {
-        min: quiet.min.saturating_mul(3) / 2,
-        max: quiet.max.saturating_mul(3) / 2,
-    }
+/// The purse a victorious fight opens: [`WANDERER_STONES`], the road's own.
+///
+/// A victory is not a walk with a bonus: the wanderer that was beaten is the
+/// find, and what they carried is the fight's purse (`docs/0104` §8). The
+/// length and the level are not read for the same reason a floor's is not —
+/// meeting someone at all is already the odds, and a wanderer carries what they
+/// carry.
+pub fn combat_purse(_region: Region, _hours: ExplorationHours, _level: u8) -> StonePurse {
+    WANDERER_STONES
 }
 
-/// The purse one 试炼 opens: the road's own purse for **one hour** at the
-/// region the cultivator stands in.
+/// The purse one 试炼 opens: [`PROVING_STONES`] at the region's tier.
 ///
-/// A 试炼 is a submodule of exploration rather than a second economy: its base
-/// reward is exactly what the current region pays for one hour of walking, so
-/// a finished pomodoro is worth a short walk on the road the save is already
-/// on. The four-hour table above is the walk's own; the 试炼 reads the same
-/// table at one hour, which is why it is a fixed sixth of the shortest walk
-/// rather than a purse of its own.
-pub(crate) fn proving_purse(region: Region, level: u8) -> StonePurse {
-    // One hour is a sixth of the shortest walk, and the shortest walk is the
-    // table's own four-hour purse. The division is exact up to the truncation
-    // the integer steps leave behind, which is the same tolerance the walk's
-    // own purse carries.
-    walk_purse(region, ExplorationHours::Four, level).scaled(1_000 / 6)
+/// A 试炼 is a fight bought with banked training rather than a walk taken
+/// (`docs/0104` §6.2), so it has a purse of its own instead of a fraction of the
+/// road's. Its opponent still stands where the region stands — the difficulty is
+/// the road's — but the price is the training's.
+pub(crate) fn proving_purse(_region: Region, _level: u8) -> StonePurse {
+    PROVING_STONES
+}
+
+/// The purse a cleared trial floor pays: [`TRIAL_STONES`] at the floor's depth.
+///
+/// `docs/0104` §6.1: `× (1 + floor/100)`, in whole percent so the multiplier is
+/// exact integer arithmetic — floor 1 is `×1`, floor 100 `×2`, floor 999
+/// `×10`. The depth is read off the floor rather than off its realm so the
+/// thousand-floor tower climbs a thousand steps of purse instead of ten jumps.
+pub(crate) fn trial_purse(floor: u16) -> StonePurse {
+    let depth = 100u32.saturating_add(u32::from(floor));
+    StonePurse {
+        min: TRIAL_STONES.min.saturating_mul(depth) / 100,
+        max: TRIAL_STONES.max.saturating_mul(depth) / 100,
+    }
 }
 
 /// The progress one 试炼 advances: the road's own gain for **one hour** at the
@@ -1283,26 +1309,29 @@ mod tests {
     /// The purse carries the brief's 0.6:1 ratio against the same tier's 黄阶 job.
     #[test]
     fn walk_purse_runs_sixty_percent_of_the_yellow_job() {
-        // A first-region, level-one, four-hour walk is priced against the first
-        // tier's own 黄阶 job, and the purse is scaled by the region's tier when
-        // it is opened — so the pocket is the job's at sixty percent. The purse
-        // is built from the first tier's job and scaled by the region's tier,
-        // so the ratio is exact up to the integer truncation at each step.
+        // `docs/0104` §8: the first tier's four-hour walk is 800–1,050, and the
+        // twelve-hour one is the base widened by 3.2 (`ExplorationHours`).
         let region = Region::AzurePeaks;
-        let purse = walk_purse(region, ExplorationHours::Four, 1);
-        let (min, max) = purse.at(region.tier());
-        let job = jobs::job_stones(region.tier(), 4, arts::ArtGrade::Yellow);
-        // The level factor at level one is 1.03, so the pocket is a little over
-        // the sixty percent the brief names — but never under it by more than
-        // the truncation the intermediate steps leave behind.
-        let expected = job * 600 / 1_000;
-        assert!(
-            min + 2 >= expected,
-            "purse {min} is under 黄阶×0.6 ({job} × 0.6 = {expected})"
+        assert_eq!(region.tier(), 1);
+        let four = walk_purse(region, ExplorationHours::Four, 1);
+        assert_eq!((four.min, four.max), (800, 1_050), "四小时的路基");
+        let twelve = walk_purse(region, ExplorationHours::Twelve, 1);
+        assert_eq!(
+            (twelve.min, twelve.max),
+            (2_560, 3_360),
+            "十二小时 = 四小时 × 3.2"
         );
+        // The road's total — the purse plus the encounter a walk's roughly
+        // one-in-three chance opens — has to land at about sixty percent of a
+        // twelve-hour 黄阶 wage at the first tier. That is the 0.6:1 the walk is
+        // priced on: below a job, because the walk also drops gear, and above a
+        // trickle, because it is the slot a job competes with.
+        let total: f64 = 2_960.0 + 11_000.0 * 0.336;
+        let wage = f64::from(jobs::job_hourly_stones(arts::ArtGrade::Yellow)) * 12.0;
+        let ratio = total / wage;
         assert!(
-            max <= expected + 2,
-            "purse {max} is far over 黄阶×0.6 ({job} × 0.6 = {expected})"
+            (0.55..=0.65).contains(&ratio),
+            "十二小时的路 total {total} 是工资 {wage} 的 {ratio:.3}，不在 0.55–0.65"
         );
     }
 
@@ -1312,6 +1341,7 @@ mod tests {
     fn combat_purse_outpays_quiet_purse() {
         let quiet = walk_purse(Region::AzurePeaks, ExplorationHours::Four, 5);
         let combat = combat_purse(Region::AzurePeaks, ExplorationHours::Four, 5);
+        assert_eq!((combat.min, combat.max), (9_000, 13_000), "wanderer 的包裹");
         assert!(combat.min > quiet.min, "combat wins more than a quiet walk");
     }
 
@@ -1319,29 +1349,19 @@ mod tests {
     /// shortest walk at the same region and level, so a finished pomodoro is
     /// worth a short walk on the road the save is already on.
     #[test]
-    fn a_proving_purse_is_one_hour_of_the_road() {
+    fn a_proving_purse_is_its_own_single_event_purse() {
+        // `docs/0104` §6.2: a 试炼 pays 300–500 at the first tier, its own purse
+        // rather than a fraction of the walk's — a 试炼 is bought with banked
+        // training, and pricing it off the road would make a finished pomodoro
+        // pay a sixth of a walk it never took.
         for (region, level) in [
             (Region::AzurePeaks, 1),
             (Region::AzurePeaks, 10),
             (Region::CelestialCourt, 5),
             (Region::ChaosPalace, 10),
         ] {
-            let walk = walk_purse(region, ExplorationHours::Four, level);
             let proving = proving_purse(region, level);
-            // The purse is a fixed sixth of the shortest walk, up to the
-            // truncation the two integer steps leave behind.
-            assert!(
-                proving.min + 2 >= walk.min / 6,
-                "{region:?} level {level}: proving {} under a sixth of the walk {}",
-                proving.min,
-                walk.min
-            );
-            assert!(
-                proving.max <= walk.max / 6 + 2,
-                "{region:?} level {level}: proving {} far over a sixth of the walk {}",
-                proving.max,
-                walk.max
-            );
+            assert_eq!((proving.min, proving.max), (300, 500), "{region:?}");
         }
         // The purse is tier-agnostic: the tier's scaling is applied when the
         // purse is opened (by `roll_stones`), exactly as a walk's is. So the

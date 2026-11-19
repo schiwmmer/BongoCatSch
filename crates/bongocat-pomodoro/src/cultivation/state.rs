@@ -43,8 +43,8 @@ use super::{
     },
     expedition_yield,
     explore::{
-        BONUS_STONES, GUARDIAN_STONES, TRIAL_STONES, WalkRecord, breakthrough_ready, roll_stones,
-        roll_victory,
+        BONUS_STONES, GUARDIAN_STONES, WalkRecord, breakthrough_ready, roll_stones, roll_victory,
+        trial_purse,
     },
     garden::{
         CropRecord, MAX_GARDEN_RANK, PlotRecord, SeedGrade, harvest_points, plant_permille,
@@ -62,7 +62,7 @@ use super::{
     trade::{TradeRefusal, session_earnings},
     trial::{
         TRIAL_ATTEMPTS_PER_DAY, TRIAL_MAX_FLOOR, TRIAL_SWEEP_MARGIN_PERMILLE, TrialReward,
-        floor_realm, roll_reward, warden_power,
+        floor_realm, roll_reward, roll_reward_with_pity, warden_power,
     },
 };
 use crate::CalendarDay;
@@ -513,8 +513,10 @@ pub struct JobView {
     pub tier: u8,
     pub hours: u8,
     pub grade: ArtGrade,
-    /// What it pays, as the one figure the board is read against.
-    pub stones: u32,
+    /// What it pays per hour, the figure the board is read against (`docs/0103`
+    /// §5.3). A job is a real-time task since S4, so the board quotes its rate
+    /// rather than a session purse.
+    pub hourly_stones: u32,
     /// Whether this is the job the cultivator is already working: the board
     /// keeps the row so the page can say 接取中, but taking it again would be
     /// refused, so the row is shown as taken rather than as open.
@@ -2428,8 +2430,25 @@ pub struct PlantOutcome {
 
 // The two later `impl Cultivation` blocks live in child modules. They still
 // compile into this module's type, so every public path stays unchanged.
+//
+// The transition block itself is split by domain (园圃/采集/战斗/探索/打工/试炼/
+// 视图) because one file cannot stay under the monolith threshold once the
+// ladder has this many actions; `tools/tests/test_state_module_split_contract.py`
+// holds each piece to its own cap.
 #[path = "state_actions.rs"]
 mod actions;
+#[path = "state_actions_battle.rs"]
+mod actions_battle;
+#[path = "state_actions_explore.rs"]
+mod actions_explore;
+#[path = "state_actions_garden.rs"]
+mod actions_garden;
+#[path = "state_actions_trial.rs"]
+mod actions_trial;
+#[path = "state_actions_view.rs"]
+mod actions_view;
+#[path = "state_actions_work.rs"]
+mod actions_work;
 #[path = "battle_run.rs"]
 mod battle_run;
 #[path = "state_queries.rs"]
@@ -2440,14 +2459,14 @@ mod task;
 pub use battle_run::{
     BATTLE_TICK_SECONDS, BattleFound, BattleKind, BattleOutcome, BattlePreview, BattleRun,
     BreakthroughApply, BreakthroughWin, FirstClear, LostGear, PlannedBattle, ProvingApply,
-    SeedReward, TrialApply,
+    SeedReward, TrialApply, battle_total_progress_permille,
 };
 
 pub use task::{
-    ActiveTask, GATHER_TICK_SECONDS, GROWTH_REALM_STEP, JOB_POINT_EVERY_TICKS,
+    ActiveTask, GATHER_TICK_SECONDS, GROWTH_PER_REALM, JOB_POINT_EVERY_TICKS,
     SECLUSION_BONUS_PERMILLE, SECLUSION_TICK_SECONDS, SECLUSION_TICKS, SeclusionRun,
     TASK_BASE_GROWTH, TASK_CHANCE_EVERY_TICKS, TASK_JOB_BASE_STONES, TASK_OFFLINE_CAP_SECONDS,
-    TaskKind, WORK_TICK_SECONDS, meditate_tick_growth, sit_growth,
+    TaskKind, WORK_TICK_SECONDS, meditate_tick_growth, sit_growth, tick_progress_permille,
 };
 
 #[cfg(test)]

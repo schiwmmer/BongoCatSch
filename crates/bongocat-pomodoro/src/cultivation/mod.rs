@@ -135,14 +135,14 @@ pub use state::{
     BattleOutcome, BattlePreview, BattleRun, BreakthroughApply, BreakthroughOutcome,
     BreakthroughWin, BuildingOutcome, BuildingView, CollectOutcome, CropView, Cultivation,
     CultivationView, DailyOutcome, Drop, DropView, ExpeditionView, ExplorationFindView, FirstClear,
-    GATHER_TICK_SECONDS, GROWTH_REALM_STEP, GuardianView, HarvestOutcome, ItemView,
+    GATHER_TICK_SECONDS, GROWTH_PER_REALM, GuardianView, HarvestOutcome, ItemView,
     JOB_POINT_EVERY_TICKS, JobView, LostGear, PlannedBattle, PlantOutcome, PlotView,
     PowerBreakdown, ProvingApply, ProvingBlocked, RegionView, ResourcesView,
     SECLUSION_BONUS_PERMILLE, SECLUSION_TICK_SECONDS, SECLUSION_TICKS, SeclusionRun, SeedReward,
     SeedView, SessionReward, StarOutcome, TASK_BASE_GROWTH, TASK_CHANCE_EVERY_TICKS,
     TASK_JOB_BASE_STONES, TASK_OFFLINE_CAP_SECONDS, TaskKind, TradeView, TrainingView, TrialApply,
     TrialBlocked, TrialOutcome, TrialSweepOutcome, WORK_TICK_SECONDS, WorkPaid,
-    meditate_tick_growth, sit_growth,
+    battle_total_progress_permille, meditate_tick_growth, sit_growth, tick_progress_permille,
 };
 pub use trade::{TradeRefusal, session_earnings};
 pub use trial::{
