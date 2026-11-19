@@ -1817,7 +1817,7 @@ fn every_fight_pays_a_purse_of_its_own_size() {
     }
     assert!(wins > 0, "the reference save never won a breakthrough");
 
-    // The tower's purse is the leanest of the four, and only a cleared floor
+    // A floor pays the depth-scaled tower's purse, and only a cleared floor
     // pays it.
     let mut floors = 0;
     for attempt in 0..40_i64 {
@@ -1828,7 +1828,10 @@ fn every_fight_pays_a_purse_of_its_own_size() {
         };
         if outcome.duel.won {
             floors += 1;
-            let (min, max) = TRIAL_STONES.at(floor_realm(outcome.floor).index() as u8 + 1);
+            let (min, max) = {
+                let purse = trial_purse(outcome.floor);
+                (purse.min, purse.max)
+            };
             assert!(
                 outcome
                     .found
@@ -2274,6 +2277,57 @@ fn a_click_opens_a_battle_and_the_clock_counts_whole_rounds() {
         cultivation.trial_attempts_left(9),
         TRIAL_ATTEMPTS_PER_DAY - 1
     );
+}
+
+/// A battle's two bars: the round under way fills over its second, and the whole
+/// fight reads as the finished rounds plus that one, over the fight's length.
+#[test]
+fn a_battle_round_fills_and_the_whole_fight_reads_over_its_length() {
+    let mut cultivation = a_bare_save_at(20);
+    cultivation.document.trial_floor = 19;
+    let run = cultivation
+        .start_battle(BattleKind::Trial, 1_000, 9, None, false)
+        .expect("the floor at the cultivator's own rung is owed");
+    let total = u32::from(run.rounds_total);
+    assert!(total > 1, "a real fight lasts more than one round");
+    let start = 1_000_000;
+    let tick = i64::from(BATTLE_TICK_SECONDS) * 1000;
+    // The fight has not begun: both bars are empty.
+    assert_eq!(run.progress_permille(start), 0);
+    assert_eq!(run.total_progress_permille(start), 0);
+    // Half way through the first round both bars read exactly half a round, not
+    // empty: the reading is in milliseconds, so it climbs between the whole
+    // seconds the worker settles on.
+    assert_eq!(run.progress_permille(start + tick / 2), 500);
+    assert_eq!(run.total_progress_permille(start + tick / 2), 500 / total);
+    // The first round's far edge: the round bar is full, and the whole fight is
+    // one round's worth of the way in.
+    assert_eq!(run.progress_permille(start + tick), 1000);
+    assert_eq!(run.total_progress_permille(start + tick), 1000 / total);
+    // One round settled, the next not begun: the fight reads exactly one round
+    // in, and the new round's own bar restarts empty.
+    cultivation.advance_battle(1_001);
+    let run = cultivation
+        .battle_run()
+        .expect("the fight is still on screen");
+    assert_eq!(run.rounds_done, 1);
+    assert_eq!(
+        run.progress_permille(1_001_000),
+        0,
+        "the new round has not begun"
+    );
+    assert_eq!(run.total_progress_permille(1_001_000), 1000 / total);
+    assert_eq!(run.progress_permille(1_001_000 + tick), 1000);
+    assert_eq!(run.total_progress_permille(1_001_000 + tick), 2000 / total);
+    // However far the clock runs past the fight, neither bar passes full: the
+    // round bar clamps at its own far edge, and a run already at its cap reads
+    // the whole fight done rather than past it.
+    let stale_at = 1_000_000 + i64::from(total) * 10 * 1000;
+    assert_eq!(run.progress_permille(stale_at), 1000);
+    assert!(run.total_progress_permille(stale_at) <= 1000);
+    let mut capped = run.clone();
+    capped.rounds_done = capped.rounds_total;
+    assert_eq!(capped.total_progress_permille(stale_at), 1000);
 }
 
 /// The real-time layer changes *when* the result lands and nothing else: the

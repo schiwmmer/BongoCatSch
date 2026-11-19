@@ -115,7 +115,7 @@ fn work_lines(
                         ("kind", kind_name(run.kind, locale)),
                         ("hours", run.hours.to_string()),
                         ("grade", text(locale, run.grade.name_key()).to_string()),
-                        ("stones", run.offer().stones().to_string()),
+                        ("stones", run.offer().hourly_stones().to_string()),
                     ],
                 ))
                 .test_support()
@@ -226,10 +226,7 @@ fn job_row(
         .child(div().text_xs().truncate().child(format_text(
             locale,
             "cultivation.jobs.row",
-            &[
-                ("hours", job.hours.to_string()),
-                ("stones", job.stones.to_string()),
-            ],
+            &[("stones", job.hourly_stones.to_string())],
         )));
     let slot = job.slot;
     // A job the cultivator is already on is not open: the board keeps the row

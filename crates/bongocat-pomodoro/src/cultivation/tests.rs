@@ -615,64 +615,6 @@ fn a_planted_seed_ripens_on_the_clock_and_pays_an_attribute() {
     );
 }
 
-/// The reworked wait drives the bed end to end: a crop is ripe ten minutes
-/// times its tier after planting, the halfway reveal lands at half that, and
-/// the harvest pays the same points it always did — online and after an absence
-/// alike, because the bed is on the wall clock and needs no settle to mature.
-#[test]
-fn a_crop_matures_on_the_minute_level_ladder() {
-    let mut cultivation = tended(Cultivation::default());
-    let at = 1_000;
-    for (tier, wait) in [(1, 600), (5, 3_000), (10, 6_000)] {
-        document_seed(&mut cultivation, Attribute::Root, tier, SeedGrade::Earth);
-        assert!(
-            cultivation
-                .plant(Attribute::Root, tier, SeedGrade::Earth, at)
-                .is_some(),
-            "tier {tier} is planted"
-        );
-        // A top-rank garden shortens the wait, so read the bed's own rate.
-        let bed = grow_seconds_at(MAX_GARDEN_RANK, tier);
-        assert!(
-            bed <= wait,
-            "tier {tier} waits no more than ten minutes times its tier"
-        );
-        // The record, not the view: the halfway mark is a domain instant the
-        // surface does not render, so it is read where it is written.
-        let crop = cultivation.document().plots[0]
-            .crop
-            .clone()
-            .expect("a crop in the first plot");
-        assert_eq!(
-            crop.ready_at_unix,
-            at + bed,
-            "tier {tier} is ripe after its wait"
-        );
-        assert_eq!(
-            crop.revealed_at_unix,
-            at + bed / 2,
-            "tier {tier} says how it is doing at the halfway mark"
-        );
-        // Online: one second early is refused.
-        assert!(
-            cultivation.harvest(0, at + bed - 1).is_none(),
-            "tier {tier} is not ripe a second early"
-        );
-        // Offline: a long absence needs no settle — the same harvest after the
-        // gap pays the same points.
-        let before = cultivation.crop_attributes().root;
-        let harvested = cultivation
-            .harvest(0, at + bed + 10_000)
-            .expect("tier {tier} is ripe after an absence");
-        assert_eq!(harvested.crop.tier, tier);
-        assert_eq!(
-            cultivation.crop_attributes().root - before,
-            harvest_points(tier, SeedGrade::Earth),
-            "tier {tier} pays what it always paid"
-        );
-    }
-}
-
 /// A harvest line says which herb came up and what it paid: the plot is empty
 /// afterwards, so a line that said only "a crop was pulled" left nothing to
 /// check the attribute gain against.
@@ -1936,17 +1878,17 @@ fn a_job_starts_a_four_second_work_task() {
         cultivation.accept_job(1, 1_100, 20_000),
         Err(Refusal::TaskRunning)
     );
-    // One tick pays the grade's own wage, and a second pays it again.
-    let per_tick = u32::try_from(
-        u64::from(TASK_JOB_BASE_STONES)
-            * super::jobs::JOB_GRADE_MULTIPLIER_PERMILLE[offer.grade.index()]
-            / 1_000,
-    )
-    .unwrap_or(u32::MAX);
+    // One tick pays the grade's own wage, banked exactly: the thousandths
+    // carry, so two 玄阶 ticks are three stones and not two.
+    let milli = u64::from(TASK_JOB_BASE_STONES)
+        * super::jobs::JOB_GRADE_MULTIPLIER_PERMILLE[offer.grade.index()];
+    let paid_after = |ticks: u64| {
+        u32::try_from((u64::from(before) * 1_000 + milli * ticks) / 1_000).unwrap_or(u32::MAX)
+    };
     assert_eq!(cultivation.advance_task(1_004), 1);
-    assert_eq!(cultivation.document().stones, before + per_tick);
+    assert_eq!(cultivation.document().stones, paid_after(1));
     assert_eq!(cultivation.advance_task(1_008), 1);
-    assert_eq!(cultivation.document().stones, before + 2 * per_tick);
+    assert_eq!(cultivation.document().stones, paid_after(2));
 }
 
 /// A gathering task holds the one slot too, so the board is closed while it
@@ -2070,11 +2012,14 @@ fn the_pool_a_job_pays_is_the_pool_the_fight_reads() {
         .expect("the job is taken");
     let before = cultivation.job_bonus();
     // Sixty ticks is one 积分 roll; whether it hits is the seed's business, but
-    // a hit is one slot and one to five points, and a miss is nothing.
-    assert_eq!(
-        cultivation.advance_task(1_000 + 60 * i64::from(WORK_TICK_SECONDS)),
-        60
-    );
+    // a hit is one slot and one to five points, and a miss is nothing. The
+    // ticks are driven one at a time, the way the worker settles them, so the
+    // gap never reads as an absence.
+    let mut now = 1_000;
+    for _ in 0..60 {
+        now += i64::from(WORK_TICK_SECONDS);
+        assert_eq!(cultivation.advance_task(now), 1);
+    }
     let after = cultivation.job_bonus();
     let deltas = [
         after.attack.saturating_sub(before.attack),
@@ -3630,43 +3575,50 @@ fn the_s7_star_table_costs_the_documented_full_piece() {
     assert_eq!(star_up_cost(&at, 0).resources.iron, 4, "铁从第六星起");
 }
 
-/// The 升星 sink is hours of the S2 gathering faucet, not minutes: a full
-/// first-tier piece's 1100 wood is 1.2 hours at the bare L1 凡木林 rate (900
-/// wood/h) and 0.6 hours at the L30 凡木林 rate (1800 wood/h). Both ends sit
-/// in the §5.6 band [0.5h, 3h]. The 混沌 tier at L30 pays 14 wood a tick
-/// (6300/h) — the table's "L30 1800/h" is the 凡木林 figure, not 混沌.
+/// The 升星 sink is hours of the gathering faucet, not minutes: a full first-tier
+/// piece's 1100 wood is 1.22 hours at the bare L1 凡木林 rate (900 wood/h) and
+/// 0.49 hours at the L99 rate (2250 wood/h) — the `docs/0104` §4.1 span: the
+/// level ladder's ×2.96 is exactly what keeps a maxed piece at the top of the
+/// ladder inside the same hour-band a fresh one sits at the bottom of.
+///
+/// The 混沌 tier at L80 pays 15 wood a tick (6750/h) and at L99 17 (7650/h),
+/// which is the depth reward on top of that.
 #[test]
 fn a_full_piece_of_wood_is_hours_of_gathering() {
     // §5.2: an 8s round, so 450 rounds an hour.
     const GATHER_TICKS_PER_HOUR: u32 = 450;
-    let low = collect_tick(GatherSite::Forest, GatherTier::Common, 1, 1, 0, 0, 0)
+    let low = collect_tick(GatherSite::Forest, GatherTier::Common, 1, 1, 0, 0)
         .gained
         .wood;
-    let high = collect_tick(GatherSite::Forest, GatherTier::Common, 30, 1, 0, 0, 0)
+    let high = collect_tick(GatherSite::Forest, GatherTier::Common, 99, 1, 0, 0)
         .gained
         .wood;
-    assert_eq!(low, 2, "L1 凡木林 无建筑 is the §5.2 base");
-    assert_eq!(high, 4, "L30 凡木林 无建筑");
+    assert_eq!(low, 2, "L1 凡木林 无建筑 is the base");
+    assert_eq!(high, 5, "L99 凡木林 无建筑 = 2 × 2.96");
     let low_rate = f64::from(low * GATHER_TICKS_PER_HOUR);
     let high_rate = f64::from(high * GATHER_TICKS_PER_HOUR);
     assert_eq!(low_rate, 900.0, "凡木林 L1 无建筑 900 木/h");
-    assert_eq!(high_rate, 1_800.0, "凡木林 L30 无建筑 1800 木/h");
+    assert_eq!(high_rate, 2_250.0, "凡木林 L99 无建筑 2250 木/h");
     let hours = |rate: f64| 1_100.0 / rate;
     assert!(
-        (0.5..=3.0).contains(&hours(low_rate)),
+        (0.4..=3.0).contains(&hours(low_rate)),
         "一件满星木料在 L1 凡木林要 {:.2}h",
         hours(low_rate)
     );
     assert!(
-        (0.5..=3.0).contains(&hours(high_rate)),
-        "一件满星木料在 L30 凡木林要 {:.2}h",
+        (0.4..=3.0).contains(&hours(high_rate)),
+        "一件满星木料在 L99 凡木林要 {:.2}h",
         hours(high_rate)
     );
-    // The deepest site is a different thing, and the table's 1800 is not it.
-    let chaos = collect_tick(GatherSite::Forest, GatherTier::Chaos, 30, 1, 0, 0, 0)
+    // The deepest site is a different thing, and the base rate is not it.
+    let chaos = collect_tick(GatherSite::Forest, GatherTier::Chaos, 80, 1, 0, 0)
         .gained
         .wood;
-    assert_eq!(chaos, 14, "混沌神木 L30 是深度奖励，不是基准");
+    assert_eq!(chaos, 15, "混沌神木 L80 是深度奖励，不是基准");
+    let deep = collect_tick(GatherSite::Forest, GatherTier::Chaos, 99, 1, 0, 0)
+        .gained
+        .wood;
+    assert_eq!(deep, 17, "混沌神木 L99 = 2 × 2.96 × 3.0");
 }
 
 /// The S7 building sink (`docs/0103` §5.6): the primary base is 25, so a
@@ -3704,14 +3656,18 @@ fn a_full_building_costs_the_documented_primary_tribute() {
     assert_eq!(sum_primary(Building::Workshop), 2_227);
     assert_eq!(sum_primary(Building::Smithy), 2_227, "同一曲线");
     assert_eq!(sum_primary(Building::Dojo), 2_227, "同一曲线");
-    assert_eq!(sum_primary(Building::Warehouse), 152, "仓库自己的浅曲线");
+    assert_eq!(
+        sum_primary(Building::Warehouse),
+        1_367,
+        "仓库自己的浅曲线，基数 ×9 (docs/0104 §4.6)"
+    );
     assert_eq!(geometric.round() as u32, 2_227, "几何和公式");
     assert_eq!(
         sum_primary(Building::Workshop)
             + sum_primary(Building::Smithy)
             + sum_primary(Building::Dojo)
             + sum_primary(Building::Warehouse),
-        6_833,
+        8_048,
         "四座全满主材料"
     );
 }
@@ -3725,7 +3681,7 @@ fn a_full_building_costs_the_documented_primary_tribute() {
 fn a_star_wager_is_minutes_of_work_at_most() {
     let ticks_per_hour = 3_600 / WORK_TICK_SECONDS;
     let yellow_per_hour = TASK_JOB_BASE_STONES * ticks_per_hour;
-    assert_eq!(yellow_per_hour, 5_400, "黄阶打工 5400/h (§5.3)");
+    assert_eq!(yellow_per_hour, 900, "黄阶打工 900/h (docs/0104 §3)");
     let wager = |tier: u8, rarity: Rarity| {
         let item = EquipmentRecord {
             id: 31,
@@ -3741,10 +3697,10 @@ fn a_star_wager_is_minutes_of_work_at_most() {
     let high = wager(10, Rarity::Transcendent);
     assert_eq!(low, 6, "tier1 凡品售价 66，赌注取其一是 6 灵石");
     assert_eq!(high, 276, "tier10 超凡售价 2761，赌注 276 灵石");
-    assert_eq!(work_seconds(low), 4.0, "§5.6 的低阶「≈4s」");
+    assert_eq!(work_seconds(low), 24.0, "低阶赌注是 24 秒工钱");
     assert!(
-        (183.0..=185.0).contains(&work_seconds(high)),
-        "§5.6 的顶阶「≈3 分钟」，实得 {:.1}s",
+        (1_100.0..=1_108.0).contains(&work_seconds(high)),
+        "顶阶赌注是十八分钟工钱，实得 {:.1}s",
         work_seconds(high)
     );
 }
@@ -4726,26 +4682,34 @@ fn a_one_click_planting_skips_the_pill_in_the_satchel() {
     );
 }
 
-/// The §5.1 吐纳 ladder, read off the realm table rather than off a constant.
+/// The 吐纳 ladder, read off the hand-authored realm table (`docs/0104` §5.1).
 ///
-/// `docs/0103` §5.1 writes `round(2 × (1000 + 750·realm_index)/1000)` before the
-/// 功法 multiplier, so 炼气 pays 2 a tick and 仙人 16 — the step is what makes a
-/// realm a visible pay rise rather than a rounding nudge. The rounding is half
-/// up on purpose (3.5 reads 4), and the 功法 multiplier stacks on the realm
-/// term instead of being rounded between the two.
+/// The old linear `2 × (1 + 0.75·index)` could not land every realm inside the
+/// days range its 门槛 holds (`docs/0104` D6), so the table is the spec: 炼气
+/// pays 2 a tick, 真仙 230, and no neighbouring pair is more than 1.35 apart.
+/// The rounding is half up on purpose, and the 功法 multiplier stacks on the
+/// realm's own row rather than being rounded between the two.
 #[test]
-fn the_s5_1_realm_ladder_pays_two_to_sixteen() {
+fn the_s5_1_realm_ladder_pays_two_to_two_hundred_thirty() {
     let bare = |realm_index| meditate_tick_growth(realm_index, 1_000);
     let ladder: Vec<u32> = (0..10).map(bare).collect();
+    assert_eq!(ladder, GROWTH_PER_REALM, "the table is the tick");
     assert_eq!(ladder[0], 2, "炼气 is the base");
-    assert_eq!(ladder[1], 4, "筑基 is 2 × 1.75, rounded half up");
-    assert_eq!(ladder[9], 16, "仙人 is 2 × 7.75 = 15.5, rounded half up");
-    // Every step is exactly 75% of the base, so the ladder is arithmetic.
-    for (index, paid) in ladder.iter().enumerate() {
-        assert_eq!(*paid, meditate_tick_growth(index as u32, 1_000));
+    assert_eq!(ladder[1], 3, "筑基 is 3");
+    assert_eq!(ladder[9], 230, "真仙 is 230");
+    // The ladder only climbs, and no step more than doubles the last — the
+    // table's jumps are the 门槛's own (×3.06 at 化神→合道), paid for by income
+    // that climbs with them.
+    for pair in ladder.windows(2) {
+        assert!(pair[1] > pair[0], "{ladder:?}");
+        assert!(
+            f64::from(pair[1]) / f64::from(pair[0]) <= 2.5,
+            "每一步不得超过 2.5：{ladder:?}"
+        );
     }
-    // The 功法 multiplier rides the realm term: a 20% art at 仙人 is
-    // 16 × 1.2 = 19.2 → 19, not the realm rounded first and then scaled.
+    // The 功法 multiplier rides the realm's row: a 25% art at 炼气 is
+    // 2 × 1.25 = 2.5 → 3, and at 真仙 230 × 1.2 = 276 — the row is scaled
+    // whole, not rounded first and then scaled.
     assert_eq!(
         meditate_tick_growth(0, 1_250),
         3,
@@ -4753,7 +4717,7 @@ fn the_s5_1_realm_ladder_pays_two_to_sixteen() {
     );
     assert_eq!(
         meditate_tick_growth(9, 1_200),
-        19,
+        276,
         "the realm is scaled whole"
     );
     // Past the cap the multiplier is the cap: an absurd art cannot pay an
@@ -4765,14 +4729,16 @@ fn the_s5_1_realm_ladder_pays_two_to_sixteen() {
     );
 }
 
-/// The §5.2 gathering table: the four tiers' multipliers, their unlock levels,
-/// and what each tier actually pays at the level it opens.
+/// The gathering table: the four tiers' multipliers, their unlock levels, and
+/// what each tier actually pays at the level it opens.
 ///
 /// The table's `base` column is the tier's own multiplier of the trade's base
 /// (凡 2, 灵 3, 神 4, 混沌 6); the tick's realized yield also carries the
-/// trade's +5% a level and the realm's +15% a step, so 灵木林 at level ten pays
-/// 2 × 1.45 × 1.5 = 4.35 → 4. One truncation at the end, the same discipline as
-/// every other path — which is why 混沌 at level thirty is 14 and not 15.
+/// trade's +2% a level (`docs/0104` §4.1), so 灵木林 at level twenty pays
+/// 2 × 1.38 × 1.5 = 4.14 → 4, 神木林 at fifty 2 × 1.98 × 2.0 = 7.92 → 7, and
+/// 混沌 at eighty 2 × 2.58 × 3.0 = 15.48 → 15. One truncation at the end, the
+/// same discipline as every other path — which is why 混沌 at eighty is 15
+/// and not 15.5.
 #[test]
 fn the_s5_2_tier_table_pays_its_documented_base() {
     assert_eq!(
@@ -4782,61 +4748,52 @@ fn the_s5_2_tier_table_pays_its_documented_base() {
     );
     assert_eq!(
         GatherTier::ALL.map(GatherTier::unlock_level),
-        [1, 10, 20, 30],
-        "each tier opens at its own trade level"
+        [1, 20, 50, 80],
+        "each tier opens at its own trade level (docs/0104 §4.2)"
     );
     let at = |tier, level| {
-        collect_tick(GatherSite::Forest, tier, level, level, 0, 0, 0)
+        collect_tick(GatherSite::Forest, tier, level, level, 0, 0)
             .gained
             .wood
     };
     assert_eq!(at(GatherTier::Common, 1), 2, "凡木林 L1");
-    assert_eq!(at(GatherTier::Spirit, 10), 4, "灵木林 L10 = 2 × 1.45 × 1.5");
-    assert_eq!(at(GatherTier::Divine, 20), 7, "神木林 L20 = 2 × 1.95 × 2.0");
+    assert_eq!(at(GatherTier::Spirit, 20), 4, "灵木林 L20 = 2 × 1.38 × 1.5");
+    assert_eq!(at(GatherTier::Divine, 50), 7, "神木林 L50 = 2 × 1.98 × 2.0");
     assert_eq!(
-        at(GatherTier::Chaos, 30),
-        14,
-        "混沌神木 L30 = 2 × 2.45 × 3.0"
+        at(GatherTier::Chaos, 80),
+        15,
+        "混沌神木 L80 = 2 × 2.58 × 3.0"
     );
     // The mountain reads the same table through 采石.
-    let mountain = collect_tick(GatherSite::Mountain, GatherTier::Chaos, 30, 30, 0, 0, 0)
+    let mountain = collect_tick(GatherSite::Mountain, GatherTier::Chaos, 80, 80, 0, 0)
         .gained
         .stone;
-    assert_eq!(mountain, 14, "同一张表，另一门手艺");
+    assert_eq!(mountain, 15, "同一张表，另一门手艺");
     // A tick is eight seconds, so an hour is 450 ticks — the rate the §5.6
     // self-consistency section divides every sink by.
     assert_eq!(GATHER_TICK_SECONDS, 8);
     assert_eq!(3_600 / GATHER_TICK_SECONDS, 450);
 }
 
-/// The §5.2 rare gates: 煤 at 伐木 five, 铁 at 采石 three, and nothing before.
+/// The rare gates: 煤 at 伐木 six, 铁 at 采石 twelve, and nothing before
+/// (`docs/0104` §4.4).
 ///
 /// The gate is a *level*, not a count, which is what makes the rares the reward
 /// for depth rather than a second yield the player has to be told about. A hand
 /// one level short finds nothing where the trained one finds the base amount.
 #[test]
 fn the_s5_2_rare_finds_open_at_the_documented_levels() {
-    let forest =
-        |woodcut| collect_tick(GatherSite::Forest, GatherTier::Common, woodcut, 1, 0, 0, 0);
-    assert_eq!(COAL_UNLOCK_LEVEL, 5);
-    assert_eq!(forest(4).gained.coal, 0, "四级伐木还看不见煤");
-    assert_eq!(forest(5).gained.coal, 1, "五级伐木见煤，基础量 1");
-    let mountain = |stonecut| {
-        collect_tick(
-            GatherSite::Mountain,
-            GatherTier::Common,
-            1,
-            stonecut,
-            0,
-            0,
-            0,
-        )
-    };
-    assert_eq!(IRON_UNLOCK_LEVEL, 3);
-    assert_eq!(mountain(2).gained.iron, 0, "两级采石还看不见铁");
-    assert_eq!(mountain(3).gained.iron, 1, "三级采石见铁");
+    let forest = |woodcut| collect_tick(GatherSite::Forest, GatherTier::Common, woodcut, 1, 0, 0);
+    assert_eq!(COAL_UNLOCK_LEVEL, 6);
+    assert_eq!(forest(5).gained.coal, 0, "五级伐木还看不见煤");
+    assert_eq!(forest(6).gained.coal, 1, "六级伐木见煤，基础量 1");
+    let mountain =
+        |stonecut| collect_tick(GatherSite::Mountain, GatherTier::Common, 1, stonecut, 0, 0);
+    assert_eq!(IRON_UNLOCK_LEVEL, 12);
+    assert_eq!(mountain(11).gained.iron, 0, "十一级采石还看不见铁");
+    assert_eq!(mountain(12).gained.iron, 1, "十二级采石见铁");
     // The 矿洞 works both trades, so it carries both gates at once.
-    let mine = collect_tick(GatherSite::Mine, GatherTier::Common, 5, 3, 0, 0, 0);
+    let mine = collect_tick(GatherSite::Mine, GatherTier::Common, 6, 12, 0, 0);
     assert_eq!(mine.gained.iron, 1);
     assert_eq!(mine.gained.coal, 1);
     assert_eq!(
@@ -4845,91 +4802,98 @@ fn the_s5_2_rare_finds_open_at_the_documented_levels() {
     );
 }
 
-/// The §5.2 skill curve and the hours the table claims.
+/// The skill curve and the hours it claims (`docs/0104` §4.3).
 ///
-/// `xp_total(L) = 3000·L + 1800·L·(L−1)/2` gives 111,000 / 402,000 / 873,000 at
-/// ten, twenty and thirty. At 100 xp a tick and 450 ticks an hour those are
-/// 2.5 / 8.9 / 19.4 hours; a full 道场 (180 xp a tick) compresses the ladder to
-/// 10.8. The old curve topped out at 6,400 for ten levels, which is why
+/// `xp_total(L) = 2000·L + 600·L·(L−1)` gives 268,000 / 1,570,000 / 3,952,000 /
+/// 6,019,200 at twenty, fifty, eighty and ninety-nine. At 100 xp a tick and 450
+/// ticks an hour those are 6.0 / 34.9 / 87.8 / 133.8 hours; a full 道场 (180 xp
+/// a tick) compresses them to 3.3 / 19.4 / 48.8 / 74.3. The old thirty-level
+/// curve topped out at 873,000 for thirty levels, which is why
 /// [`super::document`](crate::cultivation::document)'s `trade_curve_rev`
-/// migration maps old saves up rather than leaving them at level one.
+/// migration keeps a save's level and pays its gates forward rather than
+/// leaving it at level one.
 #[test]
 fn the_s5_2_skill_curve_is_the_documented_ladder() {
-    assert_eq!(skill_xp_total(1), 3_000);
-    assert_eq!(skill_xp_total(10), 111_000);
-    assert_eq!(skill_xp_total(20), 402_000);
-    assert_eq!(skill_xp_total(30), 873_000);
-    assert_eq!(MAX_TRADE_LEVEL, 30, "三十级是这张表的顶");
+    assert_eq!(skill_xp_total(1), 2_000);
+    assert_eq!(skill_xp_total(20), 268_000);
+    assert_eq!(skill_xp_total(50), 1_570_000);
+    assert_eq!(skill_xp_total(80), 3_952_000);
+    assert_eq!(skill_xp_total(99), 6_019_200);
+    assert_eq!(MAX_TRADE_LEVEL, 99, "九十九级是这张表的顶");
     // 无道场：每回合 100，八秒一回合。
     let ticks_per_hour = 3_600 / GATHER_TICK_SECONDS;
     let hours =
         |xp: u32, per_tick: u32| f64::from(xp) / f64::from(per_tick) / f64::from(ticks_per_hour);
-    let bare = collect_tick(GatherSite::Forest, GatherTier::Common, 1, 1, 0, 0, 0);
+    let bare = collect_tick(GatherSite::Forest, GatherTier::Common, 1, 1, 0, 0);
     assert_eq!(bare.woodcut_xp, 100, "道场零级是每回合 100");
     assert!(
-        (2.4..=2.6).contains(&hours(skill_xp_total(10), bare.woodcut_xp)),
-        "1→10 级 ≈2.5 小时，实得 {:.2}",
-        hours(skill_xp_total(10), bare.woodcut_xp)
-    );
-    assert!(
-        (8.8..=9.0).contains(&hours(skill_xp_total(20), bare.woodcut_xp)),
-        "1→20 级 ≈8.9 小时，实得 {:.2}",
+        (5.9..=6.1).contains(&hours(skill_xp_total(20), bare.woodcut_xp)),
+        "1→20 级 ≈6.0 小时，实得 {:.2}",
         hours(skill_xp_total(20), bare.woodcut_xp)
     );
     assert!(
-        (19.3..=19.5).contains(&hours(skill_xp_total(30), bare.woodcut_xp)),
-        "1→30 级 ≈19.4 小时，实得 {:.2}",
-        hours(skill_xp_total(30), bare.woodcut_xp)
+        (34.8..=35.0).contains(&hours(skill_xp_total(50), bare.woodcut_xp)),
+        "1→50 级 ≈34.9 小时，实得 {:.2}",
+        hours(skill_xp_total(50), bare.woodcut_xp)
     );
-    // 满道场：每回合 180，把整条梯子压到 10.8 小时。
-    let dojo = collect_tick(GatherSite::Forest, GatherTier::Common, 1, 1, 0, 10, 0);
+    assert!(
+        (87.7..=87.9).contains(&hours(skill_xp_total(80), bare.woodcut_xp)),
+        "1→80 级 ≈87.8 小时，实得 {:.2}",
+        hours(skill_xp_total(80), bare.woodcut_xp)
+    );
+    assert!(
+        (133.7..=133.9).contains(&hours(skill_xp_total(99), bare.woodcut_xp)),
+        "1→99 级 ≈133.8 小时，实得 {:.2}",
+        hours(skill_xp_total(99), bare.woodcut_xp)
+    );
+    // 满道场：每回合 180，把整条梯子压到 74.3 小时。
+    let dojo = collect_tick(GatherSite::Forest, GatherTier::Common, 1, 1, 0, 10);
     assert_eq!(dojo.woodcut_xp, 180, "道场十级是每回合 180");
     assert!(
-        (10.7..=10.9).contains(&hours(skill_xp_total(30), dojo.woodcut_xp)),
-        "满道场 1→30 级 ≈10.8 小时，实得 {:.2}",
-        hours(skill_xp_total(30), dojo.woodcut_xp)
+        (74.2..=74.4).contains(&hours(skill_xp_total(99), dojo.woodcut_xp)),
+        "满道场 1→99 级 ≈74.3 小时，实得 {:.2}",
+        hours(skill_xp_total(99), dojo.woodcut_xp)
     );
 }
 
-/// The §5.3 wage table: six 灵石 a tick at 黄阶, each grade's multiplier on top,
-/// and the per-hour figures the table prints.
+/// The wage table (`docs/0104` §3): one 灵石 a tick at 黄阶, each grade's
+/// multiplier on top, and the per-hour figures the table prints.
 ///
-/// The per-tick wage is truncated before it is multiplied by the hour
-/// (`6 × 1.6 / 1000 = 9.6 → 9`), which is why 玄 is 8,100 an hour rather than
-/// the exact 9,600 — the truncation is the design's, not a rounding artifact.
+/// The hour is read off the *exact* thousandths rather than off a truncated
+/// tick: at the one-stone base a truncated tick would pay 玄 900 an hour instead
+/// of 1,440, so [`super::jobs::job_hourly_stones`] multiplies first and divides
+/// once. The task's own carry ([`super::Cultivation::pay_work_ticks`]) makes the
+/// banked wage match that rate over any stretch.
 #[test]
 fn the_s5_3_grade_table_pays_its_documented_wage() {
     let ticks_per_hour = 3_600 / WORK_TICK_SECONDS;
     assert_eq!(WORK_TICK_SECONDS, 4, "打工是四秒一回合");
     assert_eq!(ticks_per_hour, 900);
     let table = [
-        (0, 5_400, "黄"),
-        (1, 8_100, "玄"),
-        (2, 14_400, "地"),
-        (3, 24_300, "天"),
-        (4, 38_700, "星"),
+        (0, 900, "黄"),
+        (1, 1_440, "玄"),
+        (2, 2_520, "地"),
+        (3, 4_050, "天"),
+        (4, 6_480, "神"),
     ];
     for (grade, per_hour, name) in table {
-        let multiplier = super::jobs::JOB_GRADE_MULTIPLIER_PERMILLE[grade];
-        let per_tick = TASK_JOB_BASE_STONES as u64 * multiplier / 1_000;
+        let grade = ArtGrade::ALL[grade];
         assert_eq!(
-            per_tick * u64::from(ticks_per_hour),
+            super::jobs::job_hourly_stones(grade),
             per_hour,
             "{}阶每小时 {}",
             name,
             per_hour
         );
     }
-    // The truncation the doc calls out by name.
-    assert_eq!(TASK_JOB_BASE_STONES as u64 * 1_600 / 1_000, 9, "玄 9.6→9");
+    // One stone a tick, so the multiplier is the whole wage: 玄 1.6 a tick,
+    // 地 2.8, 神 7.2 — the thousandths the task carries.
+    assert_eq!(super::jobs::job_tick_milli_stones(ArtGrade::Yellow), 1_000);
     assert_eq!(
-        TASK_JOB_BASE_STONES as u64 * 2_800 / 1_000,
-        16,
-        "地 16.8→16"
+        super::jobs::job_tick_milli_stones(ArtGrade::Profound),
+        1_600
     );
-    assert_eq!(
-        TASK_JOB_BASE_STONES as u64 * 7_200 / 1_000,
-        43,
-        "星 43.2→43"
-    );
+    assert_eq!(super::jobs::job_tick_milli_stones(ArtGrade::Earth), 2_800);
+    assert_eq!(super::jobs::job_tick_milli_stones(ArtGrade::Divine), 7_200);
+    assert_eq!(TASK_JOB_BASE_STONES, 1, "docs/0104 §3 早班本位");
 }

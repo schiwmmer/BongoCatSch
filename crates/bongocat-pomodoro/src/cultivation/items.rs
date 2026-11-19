@@ -876,12 +876,14 @@ pub(crate) fn base_points(tier: u8) -> u32 {
 /// punishment that remains is the cost itself, not the setback.
 pub(crate) fn tier_multiplier_permille(tier: u8) -> u32 {
     let tier = u32::from(tier.clamp(1, 10));
-    // 1_000 at tier 1, rising by seven-and-three-quarter to 8_000 at tier ten.
-    // The base curve has been doubled (see [`shop::star_up_cost`]) to bring
-    // the late realms' tribute back to the old floor now that a failure takes
-    // only a half step: the broader curve keeps the forge's material the main
-    // investment, the tighter tier keeps the stepping proportional.
-    1_000 + 777 * (tier - 1)
+    // 1_000 at tier 1, rising by fifteen hundredths to 14_500 at tier ten
+    // (`docs/0104` §7.1). The step is the material-sink arm of the v3 curve:
+    // gathering's endgame faucet is about ×17, so a ×14.5 tier ladder keeps a
+    // maxed piece at one to one-and-a-half hours of *its own* era's gathering
+    // instead of the ×8 ladder making the tenth tier cheaper than the third in
+    // real time. The old 777 step (×8 at tier ten) predates the 99-level skill
+    // ladder, whose ×2.96 replaces what the star ladder used to carry.
+    1_000 + 1_500 * (tier - 1)
 }
 
 /// What one point of an attribute is worth in the power table, in tenths.

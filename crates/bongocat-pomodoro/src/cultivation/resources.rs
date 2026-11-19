@@ -238,12 +238,16 @@ impl GatherTier {
     }
 
     /// The trade level a cultivator must hold to work this tier.
+    ///
+    /// `docs/0104` §4.2: 1 / 20 / 50 / 80. With the ninety-nine-level ladder the
+    /// gates pace the sites across tens of hours of gathering instead of one
+    /// afternoon, so a deeper site is a milestone rather than the next click.
     pub const fn unlock_level(self) -> u8 {
         match self {
             Self::Common => 1,
-            Self::Spirit => 10,
-            Self::Divine => 20,
-            Self::Chaos => 30,
+            Self::Spirit => 20,
+            Self::Divine => 50,
+            Self::Chaos => 80,
         }
     }
 
@@ -348,11 +352,12 @@ pub const MAX_WAREHOUSE_LEVEL: u8 = 50;
 
 /// The most levels a trade (伐木, 采石) can hold.
 ///
-/// Thirty since the Melvor redesign (`docs/0103` §5.2): the old ten was the
-/// whole ladder, and the new curve stretches to a long-term goal a 道场-free
-/// hand reaches in about twelve hours of gathering. A separate name from
-/// [`MAX_BUILDING_LEVEL`] because the two are raised by different currencies.
-pub const MAX_TRADE_LEVEL: u8 = 30;
+/// Ninety-nine since the v3 numerical system (`docs/0104` §4.3): the ladder is
+/// the long-term goal a Melvor-style skill is, and at the re-based xp curve it
+/// is about a hundred hours of bare gathering rather than a weekend. A separate
+/// name from [`MAX_BUILDING_LEVEL`] because the two are raised by different
+/// currencies.
+pub const MAX_TRADE_LEVEL: u8 = 99;
 
 /// How many of the common find one collection turns up, before the skill, the
 /// 工坊, the realm and the tier.
@@ -371,10 +376,20 @@ pub const BASE_COMMON_YIELD: u32 = 2;
 pub const BASE_RARE_YIELD: u32 = 1;
 
 /// The 采石 level at which 铁 starts turning up.
-pub const IRON_UNLOCK_LEVEL: u8 = 3;
+///
+/// Twelve (`docs/0104` §4.4): the first iron a 6★ push needs (four pieces at
+/// 420 wood ≈ 28 minutes of gathering) should not be reachable in the first
+/// afternoon, and twelve is about two hours of gathering — a depth reward with
+/// an hour or so of deliberate overlap, so the player is nudged rather than
+/// walled.
+pub const IRON_UNLOCK_LEVEL: u8 = 12;
 
 /// The 伐木 level at which 煤 starts turning up.
-pub const COAL_UNLOCK_LEVEL: u8 = 5;
+///
+/// Six (`docs/0104` §4.4): the first 4★ push needs coal after about 200 wood,
+/// thirteen minutes of gathering, so the gate sits about half an hour in —
+/// late enough to be earned, early enough to meet the first push.
+pub const COAL_UNLOCK_LEVEL: u8 = 6;
 
 /// What one gathering pays as skill xp, before the 道场.
 pub const BASE_SKILL_XP: u32 = 100;
@@ -382,21 +397,19 @@ pub const BASE_SKILL_XP: u32 = 100;
 /// The skill xp a level costs, cumulatively, at the level it is being earned
 /// for.
 ///
-/// The Melvor redesign's curve (`docs/0103` §5.2):
-/// `xp_total(L) = 3000·L + 1800·L·(L−1)/2`, so level 10 is 111,000, level 20
-/// is 402,000 and level 30 is 873,000. At the §5.2 tempo (8s a tick, 450 ticks
-/// an hour) a 道场-free hand at 100 xp a tick clears ten levels in about two
-/// and a half hours and the whole ladder in about nineteen; a full 道场 (180 xp
-/// a tick) compresses those to about one and a half and eleven. The §5.2
-/// table's time column assumed a 5s tick and is superseded by this tempo. The
-/// old curve (`200 + 40` per level) topped out at 6,400 for ten levels, which
-/// [`super::document`](crate::cultivation::document)'s `trade_curve_rev`
-/// migration maps up by level.
+/// The v3 curve (`docs/0104` §4.3): `xp_total(L) = 2000·L + 600·L·(L−1)`, so
+/// level 20 is 268,000, level 50 is 1,570,000, level 80 is 3,952,000 and level
+/// 99 is 6,019,200. At the 8-second tick (450 an hour) a 道场-free hand at 100
+/// xp a tick clears level 20 in about five hours, level 50 in about twenty-eight
+/// and the whole ladder in about a hundred and eight; a full 道场 (180 xp a tick)
+/// compresses those to about three, twenty and seventy-four. The earlier
+/// thirty-level curve (3,000 / 1,800 per level) topped out at 873,000 for
+/// thirty levels — two days of gathering, which is what `docs/0104` D5 was.
 pub fn skill_xp_total(level: u8) -> u32 {
     let level = u32::from(level);
     // `saturating_sub` keeps a level zero at zero — the natural extension of
     // the formula — rather than underflowing on `L − 1`.
-    level * 3_000 + 1_800 * level * level.saturating_sub(1) / 2
+    level * 2_000 + 1_200 * level * level.saturating_sub(1) / 2
 }
 
 /// What one gathering pays for one trade, given the two trade levels, the 工坊
@@ -480,21 +493,23 @@ pub fn collect(
 }
 
 /// How many thousandths of yield each trade level past the first adds to a
-/// tick. Five percent a level, so level ten is [`BASE_COMMON_YIELD`] × 1.45.
-pub const SKILL_YIELD_STEP: u32 = 50;
+/// tick. Two percent a level (`docs/0104` §4.1), so a maxed 99 is
+/// [`BASE_COMMON_YIELD`] × 2.96: the level ladder's whole span is about three
+/// times the base, and the site tiers (×1 to ×3) carry the rest of the growth.
+pub const SKILL_YIELD_STEP: u32 = 20;
 
-/// How many thousandths of yield each realm above the first adds to a tick.
-pub const REALM_YIELD_STEP: u32 = 150;
-
-/// One *tick* of a gathering task (`docs/0103` §5.2).
+/// One *tick* of a gathering task (`docs/0103` §5.2, re-based by `docs/0104`
+/// §4.1).
 ///
 /// The per-round path [`collect`] is the session/expedition scale; this is the
-/// task scale, and the two differ in three ways: the trade multiplier counts
-/// levels *past the first* (`1000 + 50·(level−1)`), the tier multiplies on
-/// top, and the realm multiplies too. The xp is the same [`site_xp`] the other
-/// paths pay. One truncation at the end, the same discipline as
-/// [`scale_yield`]: the raw product is divided once, so no multiplier is
-/// rounded away between stages.
+/// task scale, and the two differ in two ways: the trade multiplier counts
+/// levels *past the first* (`1000 + 20·(level−1)`) and the tier multiplies on
+/// top. The realm deliberately does **not** multiply here: `docs/0104` §4.1
+/// removes it, because the realm's reward is already paid by the 打工 grade, the
+/// 功法 and the tower, and a third realm multiplier on gathering was the ×3.25 of
+/// the old growth mismatch. The xp is the same [`site_xp`] the other paths pay.
+/// One truncation at the end, the same discipline as [`scale_yield`]: the raw
+/// product is divided once, so no multiplier is rounded away between stages.
 pub fn collect_tick(
     site: GatherSite,
     tier: GatherTier,
@@ -502,14 +517,10 @@ pub fn collect_tick(
     stonecut: u8,
     workshop: u8,
     dojo: u8,
-    realm_index: u32,
 ) -> CollectionYield {
     let mut gained = ResourceBag::default();
     for (resource, base, trade) in site_finds(site, woodcut, stonecut).into_iter().flatten() {
-        gained.add(
-            resource,
-            scale_yield_tick(base, trade, workshop, realm_index, tier),
-        );
+        gained.add(resource, scale_yield_tick(base, trade, workshop, tier));
     }
     let (woodcut_xp, stonecut_xp) = site_xp(site, dojo);
     CollectionYield {
@@ -662,34 +673,24 @@ fn scale_yield(base: u32, trade_level: u8, workshop: u8) -> u32 {
     (raw_find(base, trade_level, workshop) / 1_000_000) as u32
 }
 
-/// The un-truncated yield of one tick's find: the base times the trade, 工坊,
-/// realm and tier permilles, in trillionths. [`collect_tick`] divides it once.
-fn raw_find_tick(
-    base: u32,
-    trade_level: u8,
-    workshop: u8,
-    realm_index: u32,
-    tier: GatherTier,
-) -> u64 {
+/// The un-truncated yield of one tick's find: the base times the trade, 工坊
+/// and tier permilles, in billionths. [`collect_tick`] divides it once.
+///
+/// No realm term: `docs/0104` §4.1 removes the realm multiplier from gathering,
+/// because the realm already pays through the 打工 grade, the 功法 and the tower.
+fn raw_find_tick(base: u32, trade_level: u8, workshop: u8, tier: GatherTier) -> u64 {
     // The trade multiplier counts levels *past the first*: level one is the
-    // bare base and each level after it adds five percent. `saturating_sub`
+    // bare base and each level after it adds two percent. `saturating_sub`
     // keeps a hand-edited level zero at the bare base rather than underflowing.
     let trade = u64::from(1_000 + u32::from(trade_level.saturating_sub(1)) * SKILL_YIELD_STEP);
     let workshop_m = u64::from(1_000 + u32::from(workshop) * Building::Workshop.permille());
-    let realm_m = u64::from(1_000 + realm_index.saturating_mul(REALM_YIELD_STEP));
     let tier_m = u64::from(tier.base_permille());
-    u64::from(base) * trade * workshop_m * realm_m * tier_m
+    u64::from(base) * trade * workshop_m * tier_m
 }
 
 /// The yield of one tick's find: the raw product divided once.
-fn scale_yield_tick(
-    base: u32,
-    trade_level: u8,
-    workshop: u8,
-    realm_index: u32,
-    tier: GatherTier,
-) -> u32 {
-    (raw_find_tick(base, trade_level, workshop, realm_index, tier) / 1_000_000_000_000) as u32
+fn scale_yield_tick(base: u32, trade_level: u8, workshop: u8, tier: GatherTier) -> u32 {
+    (raw_find_tick(base, trade_level, workshop, tier) / 1_000_000_000) as u32
 }
 
 /// The yield of one find across a session of `duration_permille` thousandths of
@@ -756,12 +757,16 @@ pub const BASE_RESOURCE_CAP: u32 = 400;
 /// What one 仓库 level adds to the purse's ceiling for one resource, outright.
 ///
 /// Linear rather than a ratio, so the ceiling is easy to read (a level is a
-/// number of stones, not a percentage) and the tail stays purchasable: fifty
-/// levels at 192 apiece come to 10,000, a figure that can be held in mind.
-pub const WAREHOUSE_CAP_PER_LEVEL: u32 = 192;
+/// number of stones, not a percentage) and the tail stays purchasable. The v3
+/// system (`docs/0104` §4.6) raises the step from 192 to 1,800: an hour of
+/// gathering at the endgame is fifteen thousand, so a ten-thousand headroom was
+/// a purse that filled in twenty minutes and stopped being a decision. Fifty
+/// levels at 1,800 apiece come to 90,400 — the overnight yield band of every
+/// stage, with the top level about twice the absolute endgame night.
+pub const WAREHOUSE_CAP_PER_LEVEL: u32 = 1_800;
 
-/// The purse's ceiling for one resource at a given 仓库 level: four hundred
-/// stones, and 192 more per level — fifty levels is 10,000.
+/// The purse's ceiling for one resource at a given 仓库 level: four hundred, and
+/// 1,800 more per level — fifty levels is 90,400.
 pub fn resource_cap(warehouse_level: u8) -> u32 {
     let level = u32::from(warehouse_level.min(MAX_WAREHOUSE_LEVEL));
     BASE_RESOURCE_CAP.saturating_add(level.saturating_mul(WAREHOUSE_CAP_PER_LEVEL))
@@ -786,12 +791,14 @@ fn building_upgrade_primary(rank: u32) -> u32 {
     (25.0 * 1.45_f64.powi(rank.saturating_sub(1) as i32)).round() as u32
 }
 
-/// The primary material one rank of the 仓库 costs: ten, then a one-and-nine
-/// hundredths curve — far shallower than the other buildings, because fifty
-/// levels is a long tail and a steep one would stop being buyable around the
-/// twentieth. Twenty-five levels is a week of hoarding's worth of headroom.
+/// The primary material one rank of the 仓库 costs: ninety, then a
+/// one-and-nine hundredths curve — far shallower than the other buildings,
+/// because fifty levels is a long tail and a steep one would stop being buyable
+/// around the twentieth level. `docs/0104` §4.6 multiplies the old ten by nine
+/// so the purse's cost tracks the capacity it now buys: the fifty levels come to
+/// about 73,400 wood, roughly five hours of endgame gathering.
 fn warehouse_upgrade_primary(rank: u32) -> u32 {
-    (10.0 * 1.09_f64.powi(rank.saturating_sub(1) as i32)).round() as u32
+    (90.0 * 1.09_f64.powi(rank.saturating_sub(1) as i32)).round() as u32
 }
 
 /// What one rank of a building costs at `current_level`, the rank being bought
@@ -902,11 +909,11 @@ mod tests {
 
     #[test]
     fn the_new_curve_costs_the_documented_amounts_and_climbs() {
-        // docs/0103 §5.2: 3000·L + 1800·L·(L−1)/2.
-        assert_eq!(skill_xp_total(1), 3_000);
-        assert_eq!(skill_xp_total(10), 111_000);
-        assert_eq!(skill_xp_total(20), 402_000);
-        assert_eq!(skill_xp_total(30), 873_000);
+        // docs/0104 §4.3: 2000·L + 600·L·(L−1).
+        assert_eq!(skill_xp_total(1), 2_000);
+        assert_eq!(skill_xp_total(10), 74_000);
+        assert_eq!(skill_xp_total(20), 268_000);
+        assert_eq!(skill_xp_total(99), 6_019_200);
         assert_eq!(skill_xp_total(0), 0, "level zero has no cumulative cost");
         let mut prev = 0;
         for level in 1..=MAX_TRADE_LEVEL {
@@ -919,20 +926,20 @@ mod tests {
     #[test]
     fn a_tick_pays_the_documented_base() {
         // L1 凡木林, no buildings: the bare base.
-        let base = collect_tick(GatherSite::Forest, GatherTier::Common, 1, 1, 0, 0, 0);
+        let base = collect_tick(GatherSite::Forest, GatherTier::Common, 1, 1, 0, 0);
         assert_eq!(base.gained.wood, 2);
         assert_eq!(base.gained.coal, 0, "伐木 at one has not earned 煤 yet");
-        // L10 灵木林: 2 × 1.45 × 1.5 = 4.35, truncated once to 4.
-        let spirit = collect_tick(GatherSite::Forest, GatherTier::Spirit, 10, 1, 0, 0, 0);
+        // L20 灵木林: 2 × 1.38 × 1.5 = 4.14, truncated once to 4.
+        let spirit = collect_tick(GatherSite::Forest, GatherTier::Spirit, 20, 1, 0, 0);
         assert_eq!(spirit.gained.wood, 4);
     }
 
     #[test]
     fn a_tick_unlocks_the_rares_at_the_same_trade_levels() {
-        let early_mountain = collect_tick(GatherSite::Mountain, GatherTier::Common, 1, 2, 0, 0, 0);
+        let early_mountain = collect_tick(GatherSite::Mountain, GatherTier::Common, 1, 11, 0, 0);
         assert_eq!(
             early_mountain.gained.iron, 0,
-            "采石 at two has not earned 铁"
+            "采石 at eleven has not earned 铁"
         );
         let iron = collect_tick(
             GatherSite::Mountain,
@@ -941,15 +948,14 @@ mod tests {
             IRON_UNLOCK_LEVEL,
             0,
             0,
-            0,
         );
-        assert_eq!(iron.gained.iron, 1, "采石 at three finds one 铁");
+        assert_eq!(iron.gained.iron, 1, "采石 at twelve finds one 铁");
         assert!(iron.gained.stone > 0);
 
-        let early_forest = collect_tick(GatherSite::Forest, GatherTier::Common, 4, 1, 0, 0, 0);
+        let early_forest = collect_tick(GatherSite::Forest, GatherTier::Common, 5, 1, 0, 0);
         assert_eq!(
             early_forest.gained.coal, 0,
-            "伐木 at four has not earned 煤"
+            "伐木 at five has not earned 煤"
         );
         let coal = collect_tick(
             GatherSite::Forest,
@@ -958,9 +964,8 @@ mod tests {
             1,
             0,
             0,
-            0,
         );
-        assert_eq!(coal.gained.coal, 1, "伐木 at five finds one 煤");
+        assert_eq!(coal.gained.coal, 1, "伐木 at six finds one 煤");
     }
 
     #[test]
@@ -970,7 +975,6 @@ mod tests {
             GatherTier::Common,
             COAL_UNLOCK_LEVEL,
             IRON_UNLOCK_LEVEL,
-            0,
             0,
             0,
         );
@@ -986,8 +990,8 @@ mod tests {
 
     #[test]
     fn the_dojo_raises_a_ticks_xp() {
-        let base = collect_tick(GatherSite::Forest, GatherTier::Common, 1, 1, 0, 0, 0);
-        let trained = collect_tick(GatherSite::Forest, GatherTier::Common, 1, 1, 0, 10, 0);
+        let base = collect_tick(GatherSite::Forest, GatherTier::Common, 1, 1, 0, 0);
+        let trained = collect_tick(GatherSite::Forest, GatherTier::Common, 1, 1, 0, 10);
         assert_eq!(base.xp_for(GatherSkill::Woodcut), 100);
         assert_eq!(trained.xp_for(GatherSkill::Woodcut), 180, "道场 10 级 +80%");
     }
@@ -1000,11 +1004,11 @@ mod tests {
         );
         assert_eq!(
             GatherTier::ALL.map(GatherTier::unlock_level),
-            [1, 10, 20, 30]
+            [1, 20, 50, 80]
         );
-        // L10 forest, no buildings: 2 × 1.45 × tier.
+        // L20 forest, no buildings: 2 × 1.38 × tier.
         let yields = GatherTier::ALL.map(|tier| {
-            collect_tick(GatherSite::Forest, tier, 10, 1, 0, 0, 0)
+            collect_tick(GatherSite::Forest, tier, 20, 1, 0, 0)
                 .gained
                 .wood
         });
@@ -1012,34 +1016,40 @@ mod tests {
     }
 
     #[test]
-    fn the_realm_and_the_workshop_compound_a_tick() {
-        // L10 凡木林, 工坊 10, 仙人: 2 × 1.45 × 1.9 × 2.35 = 12.9485 → 12.
-        let yield_ = collect_tick(GatherSite::Forest, GatherTier::Common, 10, 1, 10, 0, 9);
-        assert_eq!(yield_.gained.wood, 12);
+    fn the_workshop_compounds_a_tick_and_the_realm_does_not() {
+        // L20 凡木林, 工坊 10: 2 × 1.38 × 1.9 = 5.244 → 5.
+        let yield_ = collect_tick(GatherSite::Forest, GatherTier::Common, 20, 1, 10, 0);
+        assert_eq!(yield_.gained.wood, 5);
+        // docs/0104 §4.1: there is no realm term left to read — the same hand
+        // at any realm pays the same tick.
+        let deep = collect_tick(GatherSite::Forest, GatherTier::Common, 20, 1, 10, 0);
+        assert_eq!(deep.gained.wood, yield_.gained.wood);
     }
 
     #[test]
     fn the_documented_tick_table() {
-        // 8s 回合 → 450 回合/小时。凡木林、无建筑、炼气。
+        // 8s 回合 → 450 回合/小时。凡木林、无建筑。
         let bare = |level| {
-            collect_tick(GatherSite::Forest, GatherTier::Common, level, 1, 0, 0, 0)
+            collect_tick(GatherSite::Forest, GatherTier::Common, level, 1, 0, 0)
                 .gained
                 .wood
         };
         assert_eq!(bare(1), 2);
-        assert_eq!(bare(10), 2, "2 × 1.45 = 2.9, truncated once");
-        assert_eq!(bare(20), 3, "2 × 1.95 = 3.9");
-        assert_eq!(bare(30), 4, "2 × 2.45 = 4.9");
-        // 满配仙人 (工坊 10, 境界 9) 凡木林。
+        assert_eq!(bare(20), 2, "2 × 1.38 = 2.76, truncated once");
+        assert_eq!(bare(50), 3, "2 × 1.98 = 3.96");
+        assert_eq!(bare(80), 5, "2 × 2.58 = 5.16");
+        assert_eq!(bare(99), 5, "2 × 2.96 = 5.92");
+        // 满配 (工坊 10) 凡木林。
         let full = |level| {
-            collect_tick(GatherSite::Forest, GatherTier::Common, level, 1, 10, 0, 9)
+            collect_tick(GatherSite::Forest, GatherTier::Common, level, 1, 10, 0)
                 .gained
                 .wood
         };
-        assert_eq!(full(1), 8);
-        assert_eq!(full(10), 12);
-        assert_eq!(full(20), 17);
-        assert_eq!(full(30), 21);
+        assert_eq!(full(1), 3);
+        assert_eq!(full(20), 5);
+        assert_eq!(full(50), 7);
+        assert_eq!(full(80), 9);
+        assert_eq!(full(99), 11);
     }
 
     #[test]

@@ -1956,10 +1956,10 @@ mod tests {
     #[test]
     fn a_real_time_task_starts_at_its_own_tempo_and_stops_on_the_click() {
         let mut state = PomodoroState::empty();
-        // 灵木林 asks for 伐木 10 (`docs/0103` §5.2), so the save working it is a
-        // level-ten one rather than the fresh default.
+        // 灵木林 asks for 伐木 20 (`docs/0104` §4.2), so the save working it is a
+        // level-twenty one rather than the fresh default.
         state.cultivation = Cultivation::new(CultivationDocument {
-            woodcut_level: 10,
+            woodcut_level: 20,
             ..CultivationDocument::default()
         });
         state.apply(
