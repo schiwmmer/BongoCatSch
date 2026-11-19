@@ -195,7 +195,7 @@ const UPDATE_MANIFEST_NAME: &str = "latest.json";
 /// under. A release job can therefore only announce the payload it produced itself.
 const UPDATE_FRAGMENT_SUFFIX: &str = ".json";
 /// The repository that publishes releases; the manifest links its assets from here.
-const RELEASE_REPOSITORY_URL: &str = "https://github.com/ayangweb/BongoCat";
+const RELEASE_REPOSITORY_URL: &str = "https://github.com/schiwmmer/BongoCatSch";
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 

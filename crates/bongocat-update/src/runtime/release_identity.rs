@@ -8,9 +8,9 @@
 //! a build behind a corporate proxy has to work without being configured twice.
 
 /// The repository that publishes BongoCat releases.
-pub const RELEASE_REPOSITORY_OWNER: &str = "ayangweb";
+pub const RELEASE_REPOSITORY_OWNER: &str = "schiwmmer";
 
-pub const RELEASE_REPOSITORY_NAME: &str = "BongoCat";
+pub const RELEASE_REPOSITORY_NAME: &str = "BongoCatSch";
 
 /// Name of the release manifest asset an update run requests.
 ///

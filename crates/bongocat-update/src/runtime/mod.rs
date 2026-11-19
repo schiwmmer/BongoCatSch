@@ -37,7 +37,7 @@ use crate::{
 /// --generate-signing-key <file>`), keep the private half out of the repository, and
 /// paste the **public** half here — a public key is not a secret.
 ///
-/// This is the provisioned release key with ID `DF5E2C9D255DD85E`.
+/// This is the provisioned release key with ID `B616412FFB45195C`.
 ///
 /// The runtime **fails closed** when this is absent, empty or whitespace: an update
 /// check or install returns [`UpdateErrorCode::SignatureKeyMissing`] before any request
@@ -46,7 +46,7 @@ use crate::{
 /// an empty public key, because it has to decode one — but it keeps the failure a
 /// stable, path-free code instead of a library error.
 pub const RELEASE_SIGNING_KEY: Option<&str> = Some(
-    "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERGNUUyQzlEMjU1REQ4NUUKUldSZTJGMGxuU3hlMzIyMHdwUldMNTRvRStMb1hJZlI3T2w0TEdFRlI3YXhsa3k0NldGUW5EN20K",
+    "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI2MTY0MTJGRkI0NTE5NUMKUldSY0dVWDdMMEVXdHJ6RHRjN2trV1FINGY5dXZrQmpZUllKTG5aaDZ6MWJHVFhaSDN5Vy8wZHEK",
 );
 
 /// Return the configured signing key, treating empty and whitespace-only values as
