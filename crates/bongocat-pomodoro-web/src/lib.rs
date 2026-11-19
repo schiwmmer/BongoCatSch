@@ -7,9 +7,14 @@
 //! snapshot the desktop renders — through a byte buffer the page reads out of
 //! linear memory.
 //!
-//! There is deliberately no `wasm-bindgen` here. The whole interface is six
+//! There is deliberately no `wasm-bindgen` here. The whole interface is eight
 //! `extern "C"` functions and a megabyte of shared input buffer, which is less
 //! machinery than a generated glue layer and one fewer tool version to pin.
+//!
+//! Two of the eight are pure arithmetic rather than state — the task bar and the
+//! battle bar — because the page has to repaint them between snapshots, and a
+//! second copy of that arithmetic in JavaScript is a second thing to keep in
+//! step (`web_task_progress`, `web_battle_progress`).
 //!
 //! Two desktop concerns are absent by design:
 //!
@@ -223,6 +228,44 @@ pub extern "C" fn web_revision() -> u32 {
             .as_ref()
             .map_or(0, |app| app.revision.min(u64::from(u32::MAX)) as u32)
     })
+}
+
+/// How far the running task's current tick has run, in permille (`0..=1000`).
+///
+/// Pure arithmetic, no state: the page has `start_unix` and `tick_seconds` in
+/// the snapshot and a clock of its own, and the bar between two snapshots is
+/// exactly what it draws. The reading is the kernel's
+/// ([`bongocat_pomodoro::tick_progress_permille`]) rather than the page's, so
+/// the web bar and the desktop bar cannot drift.
+///
+/// `start_unix` and `now_ms` are `f64` because they arrive from JavaScript
+/// numbers; both are whole seconds/milliseconds, so the cast loses nothing.
+#[unsafe(no_mangle)]
+pub extern "C" fn web_task_progress(start_unix: f64, tick_seconds: u32, now_ms: f64) -> u32 {
+    bongocat_pomodoro::tick_progress_permille(start_unix as i64, tick_seconds, now_ms as i64)
+}
+
+/// How far a whole fight has run, in permille (`0..=1000`).
+///
+/// The finished rounds plus the round under way, over the fight's length — the
+/// same reading the desktop draws. The four numbers are all in the snapshot, so
+/// the page passes them straight through rather than holding a second copy of
+/// the arithmetic.
+#[unsafe(no_mangle)]
+pub extern "C" fn web_battle_progress(
+    rounds_done: u32,
+    rounds_total: u32,
+    start_unix: f64,
+    tick_seconds: u32,
+    now_ms: f64,
+) -> u32 {
+    bongocat_pomodoro::battle_total_progress_permille(
+        rounds_done,
+        rounds_total,
+        start_unix as i64,
+        tick_seconds,
+        now_ms as i64,
+    )
 }
 
 /// Write the document the page stores into the output buffer.

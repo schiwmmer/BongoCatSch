@@ -247,6 +247,21 @@ pub(super) fn now_unix() -> i64 {
         .unwrap_or(0)
 }
 
+/// Milliseconds since the Unix epoch, or zero when the clock predates it.
+///
+/// The live cultivation bars read this rather than [`now_unix`]: the worker
+/// settles a tick on a whole second, so a bar driven by whole seconds could only
+/// ever step once a second — and a surface repainting a hundred times a second
+/// would repaint the same value nine times out of ten. The tick edges are whole
+/// seconds, so the millisecond fraction between them is exactly the part of the
+/// tick that has passed.
+pub(super) fn now_unix_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 /// What the pomodoro task editor is working on.
 ///
 /// One editor exists at a time and it belongs to the view rather than to a
@@ -262,6 +277,21 @@ pub(crate) enum PomodoroEditorTarget {
     New,
     Existing(u64),
     Duplicate(u64),
+}
+
+/// The cultivation page's live bars, quantized to whole percents.
+///
+/// One slot per bar the page can draw — the task's tick, the fight's place in
+/// its rounds, the replay's place in its log — and `None` in a slot the page is
+/// not drawing. The poll compares this against what it last drew and repaints
+/// only when it moved, which is what lets the page's bars be read off the wall
+/// clock without the worker publishing in between: a whole percent is as finely
+/// as a bar needs to be read, and far coarser than the clock that reads it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CultivationProgressKey {
+    pub(crate) task: Option<u8>,
+    pub(crate) battle: Option<u8>,
+    pub(crate) duel: Option<u8>,
 }
 
 pub struct SettingsView {
@@ -310,6 +340,12 @@ pub struct SettingsView {
     /// this is what lets the poll repaint the garden when a plot turns pickable
     /// without cloning the snapshot on every idle tick.
     pub(crate) cultivation_minute_observed: Option<i64>,
+    /// The positions the cultivation page's real-time bars last drew, quantized
+    /// to whole percents. A task pays a tick every few seconds and a battle a
+    /// round every second, and the worker publishes only at those settlements —
+    /// so between them the revision is still and only this key, read off the
+    /// snapshot's absolute timestamps and the wall clock, says the bars moved.
+    pub(crate) cultivation_progress_observed: Option<CultivationProgressKey>,
     /// Where each cultivation module sits on screen, one slot per panel, filled
     /// during the page body's prepaint.
     ///

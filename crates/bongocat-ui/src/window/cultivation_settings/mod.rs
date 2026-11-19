@@ -20,9 +20,9 @@ use bongocat_pomodoro::{
     DropView, EquipSlot, EventDetail, EventRecord, ExplorationHours, ExplorationOutcome,
     GatherSite, GatherSkill, GatherTier, GearEffect, ItemView, LAYERS_PER_STAGE, MAX_STAR,
     MarrowSource, MasteredArtView, PlotView, PomodoroCommand, Rarity, Realm, Region, Resource,
-    ResourceBag, ResourcesView, SaleKind, SeedGrade, SeedView, SessionMode, ShopOffer,
-    ShopOfferView, StrikeEffect, TRIAL_ATTEMPTS_PER_DAY, TaskKind, TradeView, TrialBlocked,
-    art_bonus_at, art_payout_at, blueprint, grow_seconds_at, harvest_points, herb_tier,
+    ResourceBag, ResourcesView, SaleKind, SeedGrade, SeedView, ShopOffer, ShopOfferView,
+    StrikeEffect, TRIAL_ATTEMPTS_PER_DAY, TaskKind, TradeView, TrialBlocked, art_bonus_at,
+    art_payout_at, blueprint, grow_seconds_at, harvest_points, herb_tier,
     mastered_art_bonus_payout, mastered_art_payout, plant_permille, star_multiplier_permille,
 };
 
@@ -668,6 +668,40 @@ fn growth_bar(tokens: Tokens, fraction: f32) -> impl IntoElement {
                 .rounded_full()
                 .bg(tokens.accent),
         )
+}
+
+/// How wide a real-time progress bar is drawn.
+///
+/// Wider than the growth bar: that one is read beside the numbers printed next
+/// to it, while this one is read as a *rate* on its own, so it earns the width.
+const PROGRESS_BAR_WIDTH: f32 = 220.0;
+
+/// A real-time progress bar: a thin track with the filled part grown to
+/// `permille` of it.
+///
+/// This is the Melvor-style action bar the live surfaces draw — the tick under
+/// way, the fight under way, the replay under way. The value is the caller's to
+/// read off the clock; this only draws it, so the three surfaces share one bar
+/// and one width rather than each inventing its own. The kernel publishes only
+/// when a whole tick settles, so a surface that wants the bar to move between
+/// settlements reads the permille straight off the snapshot's absolute
+/// timestamps (`ActiveTask::progress_permille`, `BattleRun::total_progress_permille`).
+pub(super) fn progress_bar(id: &'static str, permille: u32, tokens: Tokens) -> impl IntoElement {
+    let filled = PROGRESS_BAR_WIDTH * (permille.min(1000) as f32 / 1000.0);
+    div()
+        .id(id)
+        .w(px(PROGRESS_BAR_WIDTH))
+        .h(px(6.0))
+        .rounded_full()
+        .bg(tokens.border)
+        .child(
+            div()
+                .w(px(filled))
+                .h(px(6.0))
+                .rounded_full()
+                .bg(tokens.accent),
+        )
+        .test_support()
 }
 
 /// The last penalty and the last thing a fight dropped, when this session

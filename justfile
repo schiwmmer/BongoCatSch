@@ -135,6 +135,20 @@ web-sdk:
 web-serve: web
     python3 -m http.server 8099 --bind 127.0.0.1 --directory web
 
+# Headless check of the browser page.
+#
+# Drives the page's own modules (`web/cultivate.js`) against the real kernel
+# (`web/bongocat_pomodoro_web.wasm`) — no browser, no cloud session. It is what
+# keeps the web page from drifting from the desktop app and the mini program:
+# the task card's start/stop entries, the gathering tier gate, the two live
+# bars (whose arithmetic now lives in the kernel and is exported as
+# `web_task_progress` / `web_battle_progress`) and the six `cult-*` commands.
+#
+# This used to be a throwaway script run once by hand (`docs/0103` §9.1); it is
+# a recipe now because "the three surfaces agree" cannot be a promise.
+web-check: web
+    node web/tools/selftest.mjs
+
 # Copy the wasm kernel into the mini program's cloud function.
 #
 # The mini program settles everything on the server (that is the anti-cheat
@@ -147,10 +161,19 @@ mp-kernel: web
 # Local checks for the mini program. No AppID and no cloud environment needed:
 # the cloud function runs against an in-memory database, the view builders run
 # against a real kernel snapshot, and the WXML gets a tag/handler audit.
+#
+# `progress-contract.js` is the anti-drift half: the page cannot run wasm, so
+# `utils/views.js` still computes the two live bars itself, and this compares it
+# with the kernel's own reading bit for bit.
 mp-check:
     node miniprogram/tools/selftest.js
     node miniprogram/tools/views-smoke.js
     node miniprogram/tools/wxml-check.js
+    node miniprogram/tools/progress-contract.js
+
+# The three-surface checks in one command: the browser page and the mini
+# program, both against the kernel `just web` just built.
+front-check: web-check mp-check
 
 # Run all default workspace quality gates.
 check:

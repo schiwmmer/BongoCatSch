@@ -42,6 +42,7 @@ BongoCat 的番茄钟 + 修仙体系，做成一个网页。数据存在云端�
 ```sh
 just web          # 编译 wasm 并复制到 web/
 just web-serve    # 编译并起 http://127.0.0.1:8099
+just web-check    # 无头门禁：真 wasm + 真视图层，不需要浏览器
 just web-sdk      # 更新 vendor 里的云 SDK
 ```
 
@@ -62,6 +63,8 @@ just web-sdk      # 更新 vendor 里的云 SDK
 | `cloud.js` | 云 SDK 客户端：登录、读档、写档、离线缓存 |
 | `app.js` | 外壳：会话守卫、导航、番茄钟页、日历、时钟循环 |
 | `cultivate.js` | 修仙各页：状态、装备、功法、灵草园、集市、外出、塔、洞府 |
+| `tools/selftest.mjs` | 无头门禁（`just web-check`）：拿真 wasm 内核驱动真视图层 |
+| `package.json` | 只声明 `type: module`，让 Node 按 ES module 读 `web/*.js` |
 | `vendor/workbuddy-cloud-sdk.js` | 云 SDK 本地副本（见下） |
 | `bongocat_pomodoro_web.wasm` | 构建产物，不入库 |
 

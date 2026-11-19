@@ -468,6 +468,41 @@ function paintClock() {
   fill.setAttribute('stroke-dashoffset', String(circumference * (1 - ratio)));
 }
 
+// 实时进度条：快照只在内核结算整回合时才变，条本身按快照的 `start_unix` 和
+// 当前时钟自己走。读数是**内核**给的（`web_task_progress` / `web_battle_progress`），
+// 不在页面里再抄一份数学——`cultivate.js` 只负责把这两个数画成两条细线。
+function kernelLive(c) {
+  const wasm = app.wasm;
+  if (!c || !wasm) return { task: null, battle: null };
+  const now = Date.now();
+  const task = c.task ? wasm.taskProgress(c.task.start_unix, c.task.tick_seconds, now) : null;
+  const battle = c.battle
+    ? wasm.battleProgress(
+        c.battle.rounds_done,
+        c.battle.rounds_total,
+        c.battle.start_unix,
+        c.battle.tick_seconds,
+        now,
+      )
+    : null;
+  return { task, battle };
+}
+
+function paintLiveBars() {
+  const c = app.snapshot?.cultivation;
+  if (!c) return;
+  const { task, battle } = kernelLive(c);
+  const paint = (id, permille) => {
+    if (permille == null) return;
+    const node = document.getElementById(id);
+    if (node) {
+      node.style.width = `${Math.max(0, Math.min(100, permille / 10))}%`;
+    }
+  };
+  paint('live-task-bar', task);
+  paint('live-battle-bar', battle);
+}
+
 /* ---------- render ---------- */
 
 function render() {
@@ -492,6 +527,8 @@ function cultivationCtx() {
       app.cultTier = tier;
       render();
     },
+    // 两条实时条的读数：统一问内核，页面不留第二份数学。
+    live: () => kernelLive(app.snapshot?.cultivation),
   };
 }
 
@@ -759,6 +796,7 @@ async function startSignedIn(current) {
       return;
     }
     paintClock();
+    paintLiveBars();
   }, 250);
 
   window.setInterval(() => {

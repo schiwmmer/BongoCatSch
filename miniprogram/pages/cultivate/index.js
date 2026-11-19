@@ -30,7 +30,7 @@ Page({
   },
 
   onShow() {
-    store.startTick({ full: () => this.render() });
+    store.startTick({ clock: () => this.paintLiveBars(), full: () => this.render() });
     if (!store.state.snapshot) {
       this.setData({ loading: true, error: '' });
       store.boot().then(() => this.render());
@@ -81,6 +81,23 @@ Page({
         break;
     }
     this.setData({ loading: false, error: '', view, header: V.header(snapshot) });
+  },
+
+  /// 实时进度条：每秒只回画两条宽度，不重渲染整页（整页是 30 秒一次的 `full`）。
+  /// 条按快照的 `start_unix` 和当前时钟自己算，与 App/web 同一口径。
+  paintLiveBars() {
+    if (this.data.section !== 'workshop' || !this.data.view) return;
+    const c = store.state.snapshot && store.state.snapshot.cultivation;
+    if (!c) return;
+    const live = V.liveProgress(c, Date.now());
+    if (live.task == null && live.battle == null) return;
+    this.setData({
+      'view.task.live': true,
+      'view.task.taskBar': live.task != null,
+      'view.task.battleBar': live.battle != null,
+      'view.task.taskPercent': V.bar((live.task || 0) / 1000),
+      'view.task.battlePercent': V.bar((live.battle || 0) / 1000),
+    });
   },
 
   async send(payload, successText) {

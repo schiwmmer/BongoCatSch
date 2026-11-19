@@ -272,6 +272,39 @@ page {
   height: 8rpx;
 }
 
+/* 实时进度条自己的细：整条轨道 8rpx（页面其它条是 12rpx），填充块 100% 高，
+   所以画出来是一条 8rpx 的细线。类名落在轨道上而不是填充块上，与下面 WXML
+   的 `class="bar thin"` 对上。 */
+.bar.thin {
+  height: 8rpx;
+}
+
+/* 实时进度条：任务/战斗并排的两条细线，各带名字。 */
+.live {
+  margin-top: 12rpx;
+}
+
+.live-row {
+  display: flex;
+  align-items: center;
+}
+
+.live-row + .live-row {
+  margin-top: 8rpx;
+}
+
+.live-row .bar {
+  flex: 1;
+  margin-top: 0;
+}
+
+.live-label {
+  flex: none;
+  width: 56rpx;
+  font-size: 20rpx;
+  color: #8b8578;
+}
+
 /* ---------- 分段切换 ---------- */
 
 .seg {

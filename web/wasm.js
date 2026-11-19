@@ -1,8 +1,12 @@
 // The wasm bridge, wrapped so the rest of the page never touches a pointer.
 //
-// The module exports six `extern "C"` functions and one shared input buffer.
+// The module exports eight `extern "C"` functions and one shared input buffer.
 // Every call is: encode the argument into that buffer, call, decode the output
 // buffer. Memory grows between calls, so the views are rebuilt every time.
+//
+// Two of the eight are arithmetic-only (`taskProgress`, `battleProgress`): the
+// page repaints the two cultivation bars between snapshots, and the formula for
+// them lives in the kernel rather than in a second copy here.
 
 export class PomodoroWasm {
   constructor(exports) {
@@ -68,6 +72,25 @@ export class PomodoroWasm {
 
   revision() {
     return this.ex.web_revision();
+  }
+
+  // How far the running task's current tick has run, in permille (0..=1000).
+  // The snapshot only moves when a whole tick settles, so the bar between two
+  // snapshots is this reading; the arithmetic is the kernel's.
+  taskProgress(startUnix, tickSeconds, nowMs) {
+    return this.ex.web_task_progress(startUnix ?? 0, tickSeconds || 1, nowMs);
+  }
+
+  // How far a whole fight has run, in permille (0..=1000): the finished rounds
+  // plus the round under way, over the fight's length.
+  battleProgress(roundsDone, roundsTotal, startUnix, tickSeconds, nowMs) {
+    return this.ex.web_battle_progress(
+      roundsDone ?? 0,
+      roundsTotal || 1,
+      startUnix ?? 0,
+      tickSeconds || 1,
+      nowMs,
+    );
   }
 
   export() {

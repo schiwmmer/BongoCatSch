@@ -144,6 +144,30 @@ const RESOURCES = [
   ['coal', '煤'],
 ];
 
+// 采集通知里采集点的叫法，与 App 的 `cultivation.site.*` 逐字一致。上面的
+// `SITES` 是任务行用的简称（森林/山麓/矿洞），两者刻意分开。
+const COLLECT_SITES = { Forest: '森林·伐木', Mountain: '山·采石', Mine: '矿洞·双技能' };
+
+// 一袋资源的一句话：「木×4 · 煤×2」。空的袋子说「空手而归」，不画一个空串。
+function bagText(bag) {
+  if (!bag) return '';
+  return RESOURCES.filter(([key]) => (bag[key] ?? 0) > 0)
+    .map(([key, label]) => `${label}×${num(bag[key])}`)
+    .join(' · ');
+}
+
+// 最近一次采集的结果，与 App 的通知行同一口径：满仓时说出被仓库吞掉的那一份，
+// 而不是一行「获得 」让人以为渲染坏了。
+function collectLine(collect) {
+  const site = COLLECT_SITES[collect.site] ?? collect.site;
+  const lost = collect.lost && Object.values(collect.lost).some((n) => n > 0);
+  const gained = bagText(lost ? collect.lost : collect.gained) || '空手而归';
+  const xp = (collect.woodcut_xp ?? 0) + (collect.stonecut_xp ?? 0);
+  return lost
+    ? `${site}：仓库已满，${gained} 未能入袋，采集经验 +${xp}`
+    : `${site}：获得 ${gained}，采集经验 +${xp}`;
+}
+
 const FIGHTS = {
   Guardian: '境界守关者',
   Wanderer: '游历散修',
@@ -236,6 +260,40 @@ function refusalText(refusal) {
   if (!refusal) return null;
   const key = typeof refusal === 'string' ? refusal : Object.keys(refusal)[0];
   return REFUSALS[key] ?? '条件不足';
+}
+
+// 实时进度：内核只在整回合结算时发布，两次发布之间快照不动，所以「这一回合
+// 走了多远」要按快照里的 `start_unix` + 当前时钟读。**这个数不再由页面算**：
+// 内核已经把它做成纯函数（`bongocat_pomodoro::tick_progress_permille`）并从 wasm
+// 导出（`web_task_progress` / `web_battle_progress`），`app.js` 的
+// `cultivationCtx().live()` 调内核取数，这里只负责画。
+//
+// 为什么不在这里留一份：网页端、小程序端、App 端原本各有一份抄着的数学，
+// 改一处漏两处就是一条会撒谎的条。返回千分比（0..1000）。
+
+// 一条实时进度条。`id` 落在填充块上，好让 paintLiveBars 每帧只改宽度。
+function liveBar(id, permille) {
+  const pct = Math.max(0, Math.min(100, (permille ?? 0) / 10));
+  return `<div class="progress" style="height:6px"><div class="progress-fill" id="${id}" style="width:${pct}%"></div></div>`;
+}
+
+// 页面上要画的那两条实时条：任务的这一回合走了多远、整场战斗走了多远。两条
+// 同时跑时都画，各自带名字，免得两条细线并排看不出谁是谁。读数是 `ctx.live`
+// 给的内核结果，没有运行中的一项是 null。
+function liveBars(c, ctx) {
+  const { task, battle } = ctx?.live?.() ?? { task: null, battle: null };
+  const rows = [];
+  if (task != null) {
+    rows.push(
+      `<div class="live-progress"><span class="live-progress-label">任务</span>${liveBar('live-task-bar', task)}</div>`,
+    );
+  }
+  if (battle != null) {
+    rows.push(
+      `<div class="live-progress"><span class="live-progress-label">战斗</span>${liveBar('live-battle-bar', battle)}</div>`,
+    );
+  }
+  return rows.join('');
 }
 
 // 当前任务那一行：任务 > 闭关 > 战斗 > 空闲。全部读快照，不在这里算数。
@@ -381,6 +439,7 @@ function statusPage(c, snapshot, ctx) {
           <div class="row-main">
             <div class="row-title">当前任务</div>
             <div class="row-sub">${taskLine(c)}</div>
+            ${liveBars(c, ctx)}
           </div>
         </div>
         ${
@@ -915,12 +974,11 @@ function outingPage(c) {
                   <div class="row-title">
                     <span class="${gradeCls}">${gradeText}</span>
                     <span>${kind}</span>
-                    <span class="chip muted">${job.hours} 小时</span>
                   </div>
                   <div class="row-sub">
                     需要 ${num(job.requirement)}${job.requirement_second ? ` / ${num(job.requirement_second)}` : ''}
                     · 现在 ${num(job.current_first)}${job.current_second ? ` / ${num(job.current_second)}` : ''}
-                    · 成功率 ${rate}% · 工钱 ${num(job.stones)} 灵石
+                    · 成功率 ${rate}% · 工钱 ${num(job.hourly_stones)} 灵石/小时
                   </div>
                 </div>
                 <div class="row-actions">
@@ -1062,6 +1120,7 @@ function taskCard(c, ctx) {
     .map(([act, label]) => `<button class="btn small jade" data-act="${act}" ${running ? 'disabled' : ''}>${label}</button>`)
     .join('');
   const seclusion = c.seclusion;
+  const collect = c.last_collect;
   return `
     <div class="card">
       <div class="card-head">
@@ -1073,11 +1132,13 @@ function taskCard(c, ctx) {
           <div class="row-main">
             <div class="row-title">当前任务</div>
             <div class="row-sub">${taskLine(c)}</div>
+            ${liveBars(c, ctx)}
           </div>
           <div class="row-actions">
             ${running ? '<button class="btn small danger" data-act="cult-stop-task">停止</button>' : ''}
           </div>
         </div>
+        ${collect ? `<div class="row"><div class="row-main"><div class="row-title">最近采集</div><div class="row-sub">${collectLine(collect)}</div></div></div>` : ''}
         <div class="row">
           <div class="row-main">
             <div class="row-title">采集点阶</div>

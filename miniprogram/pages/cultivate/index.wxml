@@ -119,10 +119,9 @@
           <view class="row-title">
             <text>{{item.kind}}</text>
             <text class="chip gold">{{item.grade}}</text>
-            <text class="chip">{{item.hours}} 小时</text>
           </view>
           <view class="row-sub">
-            需要 {{item.requirement}} · 现在 {{item.current}} · 成功率 {{item.rate}}% · 工钱 {{item.stones}}
+            需要 {{item.requirement}} · 现在 {{item.current}} · 成功率 {{item.rate}}% · 工钱 {{item.wage}} 灵石/小时
           </view>
         </view>
         <view class="row-actions">
@@ -210,12 +209,26 @@
     <view class="card">
       <view class="card-head">
         <text class="card-title">实时任务</text>
-        <text class="card-hint">{{view.task.running ? '正在进行，可随时停止' : view.task.idleText}}</text>
+        <text class="card-hint">{{view.task.headHint}}</text>
       </view>
       <view class="row">
         <view class="row-main">
           <view class="row-title">当前任务</view>
           <view class="row-sub">{{view.task.text}}</view>
+          <view wx:if="{{view.task.live}}" class="live">
+            <view wx:if="{{view.task.taskBar}}" class="live-row">
+              <text class="live-label">任务</text>
+              <view class="bar thin">
+                <view class="bar-fill" style="width:{{view.task.taskPercent}}%"></view>
+              </view>
+            </view>
+            <view wx:if="{{view.task.battleBar}}" class="live-row">
+              <text class="live-label">战斗</text>
+              <view class="bar thin">
+                <view class="bar-fill violet" style="width:{{view.task.battlePercent}}%"></view>
+              </view>
+            </view>
+          </view>
         </view>
         <view class="row-actions">
           <button
@@ -224,6 +237,12 @@
             data-act="cult-stop-task"
             bindtap="onAction"
           >{{view.task.stopText}}</button>
+        </view>
+      </view>
+      <view wx:if="{{view.collectNotice}}" class="row">
+        <view class="row-main">
+          <view class="row-title">最近采集</view>
+          <view class="row-sub">{{view.collectNotice}}</view>
         </view>
       </view>
       <view class="row">
