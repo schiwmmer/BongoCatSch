@@ -122,9 +122,9 @@ check('空转没有实时条', () => {
 
 check('采集点阶按采集等级门禁（Lv0 全锁、Lv1 只解凡）', () => {
   const locked = renderCultivation('workshop', idle, ctxFor(idle, T0 * 1000));
-  assert.match(locked, /data-tier="spirit" disabled>灵 Lv10/);
-  assert.match(locked, /data-tier="divine" disabled>神 Lv20/);
-  assert.match(locked, /data-tier="chaos" disabled>混沌 Lv30/);
+  assert.match(locked, /data-tier="spirit" disabled>灵 Lv20/);
+  assert.match(locked, /data-tier="divine" disabled>神 Lv50/);
+  assert.match(locked, /data-tier="chaos" disabled>混沌 Lv80/);
 });
 
 /* ---------- 开始 → 每回合发奖 ---------- */
@@ -191,15 +191,17 @@ check('停止时结清已走满的回合，停手之后不再有收入', () => {
 
 /* ---------- 升级后阶解锁 ---------- */
 
-check('伐木到 Lv1 后凡解锁、灵仍锁在 Lv10', () => {
+check('伐木到 Lv1 后凡解锁、灵仍锁在 Lv20', () => {
   command({ op: 'cult_start_task', kind: 'woodcut', site: 'forest', tier: 'common' }, T0 + 24);
-  // 30 回合 × 100 经验 = 3000，正好到 Lv1（`skill_xp_total(1) = 3000`）。
-  tick(T0 + 24 + 30 * 8, 30 * 8_000);
+  // 30 回合 × 100 经验 = 3000，过 Lv1 的门（`skill_xp_total(1) = 2000`）。回合
+  // 要一个一个地走：一次 240 秒的跨度会被内核当成离开（离线半额），这也是页面
+  // 真实的样子——它每秒都问一次。
+  for (let n = 1; n <= 30; n += 1) tick(T0 + 24 + n * 8, 8_000);
   const snap = snapshot(T0 + 24 + 30 * 8);
   assert.equal(snap.cultivation.resources.woodcut.level, 1);
   const card = renderCultivation('workshop', snap, ctxFor(snap, (T0 + 24 + 30 * 8) * 1000));
   assert.match(card, /data-tier="common" >凡</, '凡 在 Lv1 解禁');
-  assert.match(card, /data-tier="spirit" disabled>灵 Lv10/);
+  assert.match(card, /data-tier="spirit" disabled>灵 Lv20/);
   command({ op: 'cult_stop_task' }, T0 + 24 + 30 * 8);
 });
 

@@ -108,11 +108,13 @@ const GATHER_TIERS = { Common: '凡', Spirit: '灵', Divine: '神', Chaos: '混�
 // 采集点阶与内核的门禁一一对应（`GatherTier::unlock_level`）：阶只在「开始」
 // 那一刻定，之后每回合按它结算。`need` 是对应采集等级，页面照抄内核读数，
 // 让够不着的阶直接点不动，而不是点一次被内核拒一次。
+// 与内核 `GatherTier::unlock_level` 同表（`docs/0104` §4.2）：页面只用来画
+// 锁住的标签，真正的门禁在内核里。
 const TASK_TIERS = [
   ['common', '凡', 1],
-  ['spirit', '灵', 10],
-  ['divine', '神', 20],
-  ['chaos', '混沌', 30],
+  ['spirit', '灵', 20],
+  ['divine', '神', 50],
+  ['chaos', '混沌', 80],
 ];
 
 // 页面选的阶只是默认值：内核的 `optional_tier` 读不懂的字符串会拒命令，
