@@ -2,21 +2,14 @@
 //! permanently raises an attribute.
 //!
 //! A crop matures on the wall clock rather than on focus time, so a session
-//! planted before lunch is pickable after it. The wait scales with the seed's
-//! tier: ten minutes at the first, twenty at the second, and a hundred at the
-//! tenth — a minute-level loop, because planting is a task the player starts
-//! with a click and the first reward has to land while they are still at the
-//! desk (docs/0103 §5.5).
-//!
-//! The wait and the payout are deliberately two tables. [`WAIT_SECONDS`] is how
-//! long a bed is committed; [`HARVEST_REFERENCE_SECONDS`] is the duration a
-//! harvest is *priced* on, frozen at the old 8h–10d ladder so a harvest pays
-//! exactly what it paid before the rework (see [`harvest_points`] and
-//! [`HARVEST_PERMILLE_PER_HOUR`]). Shortening the wait without freezing the
-//! reference would multiply the garden's points per hour by ten to a hundred
-//! and silently rebalance the whole economy; freezing the reference is what
-//! lets the loop speed up while the numbers the player already knows — points,
-//! seed return, the fifteen-rank garden curve — stay exactly where they were.
+//! planted before lunch is pickable after it. The growth time scales with the
+//! seed's tier: eight hours at the first, eighteen at the third, a day at the
+//! fourth, and ten days at the tenth. The ramp past the fourth tier is gentle
+//! on purpose — the harvest is paid by the hour (see
+//! [`harvest_points`] and [`HARVEST_PERMILLE_PER_HOUR`]), so a tier that waited
+//! three times as long as the one below would pay three times as much, and a
+//! trebling ladder would put the tenth tier a year out and make a legendary
+//! seed a promise nobody could keep.
 //!
 //! A seed carries two numbers, and they answer different questions. Its **tier**
 //! is how deep it stands — which realm's patch it came off, which is also how
@@ -62,40 +55,17 @@ pub const MAX_SEED_TIER: u8 = STAGE_COUNT as u8;
 
 /// How long a seed of this tier needs to mature, in seconds.
 ///
-/// Ten minutes times the tier: ten at the first, twenty at the second, and a
-/// hundred at the tenth. The ladder is linear because the wait is now a
-/// real-time task's round trip rather than an absence the player waits out —
-/// the point is that a click is answered in minutes, and a tier that costs ten
-/// times the first tier's wait is a tier the player chooses to commit to, not
-/// one they forget they planted.
+/// Eight hours, twelve, eighteen, a day, and then a climb to ten days at the
+/// tenth. Every wait is long enough that the harvest is a *crop* rather than a
+/// notification: the payout is linear in the wait, so an eight-hour first tier
+/// is what lets the grade ladder be read at all — half an hour of anything
+/// rounds to a single point, and five grades that all read "1" are five grades
+/// the page cannot tell apart.
 ///
-/// This is the *wait* and nothing else. What a harvest pays is priced on
-/// [`HARVEST_REFERENCE_SECONDS`], the old ladder, so the two never move
-/// together: speeding the bed up does not change the economy, and a future
-/// rebalance of the payout does not change how long a bed is busy.
-const WAIT_SECONDS: [i64; MAX_SEED_TIER as usize] = [
-    600,   // 1: ten minutes
-    1_200, // 2: twenty minutes
-    1_800, // 3: half an hour
-    2_400, // 4: forty minutes
-    3_000, // 5: fifty minutes
-    3_600, // 6: an hour
-    4_200, // 7: seventy minutes
-    4_800, // 8: eighty minutes
-    5_400, // 9: an hour and a half
-    6_000, // 10: a hundred minutes
-];
-
-/// The duration a harvest of this tier is priced on, in seconds: the ladder the
-/// garden paid before the wait was reworked — eight hours at the first, twelve,
-/// eighteen, a day, and then a climb to ten days at the tenth.
-///
-/// Kept as its own table rather than folded into [`HARVEST_PERMILLE_PER_HOUR`]
-/// so the payout is exactly what it was: [`harvest_points`] reads this, not
-/// [`WAIT_SECONDS`], and a harvest is worth the same number of points whether
-/// the bed was busy for ten minutes or eight hours. See the module header for
-/// why the two tables are decoupled.
-const HARVEST_REFERENCE_SECONDS: [i64; MAX_SEED_TIER as usize] = [
+/// The grade does not enter: a 神阶 seed of the third tier is still an
+/// eighteen-hour crop. What the grade buys is the harvest, not the wait, so the
+/// plot a user gives up is the same plot whatever comes up out of it.
+const GROW_SECONDS: [i64; MAX_SEED_TIER as usize] = [
     28_800,  // 1: eight hours
     43_200,  // 2: twelve hours
     64_800,  // 3: eighteen hours
@@ -110,15 +80,7 @@ const HARVEST_REFERENCE_SECONDS: [i64; MAX_SEED_TIER as usize] = [
 
 /// How long a seed of this tier needs to mature, in seconds.
 pub fn grow_seconds(tier: u8) -> i64 {
-    WAIT_SECONDS[usize::from(tier.clamp(1, MAX_SEED_TIER) - 1)]
-}
-
-/// The duration a harvest of this tier is priced on, in seconds.
-///
-/// Not [`grow_seconds`]: the payout is pinned to the pre-rework ladder so the
-/// economy does not move when the wait does.
-fn harvest_reference_seconds(tier: u8) -> i64 {
-    HARVEST_REFERENCE_SECONDS[usize::from(tier.clamp(1, MAX_SEED_TIER) - 1)]
+    GROW_SECONDS[usize::from(tier.clamp(1, MAX_SEED_TIER) - 1)]
 }
 
 /// How long a seed of this tier takes to mature in a garden of this rank.
@@ -126,10 +88,10 @@ fn harvest_reference_seconds(tier: u8) -> i64 {
 /// Every 阶 of the 仙草园 above the first shortens the growing time by five
 /// percent, compounding: a rank-one garden grows at the base rate, a rank-two
 /// at 95%, and a full garden (the top 阶) in about half the wait. [`harvest_points`]
-/// keeps charging on [`HARVEST_REFERENCE_SECONDS`] — the frozen ladder — so
-/// raising the garden buys speed and never cheapens a harvest: the rank pays in
-/// time, not in points. A rank at or below the first, or past the top, is read
-/// at the ladder's own ends, and no shortening can take a crop below one second.
+/// keeps charging on [`grow_seconds`] — the base rate — so raising the garden
+/// buys speed and never cheapens a harvest: the rank pays in time, not in
+/// points. A rank at or below the first, or past the top, is read at the ladder's
+/// own ends, and no shortening can take a crop below one second.
 pub fn grow_seconds_at(garden_rank: u8, tier: u8) -> i64 {
     let base = grow_seconds(tier);
     let ranks_above_first = garden_rank
@@ -237,9 +199,8 @@ impl SeedGrade {
     /// a 黄阶 seed pays a quarter of what a 地阶 one does for the same wait —
     /// the herb a beginner can afford is the one that grows the least, which is
     /// what keeps "plant the cheapest thing, always" from being the answer the
-    /// garden prints. At the first tier that quarter is a single point; at the
-    /// tenth it is twenty-four — both priced on the reference ladder, whatever
-    /// the bed's own wait is.
+    /// garden prints. At the first tier that quarter is a single point for
+    /// eight hours; at the tenth it is twenty-four for ten days.
     pub const fn multiplier_permille(self) -> u32 {
         match self {
             Self::Yellow => 250,
@@ -268,30 +229,25 @@ pub(crate) fn roll_seed_grade(rng: &mut Rng) -> SeedGrade {
 /// sessions — while a crop that paid even a point an hour would hand out a
 /// hundred points for four days in the ground, and a garden would be the loudest
 /// ladder in the game rather than the quiet one. Four tenths of a point an hour
-/// puts a 地阶 plot at three points for its first tier, ten at the fourth and
-/// ninety-six at the tenth — priced on [`HARVEST_REFERENCE_SECONDS`], the
-/// pre-rework ladder, so the rate holds however short the bed's own wait gets:
-/// a crop is worth a fraction of a session for every session it takes, which is
-/// what keeps the desk the place the numbers actually come from.
+/// puts a 地阶 plot at three points for its first tier, ten for a day at the
+/// fourth and ninety-six for ten days at the tenth: a crop is worth a fraction
+/// of a session for every session it takes, which is what keeps the desk the
+/// place the numbers actually come from.
 pub const HARVEST_PERMILLE_PER_HOUR: i64 = 400;
 
 /// The attribute points one harvest of this tier and grade pays.
 ///
-/// Linear in the *reference* duration — [`HARVEST_REFERENCE_SECONDS`], the
-/// ladder the garden always paid on — times [`HARVEST_PERMILLE_PER_HOUR`],
-/// times the grade's own multiplier. It is not linear in [`grow_seconds`]: the
-/// wait was reworked to a minute-level loop (docs/0103 §5.5) while the points
-/// were held still, so a bed that is busy for ten minutes pays what an
-/// eight-hour bed paid before. Linear rather than a per-tier table because it
-/// is the only shape in which a longer crop is never a worse crop — under the
-/// old flat curve a first-tier herb paid twelve points an hour and a
+/// Linear in the wait: the tier's growing time, times [`HARVEST_PERMILLE_PER_HOUR`],
+/// times the grade's own multiplier. Linear rather than a per-tier table
+/// because it is the only shape in which a longer crop is never a worse crop —
+/// under the old flat curve a first-tier herb paid twelve points an hour and a
 /// tenth-tier one paid half a point, and the garden's answer was to buy the
 /// cheapest seed on the shelf and plant it for ever.
 ///
 /// Rounded rather than floored, and never below one: a herb that paid nothing
 /// would read as a failed harvest rather than as a cheap one.
 pub fn harvest_points(tier: u8, grade: SeedGrade) -> i32 {
-    let seconds = harvest_reference_seconds(tier);
+    let seconds = grow_seconds(tier);
     // Thousandths of a point, so three integer factors cannot lose the fraction
     // between them: seconds × permille-per-hour × grade-permille.
     let milli = seconds
@@ -780,11 +736,9 @@ mod tests {
     }
 
     /// The anchor: 地 is a thousand permille of the base rate, and every other
-    /// grade is read against it. The payout curve is pinned here, and so is the
-    /// reference ladder it is priced on: a table that moved the wait without
-    /// moving the reference would still pass a per-tier monotonicity check, and
-    /// a harvest that silently paid a tenth of what it used to would pass one
-    /// too.
+    /// grade is read against it. The whole curve — wait and payout — is pinned
+    /// here, because the two halves were retuned together: a table that moved
+    /// one without the other would still pass a per-tier monotonicity check.
     #[test]
     fn the_earth_grade_is_the_number_the_garden_pays() {
         let earth: Vec<i32> = (1..=MAX_SEED_TIER)
@@ -796,9 +750,9 @@ mod tests {
             "a 地阶 plot pays its hours"
         );
         assert_eq!(
-            harvest_reference_seconds(4),
+            grow_seconds(4),
             24 * 3_600,
-            "a fourth-tier harvest is priced on a day"
+            "a fourth-tier seed takes a day"
         );
         assert_eq!(SeedGrade::Earth.multiplier_permille(), 1_000);
         assert_eq!(
@@ -806,40 +760,6 @@ mod tests {
             SeedGrade::Earth,
             "an old seed is 地阶"
         );
-    }
-
-    /// The payout is priced on the pre-rework ladder, not on the wait: the two
-    /// tables are decoupled so speeding the bed up cannot rebalance the economy.
-    /// The reference row is written out rather than recomputed from the same
-    /// formula the code uses, so a change to either table fails here.
-    #[test]
-    fn the_harvest_is_priced_on_the_reference_ladder_not_the_wait() {
-        let reference: Vec<i64> = (1..=MAX_SEED_TIER).map(harvest_reference_seconds).collect();
-        assert_eq!(
-            reference,
-            vec![
-                28_800, 43_200, 64_800, 86_400, 129_600, 172_800, 259_200, 345_600, 518_400,
-                864_000
-            ],
-            "the pricing basis is the old 8h–10d ladder, unchanged"
-        );
-        // The wait is a different table, and the two are not the same.
-        assert_ne!(grow_seconds(1), harvest_reference_seconds(1));
-        // Every tier's points are what the old garden paid, to the point.
-        let earth: Vec<i32> = (1..=MAX_SEED_TIER)
-            .map(|tier| harvest_points(tier, SeedGrade::Earth))
-            .collect();
-        assert_eq!(earth, vec![3, 5, 7, 10, 14, 19, 29, 38, 58, 96]);
-        // The payout per reference hour is the same narrow band it always was:
-        // the rate is a property of the pricing basis, not of the wait.
-        for tier in 1..=MAX_SEED_TIER {
-            let per_hour = harvest_points(tier, SeedGrade::Earth) * 1_000
-                / (harvest_reference_seconds(tier) / 3_600) as i32;
-            assert!(
-                (300..=500).contains(&per_hour),
-                "tier {tier} pays {per_hour} thousandths of a point an hour"
-            );
-        }
     }
 
     /// Every grade is a clear step from the one below it, and the whole ladder
@@ -857,10 +777,9 @@ mod tests {
             SeedGrade::Divine.multiplier_permille() >= SeedGrade::Yellow.multiplier_permille() * 5,
             "神 has to be worth several 黄"
         );
-        // Every tier tells the five apart, the first one included: the
-        // reference ladder is exactly long enough that 黄 reads 1 and 神 reads
-        // 8 at the first tier, which is the whole reason the pricing basis was
-        // kept when the wait was shortened.
+        // Every tier tells the five apart, the first one included: an
+        // eight-hour first tier is exactly long enough that 黄 reads 1 and 神
+        // reads 8, which is the whole reason the wait was lengthened.
         for tier in 1..=MAX_SEED_TIER {
             let payouts: Vec<i32> = SeedGrade::ALL
                 .into_iter()
@@ -914,37 +833,30 @@ mod tests {
         );
     }
 
-    /// The wait is ten minutes times the tier, and nothing else. The old
-    /// 8h–10d ladder moved into `HARVEST_REFERENCE_SECONDS` so the harvest could
-    /// be priced on it (see `the_harvest_is_priced_on_the_reference_ladder_not_the_wait`);
-    /// the wait itself is a minute-level loop.
     #[test]
-    fn the_growing_time_is_ten_minutes_times_the_tier() {
-        for tier in 1..=MAX_SEED_TIER {
-            assert_eq!(
-                grow_seconds(tier),
-                i64::from(tier) * 600,
-                "tier {tier} waits ten minutes times its tier"
-            );
-        }
-        assert_eq!(grow_seconds(1), 600, "a first-tier seed takes ten minutes");
+    fn the_growing_time_anchors_on_tiers_one_and_ten() {
+        assert_eq!(grow_seconds(1), 8 * 3_600, "a first-tier seed takes 8h");
+        assert_eq!(grow_seconds(3), 18 * 3_600, "a third-tier seed takes 18h");
         assert_eq!(
-            grow_seconds(3),
-            1_800,
-            "a third-tier seed takes half an hour"
+            grow_seconds(4),
+            24 * 3_600,
+            "a fourth-tier seed takes a day"
         );
-        assert_eq!(grow_seconds(10), 6_000, "and a hundred minutes at the top");
-        // A tier outside the ladder reads the ladder's own ends, so a bad tier
-        // cannot panic the table.
-        assert_eq!(grow_seconds(0), 600, "below the first reads the first");
-        assert_eq!(
-            grow_seconds(MAX_SEED_TIER + 50),
-            6_000,
-            "past the top reads the top"
-        );
+        assert_eq!(grow_seconds(10), 10 * 24 * 3_600, "and ten days at the top");
         // Monotone, so no tier is ever a cheaper wait than the one below it.
         for tier in 2..=MAX_SEED_TIER {
             assert!(grow_seconds(tier) > grow_seconds(tier - 1), "tier {tier}");
+        }
+        // And the payout per hour stays inside a narrow band: no tier is a
+        // bargain in time, which is what used to make the cheapest seed the
+        // only one worth planting.
+        for tier in 1..=MAX_SEED_TIER {
+            let per_hour = harvest_points(tier, SeedGrade::Earth) * 1_000
+                / (grow_seconds(tier) / 3_600) as i32;
+            assert!(
+                (300..=500).contains(&per_hour),
+                "tier {tier} pays {per_hour} thousandths of a point an hour"
+            );
         }
     }
 
