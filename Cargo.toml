@@ -30,7 +30,7 @@ version = "2.5.0"
 edition = "2024"
 rust-version = "1.97"
 license = "Apache-2.0"
-repository = "https://github.com/ayangweb/BongoCat"
+repository = "https://github.com/schiwmmer/BongoCatSch"
 publish = false
 
 [workspace.dependencies]

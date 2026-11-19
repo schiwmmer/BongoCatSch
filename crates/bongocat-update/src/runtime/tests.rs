@@ -23,8 +23,8 @@ use cargo_packager_updater::url::Url;
 fn configuration(channel: ReleaseChannel) -> ReleaseConfiguration {
     ReleaseConfiguration {
         channel,
-        repository_owner: "ayangweb",
-        repository_name: "BongoCat",
+        repository_owner: "schiwmmer",
+        repository_name: "BongoCatSch",
         binary_name: "bongocat-app",
         bundle_name: Some("BongoCat.app"),
         target: UpdateTargetTriple::Aarch64AppleDarwin,
@@ -79,7 +79,7 @@ fn the_release_signing_key_is_provisioned() {
     assert_eq!(
         RELEASE_SIGNING_KEY,
         Some(
-            "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERGNUUyQzlEMjU1REQ4NUUKUldSZTJGMGxuU3hlMzIyMHdwUldMNTRvRStMb1hJZlI3T2w0TEdFRlI3YXhsa3k0NldGUW5EN20K"
+            "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI2MTY0MTJGRkI0NTE5NUMKUldSY0dVWDdMMEVXdHJ6RHRjN2trV1FINGY5dXZrQmpZUllKTG5aaDZ6MWJHVFhaSDN5Vy8wZHEK"
         )
     );
     assert!(configured_signing_key(RELEASE_SIGNING_KEY).is_some());
@@ -110,7 +110,7 @@ fn the_manifest_endpoint_is_the_shared_release_manifest() {
     );
     assert_eq!(
         endpoint.as_str(),
-        "https://github.com/ayangweb/BongoCat/releases/latest/download/latest.json"
+        "https://github.com/schiwmmer/BongoCatSch/releases/latest/download/latest.json"
     );
     assert_eq!(endpoint.scheme(), "https");
 
@@ -225,7 +225,7 @@ fn the_proxied_manifest_endpoint_prefixes_the_official_url() {
 
     assert_eq!(
         proxied.as_str(),
-        "https://cdn.gh-proxy.org/https://github.com/ayangweb/BongoCat/releases/latest/download/latest.json"
+        "https://cdn.gh-proxy.org/https://github.com/schiwmmer/BongoCatSch/releases/latest/download/latest.json"
     );
 }
 
@@ -252,7 +252,7 @@ fn manifest_sources_try_proxies_in_order_then_the_official_endpoint() {
     );
     assert_eq!(
         official.endpoint.as_str(),
-        "https://github.com/ayangweb/BongoCat/releases/latest/download/latest.json"
+        "https://github.com/schiwmmer/BongoCatSch/releases/latest/download/latest.json"
     );
 }
 
@@ -364,12 +364,12 @@ fn a_manifest_without_this_platform_stops_the_source_fallback() {
 fn download_urls_are_proxied_only_when_official_github() {
     let proxy = Some("https://cdn.gh-proxy.org");
     let github = Url::parse(
-        "https://github.com/ayangweb/BongoCat/releases/download/v0.0.0-test/BongoCat_aarch64.dmg",
+        "https://github.com/schiwmmer/BongoCatSch/releases/download/v0.0.0-test/BongoCat_aarch64.dmg",
     )
     .expect("the announced GitHub URL parses");
     assert_eq!(
         UpdateRuntime::proxied_download_url(proxy, &github).as_str(),
-        "https://cdn.gh-proxy.org/https://github.com/ayangweb/BongoCat/releases/download/v0.0.0-test/BongoCat_aarch64.dmg"
+        "https://cdn.gh-proxy.org/https://github.com/schiwmmer/BongoCatSch/releases/download/v0.0.0-test/BongoCat_aarch64.dmg"
     );
 
     // The official run keeps the announced URL untouched.
@@ -393,7 +393,7 @@ fn download_urls_are_proxied_only_when_official_github() {
 
     // And so is a GitHub URL that is not HTTPS.
     let insecure =
-        Url::parse("http://github.com/ayangweb/BongoCat/releases/download/v0.0.0-test/a")
+        Url::parse("http://github.com/schiwmmer/BongoCatSch/releases/download/v0.0.0-test/a")
             .expect("the insecure URL parses");
     assert_eq!(
         UpdateRuntime::proxied_download_url(proxy, &insecure),
@@ -509,11 +509,11 @@ fn the_release_page_url_follows_the_release_identity() {
     let runtime = runtime_for(ReleaseChannel::Production);
     assert_eq!(
         runtime.release_page_url("1.2.3").as_deref(),
-        Some("https://github.com/ayangweb/BongoCat/releases/tag/v1.2.3")
+        Some("https://github.com/schiwmmer/BongoCatSch/releases/tag/v1.2.3")
     );
     assert_eq!(
         runtime.release_page_url("v1.2.3").as_deref(),
-        Some("https://github.com/ayangweb/BongoCat/releases/tag/v1.2.3")
+        Some("https://github.com/schiwmmer/BongoCatSch/releases/tag/v1.2.3")
     );
 }
 
