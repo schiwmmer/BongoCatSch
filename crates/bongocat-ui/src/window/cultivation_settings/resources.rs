@@ -16,8 +16,7 @@ use super::*;
 /// which made the panel the longest on the page for the least information: the
 /// three trades were one line each, and the four buildings one row each. The
 /// information is the same now, packed into the rows that were mostly empty —
-/// the mode buttons share a line with the trades, and the buildings sit two to a
-/// row.
+/// the two trades share one line, and the buildings sit two to a row.
 pub(super) fn resources_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
@@ -32,17 +31,7 @@ pub(super) fn resources_panel(
         .flex_col()
         .gap_1()
         .child(section_title(locale, "cultivation.resources.title", tokens))
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .flex_wrap()
-                .items_center()
-                .justify_between()
-                .gap_3()
-                .child(mode_row(view, cultivation.session_mode, locale))
-                .child(trades_line(resources, locale)),
-        )
+        .child(trades_line(resources, locale))
         .child(task_row(view, cultivation, tier, locale, tokens))
         .child(seclusion_row(view, cultivation, locale, tokens))
         .child(bag_row(resources, locale))
@@ -50,47 +39,14 @@ pub(super) fn resources_panel(
         .test_support()
 }
 
-/// The three session modes, as three buttons: what the next finished pomodoro
-/// pays. The armed one is disabled, the way a selected 功法 is — a mode already
-/// chosen is not offered again.
-fn mode_row(view: &Entity<SettingsView>, current: SessionMode, locale: &str) -> impl IntoElement {
-    let mut row = div()
-        .id("cultivation-resources-modes")
-        .flex()
-        .flex_row()
-        .gap_1();
-    for mode in [SessionMode::Study, SessionMode::Woodcut, SessionMode::Mine] {
-        let armed = mode == current;
-        row = row.child(
-            Button::new(format!("cultivation-mode-{mode:?}"))
-                .ghost()
-                .small()
-                .label(text(locale, mode.key()))
-                .disabled(armed)
-                .on_click({
-                    let view = view.clone();
-                    move |_, _, cx| {
-                        view.update(cx, |view, cx| {
-                            let _ = view
-                                .pomodoro
-                                .try_publish(PomodoroCommand::SelectSessionMode { mode });
-                            view.poll_pomodoro(cx);
-                        });
-                    }
-                }),
-        );
-    }
-    row
-}
-
 /// The real-time task area (`docs/0103` §4): the task under way, and the three
 /// a click can start.
 ///
-/// This is a row of its own beside [`mode_row`] rather than a replacement for
-/// it. A session mode decides what a *finished pomodoro* pays; a task is
-/// started and stopped by hand and pays on the clock. Merging the two would put
-/// one set of buttons behind two different jobs, and a user who clicked 伐木 to
-/// chop would have armed their next session instead of starting the work.
+/// A session mode decides what a *finished pomodoro* pays; a task is started
+/// and stopped by hand and pays on the clock. The old 修习/伐木/采石 row that
+/// used to sit beside this one is gone: it armed the next session, which is
+/// what the 番茄钟 window's own selector is for, and a second copy of it here
+/// read as a second way to start the same work.
 fn task_row(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
@@ -106,7 +62,7 @@ fn task_row(
         .child(section_title(locale, "cultivation.task.title", tokens));
     panel = match cultivation.task.as_ref() {
         Some(task) => panel
-            .child(task_status_line(task, locale, tokens))
+            .child(task_status_line(task, now_unix_millis(), locale, tokens))
             .child(task_stop_button(view, locale)),
         None => panel.child(
             div()
@@ -122,15 +78,24 @@ fn task_row(
         .test_support()
 }
 
-/// The task under way as one line: what it is, where it works, how many ticks
-/// the clock has already paid and how long one tick is.
+/// The task under way as one line and the bar filling beneath it: what it is,
+/// where it works, how many ticks the clock has already paid, how long one tick
+/// is, and how far the tick under way has run.
 ///
 /// The tick count and the tempo are both read off the task rather than
 /// recomputed from the clock: the domain is the only thing that knows which
 /// ticks it has settled, and a page that divided the elapsed seconds itself
 /// would drift from the save the moment a tick was capped or a relaunch landed
-/// mid-tick.
-fn task_status_line(task: &ActiveTask, locale: &str, tokens: Tokens) -> impl IntoElement {
+/// mid-tick. The bar is the other half of that: the domain settles whole ticks
+/// and says nothing in between, so the part of the tick already spent is read
+/// off the task's own `start_unix` and the wall clock, the way the page's
+/// countdowns are.
+fn task_status_line(
+    task: &ActiveTask,
+    now_ms: i64,
+    locale: &str,
+    tokens: Tokens,
+) -> impl IntoElement {
     let kind = text(locale, task.kind.key()).to_string();
     let ticks = task.ticks_done.to_string();
     let seconds = task.tick_seconds.to_string();
@@ -154,9 +119,17 @@ fn task_status_line(task: &ActiveTask, locale: &str, tokens: Tokens) -> impl Int
     };
     div()
         .id("cultivation-task-status")
+        .flex()
+        .flex_col()
+        .gap_0p5()
         .text_xs()
         .text_color(tokens.accent)
         .child(line)
+        .child(progress_bar(
+            "cultivation-task-progress",
+            task.progress_permille(now_ms),
+            tokens,
+        ))
         .test_support()
 }
 

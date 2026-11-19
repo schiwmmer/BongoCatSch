@@ -144,11 +144,17 @@ pub(super) fn trial_panel(
     // tower click started a real-time battle (S5, §5.4), and until its last
     // round is played the save is fighting. The line names which fight it is and
     // how far it has got, read off the run rather than recomputed from the clock
-    // — the domain is the only thing that knows which rounds it has played.
+    // — the domain is the only thing that knows which rounds it has played. The
+    // bar under it is the whole fight's own progress: a round a second long
+    // would otherwise read as a bar resetting every second, and a fight is one
+    // action rather than thirty.
     if let Some(battle) = cultivation.battle.as_ref() {
         panel = panel.child(
             div()
                 .id("cultivation-trial-battle")
+                .flex()
+                .flex_col()
+                .gap_0p5()
                 .text_xs()
                 .text_color(tokens.accent)
                 .child(format_text(
@@ -159,6 +165,11 @@ pub(super) fn trial_panel(
                         ("done", battle.rounds_done.to_string()),
                         ("total", battle.rounds_total.to_string()),
                     ],
+                ))
+                .child(progress_bar(
+                    "cultivation-battle-progress",
+                    battle.total_progress_permille(now_unix_millis()),
+                    tokens,
                 ))
                 .test_support(),
         );

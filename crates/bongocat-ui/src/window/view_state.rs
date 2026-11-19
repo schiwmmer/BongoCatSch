@@ -7,6 +7,18 @@ use super::*;
 /// calendar and the task list track a running countdown without a per-tick clone.
 const POMODORO_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
 
+/// How often the cultivation page's real-time bars are re-read while a task, a
+/// fight or a replay is under way.
+///
+/// The worker settles whole ticks and whole rounds and publishes only then, so
+/// the snapshot's revision does not move while a bar is filling; the bar is read
+/// off the snapshot's absolute timestamps and the wall clock instead, and this
+/// timer is what gives that reading a frame. A hundred milliseconds is the order
+/// of a display frame and far finer than the shortest tick (a battle round is one
+/// second), so a bar reads as filling rather than stepping once per tick.
+const CULTIVATION_PROGRESS_POLL_INTERVAL: std::time::Duration =
+    std::time::Duration::from_millis(100);
+
 impl SettingsView {
     pub(super) fn set_navigation_memory(&mut self, memory: SettingsNavigationMemory) {
         self.navigation_memory = memory;
@@ -368,11 +380,17 @@ impl SettingsView {
                 ))
         });
         // The pomodoro snapshot advances on a worker thread, so the page re-reads
-        // it on a light timer and re-renders only when the revision moves.
+        // it on a light timer and re-renders only when the revision moves. The
+        // sleep is as short as the shortest thing the page draws, so a cultivation
+        // page with a live bar is read once a frame while a quieter page sleeps.
         cx.spawn(async move |this, cx| {
             let executor = cx.background_executor().clone();
             loop {
-                executor.timer(POMODORO_POLL_INTERVAL).await;
+                let interval = match this.update(cx, |view, _| view.poll_interval()) {
+                    Ok(interval) => interval,
+                    Err(_) => break,
+                };
+                executor.timer(interval).await;
                 if this.update(cx, |view, cx| view.poll_pomodoro(cx)).is_err() {
                     break;
                 }
@@ -413,6 +431,7 @@ impl SettingsView {
             pomodoro_editor_sessions,
             pomodoro_observed_revision: 0,
             cultivation_minute_observed: None,
+            cultivation_progress_observed: None,
             cultivation_panel_bounds: cultivation_settings::panel_bounds_store(),
             cultivation_open_item: None,
             cultivation_open_offer: None,
@@ -534,7 +553,14 @@ impl SettingsView {
         }
         let revision = self.pomodoro.revision();
         if revision == self.pomodoro_observed_revision {
-            self.poll_ripening(cx);
+            // The worker has nothing new, but the cultivation page's bars and
+            // countdowns run on the wall clock rather than on a worker change,
+            // so they are read on this same idle tick.
+            let now = now_unix();
+            let now_ms = now_unix_millis();
+            let snapshot = self.pomodoro.snapshot();
+            self.poll_ripening(&snapshot.cultivation, now, cx);
+            self.poll_cultivation_progress(&snapshot.cultivation, now_ms, cx);
         } else {
             self.pomodoro_observed_revision = revision;
             cx.notify();
@@ -779,18 +805,64 @@ impl SettingsView {
     /// and the fight button would stay locked with a stale countdown beside it,
     /// until something else happened to repaint the page. Only the cultivation
     /// page pays the snapshot clone, and only once per displayed minute.
-    fn poll_ripening(&mut self, cx: &mut Context<Self>) {
+    fn poll_ripening(
+        &mut self,
+        cultivation: &bongocat_pomodoro::CultivationView,
+        now: i64,
+        cx: &mut Context<Self>,
+    ) {
         if self.navigation_memory.page_index() != SettingsNavigationPage::Cultivation.index() {
             self.cultivation_minute_observed = None;
             return;
         }
-        let now = now_unix();
-        let snapshot = self.pomodoro.snapshot();
-        let key = cultivation_minute(&snapshot.cultivation, now);
+        let key = cultivation_minute(cultivation, now);
         if key == self.cultivation_minute_observed {
             return;
         }
         self.cultivation_minute_observed = key;
+        cx.notify();
+    }
+
+    /// How long the poll should sleep before its next read.
+    ///
+    /// A cultivation page drawing a real-time bar sleeps a frame, because the
+    /// worker publishes only when a whole tick settles and the bar is read off
+    /// the wall clock in between; anything quieter sleeps the long interval,
+    /// which is what keeps a window the user is not looking at cheap.
+    fn poll_interval(&self) -> std::time::Duration {
+        if self.navigation_memory.page_index() == SettingsNavigationPage::Cultivation.index()
+            && self.cultivation_progress_observed.is_some()
+        {
+            CULTIVATION_PROGRESS_POLL_INTERVAL
+        } else {
+            POMODORO_POLL_INTERVAL
+        }
+    }
+
+    /// Repaint the cultivation page while one of its real-time bars is filling.
+    ///
+    /// A task pays a tick every few seconds and a battle a round every second,
+    /// and the worker publishes only at those settlements — so between them the
+    /// revision is still, and a page that only repainted on a revision would
+    /// draw a bar that jumps once per tick. The bar's value is read off the
+    /// snapshot's absolute timestamps and the wall clock, the same reading
+    /// [`cultivation_minute`] does for the countdowns. Only a move of a whole
+    /// percent repaints, so a quiet page costs one snapshot read and no frames.
+    fn poll_cultivation_progress(
+        &mut self,
+        cultivation: &bongocat_pomodoro::CultivationView,
+        now_ms: i64,
+        cx: &mut Context<Self>,
+    ) {
+        if self.navigation_memory.page_index() != SettingsNavigationPage::Cultivation.index() {
+            self.cultivation_progress_observed = None;
+            return;
+        }
+        let key = cultivation_progress_key(cultivation, self.cultivation_duel.as_ref(), now_ms);
+        if key == self.cultivation_progress_observed {
+            return;
+        }
+        self.cultivation_progress_observed = key;
         cx.notify();
     }
 }
@@ -822,9 +894,41 @@ fn cultivation_minute(
         .min()
 }
 
+/// Read the cultivation page's live bars off the snapshot and the wall clock.
+///
+/// `None` when the page is drawing no bar at all, which is the common case and
+/// the one the poll is looking for: nothing to draw means nothing to repaint.
+fn cultivation_progress_key(
+    cultivation: &bongocat_pomodoro::CultivationView,
+    duel: Option<&CultivationDuel>,
+    now_ms: i64,
+) -> Option<CultivationProgressKey> {
+    let task = cultivation
+        .task
+        .as_ref()
+        .map(|task| percent(task.progress_permille(now_ms)));
+    // The fight's own bar is the whole fight rather than the round under way: a
+    // round is a second long, and a bar that resets every second reads as a
+    // second timer rather than as one fight making progress.
+    let battle = cultivation
+        .battle
+        .as_ref()
+        .map(|battle| percent(battle.total_progress_permille(now_ms)));
+    let duel = duel.map(|duel| percent(duel.progress_permille()));
+    if task.is_none() && battle.is_none() && duel.is_none() {
+        return None;
+    }
+    Some(CultivationProgressKey { task, battle, duel })
+}
+
+/// A permille as a whole percent, which is as finely as a bar needs to be read.
+fn percent(permille: u32) -> u8 {
+    (permille.min(1000) / 10) as u8
+}
+
 #[cfg(test)]
 mod tests {
-    use super::cultivation_minute;
+    use super::{cultivation_minute, cultivation_progress_key, percent};
     use bongocat_pomodoro::{Attribute, CropView, CultivationView, PlotView};
 
     fn plot(ready_at_unix: i64) -> PlotView {
@@ -895,5 +999,47 @@ mod tests {
             Some(0),
             "it reads as zero rather than counting backwards"
         );
+    }
+
+    /// A page with nothing running draws no bar, which is what lets the fast
+    /// timer walk away without repainting.
+    #[test]
+    fn a_quiet_page_draws_no_live_bar() {
+        assert_eq!(cultivation_progress_key(&quiet(), None, 1_000_000), None);
+    }
+
+    /// The task's bar is the part of the tick already spent, read off the task's
+    /// own edge and the wall clock rather than off the worker's settlements.
+    #[test]
+    fn a_running_task_reads_its_tick_off_the_wall_clock() {
+        let mut domain = bongocat_pomodoro::Cultivation::default();
+        domain
+            .start_task(bongocat_pomodoro::TaskKind::Meditate, None, None, 1_000, 8)
+            .expect("a fresh cultivator starts a task");
+        let cultivation = domain.view();
+        let key = cultivation_progress_key(&cultivation, None, 1_000_000)
+            .expect("the page is drawing the task's bar");
+        assert_eq!(key.task, Some(0), "the tick has not begun");
+        let key = cultivation_progress_key(&cultivation, None, 1_002_000)
+            .expect("the task is still under way");
+        assert_eq!(
+            key.task,
+            Some(25),
+            "a quarter of the tick is a quarter of the bar"
+        );
+        let key = cultivation_progress_key(&cultivation, None, 1_004_000)
+            .expect("the task is still under way");
+        assert_eq!(key.task, Some(50), "half the tick is half the bar");
+        assert_eq!(key.battle, None, "and no fight is running");
+    }
+
+    /// A bar is read to the percent: fine enough to look like it fills, coarse
+    /// enough that a fast timer does not repaint for every permille.
+    #[test]
+    fn a_bar_is_read_to_the_percent() {
+        assert_eq!(percent(0), 0);
+        assert_eq!(percent(1_000), 100);
+        assert_eq!(percent(1_001), 100, "a bar never reads past full");
+        assert_eq!(percent(549), 54, "rounded down, so it never runs ahead");
     }
 }

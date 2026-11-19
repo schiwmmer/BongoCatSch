@@ -74,6 +74,20 @@ runningCultivation.task = {
 };
 const workshopRunning = views.workshop(runningCultivation);
 
+// 实时进度条（`docs/0103` §4 / §5.4 的动作条）：任务读自己那一回合，战斗读整场。
+// 时钟是钉死的，免得测试跟着真时间漂移。
+const liveNow = 1_800_000_000_000;
+const liveCultivation = {
+  task: { kind: 'Woodcut', site: 'forest', ticks_done: 3, tick_seconds: 8, start_unix: liveNow / 1000 - 4 },
+  battle: { kind: 'Trial', rounds_done: 2, rounds_total: 9, tick_seconds: 1, start_unix: liveNow / 1000 - 1 },
+};
+const live = views.liveProgress(liveCultivation, liveNow);
+const workshopIdle = views.workshop({});
+const battleOnlyCultivation = JSON.parse(JSON.stringify(snapshot.cultivation));
+battleOnlyCultivation.task = null;
+battleOnlyCultivation.battle = { kind: 'Trial', rounds_done: 2, rounds_total: 9, tick_seconds: 1, start_unix: Math.floor(liveNow / 1000) };
+const workshopBattle = views.workshop(battleOnlyCultivation);
+
 let failures = 0;
 
 function scan(name, value, pathText) {
@@ -128,6 +142,14 @@ const checks = [
   ['闭关卡空转时待机', outputs.workshop.seclusion.running === false],
   ['进行中的任务画出回合数', workshopRunning.task.running && workshopRunning.task.text.includes('3 回合')],
   ['进行中的任务禁用开始钮', workshopRunning.task.starts.every((item) => item.disabled === true)],
+  ['空转时不画实时进度条', workshopIdle.task.live === false],
+  ['进行中的任务画出任务进度条', workshopRunning.task.taskBar === true],
+  ['任务缺 start_unix 时读 0，不假装快到', workshopRunning.task.taskPercent === 0],
+  ['只有战斗时画战斗条、不画任务条', workshopBattle.task.battleBar === true && workshopBattle.task.taskBar === false],
+  ['只有战斗时卡片头说实话', workshopBattle.task.headHint === '战斗进行中'],
+  ['实时进度：任务读自己那一回合', live.task === 500],
+  ['实时进度：战斗读整场', live.battle === 333],
+  ['实时进度：什么都不跑时是 null', views.liveProgress({}, liveNow).task === null && views.liveProgress({}, liveNow).battle === null],
   ['灵草园有 4 块地', outputs.garden.plots.length >= 4],
   ['集市有报价', outputs.market.offers.length >= 1],
   ['状态有 4 个属性', outputs.status.attributes.length === 4],

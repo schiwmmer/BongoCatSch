@@ -16,6 +16,9 @@ const SET_EFFECTS = {
 const SECLUSION_TICKS = 250;
 const JOB_GRADE_NAMES = ['黄阶', '玄阶', '地阶', '天阶', '星阶'];
 const BATTLE_KINDS = { Trial: '锁妖塔之战', Proving: '试炼之战', Breakthrough: '破境之战' };
+// 采集点的叫法，与 App 的 `cultivation.site.*` 逐字一致。`L.SITES` 是任务行用的
+// 简称（森林/山麓/矿洞），通知行沿用 App 的「森林·伐木」口径。
+const COLLECT_SITES = { Forest: '森林·伐木', Mountain: '山·采石', Mine: '矿洞·双技能' };
 
 /// 当前任务那一行：任务 > 闭关 > 战斗 > 空闲。全部读快照，不在这里算数。
 function taskText(c) {
@@ -42,6 +45,22 @@ function taskText(c) {
   return '空闲';
 }
 
+/// 最近一次采集那一行：满仓时说出被仓库吞掉的那一份，而不是一行「获得 」让人
+/// 以为渲染坏了。口径与 App 的 `cultivation.notice.collect*` 一致。
+function collectText(collect) {
+  const site = COLLECT_SITES[collect.site] || collect.site;
+  const bagText = (bag) =>
+    L.RESOURCES.filter(([key]) => ((bag && bag[key]) || 0) > 0)
+      .map(([key, label]) => `${label}×${L.num(bag[key])}`)
+      .join(' · ');
+  const lost = collect.lost && Object.values(collect.lost).some((n) => n > 0);
+  const gained = bagText(lost ? collect.lost : collect.gained) || '空手而归';
+  const xp = (collect.woodcut_xp || 0) + (collect.stonecut_xp || 0);
+  return lost
+    ? `${site}：仓库已满，${gained} 未能入袋，采集经验 +${xp}`
+    : `${site}：获得 ${gained}，采集经验 +${xp}`;
+}
+
 /* ---------- 通用 ---------- */
 
 function header(snapshot) {
@@ -58,6 +77,37 @@ function header(snapshot) {
 function bar(ratio) {
   const value = Math.max(0, Math.min(1, Number(ratio) || 0));
   return Math.round(value * 100);
+}
+
+// 一个回合的填充进度，0..1000。内核只在整回合结算时发布，两次发布之间快照不动，
+// 所以「这一回合走了多远」按快照的 `start_unix` 和当前时钟自己读 —— 与 App 端
+// `ActiveTask::progress_permille` / `BattleRun::total_progress_permille` 同口径。
+// `now` 是毫秒：结算边是整秒，按秒读一条条只能一秒一跳。`start_unix` 缺失时读
+// 0：宁可空着，也不假装快到。
+function tickPermille(startUnix, tickSeconds, now) {
+  const start = Number(startUnix);
+  if (!start) return 0;
+  const tick = Math.max(1, tickSeconds || 1) * 1000;
+  const elapsed = Math.max(0, now - start * 1000);
+  return Math.min(1000, Math.floor((elapsed * 1000) / tick));
+}
+
+// 当前任务的实时进度：任务读自己那一回合；战斗读整场，不读当前这一回合——一
+// 回合一秒，读单回合会画成每秒归零的秒表。没有进行中的一项是 null。
+function liveProgress(c, now) {
+  const task = c.task ? tickPermille(c.task.start_unix, c.task.tick_seconds, now) : null;
+  const battle = c.battle;
+  const fight = battle
+    ? Math.min(
+        1000,
+        Math.floor(
+          ((battle.rounds_done || 0) * 1000 +
+            tickPermille(battle.start_unix, battle.tick_seconds, now)) /
+            Math.max(1, battle.rounds_total || 1),
+        ),
+      )
+    : null;
+  return { task, battle: fight };
 }
 
 /* ---------- 番茄钟 ---------- */
@@ -202,11 +252,10 @@ function outing(c) {
       slot: job.slot,
       grade: L.gradeText(job.grade),
       kind: second && second !== first ? `${first} / ${second}` : first,
-      hours: job.hours,
       requirement: `${L.num(job.requirement)}${job.requirement_second ? ` / ${L.num(job.requirement_second)}` : ''}`,
       current: `${L.num(job.current_first)}${job.current_second ? ` / ${L.num(job.current_second)}` : ''}`,
       rate: Math.round(job.success_rate / 10),
-      stones: L.num(job.stones),
+      wage: L.num(job.hourly_stones),
       working: !!job.working,
       disabled: !!job.working || !c.at_home,
     };
@@ -348,11 +397,21 @@ function workshop(c, tier) {
   });
   const running = !!c.task;
   const selectedTier = tier || 'common';
+  const live = liveProgress(c, Date.now());
   const task = {
     running,
     text: taskText(c),
     idleText: '当前没有进行中的任务',
     stopText: '停止',
+    // 卡片头那句话跟着真正跑着的东西走：只有战斗在打时，说「没有进行中的
+    // 任务」会和下面那条战斗进度条自相矛盾。
+    headHint: running ? '正在进行，可随时停止' : live.battle != null ? '战斗进行中' : '当前没有进行中的任务',
+    // 实时进度条。`*Bar` 决定画不画，`*Percent` 是 0..100 的宽度。
+    live: live.task != null || live.battle != null,
+    taskBar: live.task != null,
+    battleBar: live.battle != null,
+    taskPercent: bar((live.task || 0) / 1000),
+    battlePercent: bar((live.battle || 0) / 1000),
     tiers: L.TIER_CHOICES.map(([key, label]) => ({ key, label, active: key === selectedTier })),
     starts: [
       { act: 'cult-meditate', label: L.TASK_KINDS.Meditate, disabled: running },
@@ -382,6 +441,7 @@ function workshop(c, tier) {
     buildings,
     task,
     seclusion,
+    collectNotice: c.last_collect ? collectText(c.last_collect) : '',
   };
 }
 
@@ -663,10 +723,12 @@ function me(snapshot, profile) {
 
 module.exports = {
   artsSection,
+  bar,
   calendarView,
   garden,
   gearSection,
   header,
+  liveProgress,
   market,
   me,
   outing,

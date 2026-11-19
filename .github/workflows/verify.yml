@@ -1028,6 +1028,8 @@ jobs:
         run: just web
       - name: Run the mini-program contract checks
         run: just mp-check
+      - name: Run the browser page contract checks
+        run: just web-check
       - name: Collect redacted failure evidence
         if: ${{ failure() }}
         shell: bash

@@ -11,7 +11,7 @@
 //! one that would host this does not raise on this window. A sibling of the
 //! settings tree in the same positioned root needs no root state to appear.
 
-use super::cultivation_settings::{CombatStats, derived_rows};
+use super::cultivation_settings::{CombatStats, derived_rows, progress_bar};
 use super::*;
 use bongocat_i18n::{format_text, text};
 use bongocat_pomodoro::{
@@ -283,6 +283,26 @@ impl CultivationDuel {
         true
     }
 
+    /// How far the replay has run, in permille (`0..=1000`).
+    ///
+    /// [`Self::advance`] reveals a blow once its interval has passed, which is a
+    /// step; the bar is read off the same clock rather than off `revealed`, so
+    /// it fills between blows instead of jumping once per interval. The revealed
+    /// count is folded in as a floor, so a skip — which shows every blow at once
+    /// — is not a bar still crawling behind the log it has already caught up with.
+    pub(crate) fn progress_permille(&self) -> u32 {
+        let total = self.rounds().len() as i64;
+        if total == 0 {
+            return 1000;
+        }
+        let interval = reveal_interval_us(self.speed).max(1);
+        let elapsed = self.started.elapsed().as_micros() as i64;
+        let by_clock = (elapsed.max(0) * 1000 / (total * interval)).min(1000);
+        let shown = (self.revealed as i64).min(total);
+        let by_reveal = (shown * 1000 / total).min(1000);
+        by_clock.max(by_reveal) as u32
+    }
+
     /// Show every blow at once, and say whether any were left to show.
     pub(crate) fn reveal_all(&mut self) -> bool {
         let total = self.rounds().len();
@@ -371,6 +391,14 @@ pub(super) fn render(
                 .border_color(tokens.border)
                 .occlude()
                 .child(header(duel, locale, tokens, on_replay, on_speed, on_close))
+                // The fight's own place in the log, above the blows: the two
+                // health bars below already follow what has been revealed, and
+                // this says how far the replay has travelled as one number.
+                .child(progress_bar(
+                    "cultivation-duel-progress",
+                    duel.progress_permille(),
+                    tokens,
+                ))
                 .children(health_bars(duel, locale, tokens))
                 .children(fighter_columns(duel, locale, tokens))
                 .child(log(
@@ -1486,6 +1514,27 @@ mod tests {
         assert_eq!(duel.revealed, 0, "a replay starts over from the first blow");
         duel.reveal_all();
         assert!(duel.finished(), "every blow has been shown");
+    }
+
+    /// The bar over the log is read off the same clock as the blows, so it fills
+    /// between them rather than stepping once per blow — and a skip is not a bar
+    /// still crawling behind a log it has already caught up with.
+    #[test]
+    fn the_progress_bar_fills_between_blows_and_never_lags_a_skip() {
+        let mut duel = walk(4);
+        assert_eq!(duel.progress_permille(), 0, "the replay has not begun");
+        // Half of the first interval: the bar is an eighth of the way through
+        // the fight, though no blow has been revealed yet.
+        duel.started = Instant::now() - REVEAL_INTERVAL / 2;
+        let half = duel.progress_permille();
+        assert!((0..500).contains(&half), "half an interval reads {half}");
+        assert_eq!(duel.revealed, 0, "but the blow is still owed");
+        duel.reveal_all();
+        assert_eq!(
+            duel.progress_permille(),
+            1000,
+            "a skip is a full bar at once"
+        );
     }
 
     #[test]

@@ -716,6 +716,23 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
   background: linear-gradient(90deg, var(--jade), var(--gold));
 }
 
+/* 实时进度条：任务的这一回合、整场战斗。每帧只改填充块的宽度，所以不带
+   region-progress 的渐变，纯翡翠色就够。 */
+.live-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.live-progress-label {
+  flex: none;
+  font: 11px/1 var(--mono);
+  color: var(--ink-3);
+}
+.live-progress .progress {
+  flex: 1;
+}
+
 @media (max-width: 640px) {
   .regions-grid { grid-template-columns: repeat(2, 1fr); }
   .region-card:nth-child(5) { grid-column: span 2; }

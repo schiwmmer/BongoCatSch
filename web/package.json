@@ -1,0 +1,5 @@
+{
+  "type": "module",
+  "private": true,
+  "description": "The browser page is served as plain ES modules; this file only tells Node the same thing so web/tools/selftest.mjs can import web/cultivate.js without a re-parse warning."
+}
