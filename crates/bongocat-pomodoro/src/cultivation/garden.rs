@@ -35,8 +35,14 @@ pub const MAX_PLOT_COUNT: usize = 12;
 
 /// What the next plot costs, by how many have been bought already: the fifth
 /// plot is the cheapest and every one after it doubles.
+///
+/// Ten times the v3 ladder (`docs/0107` §4): the old eighth plot cost 19,200 —
+/// under one day's mid-game wage — so a garden filled itself and the eight
+/// bought plots were never a goal. At 10× the ladder ends at 192,000, roughly
+/// a week of mid-game wage, which is what turns the last two plots into
+/// something a save is *for*.
 pub const PLOT_PRICES: [u32; MAX_PLOT_COUNT - FREE_PLOT_COUNT] =
-    [150, 300, 600, 1200, 2400, 4800, 9600, 19200];
+    [1_500, 3_000, 6_000, 12_000, 24_000, 48_000, 96_000, 192_000];
 
 /// What buying one more plot costs, given how many the garden already holds.
 ///
@@ -647,7 +653,11 @@ pub const fn rank_cost(garden_rank: u8) -> u32 {
     } else {
         garden_rank as i64 - 1
     };
-    ((50 + 30 * step + 15 * step * step) / 2) as u32
+    // Ten times the v3 ladder (`docs/0107` §4): the whole climb used to cost
+    // 7,854 stones — an afternoon's wage — so the 造化 rank was never a
+    // purchase, only a receipt. At 10× the top rank is 17,050, and the rank
+    // before it 9,600: a real choice against the plot ladder beside it.
+    (((50 + 30 * step + 15 * step * step) / 2) * 10) as u32
 }
 
 /// The rank a gardener with this much 造化 banked stands at.
@@ -863,10 +873,10 @@ mod tests {
     #[test]
     fn the_fifth_plot_costs_and_the_thirteenth_does_not_exist() {
         assert_eq!(plot_price(3), None, "the four free plots are free");
-        assert_eq!(plot_price(4), Some(150));
-        assert_eq!(plot_price(5), Some(300));
-        assert_eq!(plot_price(8), Some(2400));
-        assert_eq!(plot_price(11), Some(19200));
+        assert_eq!(plot_price(4), Some(1_500));
+        assert_eq!(plot_price(5), Some(3_000));
+        assert_eq!(plot_price(8), Some(24_000));
+        assert_eq!(plot_price(11), Some(192_000));
         assert_eq!(plot_price(12), None, "twelve is the whole garden");
         assert_eq!(plot_price(13), None, "past twelve is not for sale");
     }
@@ -977,35 +987,41 @@ mod tests {
         }
     }
 
-    /// What the ladder costs, and why: the whole ladder asks for seven thousand
-    /// eight hundred and fifty-four stones, and twenty-two percent of what the
-    /// harvest it takes would be worth *sold* instead of kept. The first figure
-    /// is half the old ladder; the second is the number chosen, and it is
-    /// measured against the sell price the gardener actually sees, not the buy
-    /// price — which is why the old ladder, measured against the buy price, read
-    /// as forty-four percent to anyone paying in harvest they had sold.
+    /// What the ladder costs, and why it changed: v3 asked for 7,854 stones —
+    /// twenty-two percent of what the harvest it takes would be worth sold —
+    /// and that made the whole rank ladder a receipt rather than a purchase.
+    /// `docs/0107` §4 multiplies it by ten, so the ladder totals 78,540 and
+    /// costs more than the harvest alone can pay for: the 造化 rank is now a
+    /// long-term stone goal beside the plot ladder, not a rounding error.
     #[test]
-    fn the_rank_ladder_costs_a_fifth_of_the_harvest() {
+    fn the_rank_ladder_is_a_long_stone_sink() {
         let mut xp = 0_i64;
         let mut stones = 0_u32;
+        // The path starts at rank zero for the price: the first purchase
+        // charges `rank_cost(0)`, and a loop from one would miss that first
+        // 250. XP is banked per rank reached, so it still starts at one.
+        for rank in 0..MAX_GARDEN_RANK {
+            stones += rank_cost(rank);
+        }
         for rank in 1..MAX_GARDEN_RANK {
             xp += rank_xp(rank);
-            stones += rank_cost(rank);
         }
         assert_eq!(xp, rank_xp_total(MAX_GARDEN_RANK));
         assert_eq!(xp, 5_075, "five thousand and seventy-five points");
-        assert_eq!(stones, 7_854, "seven thousand eight hundred and fifty-four");
-        // Because XP *is* harvest points, and a herb sells for its points times
-        // fourteen at the buy price — the market returning SELL_NUMERATOR of
-        // SELL_DENOMINATOR of that — the stones a gardener actually earns from
-        // the harvest they sell are the points times fourteen times five tenths.
-        // The ladder is meant to be twenty-two percent of *that* figure, the one
-        // the player sees when they sell, not of the buy price.
+        assert_eq!(
+            stones, 78_790,
+            "ten times the v3 ladder, first step included"
+        );
+        // The harvest's own worth, sold, is the floor the ladder has to beat
+        // for the rank to be a sink at all: it does, by more than twice.
         let earned_per_point = u64::from(crate::cultivation::shop::SEED_STONES_PER_POINT)
             * u64::from(crate::cultivation::shop::SELL_NUMERATOR)
             / u64::from(crate::cultivation::shop::SELL_DENOMINATOR);
-        let percent = u64::from(stones) * 100 / (u64::try_from(xp).unwrap() * earned_per_point);
-        assert_eq!(percent, 22, "twenty-two percent of the harvest, sold");
+        let harvest_worth = u64::try_from(xp).unwrap() * earned_per_point;
+        assert!(
+            u64::from(stones) > harvest_worth,
+            "the rank asks {stones} against a harvest worth {harvest_worth}"
+        );
         // The thresholds rise, and the increments rise faster still: the last
         // rank is two hundred times the first.
         for rank in 2..MAX_GARDEN_RANK {
@@ -1013,7 +1029,7 @@ mod tests {
             assert!(rank_cost(rank) > rank_cost(rank - 1), "rank {rank}");
         }
         assert_eq!(rank_xp(1), 5, "the first step is one crop");
-        assert_eq!(rank_cost(1), 25);
+        assert_eq!(rank_cost(1), 250, "ten times the v3 first step");
     }
 
     /// Reading a bank back into a rank is the migration every old save takes,

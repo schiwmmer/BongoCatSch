@@ -52,9 +52,14 @@ pub enum TradeRefusal {
     /// The piece already holds every star it can: ten is the whole sky.
     StarCapped,
     /// The purse does not hold the resources the forge's tribute asks for: a
-    /// star wants wood and stone (and iron, once it is a high star), and a
-    /// purse holding 灵石 but no ore has the money and not the material.
+    /// star wants wood and stone (and iron, once it is a high star), a reforge
+    /// wants all four, and a purse holding 灵石 but no ore has the money and
+    /// not the material.
     NotEnoughResources,
+    /// The piece carries only a primary line, so there is no secondary to
+    /// move. A 普通 or 优秀 piece, and a guardian's old one-line wardrobe,
+    /// have nothing for the reforge to reroll.
+    NoSecondaryAttribute,
     /// The building is already as tall as a building can be: ten is the whole
     /// estate.
     BuildingCapped,
@@ -87,6 +92,7 @@ impl TradeRefusal {
             Self::NotEnoughRankXp => "cultivation.garden.refuse_xp",
             Self::StarCapped => "cultivation.shop.refuse_star_capped",
             Self::NotEnoughResources => "cultivation.shop.refuse_resources",
+            Self::NoSecondaryAttribute => "cultivation.shop.refuse_no_secondary",
             Self::BuildingCapped => "cultivation.shop.refuse_building_capped",
             Self::HerbNotHeld => "cultivation.aptitude_refuse_herb",
             Self::AptitudeCapped => "cultivation.aptitude_refuse_capped",

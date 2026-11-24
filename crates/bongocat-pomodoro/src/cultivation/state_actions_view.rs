@@ -5,6 +5,7 @@
 
 use super::super::CultivationDayBaseline;
 use super::*;
+use crate::cultivation::reforge_cost;
 
 impl Cultivation {
     /// What the day opened with, once per local day.
@@ -391,7 +392,7 @@ impl Cultivation {
             last_absence: self.last_absence,
             last_work: self.last_work,
             work: self.document.work,
-            job_refresh_cost: super::super::jobs::refresh_cost(),
+            job_refresh_cost: super::super::jobs::refresh_cost(self.realm().index() as u8 + 1),
             jobs: self
                 .jobs(day)
                 .into_iter()
@@ -440,6 +441,9 @@ impl Cultivation {
                     effect: item.effect,
                     star_cost: (!item.star_capped())
                         .then(|| star_up_cost(&item, self.document.smithy_level)),
+                    // A drop is not owned yet: the row can show what it is,
+                    // not offer a reforge before it is picked up.
+                    reforge_cost: None,
                     name: item.name.clone(),
                     set: item.set,
                     sell_price: shop::ShopOffer::Equipment(item.clone()).sell_price(),
@@ -520,6 +524,8 @@ impl Cultivation {
             daily_event_seen_day: self.document.daily_event_seen_day,
             star_attempts: self.star_attempts,
             last_star: self.last_star.clone(),
+            reforge_attempts: self.reforge_attempts,
+            last_reforge: self.last_reforge.clone(),
             last_collect: self.last_collect.clone(),
             last_building: self.last_building.clone(),
             exploration_region: usize::from(self.document.exploration_region)
@@ -614,6 +620,9 @@ impl Cultivation {
             // would be a button that lies.
             star_cost: (!item.star_capped())
                 .then(|| star_up_cost(item, self.document.smithy_level)),
+            // What one reforge costs, and `None` for a piece with only a
+            // primary line: there is nothing to move.
+            reforge_cost: reforge_cost(item, self.document.smithy_level),
             name: item.name.clone(),
             set: item.set,
             sell_price: shop::ShopOffer::Equipment(item.clone()).sell_price(),

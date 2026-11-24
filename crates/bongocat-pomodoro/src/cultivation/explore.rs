@@ -136,12 +136,19 @@ impl StonePurse {
 
     /// The range this purse pays at `tier`, which is a one-based realm.
     ///
-    /// A zero tier cannot happen on the ladder, but a document read from a hand
-    /// edit can say anything, so it is read as the first realm rather than as a
-    /// purse of nothing.
+    /// The realm multiplies the purse by [`super::realm_factor_permille`] —
+    /// 1.00 at the first realm, 5.95 at the tenth — rather than by the raw tier
+    /// number. The raw ×10 was the v3 leak (`docs/0107` §2): a first-tier
+    /// wanderer already carried ten hours of wage, so a tenth-tier one carried
+    /// a hundred. A zero tier cannot happen on the ladder, but a document read
+    /// from a hand edit can say anything, so it is read as the first realm
+    /// rather than as a purse of nothing.
     pub(crate) const fn at(self, tier: u8) -> (u32, u32) {
-        let tier = if tier == 0 { 1 } else { tier } as u32;
-        (self.min.saturating_mul(tier), self.max.saturating_mul(tier))
+        let factor = super::realm_factor_permille(tier);
+        (
+            self.min.saturating_mul(factor) / 1_000,
+            self.max.saturating_mul(factor) / 1_000,
+        )
     }
 }
 
@@ -176,36 +183,43 @@ pub(crate) const TRIAL_STONES: StonePurse = StonePurse { min: 60, max: 90 };
 /// What beating a wanderer pays — the road's own purse, which is what an ambush
 /// is for.
 ///
-/// `docs/0104` §8: 9,000–13,000 at the first tier, so a victory on a twelve-hour
-/// walk is worth about a third of that walk's *total* expectation on its own.
+/// `docs/0107` §3: 2,400–3,600 at the first tier, about three to four hours of
+/// 黄阶 wage. A twelve-hour walk's total — the widened road purse plus the
+/// one-in-three encounter — lands at 0.3–0.4 of the same twelve hours' wage,
+/// which is what a walk is worth beside a job once the road also pays in seeds
+/// and gear. The v3 9,000–13,000 was ten to fourteen hours of wage *before*
+/// the tier multiplier, and with it a single road fight out-earned a working
+/// day (`docs/0107` §2).
+///
 /// A fight's purse is not widened by the length: a wanderer carries what they
 /// carry whatever time it is, and the length is already paid by the odds of
 /// meeting one at all.
 pub(crate) const WANDERER_STONES: StonePurse = StonePurse {
-    min: 9_000,
-    max: 13_000,
+    min: 2_400,
+    max: 3_600,
 };
 
 /// What beating a realm's guardian pays. The richest purse, because a guardian
 /// guards a realm and its treasury both, and because it is the rarest fight on
 /// the ladder.
 ///
-/// `docs/0104` §6.2: 15,000–25,000, seventeen to twenty-eight hours of 黄阶
-/// wages. A breakthrough is a once-per-realm event, so its purse is an event and
-/// not a wage.
+/// `docs/0107` §3: 8,000–12,000 at the first tier, about nine to thirteen hours
+/// of 黄阶 wage. A breakthrough is a once-per-realm event, so its purse is an
+/// event and not a wage — but an event worth nine hours is still an event, and
+/// nine hours is what keeps it from buying the next two realms at once.
 pub(crate) const GUARDIAN_STONES: StonePurse = StonePurse {
-    min: 15_000,
-    max: 25_000,
+    min: 8_000,
+    max: 12_000,
 };
 
 /// What one 试炼 chance pays at the first tier, before the region's tier.
 ///
-/// `docs/0104` §6.2: 300–500, so a ten-chance day is about a third of the day's
+/// `docs/0107` §3: 200–320, so a ten-chance day is about a quarter of the day's
 /// 黄阶 wage and the early game's single largest discretionary income. It is its
 /// own purse rather than a fraction of the walk's: a 试炼 is bought with banked
 /// training, and pricing it off the road would make a finished pomodoro pay a
 /// sixth of a walk it never took.
-pub(crate) const PROVING_STONES: StonePurse = StonePurse { min: 300, max: 500 };
+pub(crate) const PROVING_STONES: StonePurse = StonePurse { min: 200, max: 320 };
 
 /// What one pomodoro's thousandth pays when the purse is the shape it took.
 ///
@@ -1044,13 +1058,20 @@ mod tests {
         assert!(!ExplorationOutcome::Seed.fought());
     }
 
-    /// The purse is the tier's: the same walk pays six times as much in the
-    /// sixth realm, which is what keeps the shop's weight at every depth.
+    /// The purse is the realm's: the same walk pays 5.95 times as much at the
+    /// tenth realm as at the first, which is the wage ladder's own span rather
+    /// than the raw tier number (`docs/0107` §3).
     #[test]
     fn a_purse_scales_with_the_tier_it_was_opened_at() {
         assert_eq!(WALK_STONES.at(1), (WALK_STONES.min, WALK_STONES.max));
-        assert_eq!(WALK_STONES.at(6).0, WALK_STONES.min * 6);
-        assert_eq!(WALK_STONES.at(10).1, WALK_STONES.max * 10);
+        assert_eq!(
+            WALK_STONES.at(6).0,
+            WALK_STONES.min * super::super::realm_factor_permille(6) / 1_000
+        );
+        assert_eq!(
+            WALK_STONES.at(10).1,
+            WALK_STONES.max * super::super::realm_factor_permille(10) / 1_000
+        );
         assert_eq!(
             WALK_STONES.at(0),
             WALK_STONES.at(1),
@@ -1322,16 +1343,17 @@ mod tests {
             "十二小时 = 四小时 × 3.2"
         );
         // The road's total — the purse plus the encounter a walk's roughly
-        // one-in-three chance opens — has to land at about sixty percent of a
-        // twelve-hour 黄阶 wage at the first tier. That is the 0.6:1 the walk is
-        // priced on: below a job, because the walk also drops gear, and above a
-        // trickle, because it is the slot a job competes with.
-        let total: f64 = 2_960.0 + 11_000.0 * 0.336;
+        // one-in-three chance opens — has to land at about a third of a
+        // twelve-hour 黄阶 wage at the first tier (`docs/0107` §3). Below a job,
+        // because the walk also drops gear; above a trickle, because it is the
+        // slot a job competes with.
+        let wanderer = (WANDERER_STONES.min + WANDERER_STONES.max) / 2;
+        let total: f64 = 2_960.0 + f64::from(wanderer) * 0.336;
         let wage = f64::from(jobs::job_hourly_stones(arts::ArtGrade::Yellow)) * 12.0;
         let ratio = total / wage;
         assert!(
-            (0.55..=0.65).contains(&ratio),
-            "十二小时的路 total {total} 是工资 {wage} 的 {ratio:.3}，不在 0.55–0.65"
+            (0.30..=0.45).contains(&ratio),
+            "十二小时的路 total {total} 是工资 {wage} 的 {ratio:.3}，不在 0.30–0.45"
         );
     }
 
@@ -1341,7 +1363,7 @@ mod tests {
     fn combat_purse_outpays_quiet_purse() {
         let quiet = walk_purse(Region::AzurePeaks, ExplorationHours::Four, 5);
         let combat = combat_purse(Region::AzurePeaks, ExplorationHours::Four, 5);
-        assert_eq!((combat.min, combat.max), (9_000, 13_000), "wanderer 的包裹");
+        assert_eq!((combat.min, combat.max), (2_400, 3_600), "wanderer 的包裹");
         assert!(combat.min > quiet.min, "combat wins more than a quiet walk");
     }
 
@@ -1350,7 +1372,7 @@ mod tests {
     /// worth a short walk on the road the save is already on.
     #[test]
     fn a_proving_purse_is_its_own_single_event_purse() {
-        // `docs/0104` §6.2: a 试炼 pays 300–500 at the first tier, its own purse
+        // `docs/0107` §3: a 试炼 pays 200–320 at the first tier, its own purse
         // rather than a fraction of the walk's — a 试炼 is bought with banked
         // training, and pricing it off the road would make a finished pomodoro
         // pay a sixth of a walk it never took.
@@ -1361,7 +1383,7 @@ mod tests {
             (Region::ChaosPalace, 10),
         ] {
             let proving = proving_purse(region, level);
-            assert_eq!((proving.min, proving.max), (300, 500), "{region:?}");
+            assert_eq!((proving.min, proving.max), (200, 320), "{region:?}");
         }
         // The purse is tier-agnostic: the tier's scaling is applied when the
         // purse is opened (by `roll_stones`), exactly as a walk's is. So the

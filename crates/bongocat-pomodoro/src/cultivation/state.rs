@@ -321,6 +321,30 @@ pub struct StarOutcome {
     pub cost: super::Cost,
 }
 
+/// What one reforge came to.
+///
+/// A reforge always succeeds when it is allowed: what the roll buys is which
+/// attribute the secondary line lands on, not whether it lands at all. The
+/// outcome carries both ends and both point counts so the popup can say what
+/// changed, and the cost so the purse and the line agree.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ReforgeOutcome {
+    /// The item the reforge was made on.
+    pub item_id: u64,
+    /// The item's name, for the line that says what happened.
+    pub name: Option<String>,
+    /// The attribute the secondary line used to be.
+    pub from: Attribute,
+    /// The attribute it is now.
+    pub to: Attribute,
+    /// The points the old secondary line carried.
+    pub from_points: i32,
+    /// The points the new line carries.
+    pub to_points: i32,
+    /// What the reforge cost: the 灵石 wager and the materials burned.
+    pub cost: super::Cost,
+}
+
 /// What one gathering at a site turned up.
 ///
 /// Carried rather than left to the event log because the popup that says "伐木
@@ -604,6 +628,10 @@ pub struct ItemView {
     /// What one more star costs: the 灵石 wager and the resources the forge
     /// burns. `None` once the piece holds every star it can.
     pub star_cost: Option<super::Cost>,
+    /// What one reforge costs: the 灵石 wager and the four materials the
+    /// forge burns. `None` for a piece with only a primary line — a lower-
+    /// quality piece has no secondary to move.
+    pub reforge_cost: Option<super::Cost>,
     /// The xianxia-given name the drop carried, if any.
     pub name: Option<String>,
     /// The set this piece belongs to, when it is a set piece. A set's pieces all
@@ -1035,6 +1063,11 @@ pub struct CultivationView {
     pub star_attempts: u32,
     /// What the last star attempt came to, kept for the line that says it.
     pub last_star: Option<StarOutcome>,
+    /// How many reforges have been made this session, so a surface can tell a
+    /// new result from the one it has already shown.
+    pub reforge_attempts: u32,
+    /// What the last reforge came to, kept for the line that says it.
+    pub last_reforge: Option<ReforgeOutcome>,
     /// What the last gathering turned up, kept for the line that says it.
     pub last_collect: Option<CollectOutcome>,
     /// What the last building rank came to, kept for the line that says it.
@@ -1238,6 +1271,12 @@ pub struct Cultivation {
     star_attempts: u32,
     /// What the last star attempt came to.
     last_star: Option<StarOutcome>,
+    /// How many reforges have been made this session. A surface watches this
+    /// rather than the outcome, for the same reason it watches
+    /// [`Self::star_attempts`].
+    reforge_attempts: u32,
+    /// What the last reforge came to.
+    last_reforge: Option<ReforgeOutcome>,
     /// What the last gathering turned up.
     last_collect: Option<CollectOutcome>,
     /// What the last building rank came to.
@@ -1373,6 +1412,8 @@ impl Cultivation {
             daily_events: 0,
             star_attempts: 0,
             last_star: None,
+            reforge_attempts: 0,
+            last_reforge: None,
             last_collect: None,
             last_building: None,
             breakthrough_attempts: 0,

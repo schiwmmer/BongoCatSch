@@ -142,20 +142,35 @@ pub fn job_hourly_stones(grade: ArtGrade) -> u32 {
     u32::try_from(milli).unwrap_or(u32::MAX)
 }
 
-/// How many hours of the 黄阶 rate the re-roll toll is worth: half of the
-/// board's cheapest honest four-hour job.
+/// How many hours of the stage wage the re-roll toll is worth: two.
 const JOB_REFRESH_HOURS: u32 = 2;
+
+/// What an hour of the realm's baseline wage is worth, in 灵石.
+///
+/// **The stage wage is the crafting unit of the whole 灵石 economy**
+/// (`docs/0107` §3): a 黄阶 wage is nine hundred an hour at every realm, because
+/// the grade is what the work is worth and the realm is not, but a body that
+/// can hold a realm's gear can command more of its board — so the stage wage
+/// lifts with [`super::realm_factor_permille`] and every toll priced off a
+/// body's time (a board re-roll, a star's wager) climbs with it. The shelf and
+/// the purse climb on the same factor, which is what keeps relative prices
+/// still while the absolute numbers grow.
+pub fn stage_wage_stones(tier: u8) -> u32 {
+    let wage = job_hourly_stones(ArtGrade::Yellow);
+    let factor = super::realm_factor_permille(tier);
+    u32::try_from(u64::from(wage) * u64::from(factor) / 1_000).unwrap_or(u32::MAX)
+}
 
 /// What the board charges to be re-rolled, in 灵石.
 ///
 /// A free re-roll would make the board a slot machine: three draws at a
-/// ten-thousandth, refreshed until a 神阶 job turns up. The toll is half of the
-/// board's cheapest honest work — a four-hour 黄阶 job, which since S4 is
-/// [`JOB_REFRESH_HOURS`] of the 黄阶 hourly rate — so re-rolling is a decision
-/// about money rather than about patience. It does not scale with the realm:
-/// the wage does not, so the toll does not either.
-pub fn refresh_cost() -> u32 {
-    job_hourly_stones(ArtGrade::Yellow)
+/// ten-thousandth, refreshed until a 神阶 job turns up. The toll is two hours of
+/// the stage wage — the board's cheapest honest work is a four-hour 黄阶 job,
+/// and half of that is the toll — so it is a decision about money rather than
+/// about patience. It climbs with the realm through [`stage_wage_stones`]
+/// because the board it re-rolls is stocked for that realm.
+pub fn refresh_cost(tier: u8) -> u32 {
+    stage_wage_stones(tier)
         .saturating_mul(JOB_REFRESH_HOURS)
         .max(1)
 }
@@ -585,15 +600,22 @@ mod tests {
     }
 
     #[test]
-    fn the_refresh_toll_is_half_a_four_hour_yellow_job() {
-        // The board's cheapest honest work — a four-hour 黄阶 job, which since
-        // S4 is two hours of the 黄阶 hourly rate — prices the toll at half, so
-        // a re-roll is a decision about money, not a free draw.
-        assert_eq!(
-            refresh_cost(),
-            job_hourly_stones(ArtGrade::Yellow) * JOB_REFRESH_HOURS
+    fn the_refresh_toll_is_two_hours_of_the_stage_wage() {
+        // The toll is a decision about money, not a free draw: two hours of
+        // the 黄阶 rate at the first realm, scaled by the realm's own factor
+        // (`docs/0107` §3).
+        for tier in 1..=10 {
+            assert_eq!(
+                refresh_cost(tier),
+                stage_wage_stones(tier) * JOB_REFRESH_HOURS
+            );
+        }
+        assert_eq!(refresh_cost(1), 1_800, "two 黄阶 hours at 炼气");
+        assert!(
+            refresh_cost(10) > refresh_cost(1),
+            "the toll climbs by realm"
         );
-        assert!(refresh_cost() >= 1, "a re-roll is never free");
+        assert!(refresh_cost(1) >= 1, "a re-roll is never free");
     }
 
     #[test]

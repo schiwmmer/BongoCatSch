@@ -543,4 +543,79 @@ impl Cultivation {
         );
         Ok(outcome)
     }
+
+    /// Spend 灵石 and four materials to move a piece's secondary line onto a
+    /// different attribute.
+    ///
+    /// The reforge never changes the piece's primary, quality, stars, set,
+    /// effect or name — only the second attribute line, and only its *shape*:
+    /// the total weighted worth of the piece is held constant, so the new line
+    /// buys exactly what the old one bought in that attribute's own weight.
+    /// A one-line piece has nothing to move and is refused with
+    /// [`TradeRefusal::NoSecondaryAttribute`]; the purse can also be short of
+    /// 灵石 or of the four materials.
+    pub fn reforge_item(
+        &mut self,
+        item_id: u64,
+        now_unix: i64,
+    ) -> Result<ReforgeOutcome, TradeRefusal> {
+        let Some(item) = self.item(item_id) else {
+            return Err(TradeRefusal::NotOwned);
+        };
+        let Some(from) = crate::cultivation::items::secondary_attribute(&item) else {
+            return Err(TradeRefusal::NoSecondaryAttribute);
+        };
+        let cost = super::shop::reforge_cost(&item, self.document.smithy_level)
+            .ok_or(TradeRefusal::NoSecondaryAttribute)?;
+        let options = crate::cultivation::items::reforge_options(&item);
+        if options.is_empty() {
+            return Err(TradeRefusal::NoSecondaryAttribute);
+        }
+        if self.document.stones < cost.stones {
+            return Err(TradeRefusal::NotEnoughStones);
+        }
+        if !self.document.resources.can_spend_bag(&cost.resources) {
+            return Err(TradeRefusal::NotEnoughResources);
+        }
+        let mut rng = self.rng(now_unix);
+        let to = options[rng.below(options.len() as u64) as usize];
+        let Some(attributes) = crate::cultivation::items::reforge_attributes(&item, to) else {
+            return Err(TradeRefusal::NoSecondaryAttribute);
+        };
+        let from_points = from.of(item.attributes);
+        let to_points = to.of(attributes);
+        self.document.stones = self.document.stones.saturating_sub(cost.stones);
+        self.document.resources.spend_bag(&cost.resources);
+        if let Some(owned) = self
+            .document
+            .equipment
+            .iter_mut()
+            .find(|owned| owned.id == item_id)
+        {
+            owned.attributes = attributes;
+        }
+        let outcome = ReforgeOutcome {
+            item_id,
+            name: item.name.clone(),
+            from,
+            to,
+            from_points,
+            to_points,
+            cost: cost.clone(),
+        };
+        self.reforge_attempts = self.reforge_attempts.saturating_add(1);
+        self.last_reforge = Some(outcome.clone());
+        self.push_event(
+            now_unix,
+            EventDetail::Reforge {
+                name: item.name.unwrap_or_default(),
+                from,
+                to,
+                from_points,
+                to_points,
+                cost,
+            },
+        );
+        Ok(outcome)
+    }
 }

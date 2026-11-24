@@ -814,6 +814,33 @@ fn notices(
             .into_any_element(),
         );
     }
+    // What the last reforge came to. A reforge always lands, so there is no
+    // success/failure fork: the line says which line moved and what each end
+    // was worth, which is the receipt for the stones.
+    if let Some(reforge) = &cultivation.last_reforge {
+        let name = reforge
+            .name
+            .clone()
+            .unwrap_or_else(|| text(locale, "cultivation.slot.weapon").to_string());
+        notices.push(
+            notice(
+                "cultivation-notice-reforge",
+                format_text(
+                    locale,
+                    "cultivation.notice.reforge",
+                    &[
+                        ("name", name),
+                        ("from", text(locale, reforge.from.name_key()).to_string()),
+                        ("from_points", reforge.from_points.to_string()),
+                        ("to", text(locale, reforge.to.name_key()).to_string()),
+                        ("to_points", reforge.to_points.to_string()),
+                    ],
+                ),
+                tokens.accent,
+            )
+            .into_any_element(),
+        );
+    }
     // What the last gathering turned up: the site, the find and the trade's xp,
     // one line. A tick whose find would not fit under the 仓库's ceiling says
     // so by name — a gain of nothing on its own reads as a broken line, not as
@@ -920,6 +947,47 @@ fn star_cost_text(locale: &str, cost: &Cost) -> String {
             ("stones", cost.stones.to_string()),
             ("tribute", resource_bag_text(locale, &cost.resources)),
         ],
+    )
+}
+
+/// What one 重铸 button says: the 灵石 price, said plainly. The four materials
+/// the forge burns are on the detail line rather than the button — four
+/// resource counts on every row would push the piece's own name out of an
+/// 800-wide window, and the price the user is choosing between is the stones.
+fn reforge_cost_text(locale: &str, cost: &Cost) -> String {
+    format_text(
+        locale,
+        "cultivation.item.reforge_button",
+        &[("stones", cost.stones.to_string())],
+    )
+}
+
+/// The 重铸 button: a piece with a secondary line offers the reroll, at the
+/// domain's own price. `None` for a one-line piece, which has nothing to move.
+fn reforge_button(
+    view: &Entity<SettingsView>,
+    item: &ItemView,
+    locale: &str,
+) -> Option<gpui_kit::AnyElement> {
+    let cost = item.reforge_cost.as_ref()?;
+    let item_id = item.id;
+    Some(
+        Button::new(format!("cultivation-reforge-{item_id}"))
+            .ghost()
+            .small()
+            .label(reforge_cost_text(locale, cost))
+            .on_click({
+                let view = view.clone();
+                move |_, _, cx| {
+                    view.update(cx, |view, cx| {
+                        let _ = view
+                            .pomodoro
+                            .try_publish(PomodoroCommand::ReforgeEquipment { item_id });
+                        view.poll_pomodoro(cx);
+                    });
+                }
+            })
+            .into_any_element(),
     )
 }
 
@@ -1144,6 +1212,19 @@ fn item_detail(item: &ItemView, locale: &str, tokens: Tokens) -> impl IntoElemen
                     "percent",
                     permille_percent_label(star_multiplier_permille(item.id, item.star)),
                 ),
+            ],
+        ));
+    }
+    // The reforge, when the piece has a secondary line: the full price — the
+    // stones and all four materials — belongs on the detail, where there is
+    // room to read it before the button is pressed.
+    if let Some(cost) = &item.reforge_cost {
+        panel = panel.child(format_text(
+            locale,
+            "cultivation.item.reforge_line",
+            &[
+                ("stones", cost.stones.to_string()),
+                ("tribute", resource_bag_text(locale, &cost.resources)),
             ],
         ));
     }

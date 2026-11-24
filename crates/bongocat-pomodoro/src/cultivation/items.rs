@@ -901,6 +901,76 @@ fn points_for(budget: i64, weight: i64) -> i32 {
     i32::try_from((budget + weight / 2) / weight).unwrap_or(i32::MAX)
 }
 
+/// The secondary attribute a piece actually carries, if it has one.
+///
+/// The primary is fixed by the slot — a blade's 力量, a robe's 根骨 — and the
+/// secondary is whatever the drop drew beside it. A one-line piece (the lower
+/// qualities, and a guardian's old wardrobe) has none, which is what makes
+/// reforging unavailable rather than a free extra line.
+pub(crate) fn secondary_attribute(item: &EquipmentRecord) -> Option<Attribute> {
+    let primary = item.slot.split().0;
+    Attribute::ALL
+        .iter()
+        .copied()
+        .filter(|attribute| *attribute != primary)
+        .max_by_key(|attribute| attribute.of(item.attributes))
+        .filter(|attribute| attribute.of(item.attributes) > 0)
+}
+
+/// The attributes a reforge may move a piece's secondary line to.
+///
+/// The primary stays put and the current secondary is excluded, so one
+/// reforge always changes what the piece grants; the caller draws from this
+/// list. Empty for a piece that carries no secondary line.
+pub(crate) fn reforge_options(item: &EquipmentRecord) -> Vec<Attribute> {
+    let primary = item.slot.split().0;
+    let Some(secondary) = secondary_attribute(item) else {
+        return Vec::new();
+    };
+    Attribute::ALL
+        .iter()
+        .copied()
+        .filter(|attribute| *attribute != primary && *attribute != secondary)
+        .collect()
+}
+
+/// The attributes a piece carries after its secondary line moves to `to`.
+///
+/// The piece's total weighted worth is held constant: every non-primary line
+/// is cleared, the same weighted budget is re-bought in `to` at that
+/// attribute's own weight, and the primary is left exactly where it was. A
+/// piece therefore becomes a different *shape*, never a bigger one — this is
+/// a chase for the line a build wants, not a second faucet. `None` when the
+/// piece has no secondary budget to move or `to` is the primary itself.
+pub(crate) fn reforge_attributes(item: &EquipmentRecord, to: Attribute) -> Option<Attributes> {
+    let primary = item.slot.split().0;
+    if to == primary || secondary_attribute(item).is_none() {
+        return None;
+    }
+    let total = Attribute::ALL
+        .iter()
+        .map(|attribute| i64::from(attribute.of(item.attributes)) * attribute_weight(*attribute))
+        .sum::<i64>();
+    let primary_budget = i64::from(primary.of(item.attributes)) * attribute_weight(primary);
+    let secondary_budget = total - primary_budget;
+    if secondary_budget <= 0 {
+        return None;
+    }
+    let points = points_for(secondary_budget, attribute_weight(to));
+    if points <= 0 {
+        return None;
+    }
+    let mut attributes = item.attributes;
+    for attribute in Attribute::ALL {
+        if attribute != primary {
+            let current = attribute.of(attributes);
+            attribute.add_to(&mut attributes, -current);
+        }
+    }
+    to.add_to(&mut attributes, points);
+    Some(attributes)
+}
+
 /// How many attribute lines a guardian's piece carries, by quality.
 ///
 /// A fresh drop always pays a primary and a drawn second at every quality —

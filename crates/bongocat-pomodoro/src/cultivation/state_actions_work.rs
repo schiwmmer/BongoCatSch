@@ -74,7 +74,7 @@ impl Cultivation {
     /// ten-thousandth, re-rolled until a 神阶 job turns up, would cost nothing at
     /// all if this were free.
     pub fn refresh_jobs(&mut self) -> Result<u32, TradeRefusal> {
-        let cost = super::super::jobs::refresh_cost();
+        let cost = super::super::jobs::refresh_cost(self.realm().index() as u8 + 1);
         if self.document.stones < cost {
             return Err(TradeRefusal::NotEnoughStones);
         }

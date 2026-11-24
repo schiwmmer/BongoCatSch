@@ -752,9 +752,9 @@ fn the_morning_ambush_opens_once_and_is_remembered(cx: &mut TestAppContext) {
 }
 
 /// The wager is a button like any other, and a click on it reaches the worker
-/// with the piece's id: the price on the button is the domain's own — half of
-/// what the piece sells for — so the number the user reads is the number the
-/// purse pays. A capped piece offers no button at all rather than a wager it
+/// with the piece's id: the price on the button is the domain's own — a tenth
+/// of an hour of the piece's stage wage — so the number the user reads is the
+/// number the purse pays. A capped piece offers no button at all rather than a wager it
 /// cannot hold.
 #[gpui_kit::test]
 fn clicking_a_star_asks_the_worker_for_the_wager(cx: &mut TestAppContext) {
@@ -776,6 +776,15 @@ fn clicking_a_star_asks_the_worker_for_the_wager(cx: &mut TestAppContext) {
                 stone: 2,
                 iron: 0,
                 coal: 0,
+            },
+        }),
+        reforge_cost: Some(Cost {
+            stones: 1_800,
+            resources: ResourceBag {
+                wood: 180,
+                stone: 180,
+                iron: 70,
+                coal: 70,
             },
         }),
         name: Some("玄霜剑【寒霜】".to_owned()),
@@ -812,6 +821,69 @@ fn clicking_a_star_asks_the_worker_for_the_wager(cx: &mut TestAppContext) {
             [PomodoroCommand::StarEquipment { item_id: 42 }]
         ),
         "the click asks the worker for the wager: {commands:?}"
+    );
+}
+
+/// A reforge is a button of its own beside the star, and a click reaches the
+/// worker with the piece's id. A one-line piece has no reforge price and so no
+/// button: the domain refuses what the row does not offer.
+#[gpui_kit::test]
+fn clicking_a_reforge_asks_the_worker_for_the_reroll(cx: &mut TestAppContext) {
+    let mut cultivation = at_the_cap();
+    let piece = ItemView {
+        id: 44,
+        slot: bongocat_pomodoro::EquipSlot::Weapon,
+        tier: 5,
+        rarity: Rarity::Rare,
+        attributes: Attributes::new(0, 120, 40, 0),
+        bonus: Derived::default(),
+        equipped: false,
+        star: 3,
+        effect: None,
+        star_cost: None,
+        reforge_cost: Some(Cost {
+            stones: 1_800,
+            resources: ResourceBag {
+                wood: 180,
+                stone: 180,
+                iron: 70,
+                coal: 70,
+            },
+        }),
+        name: Some("试剑".to_owned()),
+        set: None,
+        sell_price: 700,
+    };
+    cultivation.inventory = vec![
+        piece.clone(),
+        ItemView {
+            id: 45,
+            reforge_cost: None,
+            ..piece
+        },
+    ];
+    let (pomodoro, sink) = PomodoroClient::with_snapshot(pomodoro_snapshot(cultivation));
+    let (_view, visual) = cultivation_page_with(cx, pomodoro);
+    visual.update(|window, cx| window.render_frame(cx));
+    assert!(
+        painted(visual, "cultivation-reforge-44"),
+        "a two-line piece offers the reroll"
+    );
+    assert!(
+        !painted(visual, "cultivation-reforge-45"),
+        "a one-line piece offers nothing to reroll"
+    );
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.click("cultivation-reforge-44", cx);
+    });
+    let commands = published(&sink);
+    assert!(
+        matches!(
+            commands.as_slice(),
+            [PomodoroCommand::ReforgeEquipment { item_id: 44 }]
+        ),
+        "the click asks the worker for the reroll: {commands:?}"
     );
 }
 

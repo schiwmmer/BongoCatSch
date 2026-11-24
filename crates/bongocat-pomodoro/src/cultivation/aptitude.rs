@@ -337,11 +337,15 @@ impl AptitudeHerb {
     /// seventy-five. The 洗髓丹 — the only thing that opens a gate past a
     /// hundred — sits five times above the rarer, dearer herb, which is what
     /// keeps it the dearest row on the shelf even at one 灵石 in ten thousand.
+    /// `docs/0107` §4 doubles all three: at the 地阶 anchor a 悟心草 is 2,400
+    /// (about an hour and a quarter of 黄阶 wage) and a 洗髓丹 20,000 (ten
+    /// hours), so the two herbs are a real recurring purchase and the pill is
+    /// a gate worth saving for rather than a rounding error.
     pub const fn price(self) -> u32 {
         match self {
-            Self::Insight => 1_200,
-            Self::Wisdom => 2_000,
-            Self::Marrow => 10_000,
+            Self::Insight => 2_400,
+            Self::Wisdom => 4_000,
+            Self::Marrow => 20_000,
         }
     }
 
@@ -581,9 +585,9 @@ mod tests {
         assert_eq!(AptitudeHerb::Wisdom.gain_tenths(), Some(13), "1.3 at 地");
         assert_eq!(AptitudeHerb::Insight.gain_tenths(), Some(7), "0.7 at 地");
         assert!(AptitudeHerb::Marrow.gain_tenths().is_none());
-        assert_eq!(AptitudeHerb::Marrow.price(), 10_000, "一万灵石");
-        assert_eq!(AptitudeHerb::Wisdom.price(), 2_000, "两千灵石");
-        assert_eq!(AptitudeHerb::Insight.price(), 1_200, "一千二百灵石");
+        assert_eq!(AptitudeHerb::Marrow.price(), 20_000, "两万灵石");
+        assert_eq!(AptitudeHerb::Wisdom.price(), 4_000, "四千灵石");
+        assert_eq!(AptitudeHerb::Insight.price(), 2_400, "两千四百灵石");
     }
 
     /// A 潜质 herb carries a grade like any seed: 地阶 is the anchor the old
@@ -654,10 +658,10 @@ mod tests {
     /// grade and is unchanged.
     #[test]
     fn a_herb_is_priced_at_its_grade() {
-        assert_eq!(AptitudeHerb::Wisdom.price_for(SeedGrade::Earth), 2_000);
-        assert_eq!(AptitudeHerb::Wisdom.price_for(SeedGrade::Yellow), 1_520);
-        assert_eq!(AptitudeHerb::Wisdom.price_for(SeedGrade::Divine), 2_500);
-        assert_eq!(AptitudeHerb::Insight.price_for(SeedGrade::Divine), 1_500);
+        assert_eq!(AptitudeHerb::Wisdom.price_for(SeedGrade::Earth), 4_000);
+        assert_eq!(AptitudeHerb::Wisdom.price_for(SeedGrade::Yellow), 3_040);
+        assert_eq!(AptitudeHerb::Wisdom.price_for(SeedGrade::Divine), 5_000);
+        assert_eq!(AptitudeHerb::Insight.price_for(SeedGrade::Divine), 3_000);
         // The pill is not a graded thing.
         for grade in SeedGrade::ALL {
             assert_eq!(

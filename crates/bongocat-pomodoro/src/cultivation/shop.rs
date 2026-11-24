@@ -34,15 +34,13 @@ use super::{
 };
 /// How many goods the shop offers at most in one day.
 ///
-/// Five is the floor a shop needs to look like a shop rather than a slot
-/// machine: below it, a realm that can only use one kind of gear leaves the rest
-/// of the page dead. Ten is the ceiling — the ten a shelf rolls — because past
-/// it the day stops being a choice and becomes a reading list. The 潜质 herbs
-/// share the seed rows rather than adding rows of their own, so the shelf's
-/// width is the base stock's width and nothing else. The bought-slot record is
-/// cut to this number, so it has to be the true maximum or a purchase past the
-/// cut could be made twice.
-pub const SHOP_MAX_OFFERS: usize = SHOP_BASE_MAX_OFFERS;
+/// The base shelf's ten plus the 洗髓丹's own row. The pill is rolled once a
+/// *day*, not once a slot, so a day it appears carries eleven rows; the
+/// bought-slot record is cut to this number, and a maximum that stopped at the
+/// base ten would let the eleventh row be bought twice. (The v3 constant was
+/// ten, so that latent double-buy existed on every 洗髓丹 day; `docs/0107` §5
+/// pins it while the shelf is being repriced.)
+pub const SHOP_MAX_OFFERS: usize = SHOP_BASE_MAX_OFFERS + 1;
 /// The fewest the shop may offer on a quiet day.
 pub const SHOP_MIN_OFFERS: usize = 5;
 /// The most rows a day's shelf rolls — gear, herbs and 功法.
@@ -149,10 +147,19 @@ impl ShopOffer {
 /// almost the same, which makes the ladder's own steps invisible in the shop.
 /// A grade multiplies that price by its own factor rather than squaring it, so
 /// an 极品 piece is a luxury and not a second ladder bolted onto the first.
+///
+/// **Four times the v3 price** (`docs/0107` §4). The v3 shelf was priced as if
+/// a 黄阶 wage were the only purse in the game: a first-tier common piece was
+/// 133 stones — nine minutes — and the best tenth-tier one 3,156. A player
+/// could buy the whole day's shelf and still bank the day's wage, which is
+/// exactly the "消耗不足" the v4 redesign is answering. Four times keeps the
+/// early shelf affordable (a first-tier common piece is now 532, about
+/// thirty-five minutes) and makes the tenth-tier shelf a real decision against
+/// a star's wager or a plot.
 pub fn equipment_price(tier: u8, rarity: Rarity) -> u32 {
     let points = base_points(tier);
     let base = points * points / 60 + 100;
-    base * rarity.multiplier() / 10
+    base.saturating_mul(rarity.multiplier()) / 10 * 4
 }
 
 /// What one attribute point of a seed's harvest costs on the shelf, in 灵石.
@@ -182,34 +189,37 @@ pub fn seed_price(tier: u8, grade: SeedGrade) -> u32 {
 /// What one attempt at the next star costs: the 灵石 wager and the tribute
 /// the forge burns.
 ///
-/// The wager is a tenth of what the piece sells for, read off the sell price
-/// rather than the asking price, so the number on the button is the number the
-/// user can check against the 卖 button on the same row. It does not climb with
-/// the star the piece already holds: every attempt is the same wager, which is
-/// what makes a run of failures readable as a run of the same bet rather than
-/// as an escalating one.
+/// The wager is a **tenth of an hour of the piece's stage wage**, not a
+/// fraction of its shelf price (`docs/0107` §4). The v3 wager was a tenth of
+/// the *sell* price — six stones on a first-tier piece and a few hundred on a
+/// tenth-tier one — which made a full 0→10 run cost minutes of work and left
+/// the whole 灵石 faucet without a sink. A tenth of an hour is about six
+/// minutes of wage per attempt, so a full run at ~14 attempts is about an
+/// hour and a half of wage, the same order as the tribute's gathering time.
+/// It does not climb with the star the piece already holds: every attempt is
+/// the same wager, which is what makes a run of failures readable as a run of
+/// the same bet rather than as an escalating one.
 ///
-/// The tribute climbs with the star: wood rises twenty a star, stone ten, and
-/// the rare finds join in — 煤 from the fourth star, 铁 from the sixth —
-/// because a high star is a rare find's craft. The whole tribute is then
-/// scaled by the piece's tier ([`tier_multiplier_permille`]), so an
-/// eighth-tier piece costs about eight times a first-tier one's material. The
-/// 铁匠铺 discounts both the wager and the tribute (see
-/// [`smithy_multiplier_permille`]); the forge's craft saves the whole
-/// attempt, not the 灵石 alone, so the forge's level is what makes the deep
-/// stars reachable.
+/// The tribute climbs with the star: wood **and stone** each rise twenty a
+/// star, and the rare finds join in — 煤 from the fourth star, 铁 from the
+/// sixth — because a high star is a rare find's craft. The v3 table spent
+/// only wood, half as much stone, and a token 4 iron and 2 coal, so a
+/// mid-game purse ended with stone, iron and coal at the cap and nothing to
+/// spend them on (`docs/0107` §2). The whole tribute is then scaled by the
+/// piece's tier ([`tier_multiplier_permille`]), so an eighth-tier piece costs
+/// about eleven times a first-tier one's material. The 铁匠铺 discounts both
+/// the wager and the tribute (see [`smithy_multiplier_permille`]); the
+/// forge's craft saves the whole attempt, not the 灵石 alone.
 ///
-/// The tribute's base is the S7 rework (`docs/0103` §5.6): the common finds
-/// are five times the pre-S7 curve and 铁 double, so a first-tier piece
-/// starred 0→10 costs 1100 wood, 550 stone, 60 iron and 56 coal — about
-/// 73 minutes of bare L1 伐木 in wood alone. That is the point: the S2
-/// gathering faucet pays 900 wood an hour at the first site, so a full set
-/// of starred gear has to be hours of work or the forge is an afterthought.
-/// 煤 keeps its old curve — it is already gated behind 伐木 level five, and
-/// its 56 is a depth reward rather than a wall. Buying stars back at a profit
-/// is still a no: the sell price is the piece's tier and quality alone, so a
-/// ten-star piece sells exactly what an unstarred one does, and the 灵石
-/// purse stays closed against the arbitrage.
+/// A first-tier piece starred 0→10 now costs 1,100 wood, 1,100 stone, 325 iron
+/// and 357 coal — about two hours of bare gathering at 炼气 and
+/// four and a half hours at 仙人 (failures burn tribute too, so the table
+/// above is a floor), across the four resources, not one material's 73
+/// minutes. The four are deliberately within
+/// one order of each other so no purse can fill two and starve the third.
+/// Buying stars back at a profit is still a no: the sell price is the piece's
+/// tier and quality alone, so a ten-star piece sells exactly what an unstarred
+/// one does, and the 灵石 purse stays closed against the arbitrage.
 pub fn star_up_cost(item: &EquipmentRecord, smithy_level: u8) -> super::Cost {
     let star = u32::from(item.star.min(super::MAX_STAR));
     let target = star.saturating_add(1);
@@ -217,23 +227,75 @@ pub fn star_up_cost(item: &EquipmentRecord, smithy_level: u8) -> super::Cost {
     let smithy_m = super::smithy_multiplier_permille(smithy_level);
     // A star's tribute is the piece's tier scaled, then the forge's discount
     // applied: the two multiply, and the result is what one attempt costs in
-    // raw coin. The base is the S7 table — see the doc comment above.
+    // raw coin. The base is the v4 table — see the doc comment above.
     let scale = |base: u32| base.saturating_mul(tier_m).saturating_mul(smithy_m) / 1_000 / 1_000;
     let mut resources = super::ResourceBag::default();
     resources.add(super::Resource::Wood, scale(20 + 20 * star));
-    resources.add(super::Resource::Stone, scale(10 + 10 * star));
+    resources.add(super::Resource::Stone, scale(20 + 20 * star));
     if target >= u32::from(super::STAR_IRON_FROM_STAR) {
         resources.add(
             super::Resource::Iron,
-            scale(4 + 4 * (target - u32::from(super::STAR_IRON_FROM_STAR))),
+            scale(25 + 20 * (target - u32::from(super::STAR_IRON_FROM_STAR))),
         );
     }
     if target >= 4 {
-        resources.add(super::Resource::Coal, scale(2 + 2 * (target - 4)));
+        resources.add(super::Resource::Coal, scale(15 + 12 * (target - 4)));
     }
-    let stones = ShopOffer::Equipment(item.clone()).sell_price() / 10 * smithy_m / 1_000;
+    // The wager is a tenth of an hour's *stage* wage per attempt — a few
+    // minutes of work at every realm, and never a fraction of the piece's
+    // shelf price, which would make a lucky drop a lottery ticket.
+    let stones = super::stage_wage_stones(item.tier).saturating_mul(STAR_WAGER_PERMILLE_PER_HOUR)
+        / 1_000
+        * smithy_m
+        / 1_000;
     super::Cost { stones, resources }
 }
+
+/// How much of an hour of the piece's stage wage one star attempt wagers, in
+/// parts per thousand: a tenth, or six minutes.
+///
+/// Read as a *rate* rather than as a fraction of the piece's price: the
+/// wager's job is to make every attempt a small, readable bet against the
+/// clock the player actually spends, not to ride the shelf's rarity ladder.
+const STAR_WAGER_PERMILLE_PER_HOUR: u32 = 100;
+
+/// What one reforge costs: 灵石 plus a tribute of all four materials.
+///
+/// A reforge rerolls only the secondary line, so it is priced as a *craft*,
+/// not as a second star: two hours of the piece's stage wage, and a tribute
+/// that starts well above a star attempt and climbs with the star the piece
+/// already carries. The four materials are all asked for on purpose — a
+/// player who has out-leveled 伐木 or 采石 still has a reason to keep both
+/// trades warm, and the tribute is the sink that the endgame's surplus ore
+/// and coal otherwise lack. Both the wage and the tribute take the tier and
+/// the forge's discount, exactly as a star does. `None` for a piece with only
+/// a primary line: there is nothing to move.
+pub fn reforge_cost(item: &EquipmentRecord, smithy_level: u8) -> Option<super::Cost> {
+    super::items::secondary_attribute(item)?;
+    let star = u32::from(item.star.min(super::MAX_STAR));
+    let tier_m = tier_multiplier_permille(item.tier);
+    let smithy_m = super::smithy_multiplier_permille(smithy_level);
+    let scale = |base: u32| base.saturating_mul(tier_m).saturating_mul(smithy_m) / 1_000 / 1_000;
+    let mut resources = super::ResourceBag::default();
+    resources.add(super::Resource::Wood, scale(180 + 45 * star));
+    resources.add(super::Resource::Stone, scale(180 + 45 * star));
+    resources.add(super::Resource::Iron, scale(70 + 18 * star));
+    resources.add(super::Resource::Coal, scale(70 + 18 * star));
+    let stones =
+        super::stage_wage_stones(item.tier).saturating_mul(REFORGE_WAGER_PERMILLE_PER_HOUR) / 1_000
+            * smithy_m
+            / 1_000;
+    Some(super::Cost { stones, resources })
+}
+
+/// How much of an hour of the piece's stage wage one reforge wagers, in
+/// parts per thousand: two hours' worth of wage.
+///
+/// Deliberately far above a star attempt's tenth of an hour. A star is a
+/// bounded ladder a piece finishes; a reforge is the open-ended chase for a
+/// build's second line, so the price has to stay meaningful after every star
+/// is bought.
+pub const REFORGE_WAGER_PERMILLE_PER_HOUR: u32 = 2_000;
 
 /// How much dearer than its own tier of gear a 功法 is, in halves.
 ///
@@ -732,9 +794,18 @@ mod tests {
         assert!(AptitudeHerb::Wisdom.price() > seed_price(4, SeedGrade::Divine));
         assert!(AptitudeHerb::Marrow.price() > AptitudeHerb::Wisdom.price());
         assert!(AptitudeHerb::Wisdom.price() > AptitudeHerb::Insight.price());
-        assert_eq!(AptitudeHerb::Marrow.price(), 10_000);
-        assert_eq!(AptitudeHerb::Wisdom.price(), 2_000);
-        assert_eq!(AptitudeHerb::Insight.price(), 1_200);
+        assert_eq!(AptitudeHerb::Marrow.price(), 20_000);
+        assert_eq!(AptitudeHerb::Wisdom.price(), 4_000);
+        assert_eq!(AptitudeHerb::Insight.price(), 2_400);
+    }
+
+    /// The shelf is priced in hours, not minutes: four times the v3 number,
+    /// so a first-tier common piece is half an hour's wage rather than a coffee.
+    #[test]
+    fn the_shelf_is_four_times_the_v3_price() {
+        assert_eq!(equipment_price(1, Rarity::Common), 532);
+        assert_eq!(equipment_price(10, Rarity::Common), 5_260);
+        assert_eq!(equipment_price(10, Rarity::Divine), 18_408);
     }
 
     /// A herb's grade prices the offer the same way it prices the gain: 地阶 is
@@ -749,19 +820,19 @@ mod tests {
         };
         assert_eq!(
             wisdom.price(),
-            2_500,
+            5_000,
             "a 神级 慧心草 is a quarter again the 地阶"
         );
         let earth = ShopOffer::Herb {
             herb: AptitudeHerb::Wisdom,
             grade: SeedGrade::Earth,
         };
-        assert_eq!(earth.price(), 2_000, "the 地阶 is the anchor");
+        assert_eq!(earth.price(), 4_000, "the 地阶 is the anchor");
         assert!(wisdom.price() > earth.price());
         let pill = ShopOffer::Herb {
             herb: AptitudeHerb::Marrow,
             grade: SeedGrade::Yellow,
         };
-        assert_eq!(pill.price(), 10_000, "a pill carries no grade to price at");
+        assert_eq!(pill.price(), 20_000, "a pill carries no grade to price at");
     }
 }

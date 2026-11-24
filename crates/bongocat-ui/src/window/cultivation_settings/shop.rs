@@ -296,6 +296,7 @@ fn shop_offer_detail(
                 // Nothing on the shelf is starred, and a shelf row cannot be
                 // wagered on: the wager belongs to what the buyer already owns.
                 star_cost: None,
+                reforge_cost: None,
                 name: item.name.clone(),
                 set: item.set,
                 sell_price,
@@ -468,6 +469,7 @@ fn shop_offer_label(offer: &ShopOffer, locale: &str) -> String {
                 star: item.star(),
                 effect: item.effect,
                 star_cost: None,
+                reforge_cost: None,
                 name: item.name.clone(),
                 set: item.set,
                 sell_price: offer.sell_price(),

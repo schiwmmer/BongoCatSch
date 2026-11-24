@@ -267,6 +267,17 @@ check('五条 cult-* 实时命令映射到内核 op', () => {
   assert.deepEqual(sent, [], '旧动作不发出任何命令');
 });
 
+check('重铸动作映射到内核 op', () => {
+  const sent = [];
+  const ctx = { send: (payload) => sent.push(payload), live() {} };
+  assert.equal(
+    handleCultivationAction({ act: 'cult-reforge', id: 44 }, ctx),
+    true,
+    '重铸按钮要被处理',
+  );
+  assert.deepEqual(sent[0], { op: 'reforge_equipment', item_id: 44 });
+});
+
 check('没有「选阶」这个动作了', () => {
   const sent = [];
   const ctx = { send: (p) => sent.push(p), live() {} };
@@ -334,6 +345,66 @@ check('事件行按 App 的模板读，不把字段摊给用户', () => {
     eventLine({ Star: { name: '青锋', star: 3, success: false, cost: { stones: 200, resources: { iron: 3 } } } }),
     '青锋 升星失败，降至 3 星（花 200 灵石、铁×3）',
   );
+  assert.equal(
+    eventLine({
+      Reforge: {
+        name: '青锋',
+        from: 'mana',
+        to: 'agility',
+        from_points: 40,
+        to_points: 69,
+        cost: { stones: 1_800, resources: { wood: 180, stone: 180, iron: 70, coal: 70 } },
+      },
+    }),
+    '青锋 重铸：灵力 40 → 身法 69（花 1,800 灵石、木×180 · 石×180 · 铁×70 · 煤×70）',
+  );
+});
+
+check('装备行给两线装备一个重铸钮，单线装备置灰', () => {
+  const snap = snapshot(T0);
+  const base = {
+    slot: 'weapon',
+    tier: 5,
+    rarity: 'rare',
+    attributes: { root: 0, strength: 120, mana: 40, agility: 0 },
+    bonus: { attack: 0 },
+    equipped: false,
+    star: 0,
+    effect: null,
+    star_cost: null,
+    name: '试剑',
+    set: null,
+    sell_price: 700,
+  };
+  snap.cultivation.inventory = [
+    {
+      ...base,
+      id: 44,
+      reforge_cost: {
+        stones: 1_800,
+        resources: { wood: 180, stone: 180, iron: 70, coal: 70 },
+      },
+    },
+    { ...base, id: 45, reforge_cost: null },
+  ];
+  const card = renderCultivation('gear', snap, ctxFor(snap, T0 * 1000));
+  assert.match(card, /data-act="cult-reforge" data-id="44"[^>]*title="重铸需要 1,800 灵石/, '两线装备显示重铸');
+  assert.match(card, /data-act="cult-reforge" data-id="45"[^>]*disabled/, '单线装备的重铸置灰');
+});
+
+check('通知条读得出最近一次重铸', () => {
+  const snap = snapshot(T0);
+  snap.cultivation.last_reforge = {
+    item_id: 44,
+    name: '青锋',
+    from: 'mana',
+    to: 'agility',
+    from_points: 40,
+    to_points: 69,
+    cost: { stones: 1_800, resources: {} },
+  };
+  const strip = noticeStrip(snap.cultivation);
+  assert.match(strip, /重铸 青锋：灵力 40 → 身法 69/, '重铸结果要出现在通知条');
 });
 
 check('通知条画最近一次动作的结果', () => {

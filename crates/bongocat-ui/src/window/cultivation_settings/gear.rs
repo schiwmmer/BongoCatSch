@@ -54,6 +54,7 @@ pub(super) fn equipment_panel(
             // what fights, so it is what the user wants starred.
             if let Some(item) = worn.as_ref() {
                 line = line.children(star_button(view, item, locale));
+                line = line.children(reforge_button(view, item, locale));
             }
         }
         let mut row = div()
@@ -187,9 +188,11 @@ pub(super) fn inventory_panel(
                         }
                     }),
             )
-            // The wager beside the sale: what a star costs and what the piece
-            // sells for are the two numbers the row is chosen between.
-            .children(star_button(view, item, locale));
+            // The wager and the reforge beside the sale: what a star costs,
+            // what a reroll costs, and what the piece sells for are the three
+            // numbers the row is chosen between.
+            .children(star_button(view, item, locale))
+            .children(reforge_button(view, item, locale));
         let mut row = div()
             .id(format!("cultivation-inventory-{}", item.id))
             .flex()

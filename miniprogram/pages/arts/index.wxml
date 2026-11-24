@@ -267,9 +267,11 @@
             <text wx:if="{{item.star}}" class="chip">{{item.star}}</text>
           </view>
           <view class="row-sub">{{item.empty ? '空置' : item.line}}</view>
+          <view wx:if="{{!item.empty && item.reforgeLine}}" class="row-sub">{{item.reforgeLine}}</view>
         </view>
         <view class="row-actions" wx:if="{{!item.empty}}">
           <button class="btn small" data-act="unequip" data-slot="{{item.key}}" bindtap="onAction">卸下</button>
+          <button class="btn small" data-act="reforge" data-id="{{item.id}}" bindtap="onAction" disabled="{{!item.canReforge}}">{{item.canReforge ? '重铸 ' + item.reforgeCost : '无副属性'}}</button>
         </view>
       </view>
       <view class="chips" wx:if="{{view.sets.length}}">
@@ -280,7 +282,7 @@
     <view class="card">
       <view class="card-head">
         <text class="card-title">背包</text>
-        <text class="card-hint">{{view.count}} 件 · 升星赌一半身价</text>
+        <text class="card-hint">{{view.count}} 件 · 重铸改副属性，升星赌身价</text>
       </view>
       <view wx:for="{{view.inventory}}" wx:key="id" class="row">
         <view class="row-main">
@@ -290,10 +292,12 @@
             <text class="chip muted">{{item.tierText}} {{item.star}}{{item.set}}</text>
           </view>
           <view class="row-sub">{{item.line}}</view>
+          <view wx:if="{{item.reforgeLine}}" class="row-sub">{{item.reforgeLine}}</view>
         </view>
         <view class="row-actions">
           <button class="btn small jade" data-act="equip" data-id="{{item.id}}" bindtap="onAction">穿戴</button>
           <button class="btn small" data-act="star" data-id="{{item.id}}" bindtap="onAction" disabled="{{!item.canStar}}">升星 {{item.starCost}}</button>
+          <button class="btn small" data-act="reforge" data-id="{{item.id}}" bindtap="onAction" disabled="{{!item.canReforge}}">{{item.canReforge ? '重铸 ' + item.reforgeCost : '无副属性'}}</button>
           <button class="btn small danger" data-act="sell-item" data-id="{{item.id}}" bindtap="onAction">卖 {{item.sellPrice}}</button>
         </view>
       </view>

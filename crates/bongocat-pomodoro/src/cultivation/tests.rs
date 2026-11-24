@@ -2976,9 +2976,9 @@ fn a_spare_is_sold_before_the_book_being_read() {
 /// The garden sells its fifth plot for stones, charges double for each one
 /// after it, and refuses the thirteenth: twelve is the whole estate.
 #[test]
-fn the_garden_sells_plots_up_to_nine() {
+fn the_garden_sells_plots_up_to_twelve() {
     let mut cultivation = Cultivation::new(CultivationDocument {
-        stones: 40_000,
+        stones: 400_000,
         ..CultivationDocument::default()
     });
     let mut prices = Vec::new();
@@ -2987,7 +2987,7 @@ fn the_garden_sells_plots_up_to_nine() {
     }
     assert_eq!(
         prices,
-        vec![150, 300, 600, 1200, 2400, 4800, 9600, 19200],
+        vec![1_500, 3_000, 6_000, 12_000, 24_000, 48_000, 96_000, 192_000],
         "each plot dearer than the last"
     );
     assert_eq!(
@@ -2997,7 +2997,7 @@ fn the_garden_sells_plots_up_to_nine() {
     );
     assert_eq!(
         cultivation.document().stones,
-        40_000 - 38_250,
+        400_000 - 382_500,
         "the purse paid for exactly the eight plots"
     );
     assert!(
@@ -3366,10 +3366,10 @@ fn a_star_is_worth_five_to_eight_percent_of_everything() {
     assert!(shining.power() > plain.power());
 }
 
-/// The wager's price is a tenth of what the piece sells for, and the purse
+/// The wager is a tenth of an hour of the piece's stage wage, and the purse
 /// pays it whether the star turns over or not.
 #[test]
-fn a_star_costs_a_tenth_of_what_the_piece_sells_for() {
+fn a_star_costs_a_tenth_of_an_hour_of_its_stage_wage() {
     let item = EquipmentRecord {
         id: 3,
         slot: EquipSlot::Clothes,
@@ -3383,12 +3383,12 @@ fn a_star_costs_a_tenth_of_what_the_piece_sells_for() {
         name: None,
         set: None,
     };
-    let sell = shop::ShopOffer::Equipment(item.clone()).sell_price();
+    let wage = stage_wage_stones(item.tier);
     let cost = star_up_cost(&item, 0);
     assert_eq!(
         cost.stones,
-        sell / 10,
-        "the wager is a tenth of the sell price"
+        wage / 10,
+        "the wager is a tenth of an hour of stage wage"
     );
     // The 灵石 wager does not climb with the stars already bought: every
     // attempt is the same bet. The tribute does climb — wood and stone rise
@@ -3547,13 +3547,210 @@ fn a_full_piece_refuses_the_wager() {
     );
 }
 
-/// The S7 star table (`docs/0103` §5.6), pinned against the code: a
-/// first-tier piece starred 0→10 with no 铁匠铺 discount costs exactly the
-/// documented 1100 wood, 550 stone, 60 iron and 56 coal. This is the table's
-/// own arithmetic, so a base or a gate star that moves fails here rather than
-/// quietly rebalancing the whole sink.
+/// A reforge costs two hours of the piece's stage wage and a tribute of all
+/// four materials; the piece's own tier and the forge's rank scale both.
 #[test]
-fn the_s7_star_table_costs_the_documented_full_piece() {
+fn a_reforge_costs_two_hours_of_stage_wage_and_four_materials() {
+    let item = EquipmentRecord {
+        id: 31,
+        slot: EquipSlot::Weapon,
+        tier: 1,
+        rarity: Rarity::Rare,
+        attributes: Attributes::new(0, 40, 20, 0),
+        bonus: Derived::default(),
+        star: 0,
+        half_star: false,
+        effect: None,
+        name: Some("试剑".to_owned()),
+        set: None,
+    };
+    let cost = reforge_cost(&item, 0).expect("a two-line piece can be reforged");
+    assert_eq!(cost.stones, stage_wage_stones(1) * 2);
+    assert_eq!(cost.resources.wood, 180, "木料底价");
+    assert_eq!(cost.resources.stone, 180, "石料底价");
+    assert_eq!(cost.resources.iron, 70, "铁料底价：重铸总要一点稀料");
+    assert_eq!(cost.resources.coal, 70, "煤料底价");
+    // Stars make the piece dearer to reforge: a ten-star piece asks for more
+    // of every material, and a tenth-tier one at a maxed forge still asks
+    // five thousand-plus 灵石 — the sink has to outlive the star ladder.
+    let mut deep = item.clone();
+    deep.tier = 10;
+    deep.star = MAX_STAR;
+    let deep_cost = reforge_cost(&deep, MAX_BUILDING_LEVEL).expect("still two-line");
+    assert!(deep_cost.stones > cost.stones);
+    assert!(deep_cost.resources.wood > cost.resources.wood);
+    assert!(deep_cost.resources.iron > cost.resources.iron);
+    assert!(
+        deep_cost.stones >= 5_000,
+        "一件十阶满星在满级铁匠铺仍要 five figures 的灵石：{deep_cost:?}"
+    );
+    // A one-line piece has no secondary to move, so there is no price to show.
+    let one_line = EquipmentRecord {
+        attributes: Attributes::new(0, 40, 0, 0),
+        ..item
+    };
+    assert!(reforge_cost(&one_line, 0).is_none());
+}
+
+/// A reforge holds the piece's total weighted worth constant while changing
+/// which attribute carries the second line; the bonus, name, tier and stars
+/// stay put.
+#[test]
+fn a_reforge_changes_the_secondary_shape_not_the_worth() {
+    let item = EquipmentRecord {
+        id: 32,
+        slot: EquipSlot::Weapon,
+        tier: 5,
+        rarity: Rarity::Rare,
+        attributes: Attributes::new(0, 120, 40, 0),
+        bonus: Derived {
+            attack: 60,
+            health: 40,
+            ..Derived::default()
+        },
+        star: 3,
+        half_star: false,
+        effect: None,
+        name: Some("试剑".to_owned()),
+        set: None,
+    };
+    let old = item.clone();
+    let mut cultivation = owning_one(item.clone(), 100_000);
+    let outcome = cultivation
+        .reforge_item(item.id, 12_345)
+        .expect("a two-line piece reforge");
+    assert_eq!(outcome.from, Attribute::Mana, "法力是那条副属性");
+    assert!(
+        outcome.to == Attribute::Root || outcome.to == Attribute::Agility,
+        "新副属性不能是主属性或原副属性：{outcome:?}"
+    );
+    assert_eq!(outcome.from_points, 40);
+    assert!(outcome.to_points > 0, "新线要有自己的点数");
+    let owned = cultivation
+        .document()
+        .equipment
+        .iter()
+        .find(|record| record.id == item.id)
+        .expect("the piece is still owned")
+        .clone();
+    assert_eq!(owned.attributes.strength, 120, "主属性原封不动");
+    assert_eq!(owned.attributes.mana, 0, "旧副属性清空");
+    assert!(
+        owned.attributes.power().abs_diff(old.attributes.power()) <= 1,
+        "加权总战力不变：{} vs {}",
+        owned.attributes.power(),
+        old.attributes.power()
+    );
+    assert_eq!(owned.bonus, old.bonus, "装备的直接加成不参与重铸");
+    assert_eq!(owned.name, old.name);
+    assert_eq!(owned.tier, old.tier);
+    assert_eq!(owned.star, old.star);
+    assert_eq!(owned.set, old.set);
+    assert_eq!(
+        cultivation.document().stones,
+        100_000 - outcome.cost.stones,
+        "灵石按价扣除"
+    );
+    assert_eq!(
+        cultivation.document().resources.wood,
+        10_000 - outcome.cost.resources.wood,
+        "木料按价扣除"
+    );
+    let view = cultivation.view();
+    assert_eq!(view.reforge_attempts, 1);
+    assert_eq!(view.last_reforge, Some(outcome.clone()));
+    let worn = view.equipped[item.slot.index()]
+        .as_ref()
+        .expect("the piece is worn");
+    assert_eq!(worn.reforge_cost, reforge_cost(&owned, 0));
+    assert!(
+        view.events
+            .iter()
+            .any(|event| matches!(&event.detail, EventDetail::Reforge { from, to, .. } if *from == outcome.from && *to == outcome.to)),
+        "重铸要留下一条历史"
+    );
+}
+
+/// A one-line piece is refused rather than charged: there is nothing to move.
+#[test]
+fn a_one_line_piece_refuses_the_reforge() {
+    let item = EquipmentRecord {
+        id: 33,
+        slot: EquipSlot::Weapon,
+        tier: 3,
+        rarity: Rarity::Common,
+        attributes: Attributes::new(0, 30, 0, 0),
+        bonus: Derived::default(),
+        star: 0,
+        half_star: false,
+        effect: None,
+        name: None,
+        set: None,
+    };
+    let mut cultivation = owning_one(item.clone(), 100_000);
+    assert_eq!(
+        cultivation.reforge_item(item.id, 77),
+        Err(TradeRefusal::NoSecondaryAttribute)
+    );
+    assert_eq!(
+        cultivation.document().stones,
+        100_000,
+        "refusal spends nothing"
+    );
+    assert_eq!(
+        cultivation.reforge_item(999, 77),
+        Err(TradeRefusal::NotOwned)
+    );
+}
+
+/// The purse gates the reforge as it gates a star: short stones or short
+/// materials refuse, and neither leaves a half-paid piece behind.
+#[test]
+fn a_reforge_the_purse_cannot_cover_is_refused() {
+    let item = EquipmentRecord {
+        id: 34,
+        slot: EquipSlot::Pants,
+        tier: 4,
+        rarity: Rarity::Rare,
+        attributes: Attributes::new(20, 0, 30, 0),
+        bonus: Derived::default(),
+        star: 0,
+        half_star: false,
+        effect: None,
+        name: None,
+        set: None,
+    };
+    let cost = reforge_cost(&item, 0).expect("two-line");
+    let mut cultivation = owning_one(item.clone(), cost.stones - 1);
+    assert_eq!(
+        cultivation.reforge_item(item.id, 88),
+        Err(TradeRefusal::NotEnoughStones)
+    );
+    assert_eq!(cultivation.document().stones, cost.stones - 1);
+    // Materials short: the purse holds the 灵石 but not the tribute.
+    let mut document = CultivationDocument {
+        stones: cost.stones,
+        resources: ResourceBag::default(),
+        equipment: vec![item.clone()],
+        ..CultivationDocument::default()
+    };
+    document.equipped = vec![None; SLOT_COUNT];
+    document.equipped[item.slot.index()] = Some(item.id);
+    let mut poor = Cultivation::new(document);
+    assert_eq!(
+        poor.reforge_item(item.id, 88),
+        Err(TradeRefusal::NotEnoughResources)
+    );
+    assert_eq!(poor.document().stones, cost.stones, "灵石没有先扣");
+}
+
+/// The v4 star table (`docs/0107` §4), pinned against the code: a
+/// first-tier piece starred 0→10 with no 铁匠铺 discount costs exactly the
+/// documented 1,100 wood, 1,100 stone, 325 iron and 357 coal. This is the
+/// table's own arithmetic, so a base or a gate star that moves fails here
+/// rather than quietly rebalancing the whole sink.
+#[test]
+fn the_v4_star_table_costs_the_documented_full_piece() {
     let item = EquipmentRecord {
         id: 21,
         slot: EquipSlot::Weapon,
@@ -3578,20 +3775,20 @@ fn the_s7_star_table_costs_the_documented_full_piece() {
         coal += cost.resources.coal;
     }
     assert_eq!(wood, 1_100, "木材 0→10 合计");
-    assert_eq!(stone, 550, "石料 0→10 合计");
-    assert_eq!(iron, 60, "铁 0→10 合计");
-    assert_eq!(coal, 56, "煤 0→10 合计");
+    assert_eq!(stone, 1_100, "石料 0→10 合计");
+    assert_eq!(iron, 325, "铁 0→10 合计");
+    assert_eq!(coal, 357, "煤 0→10 合计");
     // The gates are the table's: a first star burns no rare find, the fourth
     // target brings 煤, the sixth 铁.
     let mut at = item.clone();
     at.star = 0;
     let first = star_up_cost(&at, 0);
-    assert_eq!((first.resources.wood, first.resources.stone), (20, 10));
+    assert_eq!((first.resources.wood, first.resources.stone), (20, 20));
     assert_eq!((first.resources.iron, first.resources.coal), (0, 0));
     at.star = 3; // target 4
-    assert_eq!(star_up_cost(&at, 0).resources.coal, 2, "煤从第四星起");
+    assert_eq!(star_up_cost(&at, 0).resources.coal, 15, "煤从第四星起");
     at.star = 5; // target 6
-    assert_eq!(star_up_cost(&at, 0).resources.iron, 4, "铁从第六星起");
+    assert_eq!(star_up_cost(&at, 0).resources.iron, 25, "铁从第六星起");
 }
 
 /// The 升星 sink is hours of the gathering faucet, not minutes: a full first-tier
@@ -3691,37 +3888,37 @@ fn a_full_building_costs_the_documented_primary_tribute() {
     );
 }
 
-/// The 灵石 axis stays in the same minutes-of-打工 band as the material axis:
-/// one 升星 wager is `sell_price / 10` (the code's own expression), which for
-/// a first-tier piece is a handful of 黄阶 ticks and for a top-tier piece a
-/// few minutes of 黄阶 打工. The §5.6 "≈5 分钟" is the high-tier end — the
-/// wager is flat per attempt, so the tier is what moves it.
+/// The 灵石 wager is a fixed slice of *time*, not of the shelf: a tenth of an
+/// hour of the piece's stage wage at every tier, so a first-tier and a
+/// tenth-tier attempt both ask six minutes of work (`docs/0107` §4). The v3
+/// wager rode the shelf price and read as twenty-four seconds at the bottom
+/// and eighteen minutes at the top — a sink that existed only at the top of
+/// the ladder and vanished exactly where the purse was fullest.
 #[test]
-fn a_star_wager_is_minutes_of_work_at_most() {
+fn a_star_wager_is_six_minutes_of_work_at_every_tier() {
     let ticks_per_hour = 3_600 / WORK_TICK_SECONDS;
     let yellow_per_hour = TASK_JOB_BASE_STONES * ticks_per_hour;
     assert_eq!(yellow_per_hour, 900, "黄阶打工 900/h (docs/0104 §3)");
-    let wager = |tier: u8, rarity: Rarity| {
-        let item = EquipmentRecord {
-            id: 31,
-            slot: EquipSlot::Clothes,
-            tier,
-            rarity,
-            ..Default::default()
-        };
-        ShopOffer::Equipment(item).sell_price() / 10
-    };
-    let work_seconds = |stones: u32| f64::from(stones) / f64::from(yellow_per_hour) * 3_600.0;
-    let low = wager(1, Rarity::Common);
-    let high = wager(10, Rarity::Transcendent);
-    assert_eq!(low, 6, "tier1 凡品售价 66，赌注取其一是 6 灵石");
-    assert_eq!(high, 276, "tier10 超凡售价 2761，赌注 276 灵石");
-    assert_eq!(work_seconds(low), 24.0, "低阶赌注是 24 秒工钱");
-    assert!(
-        (1_100.0..=1_108.0).contains(&work_seconds(high)),
-        "顶阶赌注是十八分钟工钱，实得 {:.1}s",
-        work_seconds(high)
-    );
+    let wager = |tier: u8| stage_wage_stones(tier) / 10;
+    for tier in [1_u8, 5, 10] {
+        assert_eq!(
+            wager(tier),
+            stage_wage_stones(tier) / 10,
+            "tier {tier} takes a tenth of an hour"
+        );
+        // The seconds are read against the *stage* wage, not the 黄阶 one:
+        // the point is that the toll scales exactly with the wage beside it.
+        let seconds = f64::from(wager(tier)) / f64::from(stage_wage_stones(tier)) * 3_600.0;
+        assert!(
+            (350.0..=362.0).contains(&seconds),
+            "tier {tier} wager is six minutes of its own wage, got {seconds:.1}s"
+        );
+    }
+    let low = wager(1);
+    let high = wager(10);
+    assert_eq!(low, 90, "tier1: 900/h ÷ 10");
+    assert_eq!(high, 535, "tier10: 5,355/h ÷ 10");
+    assert!(high > low * 5, "the wager climbs with the realm's own wage");
 }
 
 /// One expedition at the forest fills the purse with wood and banks 伐木 xp; a

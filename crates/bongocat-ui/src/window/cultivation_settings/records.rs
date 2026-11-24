@@ -866,6 +866,29 @@ fn event_line(detail: &EventDetail, locale: &str) -> String {
                 ],
             )
         }
+        // A reforge moved a secondary line: the line names both ends and both
+        // point counts, because the shape is what the stones bought, and the
+        // price joins it so the log and the purse agree.
+        EventDetail::Reforge {
+            name,
+            from,
+            to,
+            from_points,
+            to_points,
+            cost,
+        } => format_text(
+            locale,
+            "cultivation.event.reforge",
+            &[
+                ("name", name.clone()),
+                ("from", text(locale, from.name_key()).to_string()),
+                ("from_points", from_points.to_string()),
+                ("to", text(locale, to.name_key()).to_string()),
+                ("to_points", to_points.to_string()),
+                ("stones", cost.stones.to_string()),
+                ("tribute", resource_bag_text(locale, &cost.resources)),
+            ],
+        ),
         // A building raised a rank: the line names the building, the rank it
         // stands at now, and what the rank cost — the same price the button
         // showed, so the log never disagrees with the purse.

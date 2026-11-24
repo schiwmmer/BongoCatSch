@@ -139,6 +139,9 @@ Page({
       case 'star':
         this.send({ op: 'star_equipment', item_id: Number(data.id) });
         return;
+      case 'reforge':
+        this.send({ op: 'reforge_equipment', item_id: Number(data.id) });
+        return;
       case 'sell-item':
         wx.showModal({
           title: '卖掉这件装备？',

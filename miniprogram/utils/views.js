@@ -303,6 +303,10 @@ function eventLine(detail) {
         ? `${body.name} 升星成功，${stars}（花 ${L.num(body.cost && body.cost.stones)} 灵石、${tribute}）`
         : `${body.name} 升星失败，降至 ${body.star} 星（花 ${L.num(body.cost && body.cost.stones)} 灵石、${tribute}）`;
     }
+    case 'Reforge': {
+      const tribute = bagTextOf(body.cost && body.cost.resources) || '无';
+      return `${body.name} 重铸：${L.attributeText(body.from)} ${L.num(body.from_points)} → ${L.attributeText(body.to)} ${L.num(body.to_points)}（花 ${L.num(body.cost && body.cost.stones)} 灵石、${tribute}）`;
+    }
     case 'BuildingUpgrade': {
       const tribute = bagTextOf(body.cost && body.cost.resources) || '无';
       return `${BUILDING_NAMES[body.building] || body.building} 升至 ${body.level} 级（花 ${L.num(body.cost && body.cost.stones)} 灵石、${tribute}）`;
@@ -365,6 +369,14 @@ function notices(c) {
       key: 'star',
       tone: star.success ? 'accent' : 'danger',
       text: star.success ? `升星成功：${name} 升至 ${star.to} 星` : `升星失败：${name} 降至 ${star.to} 星`,
+    });
+  }
+  if (c.last_reforge) {
+    const reforge = c.last_reforge;
+    lines.push({
+      key: 'reforge',
+      tone: 'accent',
+      text: `重铸 ${reforge.name || '装备'}：${L.attributeText(reforge.from)} ${L.num(reforge.from_points)} → ${L.attributeText(reforge.to)} ${L.num(reforge.to_points)}`,
     });
   }
   if (c.last_collect) {
@@ -1066,10 +1078,16 @@ function gearSection(c) {
         key,
         label,
         empty: false,
+        id: item.id,
         name: item.name || '',
         rarity: L.rarityText(item.rarity),
         star: item.star ? '★'.repeat(item.star) : '',
         line: L.bonusLine(item.attributes, item.bonus),
+        canReforge: !!item.reforge_cost,
+        reforgeCost: item.reforge_cost ? L.num(item.reforge_cost.stones) : '',
+        reforgeLine: item.reforge_cost
+          ? `重铸 ${L.num(item.reforge_cost.stones)} 灵石 · ${bagTextOf(item.reforge_cost.resources)}`
+          : '',
       };
     }),
     inventory: (c.inventory || []).map((item) => ({
@@ -1083,6 +1101,11 @@ function gearSection(c) {
       slot: item.slot,
       starCost: item.star_cost ? L.num(item.star_cost.stones) : '',
       canStar: !!item.star_cost,
+      canReforge: !!item.reforge_cost,
+      reforgeCost: item.reforge_cost ? L.num(item.reforge_cost.stones) : '',
+      reforgeLine: item.reforge_cost
+        ? `重铸 ${L.num(item.reforge_cost.stones)} 灵石 · ${bagTextOf(item.reforge_cost.resources)}`
+        : '',
       sellPrice: L.num(item.sell_price),
     })),
     count: (c.inventory || []).length,

@@ -331,10 +331,14 @@ pub enum PomodoroCommand {
     },
     /// Spend 灵石 on one attempt at a piece of gear's next star.
     ///
-    /// The wager is the piece's own: half of what it sells for, a success rate
-    /// that falls as the stars climb, and one star back on a failure — never
-    /// past the first.
+    /// The wager is a tenth of an hour of the piece's stage wage, at a success
+    /// rate that falls as the stars climb, and one half step back on a failure
+    /// — never past the first star.
     StarEquipment { item_id: u64 },
+    /// Spend 灵石 and materials on one reforge of a piece of gear: move its
+    /// secondary attribute onto another attribute, keeping the piece's total
+    /// weighted power budget unchanged.
+    ReforgeEquipment { item_id: u64 },
     /// Send the cultivator out on a gathering expedition of `hours` at `site`.
     ///
     /// The expedition holds the cultivator until it comes home, and the yield
@@ -469,6 +473,7 @@ impl PomodoroCommand {
             | Self::SellSeed { .. }
             | Self::SellHerbSeed { .. }
             | Self::StarEquipment { .. }
+            | Self::ReforgeEquipment { .. }
             | Self::StartExpedition { .. }
             | Self::UpgradeBuilding { .. }
             | Self::UpgradeBuildingMany { .. }
@@ -871,6 +876,11 @@ impl PomodoroState {
             }
             PomodoroCommand::StarEquipment { item_id } => {
                 if let Err(refusal) = self.cultivation.star_item(item_id, now_unix) {
+                    self.cultivation.note_refusal(Refusal::Trade(refusal));
+                }
+            }
+            PomodoroCommand::ReforgeEquipment { item_id } => {
+                if let Err(refusal) = self.cultivation.reforge_item(item_id, now_unix) {
                     self.cultivation.note_refusal(Refusal::Trade(refusal));
                 }
             }

@@ -4,8 +4,20 @@
 
 ### ✨ Features
 
+- Gear can be reforged: spending stones plus wood, stone, iron and coal moves a piece's secondary attribute onto another attribute while preserving the piece's total weighted power budget. The primary, tier, quality, stars, set, effect and name are untouched, so a reforge chases the shape a build wants instead of printing a second power faucet. The price is two hours of the piece's stage wage and a four-material tribute that climbs with the star; a one-line piece has nothing to move and cannot be reforged.
 - Resource counts and trade experience now shorten as they grow: a figure is printed in full with thousands separators (`9,999`) up to ten thousand, in K after that (`12.3K`) and in M from a million (`1.23M`), so a full purse and a late trade bar no longer read as a wall of digits.
 - Gathering no longer asks which depth to work: the depth is read off the hand, so 伐木 turns the forest into 灵木林 the moment its level reaches twenty, and into 混沌神木 at eighty, with no picker and nothing to click. The card now names the depth as a number and a multiplier (`Ⅱ · ×1.5`) instead of a second set of rarity words, and the place itself — 凡木林, 铁矿山, 星辰矿脉 — appears on the task row, the task card and the gathering notice, none of which had ever printed it.
+
+### ⚖️ Balance
+
+- The stone economy is re-anchored on spent time, not on the realm's raw tier: a road fight now pays 2,400–3,600 at the first realm (was 9,000–13,000) and scales ×1.00–5.95 instead of ×1–10, so a single fight can no longer pay dozens of hours of wage. The daily ambush, the guardian purse and the proving purse move on the same ladder.
+- Gear, plots and the garden are repriced so the shelf is a real purchase: shop equipment costs four times its old price, the eight bought plots cost 1,500 → 192,000 (ten times the old ladder), and the fifteen garden ranks total 78,790 (ten times). The two aptitude herbs double; the marrow pill is 20,000.
+- Star-up is a long project again: its stone wager is now a tenth of an hour of the piece's stage wage (about six minutes per attempt, was a tenth of the sell price — six stones on a first-tier piece), and the tribute spends all four resources — stone matches wood, iron joins from the sixth star and coal from the fourth — so a purse cannot sit on capped iron and coal while it starves for wood. A board re-roll now costs two hours of the stage wage and climbs with the realm.
+- Old stones are not converted: a save's existing purse keeps its number and buys less by design, because the old prices were the inflation.
+
+### 🐛 Bug Fixes
+
+- A 洗髓丹 day carries eleven shelf rows, but the bought-slot record stopped at ten: the eleventh row could be bought twice. The maximum now includes the pill's row.
 
 ### 🗑️ Removals
 

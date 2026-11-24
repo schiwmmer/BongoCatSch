@@ -290,7 +290,12 @@ function refusalText(refusal) {
   const key = Object.keys(refusal)[0];
   if (key === 'Trade') {
     const detail = refusal.Trade;
-    return detail === 'NotOwned' ? '手里没有这件东西' : '交易没有成立';
+    return {
+      NotOwned: '手里没有这件东西',
+      NotEnoughStones: '灵石不够',
+      NotEnoughResources: '材料不够',
+      NoSecondaryAttribute: '这件装备只有一条属性，无法重铸',
+    }[detail] || '交易没有成立';
   }
   return REFUSALS[key] || '条件不足';
 }

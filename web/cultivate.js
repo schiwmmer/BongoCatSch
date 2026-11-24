@@ -280,6 +280,15 @@ function when(unix) {
 function refusalText(refusal) {
   if (!refusal) return null;
   const key = typeof refusal === 'string' ? refusal : Object.keys(refusal)[0];
+  if (key === 'Trade') {
+    const detail = refusal.Trade;
+    return {
+      NotOwned: '手里没有这件东西',
+      NotEnoughStones: '灵石不够',
+      NotEnoughResources: '材料不够',
+      NoSecondaryAttribute: '这件装备只有一条属性，无法重铸',
+    }[detail] ?? '交易没有成立';
+  }
   return REFUSALS[key] ?? '条件不足';
 }
 
@@ -546,6 +555,8 @@ export function eventLine(detail) {
         ? `${esc(body.name)} 升星成功，${stars}（花 ${num(body.cost?.stones)} 灵石、${resourceText(body.cost?.resources) || '无'}）`
         : `${esc(body.name)} 升星失败，降至 ${body.star} 星（花 ${num(body.cost?.stones)} 灵石、${resourceText(body.cost?.resources) || '无'}）`;
     }
+    case 'Reforge':
+      return `${esc(body.name)} 重铸：${attributeName(body.from)} ${num(body.from_points)} → ${attributeName(body.to)} ${num(body.to_points)}（花 ${num(body.cost?.stones)} 灵石、${resourceText(body.cost?.resources) || '无'}）`;
     case 'BuildingUpgrade':
       return `${BUILDING_NAMES[body.building] ?? body.building} 升至 ${body.level} 级（花 ${num(body.cost?.stones)} 灵石、${resourceText(body.cost?.resources) || '无'}）`;
     case 'Bonus':
@@ -616,6 +627,14 @@ export function noticeLines(c) {
       key: 'star',
       tone: star.success ? 'accent' : 'danger',
       text: star.success ? `升星成功：${name} 升至 ${star.to} 星` : `升星失败：${name} 降至 ${star.to} 星`,
+    });
+  }
+  if (c.last_reforge) {
+    const reforge = c.last_reforge;
+    lines.push({
+      key: 'reforge',
+      tone: 'accent',
+      text: `重铸 ${esc(reforge.name ?? '装备')}：${attributeName(reforge.from)} ${num(reforge.from_points)} → ${attributeName(reforge.to)} ${num(reforge.to_points)}`,
     });
   }
   if (c.last_collect) {
@@ -838,6 +857,9 @@ function itemRow(item, c) {
   const starCost = item.star_cost
     ? `${num(item.star_cost.stones)} 灵石`
     : '已满星';
+  const reforgeCost = item.reforge_cost
+    ? `${num(item.reforge_cost.stones)} 灵石、${resourceText(item.reforge_cost.resources)}`
+    : '';
   return `
     <div class="row">
       <div class="row-main">
@@ -853,6 +875,7 @@ function itemRow(item, c) {
           ? `<button class="btn small" data-act="cult-unequip" data-slot="${item.slot}">卸下</button>`
           : `<button class="btn small jade" data-act="cult-equip" data-id="${item.id}">穿戴</button>`}
         <button class="btn small" data-act="cult-star" data-id="${item.id}" title="升星需要 ${starCost}" ${item.star_cost ? '' : 'disabled'}>升星</button>
+        <button class="btn small" data-act="cult-reforge" data-id="${item.id}" title="${item.reforge_cost ? `重铸需要 ${reforgeCost}` : '只有一条属性，无法重铸'}" ${item.reforge_cost ? '' : 'disabled'}>${item.reforge_cost ? '重铸 ' + num(item.reforge_cost.stones) : '无副属性'}</button>
         <button class="btn small danger" data-act="cult-sell-item" data-id="${item.id}">卖 ${num(item.sell_price)}</button>
       </div>
     </div>
@@ -1801,6 +1824,8 @@ export function handleCultivationAction(data, ctx = {}) {
         return { op: 'unequip_slot', slot: data.slot };
       case 'cult-star':
         return { op: 'star_equipment', item_id: Number(data.id) };
+      case 'cult-reforge':
+        return { op: 'reforge_equipment', item_id: Number(data.id) };
       case 'cult-sell-item':
         return { op: 'sell_equipment', item_id: Number(data.id) };
       case 'cult-select-art':

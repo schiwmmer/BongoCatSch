@@ -410,6 +410,9 @@ fn parse_command(value: &Value) -> Option<PomodoroCommand> {
         "star_equipment" => PomodoroCommand::StarEquipment {
             item_id: u64_value(value, "item_id")?,
         },
+        "reforge_equipment" => PomodoroCommand::ReforgeEquipment {
+            item_id: u64_value(value, "item_id")?,
+        },
         "start_expedition" => PomodoroCommand::StartExpedition {
             site: site(value)?,
             hours: hours(value)?,

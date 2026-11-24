@@ -25,6 +25,28 @@
 
 use serde::{Deserialize, Serialize};
 
+/// What a realm multiplies a wage, a purse or a shelf price by, in parts per
+/// thousand: 1.00 at 炼气, 5.95 at 仙人.
+///
+/// **One realm factor, not two.** The old economy multiplied every purse by the
+/// raw tier (×10 at 仙人) while the shelf's own ladder only climbed ×10 across
+/// all ten tiers; a single road fight at the top therefore paid roughly a
+/// hundred hours of 黄阶 wage and the purse ran away from every sink
+/// (`docs/0107` §2). Prices and purses climb together here, and deliberately
+/// slower than the tier number, because what a body can command climbs with
+/// the *grade* of work it can hold — not with the realm alone. A `tier` of zero
+/// (a hand-edited save) reads as the first realm.
+pub const fn realm_factor_permille(tier: u8) -> u32 {
+    let tier = if tier == 0 {
+        1
+    } else if tier > 10 {
+        10
+    } else {
+        tier
+    } as u32;
+    1_000 + 550 * (tier - 1)
+}
+
 /// The four gathered resources.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum Resource {

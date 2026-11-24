@@ -417,6 +417,27 @@ pub enum EventDetail {
         #[serde(default)]
         cost: super::Cost,
     },
+    /// A piece's secondary line was reforged onto another attribute.
+    ///
+    /// The line names both ends and both point counts: a reforge holds the
+    /// piece's total weighted power budget constant, so the two numbers
+    /// are the receipt for what the player actually bought — a different
+    /// shape, not a bigger one.
+    Reforge {
+        /// The piece's name, the way every other line names a thing.
+        name: String,
+        /// The attribute the secondary line used to be.
+        from: super::Attribute,
+        /// The attribute it is now.
+        to: super::Attribute,
+        /// The points the old secondary line carried.
+        from_points: i32,
+        /// The points the new line carries.
+        to_points: i32,
+        /// What the reforge cost in 灵石 and materials.
+        #[serde(default)]
+        cost: super::Cost,
+    },
     /// A building was raised a rank.
     BuildingUpgrade {
         /// The building raised.
