@@ -282,7 +282,12 @@ impl Cultivation {
         }
         inventory.sort_by_key(|item| std::cmp::Reverse(item.id));
         let worn: Vec<EquipmentRecord> = self.equipped_items().collect();
-        let mut seeds: Vec<SeedView> = self.document.seeds.iter().map(seed_view).collect();
+        let mut seeds: Vec<SeedView> = self
+            .document
+            .seeds
+            .iter()
+            .map(|stack| seed_view(stack, self.document.garden_rank))
+            .collect();
         seeds.sort_by(|left, right| {
             right
                 .tier
@@ -290,9 +295,36 @@ impl Cultivation {
                 .then_with(|| right.grade.cmp(&left.grade))
                 .then_with(|| left.attribute.index().cmp(&right.attribute.index()))
         });
+        let rules = RulesView {
+            max_star: MAX_STAR,
+            seclusion_ticks: u32::try_from(SECLUSION_TICKS).unwrap_or(u32::MAX),
+            seclusion_seconds: u32::try_from(
+                SECLUSION_TICKS.saturating_mul(u64::from(SECLUSION_TICK_SECONDS)),
+            )
+            .unwrap_or(u32::MAX),
+            region_count: u8::try_from(crate::cultivation::Region::ALL.len()).unwrap_or(u8::MAX),
+            region_levels: crate::cultivation::LEVELS_PER_REGION,
+            explore_hours: crate::cultivation::ExplorationHours::ALL
+                .into_iter()
+                .map(|hours| ExploreHourView {
+                    hours: hours.hours(),
+                    multiplier_permille: u32::try_from(hours.multiplier_permille())
+                        .unwrap_or(u32::MAX),
+                })
+                .collect(),
+            gather_depths: crate::cultivation::GatherTier::ALL
+                .into_iter()
+                .map(|tier| GatherDepthView {
+                    tier,
+                    unlock_level: tier.unlock_level(),
+                    base_permille: tier.base_permille(),
+                })
+                .collect(),
+        };
         CultivationView {
             level,
             realm,
+            rules,
             today_level_delta: self.today_level_delta(day),
             today_power_delta: self.today_power_delta(day),
             layer: said.layer,

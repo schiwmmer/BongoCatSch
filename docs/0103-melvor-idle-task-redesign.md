@@ -50,8 +50,7 @@ Melvor Idle 的核心循环恰好相反：玩家点击一个动作（砍树/挖�
 
 | 玩法 | 触发 | 回合时长 | 每回合奖励 | 限制/互斥 | 离线 |
 |---|---|---|---|---|---|
-| 吐纳（修习） | 点击「吐纳」 | 6s | 修为（§6.1）+ 每 10 回合 1 试炼机会 + 概率掉落 | 与采集/打工/战斗互斥（单任务） | 是 |
-| 闭关（番茄钟） | 点击「闭关」 | 25min 一次 | = 250 回合吐纳 ×1.1 加成，结算一次 | **不占任务槽，可与采集/打工并行** | 是 |
+| 闭关（番茄钟） | 点击「闭关」 | 25min 一次 | = 250 回合修为 ×1.1 加成，结算一次 | **不占任务槽，可与采集/打工并行** | 是 |
 | 伐木/采石 | 点击站点 | 8s | 常见资源（§6.2）+ 技能经验 | 单任务 | 是 |
 | 打工 | 点击 offer | 4s | 灵石（§6.3）+ 概率积分 | 单任务；offer 每日刷新 | 是 |
 | 仙草园 | 点击种植 | 生长实时（§6.5） | 收获点数/种子/药材 | 无（并行） | 是 |
@@ -68,7 +67,11 @@ Melvor Idle 的核心循环恰好相反：玩家点击一个动作（砍树/挖�
 
 ## 5. 数值骨架（公式 + 参数 + 边界）
 
-### 5.1 修为（吐纳 / 闭关）
+### 5.1 修为（闭关 / 修习）
+
+> **2026-11-24：吐纳已下线。** 任务槽（伐木/采石/打工）不再产出修为；本节公式只剩
+> 「一次坐满」的支付路径——闭关与修习仍是 250 回合 × `SECLUSION_BONUS_PERMILLE`。
+> 当前每回合数值以 `docs/0104` §5.1 的手调阶梯为准，本节的线性公式与下表是当时的记录。
 
 公式：`growth_per_tick = round(BASE_GROWTH × (1000 + GROWTH_REALM_STEP × realm_index) / 1000 × growth_permille / 1000)`
 
@@ -91,7 +94,7 @@ Melvor Idle 的核心循环恰好相反：玩家点击一个动作（砍树/挖�
 
 边界：合道以后是超长期（与 `curve.rs` 注释「last realm is a multi-year horizon」一致），靠功法倍率（最高 ×4）、闭关 ×1.1、丹药加速。若实测前期太快/太慢，调 `BASE_GROWTH`（2 → 1 或 3）即可等比缩放，曲线门槛不动。
 
-闭关 = 一次 25 分钟实时任务，按 250 回合结算，额外 ×1.1 闭关加成；它保留番茄钟的仪式感，但产出已并入吐纳曲线，不再有独立公式。
+闭关 = 一次 25 分钟实时任务，按 250 回合结算，额外 ×1.1 闭关加成；它保留番茄钟的仪式感，但产出已并入修为曲线（吐纳下线前是吐纳曲线，两者同一条），不再有独立公式。
 
 ### 5.2 采集（伐木 / 采石）
 
@@ -154,10 +157,10 @@ Melvor Idle 的核心循环恰好相反：玩家点击一个动作（砍树/挖�
 
 - 回合 1s，一场 30 回合上限（沿用 `DUEL_ROUND_CAP`），可 2/4/8 倍速（沿用 `ReplaySpeed`）。
 - 锁妖塔：点击「挑战」后从当前层连续实时爬塔，每层结算奖励，直到失败或玩家停止；每日 5 次挑战（沿用 `TRIAL_ATTEMPTS_PER_DAY`）。每层奖励沿用概率（种子 300‰ / 装备 60‰ / 功法 10‰，`trial.rs:64-66`）+ 灵石 `TRIAL_STONES(12,18) × (1 + floor/100)`。
-- 试炼：机会制（吐纳每 10 回合 +1，上限 10），实时回合，强度带沿用 1200–2000‰。
+- 试炼：机会制（每次闭关/修习结束 +1，上限 10），实时回合，强度带沿用 1200–2000‰。
 - 突破：改用 `duel` 引擎实时演出（原来纯战力比较 `battle.rs:67`），胜负判定不变；失败仍 +12h 冷却、250‰ 掉装备。
 
-边界：战斗不参与离线结算（离线爬塔会被秒挂，失去意义）；离线收益只来自吐纳/采集/打工/仙草园/探索。
+边界：战斗不参与离线结算（离线爬塔会被秒挂，失去意义）；离线收益只来自采集/打工/仙草园/探索——修为不离线（吐纳下线后只剩坐满的闭关/修习）。
 
 ### 5.5 仙草园
 
@@ -282,3 +285,4 @@ Melvor Idle 的核心循环恰好相反：玩家点击一个动作（砍树/挖�
 - 离线补结算批量化（2026-11-18）：恢复后的补账原来逐 tick 克隆整任务、再逐 tick 从文档里读回来，12 小时上限（`TASK_OFFLINE_CAP_SECONDS`）对上 4 秒的打工回合就是 10,800 次克隆——一次开机付 20,000 次复制。现改为 `advance_task` 只克隆一次，交给新的 `settle_ticks(task, due, now)`:吐纳与打工按整段入账（`meditate_growth() × due`、`job_tick_stones(grade) × due`），只在阈值边界逐个执行动作（吐纳每 10 回合的试炼机会与掉落、打工每 60 回合的积分 roll），阈值顺序不变所以 rng 序列与逐 tick 完全一致；**采集刻意保留逐 tick**——产量读的是采集等级，而等级在窗口内随经验落地升档，逐 tick 是唯一能复现 §5.2 与 §9.1 的 199 石切片的算法（去克隆后这个循环本身很便宜）。防漂移：打工的积分 roll 抽成 `roll_work_point`，逐 tick 路径与批量路径共用同一份。另补 `tick_seconds.max(1)`（老档若缺该字段，逐 tick 的裸除会 panic）。等价性由内核测试 `offline_catch_up_pays_what_ticks_would` 钉死：吐纳/伐木/打工各 250 回合，批量结果与「逐 tick + 同一个 now」的整份文档 `serde_json` 全等（rng 序列、升档、事件、`last_drop` 一并覆盖）。
 - 状态机过渡块拆分（2026-11-18）：`state_actions.rs` 已长到 2,831 行 / 77 个函数，是仓里第三大文件，改一行要滚过整条升阶链。现按领域拆成 7 个**扁平兄弟文件**（`state_actions_garden/battle/explore/work/trial/view.rs`，加上保留采集/出行/会话/建筑的 `state_actions.rs`），全部是 `state` 的子模块（`state.rs` 用 `#[path = ...] mod` 显式声明），所以 `pub(super)` 语义与拆分前一致、公共路径零变化；跨文件互调的 7 个 helper（`resources_view`、`region_views`、`return_trip_now`、`working`、`roll_marrow_from_combat`、`roll_marrow_from_fortune`、`trained_art_rank`）从私有提到 `pub(super)`。契约测试 `tools/tests/test_state_module_split_contract.py` 从 3 条扩到 5 条：`state.rs` ≤ 3000 行、7 个过渡文件各自 ≤ 700 行、每个都在 `state.rs` 里有对应 `#[path]` 声明、每个都仍是 `impl Cultivation` 块。最大文件从 2,831 降到 589 行。
 - 门禁（2026-11-18）：`cargo fmt --all -- --check` 干净；`cargo clippy --workspace --all-targets --all-features --exclude bongocat-app -- -D warnings` 无警告（仅既有 `block v0.1.6` future-incompat）；`bongocat-app` 两组 feature（`storage-test-injection` / `production`）clippy 均干净；`cargo test --locked --workspace` **1938 passed / 0 failed**，其中 `bongocat-pomodoro --lib` **521 passed**（517 基线 + 本轮 4 条）、`bongocat-ui` 373、`bongocat-i18n` 20、`bongocat-pomodoro-web --test bridge` 7；`cargo check --locked --workspace --release` 通过；`validate-locales.py` 827 键两语言对齐；wasm 重建后双份同哈希 `7173c6f5…`（951204 bytes）；`just web-check` 16/16、`mp-check` 全绿（`progress-contract.js` 108 条）。**本机没装 `just`**，所有 recipe 用等价底层命令手工执行。`python3 -m unittest discover -s tools/tests -p 'test_*.py'` 112 条里有 2 条失败、2 条 import 错误，均与本轮无关：失败的是 `test_release_changelog_contract` 的双语条目对齐（两份 `CHANGELOG` 本轮未改动，HEAD 上已是红的），错误是本机 Python 3.14 缺 `PyYAML`（`test_release_targets` / `test_verify_documentation_filter` 导入 `yaml` 失败）。
+- 吐纳下线（2026-11-24）：实时任务只剩伐木/采石/打工，任务槽不再产出修为；修为只由闭关与修习每次坐满的 250 回合 ×1.1 支付。吐纳的两个附带产出没有搬家——试炼机会改为只在每次闭关/修习结束 +1（上限 10），每 10 回合的装备/种子掉落随它消失（掉落仍来自坐满与战斗）。旧档兼容走读档迁移：`document::parse_document` 在类型反序列化前把 `cultivation.task.kind == "Meditate"` 清成 null，整份文档（任务、历史、境界）不会因为一个已退役的枚举值解析失败而退回默认档；任务上未结算的离线窗口在读档时没有时钟可付，这部分放弃。三端删吐纳开始钮与 `cult-meditate` 映射，i18n 删 `cultivation.task.meditate`，web/小程序删 `TASK_KINDS` 里的 `Meditate`；内核删 `TaskKind::Meditate`、每 10 回合的机会/掉落分支与 `TASK_CHANCE_EVERY_TICKS`，`meditate_tick_growth` 保留为闭关/修习的修为曲线。

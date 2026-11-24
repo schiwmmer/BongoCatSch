@@ -17,6 +17,7 @@ Page({
     loading: true,
     error: '',
     busy: false,
+    notices: [],
   },
 
   onLoad(query) {
@@ -63,7 +64,13 @@ Page({
     if (this.data.section === 'arts') view = V.artsSection(c);
     else if (this.data.section === 'gear') view = V.gearSection(c);
     else view = V.statusSection(c);
-    this.setData({ loading: false, error: '', view, header: V.header(snapshot) });
+    this.setData({
+      loading: false,
+      error: '',
+      view,
+      header: V.header(snapshot),
+      notices: V.notices(c),
+    });
   },
 
   async send(payload, successText) {

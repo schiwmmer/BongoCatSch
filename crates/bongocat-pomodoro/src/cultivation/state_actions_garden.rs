@@ -399,6 +399,7 @@ impl Cultivation {
                 count: 1,
                 name: seed_name.clone(),
                 sell_price: seed_sell_price(attribute, tier, grade),
+                plant_permille: super::plant_permille(self.document.garden_rank, tier, grade),
             })
         } else {
             None

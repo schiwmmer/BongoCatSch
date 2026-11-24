@@ -824,12 +824,25 @@
       "mountain": "山·采石",
       "mine": "矿洞·双技能"
     },
+    "gather": {
+      "forest": {
+        "common": "凡木林",
+        "spirit": "灵木林",
+        "divine": "神木林",
+        "chaos": "混沌神木"
+      },
+      "mountain": {
+        "common": "凡石山",
+        "spirit": "铁矿山",
+        "divine": "寒铁窟",
+        "chaos": "星辰矿脉"
+      }
+    },
     "tier": {
-      "common": "凡",
-      "spirit": "灵",
-      "divine": "神",
-      "chaos": "混沌",
-      "refuse_locked": "这个采集点还没解锁：先提升对应的采集等级。"
+      "common": "Ⅰ",
+      "spirit": "Ⅱ",
+      "divine": "Ⅲ",
+      "chaos": "Ⅳ"
     },
     "seclusion": {
       "title": "闭关",
@@ -956,15 +969,15 @@
       }
     },
     "task": {
-      "meditate": "吐纳",
       "woodcut": "伐木",
       "stonecut": "采石",
       "work": "打工",
       "title": "实时任务",
       "idle": "当前没有进行中的任务",
       "stop": "停止",
-      "current_gather": "正在进行：%{kind} · %{site} %{tier} · 已完成 %{ticks} 回合 · 每回合 %{seconds} 秒",
+      "current_gather": "正在进行：%{kind} · %{site} · %{depth} · 已完成 %{ticks} 回合 · 每回合 %{seconds} 秒",
       "current_plain": "正在进行：%{kind} · 已完成 %{ticks} 回合 · 每回合 %{seconds} 秒",
+      "depth_hint": "采集点随等级自动加深：伐木、采石升到 20、50、80 级就自己走到更深处。",
       "refuse_running": "已有任务进行中，先停掉再开始。"
     },
     "explore": {

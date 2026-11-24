@@ -370,6 +370,54 @@ pub struct TradeView {
     pub xp: u32,
     /// What the next level costs, in xp.
     pub xp_to_next: u32,
+    /// The depth this level works, read off the domain's own ladder
+    /// (`GatherTier::for_level`) rather than recomputed by a surface.
+    pub depth: super::GatherTier,
+    /// That depth's yield multiplier, in parts per thousand.
+    pub depth_base_permille: u32,
+}
+
+/// The ladder's fixed numbers, as a surface prints them.
+///
+/// The three surfaces render the same rules — gather depth gates, the lengths
+/// a walk can be taken for, a 闭关's length, the region sizes and the star
+/// ceiling. Those are domain numbers, and a page that typed them in would be a
+/// second copy of the design (`docs/0106`). Carrying them on the view lets the
+/// web page and the mini program print the App's numbers without owning them.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct RulesView {
+    /// The highest star a piece can reach (`items::MAX_STAR`).
+    pub max_star: u8,
+    /// How many ticks a full 闭关 runs (`task::SECLUSION_TICKS`).
+    pub seclusion_ticks: u32,
+    /// How long a full 闭关 takes, in seconds.
+    pub seclusion_seconds: u32,
+    /// How many regions there are (`explore::Region::ALL`).
+    pub region_count: u8,
+    /// How many levels one region holds (`explore::LEVELS_PER_REGION`).
+    pub region_levels: u8,
+    /// The lengths a walk can be taken for, with the yield each pays.
+    pub explore_hours: Vec<ExploreHourView>,
+    /// The four gathering depths, shallowest first, with their gates.
+    pub gather_depths: Vec<GatherDepthView>,
+}
+
+/// One length a walk can be taken for.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct ExploreHourView {
+    pub hours: u8,
+    /// What the walk's yield is multiplied by, in parts per thousand.
+    pub multiplier_permille: u32,
+}
+
+/// One rung of the gathering-depth ladder.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct GatherDepthView {
+    pub tier: super::GatherTier,
+    /// The trade level that reaches this depth.
+    pub unlock_level: u8,
+    /// The depth's yield multiplier, in parts per thousand.
+    pub base_permille: u32,
 }
 
 /// One building, as the page reads it.
@@ -590,6 +638,15 @@ pub struct SeedView {
     /// on the button that was the price of all ten would not be the price of the
     /// click.
     pub sell_price: u32,
+    /// The chance this stack comes up in the garden as it stands now, in
+    /// permille: the same `plant_permille` the planting roll reads, so the
+    /// number printed beside a seed is the number the seed is planted at.
+    ///
+    /// Carried on the view because the garden's rank lives in the save, and a
+    /// surface that recomputed it would be a second copy of the table — the web
+    /// page and the mini program both read this field rather than porting the
+    /// formula (`docs/0106`).
+    pub plant_permille: u32,
 }
 
 /// What the last finished session did to the 功法 being trained.
@@ -742,6 +799,10 @@ impl PowerBreakdown {
 pub struct CultivationView {
     pub level: u16,
     pub realm: Realm,
+    /// The ladder's fixed numbers — depths, walk lengths, a 闭关's length,
+    /// the tower's floors and the star ceiling. Every surface prints these
+    /// instead of owning a copy (`docs/0106`).
+    pub rules: RulesView,
     /// How many levels the cultivator has gained since the local day opened.
     /// Negative when an absence charge or a loss has taken a level back.
     pub today_level_delta: i32,
@@ -805,7 +866,7 @@ pub struct CultivationView {
     /// The real-time battle under way, if one is (S5, §5.4). `None` while the
     /// cultivator is not fighting, which is the whole of a pre-S5 save.
     pub battle: Option<BattleRun>,
-    /// The real-time task under way, if one is (S1, §4): 吐纳, 伐木, 采石 or
+    /// The real-time task under way, if one is (S1, §4): 伐木, 采石 or 打工.
     /// 打工. Carried whole so a surface can draw what it is, where it works, how
     /// many ticks the clock has already paid and how long one tick is — the
     /// four things a task row has to read.
@@ -1074,8 +1135,10 @@ fn herb_seed_sell_price(herb: super::AptitudeHerb, grade: SeedGrade) -> u32 {
 }
 
 /// One seed stack as a surface reads it. The price is read off the stack rather
-/// than passed in, so a row cannot quote a figure the sale would not pay.
-fn seed_view(stack: &SeedStack) -> SeedView {
+/// than passed in, so a row cannot quote a figure the sale would not pay. The
+/// odds are read off the garden's own rank, the same value the planting roll
+/// reads, so no surface has to carry a copy of the table.
+fn seed_view(stack: &SeedStack, garden_rank: u8) -> SeedView {
     let sell_price = match stack.herb {
         Some(herb) => herb_seed_sell_price(herb, stack.grade),
         None => seed_sell_price(stack.attribute, stack.tier, stack.grade),
@@ -1088,6 +1151,7 @@ fn seed_view(stack: &SeedStack) -> SeedView {
         count: stack.count,
         name: stack.name.clone(),
         sell_price,
+        plant_permille: super::plant_permille(garden_rank, stack.tier, stack.grade),
     }
 }
 
@@ -2130,11 +2194,9 @@ impl Cultivation {
     /// the one line worth reading. Both are read through the session's own
     /// strength: nothing fought here, so the cultivator's power is the source.
     ///
-    /// `pub(super)` because 吐纳's tenth tick rolls the same find a session does
-    /// (`docs/0103` §5.1): the roll and its event are the session's path, and a
-    /// second copy for the task would be a second path. It is deliberately not
-    /// session-shaped — it reads only the clock and the cultivator's own power,
-    /// so a task tick can call it without a session context.
+    /// `pub(super)` so a finished session's settlement can call it. It is
+    /// deliberately not session-shaped — it reads only the clock and the
+    /// cultivator's own power, so a caller needs no session context.
     pub(super) fn roll_drop(&mut self, now_unix: i64) -> Option<Drop> {
         let mut rng = self.rng(now_unix);
         let strength = Strength::of(self.power());
@@ -2366,11 +2428,11 @@ impl Cultivation {
                 && stack.grade == grade
         }) {
             stack.count = stack.count.saturating_add(1);
-            return seed_view(stack);
+            return seed_view(stack, self.document.garden_rank);
         }
         let mut stack = SeedStack::single(attribute, tier, grade);
         stack.name = name.or_else(|| Some(seed_name(rng)));
-        let view = seed_view(&stack);
+        let view = seed_view(&stack, self.document.garden_rank);
         self.document.seeds.push(stack);
         view
     }
@@ -2405,10 +2467,10 @@ impl Cultivation {
             })
         {
             stack.count = stack.count.saturating_add(1);
-            return seed_view(stack);
+            return seed_view(stack, self.document.garden_rank);
         }
         let stack = SeedStack::herb_single(herb, grade);
-        let view = seed_view(&stack);
+        let view = seed_view(&stack, self.document.garden_rank);
         self.document.seeds.push(stack);
         view
     }
@@ -2465,8 +2527,8 @@ pub use battle_run::{
 pub use task::{
     ActiveTask, GATHER_TICK_SECONDS, GROWTH_PER_REALM, JOB_POINT_EVERY_TICKS,
     SECLUSION_BONUS_PERMILLE, SECLUSION_TICK_SECONDS, SECLUSION_TICKS, SeclusionRun,
-    TASK_BASE_GROWTH, TASK_CHANCE_EVERY_TICKS, TASK_JOB_BASE_STONES, TASK_OFFLINE_CAP_SECONDS,
-    TaskKind, WORK_TICK_SECONDS, meditate_tick_growth, sit_growth, tick_progress_permille,
+    TASK_BASE_GROWTH, TASK_JOB_BASE_STONES, TASK_OFFLINE_CAP_SECONDS, TaskKind, WORK_TICK_SECONDS,
+    meditate_tick_growth, sit_growth, tick_progress_permille,
 };
 
 #[cfg(test)]

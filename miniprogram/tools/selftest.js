@@ -108,6 +108,19 @@ const expectOk = async (event) => {
 const cases = [];
 const test = (name, body) => cases.push({ name, body });
 
+// 资源与采集经验的显示口径，与内核 `quantity_number` 同一把尺子：一万以下
+// 精确并加千位符，再大用 K，百万以上用 M。
+test('资源与经验数量按 千位符 → K → M 收短', async () => {
+  const labels = require('../utils/labels');
+  assert.strictEqual(labels.quantity(999), '999');
+  assert.strictEqual(labels.quantity(1234), '1,234');
+  assert.strictEqual(labels.quantity(9999), '9,999');
+  assert.strictEqual(labels.quantity(10000), '10K');
+  assert.strictEqual(labels.quantity(12345), '12.3K');
+  assert.strictEqual(labels.quantity(999999), '1M');
+  assert.strictEqual(labels.quantity(1234567), '1.23M');
+});
+
 test('首次进入自动建档，落在数据库而不是客户端', async () => {
   const result = await expectOk({ op: 'sync' });
   assert.strictEqual(result.snapshot.cultivation.realm, 'QiRefining');

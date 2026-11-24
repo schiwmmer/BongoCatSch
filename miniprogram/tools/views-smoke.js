@@ -55,6 +55,8 @@ const outputs = {
   workshop: views.workshop(snapshot.cultivation),
   garden: views.garden(snapshot.cultivation),
   market: views.market(snapshot.cultivation),
+  record: views.record(snapshot.cultivation),
+  notices: { items: views.notices(snapshot.cultivation) },
   status: views.statusSection(snapshot.cultivation),
   arts: views.artsSection(snapshot.cultivation),
   gear: views.gearSection(snapshot.cultivation),
@@ -67,7 +69,7 @@ const outputs = {
 const runningCultivation = JSON.parse(JSON.stringify(snapshot.cultivation));
 runningCultivation.task = {
   kind: 'Woodcut',
-  site: 'forest',
+  site: 'Forest',
   tier: 'Common',
   ticks_done: 3,
   tick_seconds: 8,
@@ -78,7 +80,7 @@ const workshopRunning = views.workshop(runningCultivation);
 // 时钟是钉死的，免得测试跟着真时间漂移。
 const liveNow = 1_800_000_000_000;
 const liveCultivation = {
-  task: { kind: 'Woodcut', site: 'forest', ticks_done: 3, tick_seconds: 8, start_unix: liveNow / 1000 - 4 },
+  task: { kind: 'Woodcut', site: 'Forest', tier: 'Common', ticks_done: 3, tick_seconds: 8, start_unix: liveNow / 1000 - 4 },
   battle: { kind: 'Trial', rounds_done: 2, rounds_total: 9, tick_seconds: 1, start_unix: liveNow / 1000 - 1 },
 };
 const live = views.liveProgress(liveCultivation, liveNow);
@@ -134,10 +136,15 @@ const checks = [
   ['番茄钟有任务列表', outputs.pomodoro.tasks.length === 1],
   ['番茄钟日历有格子', outputs.pomodoro.cal.cells.length > 0],
   ['修仙外出有 3 个时长', outputs.outing.hours.length === 3],
-  ['修仙外出有 10 个区域', outputs.outing.regions.length === 10],
+  ['探索时长与倍率读内核 rules', outputs.outing.hours[0].label === '4 小时 · ×1.0' && outputs.outing.hours[2].label === '12 小时 · ×3.2'],
+  ['修仙外出有 10 个区域', outputs.outing.regions.length === outputs.outing.regionCount],
+  ['每区层数读内核 rules', outputs.outing.regionLevels === 10],
+  ['采集深度倍率读快照', outputs.workshop.task.depths[0].label.includes('×1.0')],
+  ['深度门等级读内核 rules', outputs.workshop.task.depthHint.includes('20、50、80')],
+  ['闭关时长读内核 rules', outputs.workshop.seclusion.hint.startsWith('25 分钟')],
   ['塔有战报记录', outputs.tower.record.length >= 1],
   ['洞府有 4 个建筑', outputs.workshop.buildings.length === 4],
-  ['任务卡有 3 个开始钮', outputs.workshop.task.starts.length === 3],
+  ['任务卡有 2 个开始钮', outputs.workshop.task.starts.length === 2],
   ['任务卡空转时不画进行中', outputs.workshop.task.running === false],
   ['闭关卡空转时待机', outputs.workshop.seclusion.running === false],
   ['进行中的任务画出回合数', workshopRunning.task.running && workshopRunning.task.text.includes('3 回合')],
@@ -151,6 +158,10 @@ const checks = [
   ['实时进度：战斗读整场', live.battle === 333],
   ['实时进度：什么都不跑时是 null', views.liveProgress({}, liveNow).task === null && views.liveProgress({}, liveNow).battle === null],
   ['灵草园有 4 块地', outputs.garden.plots.length >= 4],
+  ['记录页有行踪与事件', outputs.record.statusText.length > 0 && Array.isArray(outputs.record.visible)],
+  ['事件行带时间戳', outputs.record.visible.every((row) => row.at.length > 0)],
+  ['记录页把「查看全部」的余下事件单独列出', outputs.record.rest.length + outputs.record.visible.length === outputs.record.count],
+  ['今日增量在页头', outputs.pomodoro.header.todayDelta.startsWith('今日境界')],
   ['集市有报价', outputs.market.offers.length >= 1],
   ['状态有 4 个属性', outputs.status.attributes.length === 4],
   ['我的页显示昵称', outputs.me.nickname === '休谟'],
@@ -175,7 +186,7 @@ for (const [name, ok] of checks) {
 // 这里把每个页面的模板字段与它可能用到的 view 对象取并集比对。
 const PAGES = {
   'pages/pomodoro/index.wxml': ['pomodoro'],
-  'pages/cultivate/index.wxml': ['outing', 'tower', 'workshop', 'garden', 'market'],
+  'pages/cultivate/index.wxml': ['outing', 'tower', 'workshop', 'garden', 'market', 'record'],
   'pages/arts/index.wxml': ['status', 'arts', 'gear'],
   'pages/me/index.wxml': ['me'],
 };

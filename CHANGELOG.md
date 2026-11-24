@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### ✨ Features
+
+- Resource counts and trade experience now shorten as they grow: a figure is printed in full with thousands separators (`9,999`) up to ten thousand, in K after that (`12.3K`) and in M from a million (`1.23M`), so a full purse and a late trade bar no longer read as a wall of digits.
+- Gathering no longer asks which depth to work: the depth is read off the hand, so 伐木 turns the forest into 灵木林 the moment its level reaches twenty, and into 混沌神木 at eighty, with no picker and nothing to click. The card now names the depth as a number and a multiplier (`Ⅱ · ×1.5`) instead of a second set of rarity words, and the place itself — 凡木林, 铁矿山, 星辰矿脉 — appears on the task row, the task card and the gathering notice, none of which had ever printed it.
+
+### 🗑️ Removals
+
+- 吐纳 (Breath Cycling) is gone from the live tasks: the slot is left to Woodcutting, Quarrying and Odd Jobs, and growth now comes only from a Seclusion or a Study session (one 25-minute sit, ×1.1). A save that still holds a 吐纳 task has it cleared when the save is read; growth already paid is kept. Its two side payouts — a trial chance and an equipment or seed roll every ten ticks — go with it: trial chances now come one per completed sit, and drops remain from a sit and from a fight.
+
 ## 2.5.0 - 2026-11-19
 
 ### ✨ Features

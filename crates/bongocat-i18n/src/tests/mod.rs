@@ -6,7 +6,7 @@
 
 use super::{
     compact_number, current_platform_id, format_text, group_thousands, locale_code, platform_text,
-    text,
+    quantity_number, text,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};

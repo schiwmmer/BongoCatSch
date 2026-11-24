@@ -233,7 +233,8 @@ fn herb_row(
                 });
             }
         });
-    let percent = (plant_permille(cultivation.garden_rank, seed.tier, seed.grade) + 5) / 10;
+    // 成活率读快照里的 `plant_permille`：内核在构建视图时算好，页面不再抄一遍公式。
+    let percent = (seed.plant_permille + 5) / 10;
     let odds_line = format_text(
         locale,
         "cultivation.garden.plant_odds",
@@ -498,8 +499,7 @@ pub(super) fn seed_panel(
                 // garden, this herb, right now. A success rate the user can read makes
                 // planting a decision rather than a purchase; the number is the domain's
                 // own, so the page cannot promise odds the planting will not get.
-                let percent =
-                    (plant_permille(cultivation.garden_rank, seed.tier, seed.grade) + 5) / 10;
+                let percent = (seed.plant_permille + 5) / 10;
                 let odds_line = format_text(
                     locale,
                     "cultivation.garden.plant_odds",

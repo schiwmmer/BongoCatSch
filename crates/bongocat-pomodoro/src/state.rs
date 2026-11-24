@@ -362,35 +362,36 @@ pub enum PomodoroCommand {
     /// or gathers at one site — so choosing one replaces the other. A running
     /// session is not disturbed: the mode is read when it finishes.
     SelectSessionMode { mode: crate::SessionMode },
-    /// Start one of the four real-time tasks (`docs/0103` §4): 吐纳, 伐木,
-    /// 采石 or 打工.
+    /// Start one of the three real-time tasks (`docs/0103` §4): 伐木, 采石 or
+    /// 打工. 吐纳 was retired with its kind, so no command can name it.
     ///
     /// The name is `CultStartTask` rather than `StartTask` because
     /// [`Self::StartTask`] is already the pomodoro focus session's command —
     /// two different "start a task" clicks cannot share one variant without
     /// making every caller guess which task is meant. The `Cult` prefix is
     /// also what the web command channel keys its ops on, so the four
-    /// cultivation ops read as one family there. `site`/`tier` are the
-    /// gathering point a 伐木 or 采石 task works (`tier` defaults to 凡),
-    /// `grade` is the 打工 grade the offer carried, and `job_kind` is the trade
-    /// that grade was taken at — the roll a 打工 task's 积分 is made on, which
-    /// is why it travels with the start rather than being re-derived. The tick
-    /// tempo is the kind's own, chosen in `apply` so a caller cannot start a
-    /// task at a tempo the design did not give it.
+    /// cultivation ops read as one family there. `site` is the gathering point a
+    /// 伐木 or 采石 task works, and there is **no** depth here (`docs/0105`): a
+    /// gathering task works the deepest point its trade level has reached, so a
+    /// page cannot offer a shallower one. `grade` is the 打工 grade the offer
+    /// carried, and `job_kind` is the trade that grade was taken at — the roll a
+    /// 打工 task's 积分 is made on, which is why it travels with the start rather
+    /// than being re-derived. The tick tempo is the kind's own, chosen in `apply`
+    /// so a caller cannot start a task at a tempo the design did not give it.
     ///
     /// Refused — and the refusal recorded by the kernel — while a battle, a
     /// walk, an expedition, a job or another task holds the one slot.
     CultStartTask {
         kind: crate::TaskKind,
         site: Option<crate::GatherSite>,
-        tier: Option<crate::GatherTier>,
         grade: Option<u8>,
         job_kind: Option<crate::JobKind>,
     },
     /// Stop the real-time task under way, paying the whole ticks it finished.
     CultStopTask,
-    /// Begin a 闭关: a 25-minute sit that pays like 250 吐纳 ticks with the sit's
-    /// bonus. It does not occupy the task slot, so it runs beside 采集 or 打工.
+    /// Begin a 闭关: a 25-minute sit that pays like 250 growth ticks with the
+    /// sit's bonus. It does not occupy the task slot, so it runs beside 采集 or
+    /// 打工.
     CultStartSeclusion,
     /// Stop the 闭关 early, paying the ticks it finished.
     CultStopSeclusion,
@@ -581,13 +582,13 @@ impl PomodoroState {
     /// reads as a fresh document rather than an error, the same way a missing
     /// file does.
     pub fn from_document_json(json: &str, utc_offset_seconds: i32) -> Self {
-        let document = serde_json::from_str(json).unwrap_or_default();
+        let document = crate::document::parse_document(json.as_bytes()).unwrap_or_default();
         Self::from_document(document, utc_offset_seconds)
     }
 
     /// The same read, with the birth roll's seed supplied by the caller.
     pub fn from_document_json_with_seed(json: &str, utc_offset_seconds: i32, seed: u64) -> Self {
-        let document = serde_json::from_str(json).unwrap_or_default();
+        let document = crate::document::parse_document(json.as_bytes()).unwrap_or_default();
         Self::from_document_seeded(document, utc_offset_seconds, Some(seed))
     }
 
@@ -902,30 +903,26 @@ impl PomodoroState {
             PomodoroCommand::CultStartTask {
                 kind,
                 site,
-                tier,
                 grade,
                 job_kind,
             } => {
-                // The tempo is the kind's own (`docs/0103` §4): 吐纳 breathes at
-                // the 闭关 tempo, 伐木/采石 gather at eight seconds, 打工 works
-                // at four. Choosing it here rather than taking it from the
-                // caller is what keeps a task's rhythm a design table rather
-                // than a number a surface can get wrong.
+                // The tempo is the kind's own (`docs/0103` §4): 伐木/采石 gather
+                // at eight seconds, 打工 works at four. Choosing it here rather
+                // than taking it from the caller is what keeps a task's rhythm a
+                // design table rather than a number a surface can get wrong.
                 let tick_seconds = match kind {
-                    crate::TaskKind::Meditate => crate::SECLUSION_TICK_SECONDS,
                     crate::TaskKind::Woodcut | crate::TaskKind::Stonecut => {
                         crate::GATHER_TICK_SECONDS
                     }
                     crate::TaskKind::Work => crate::WORK_TICK_SECONDS,
                 };
-                // `start_gathering_task` records the refusal itself — a battle,
+                // `start_task` records the refusal itself — a battle,
                 // a walk, an expedition, a job or another task holding the slot
                 // — so the error is dropped here rather than noted a second
                 // time, exactly as the battle commands above do.
-                let _ = self.cultivation.start_gathering_task(
+                let _ = self.cultivation.start_task(
                     kind,
                     site,
-                    tier.unwrap_or_default(),
                     grade,
                     job_kind,
                     now_unix,
@@ -1952,12 +1949,13 @@ mod tests {
     /// The real-time task commands are the page's whole loop: a click starts a
     /// task at the kind's own tempo, the clock carries it, and a second click
     /// stops it. The tempo is chosen in `apply` rather than sent by the caller,
-    /// so a 伐木 task reads eight seconds and a 吐纳 one the 闭关 six.
+    /// so a 伐木 task reads eight seconds and a 打工 one four.
     #[test]
     fn a_real_time_task_starts_at_its_own_tempo_and_stops_on_the_click() {
         let mut state = PomodoroState::empty();
-        // 灵木林 asks for 伐木 20 (`docs/0104` §4.2), so the save working it is a
-        // level-twenty one rather than the fresh default.
+        // 伐木 20 reaches the second depth (`docs/0105`), so the save that
+        // starts a forest task is a level-twenty one rather than the fresh
+        // default.
         state.cultivation = Cultivation::new(CultivationDocument {
             woodcut_level: 20,
             ..CultivationDocument::default()
@@ -1966,7 +1964,6 @@ mod tests {
             PomodoroCommand::CultStartTask {
                 kind: crate::TaskKind::Woodcut,
                 site: Some(GatherSite::Forest),
-                tier: Some(crate::GatherTier::Spirit),
                 grade: None,
                 job_kind: None,
             },
@@ -1979,7 +1976,11 @@ mod tests {
             .expect("the task is under way");
         assert_eq!(task.kind, crate::TaskKind::Woodcut);
         assert_eq!(task.site, Some(GatherSite::Forest));
-        assert_eq!(task.tier, crate::GatherTier::Spirit);
+        assert_eq!(
+            task.tier,
+            crate::GatherTier::Spirit,
+            "the depth follows the hand, not the click"
+        );
         assert_eq!(task.tick_seconds, crate::GATHER_TICK_SECONDS);
         assert_eq!(task.ticks_done, 0, "a click starts the clock, not a tick");
         // One tick is paid on the clock, not on the click that started it.
@@ -1996,31 +1997,11 @@ mod tests {
         // Stopping pays what is done and clears the slot.
         state.apply(PomodoroCommand::CultStopTask, 1_080);
         assert!(state.snapshot(3).cultivation.task.is_none());
-        // 吐纳 breathes at the 闭关 tempo: six seconds, not the gather's eight.
-        state.apply(
-            PomodoroCommand::CultStartTask {
-                kind: crate::TaskKind::Meditate,
-                site: None,
-                tier: None,
-                grade: None,
-                job_kind: None,
-            },
-            2_000,
-        );
-        assert_eq!(
-            state
-                .snapshot(4)
-                .cultivation
-                .task
-                .expect("the breath is under way")
-                .tick_seconds,
-            crate::SECLUSION_TICK_SECONDS
-        );
     }
 
     /// 闭关 is not a task: it starts beside one, runs its ticks on the same
-    /// clock, and stops on its own click without touching the task. `tier: None`
-    /// reads as 凡, the tier every pre-S2 call site means.
+    /// clock, and stops on its own click without touching the task. A fresh
+    /// hand gathers at the first depth, which is the one a start takes.
     #[test]
     fn a_seclusion_starts_alongside_a_task_and_stops_on_the_click() {
         let mut state = PomodoroState::empty();
@@ -2028,7 +2009,6 @@ mod tests {
             PomodoroCommand::CultStartTask {
                 kind: crate::TaskKind::Stonecut,
                 site: Some(GatherSite::Mountain),
-                tier: None,
                 grade: None,
                 job_kind: None,
             },
@@ -2071,9 +2051,8 @@ mod tests {
         let mut state = PomodoroState::empty();
         state.apply(
             PomodoroCommand::CultStartTask {
-                kind: crate::TaskKind::Meditate,
-                site: None,
-                tier: None,
+                kind: crate::TaskKind::Woodcut,
+                site: Some(GatherSite::Forest),
                 grade: None,
                 job_kind: None,
             },
@@ -2082,9 +2061,8 @@ mod tests {
         assert_eq!(state.snapshot(1).cultivation.refusal_count, 0);
         state.apply(
             PomodoroCommand::CultStartTask {
-                kind: crate::TaskKind::Woodcut,
-                site: Some(GatherSite::Forest),
-                tier: None,
+                kind: crate::TaskKind::Stonecut,
+                site: Some(GatherSite::Mountain),
                 grade: None,
                 job_kind: None,
             },
@@ -2100,7 +2078,7 @@ mod tests {
         // nothing.
         assert_eq!(
             view.task.expect("the first task").kind,
-            crate::TaskKind::Meditate
+            crate::TaskKind::Woodcut
         );
     }
 

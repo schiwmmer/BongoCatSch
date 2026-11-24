@@ -202,30 +202,54 @@ impl GatherSite {
     }
 }
 
-/// The four tiers of gathering point (`docs/0103` §5.2).
+/// The four depths of a gathering point (`docs/0103` §5.2, `docs/0105`).
 ///
-/// A tier is a *place*, not a skill: the same forest at a deeper tier pays a
-/// higher base and asks for a higher trade level to enter. The tier multiplies
-/// a tick's yield on top of the skill, the 工坊 and the realm, and its unlock
-/// level is the trade level a cultivator must hold to work it. The 矿洞 has no
-/// tiers — it is the one site that works both trades at once — so it keeps its
-/// own key.
+/// A depth is a *place*, not a skill and not a choice: the same forest gets
+/// deeper as the trade level climbs, paying a higher base without asking the
+/// user to pick. The depth multiplies a tick's yield on top of the skill, the
+/// 工坊 and the realm, and [`Self::for_level`] is the only thing that decides
+/// which one a hand works — the deepest its trade level has reached. The 矿洞
+/// has no depths — it is the one site that works both trades at once — so it
+/// keeps its own key.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum GatherTier {
-    /// 凡: the ordinary point, open from trade level one.
+    /// The ordinary point, open from trade level one.
     #[default]
     Common,
-    /// 灵: a richer point, open at trade level ten.
+    /// A richer point, open at trade level twenty.
     Spirit,
-    /// 神: a still richer one, open at trade level twenty.
+    /// A still richer one, open at trade level fifty.
     Divine,
-    /// 混沌: the deepest, open at trade level thirty.
+    /// The deepest, open at trade level eighty.
     Chaos,
 }
 
 impl GatherTier {
     /// The four, shallowest first.
     pub const ALL: [GatherTier; 4] = [Self::Common, Self::Spirit, Self::Divine, Self::Chaos];
+
+    /// The depth a hand at `level` works: the deepest point its trade level
+    /// has reached.
+    ///
+    /// This is the whole of the depth rule (`docs/0105`): a tier is not a
+    /// choice, because every deeper point is strictly better at the same
+    /// tempo — there was never a reason to stay shallow, and a picker that
+    /// only offers the strictly-worse option is a decision the user has to
+    /// make for nothing. A level zero is read as one, the same reading
+    /// [`Self::unlock_level`]'s first rung and the tick's own base take, so a
+    /// fresh save can gather.
+    pub const fn for_level(level: u8) -> Self {
+        let level = if level == 0 { 1 } else { level };
+        let mut deepest = Self::Common;
+        let mut index = 1;
+        while index < Self::ALL.len() {
+            if Self::ALL[index].unlock_level() <= level {
+                deepest = Self::ALL[index];
+            }
+            index += 1;
+        }
+        deepest
+    }
 
     /// The base yield's multiplier, in parts per thousand.
     pub const fn base_permille(self) -> u32 {
@@ -237,11 +261,12 @@ impl GatherTier {
         }
     }
 
-    /// The trade level a cultivator must hold to work this tier.
+    /// The trade level that reaches this depth.
     ///
     /// `docs/0104` §4.2: 1 / 20 / 50 / 80. With the ninety-nine-level ladder the
-    /// gates pace the sites across tens of hours of gathering instead of one
-    /// afternoon, so a deeper site is a milestone rather than the next click.
+    /// thresholds pace the sites across tens of hours of gathering instead of
+    /// one afternoon, so a deeper site is a milestone the hand walks into
+    /// ([`Self::for_level`]) rather than a button the user has to find.
     pub const fn unlock_level(self) -> u8 {
         match self {
             Self::Common => 1,
@@ -251,7 +276,14 @@ impl GatherTier {
         }
     }
 
-    /// The catalog key naming this tier.
+    /// The catalog key naming this depth's numeral (`docs/0105`); the page
+    /// computes the multiplier from [`Self::base_permille`]. Never a second
+    /// rarity ladder beside 品阶's 黄/玄/地/天/神.
+    ///
+    /// A depth is a place, so the words that used to name it here — 凡/灵/神/混沌
+    /// — collided with the equipment grades and made the page read as two
+    /// rarity systems. The numeral says where the hand stands; the place's own
+    /// name ([`Self::site_key`]) says where it is.
     pub const fn key(self) -> &'static str {
         match self {
             Self::Common => "cultivation.tier.common",
@@ -261,11 +293,11 @@ impl GatherTier {
         }
     }
 
-    /// The catalog key naming the gathering point at `site` on this tier.
+    /// The catalog key naming the gathering point at `site` on this depth.
     ///
     /// The named points are the §5.2 table: 凡木林/灵木林/神木林/混沌神木 for
     /// the forest and 凡石山/铁矿山/寒铁窟/星辰矿脉 for the mountain. The 矿洞
-    /// has no tier and keeps [`GatherSite::Mine`]'s own key.
+    /// has no depth and keeps [`GatherSite::Mine`]'s own key.
     pub const fn site_key(self, site: GatherSite) -> &'static str {
         match site {
             GatherSite::Forest => match self {
@@ -1013,6 +1045,34 @@ mod tests {
                 .wood
         });
         assert_eq!(yields, [2, 4, 5, 8]);
+    }
+
+    /// The depth is read off the hand, never chosen (`docs/0105`): every rung
+    /// is entered at its own level and left one level below the next one's, and
+    /// the shallowest point is open from zero so a fresh save can gather.
+    #[test]
+    fn the_depth_a_level_works_is_the_deepest_one_it_has_reached() {
+        assert_eq!(GatherTier::for_level(0), GatherTier::Common, "a fresh hand");
+        for (index, tier) in GatherTier::ALL.into_iter().enumerate() {
+            assert_eq!(
+                GatherTier::for_level(tier.unlock_level()),
+                tier,
+                "{tier:?} is entered at its own level"
+            );
+            if index > 0 {
+                let below = GatherTier::ALL[index - 1];
+                assert_eq!(
+                    GatherTier::for_level(tier.unlock_level() - 1),
+                    below,
+                    "the level under {tier:?} is still {below:?}"
+                );
+            }
+        }
+        assert_eq!(
+            GatherTier::for_level(MAX_TRADE_LEVEL),
+            GatherTier::Chaos,
+            "a maxed hand works the deepest point"
+        );
     }
 
     #[test]

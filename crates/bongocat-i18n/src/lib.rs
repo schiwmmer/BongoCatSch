@@ -109,6 +109,30 @@ pub fn format_text(locale: &str, key: &str, values: &[(&str, String)]) -> String
 /// `999_999` becomes `1M` rather than a four-digit `1000K`: the unit is chosen
 /// after the rounding, not before it.
 pub fn compact_number(value: u64) -> String {
+    if value < 1_000 {
+        return value.to_string();
+    }
+    unit_number(value)
+}
+
+/// A count as a purse or a trade reads it: exact with thousands separators
+/// while it is still small enough to read at a glance, then in K, then in M.
+///
+/// `12_345` is `12.3K`, `1_234_567` is `1.23M`, but `9_999` stays `9,999`: a
+/// resource count or a banked experience figure is watched moving one tick at a
+/// time, and below ten thousand the exact number is worth more than the unit
+/// that shortens it. Past ten thousand the digits stop being read individually
+/// and the unit is what carries the magnitude.
+pub fn quantity_number(value: u64) -> String {
+    if value < 10_000 {
+        // Under ten thousand the figure fits a `u32` with room to spare.
+        return group_thousands(u32::try_from(value).unwrap_or(u32::MAX));
+    }
+    unit_number(value)
+}
+
+/// The shared ladder: the largest unit the count reaches, with its fraction.
+fn unit_number(value: u64) -> String {
     /// The units, largest first, with the count each one stands for and how
     /// many decimal places it is printed with.
     const UNITS: [(u128, &str, u32); 4] = [
@@ -117,9 +141,6 @@ pub fn compact_number(value: u64) -> String {
         (1_000_000, "M", 2),
         (1_000, "K", 1),
     ];
-    if value < 1_000 {
-        return value.to_string();
-    }
     for (scale, suffix, places) in UNITS {
         // The figure in the unit's own fraction, rounded half up. A figure that
         // rounds up to four digits has outgrown the unit and is tried against

@@ -197,6 +197,32 @@ impl Document {
     }
 }
 
+/// The one task kind a save may still name but the ladder no longer offers.
+///
+/// 吐纳 was retired (`docs/0103` §4). Its finished ticks were paid as they
+/// happened, so what a stored task still holds is only the window between its
+/// last advance and this upgrade — a clock-less read cannot pay that, and
+/// keeping the task would need the kind back on every surface that reads one.
+const RETIRED_TASK_KIND: &str = "Meditate";
+
+/// Read a document from bytes, clearing the slot of a retired task on the way.
+///
+/// The JSON is read as a value first for this one reason: a task naming a kind
+/// the enum no longer has would fail the typed read, and [`read_document`]
+/// treats a failed read as an empty document — one retired task would take the
+/// whole ladder, every task and every day of history with it. Dropping the task
+/// at the value keeps the rest of the save intact, which is the compatibility
+/// rule this module is built on.
+pub(crate) fn parse_document(bytes: &[u8]) -> Option<Document> {
+    let mut value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    if let Some(task) = value.pointer_mut("/cultivation/task")
+        && task.get("kind").and_then(serde_json::Value::as_str) == Some(RETIRED_TASK_KIND)
+    {
+        *task = serde_json::Value::Null;
+    }
+    serde_json::from_value(value).ok()
+}
+
 /// Read the persisted document, or an empty one when it cannot be read.
 ///
 /// A document whose `schema_version` is not the current one is refused and
@@ -209,9 +235,9 @@ pub(crate) fn read_document(path: &Path) -> Document {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Document::default(),
         Err(_) => return Document::default(),
     };
-    let document: Document = match serde_json::from_slice(&bytes) {
-        Ok(document) => document,
-        Err(_) => return Document::default(),
+    let document: Document = match parse_document(&bytes) {
+        Some(document) => document,
+        None => return Document::default(),
     };
     if document.schema_version != POMODORO_TASKS_SCHEMA_VERSION {
         return Document::default();
@@ -317,6 +343,28 @@ mod tests {
         )
         .expect("write the future document");
         assert_eq!(read_document(&path), Document::default());
+    }
+
+    #[test]
+    fn a_save_holding_a_retired_task_keeps_everything_else() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let path = directory.path().join("pomodoro-tasks.json");
+        // A 吐纳 task from a build that still offered it. The kind is gone from
+        // the enum, and the read must not fall back to an empty document because
+        // of it: the slot is cleared, the rest of the save is kept.
+        fs::write(
+            &path,
+            br#"{"schema_version":1,"focus_minutes":25,"total_completions":9,"tasks":[{"id":3,"name":"kept","estimated_pomodoros":1,"completed_pomodoros":0,"created_at_unix":5}],"cultivation":{"growth":12345,"task":{"kind":"Meditate","site":null,"tier":"Common","grade":null,"job_kind":null,"start_unix":100,"ticks_done":7,"stones_remainder_permille":0,"tick_seconds":6}}}"#,
+        )
+        .expect("write the old document");
+        let document = read_document(&path);
+        assert_eq!(document.total_completions, 9, "the history survives");
+        assert_eq!(document.tasks.len(), 1, "the task list survives");
+        assert_eq!(document.cultivation.growth, 12345, "so does the ladder");
+        assert!(
+            document.cultivation.task.is_none(),
+            "the retired slot is cleared"
+        );
     }
 
     #[test]

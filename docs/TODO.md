@@ -7,4 +7,4 @@
 
 ## Phase 5：番茄钟与修仙（feat/pomodoro 分支，未合入 master）
 
-- [ ] **P5-POMODORO-CULTIVATION（ADR-0090、ADR-0092、ADR-0094）**：番茄钟（任务、月历、倒计时浮层、右键菜单）与修仙体系（十境阶梯、四属性与两系战力、装备、仙草园、功法、灵石集市、探索、破境战斗、事件日志）已实现；领域边界、纯值状态机、注入式时钟、两份 `schema_version = 1` 文档与旧档曲线迁移均有自动化 contract，`--cultivation-page-smoke` 覆盖页面挂载，i18n 收敛为 zh-CN + en-US。退出条件：`just check` 全绿、macOS 实机验收（倒计时浮层表演、修仙页各面板交互、破境与探索战斗弹窗）、ADR-0094 旧档迁移实机验证、CHANGELOG 中英条目随版本定稿（`just release-notes` 可取到条目），以及合入 master 后 sync-to-gitee 同步。当前自动化证据已具备，实机验收与发版保持未勾选。
+- [ ] **P5-POMODORO-CULTIVATION（ADR-0090、ADR-0092、ADR-0094）**：番茄钟（任务、月历、倒计时浮层、右键菜单）与修仙体系（十境阶梯、四属性与两系战力、装备、仙草园、功法、灵石集市、探索、破境战斗、事件日志）已实现；领域边界、纯值状态机、注入式时钟、两份 `schema_version = 1` 文档与旧档曲线迁移均有自动化 contract，`--cultivation-page-smoke` 覆盖页面挂载，i18n 收敛为 zh-CN + en-US。退出条件：`just check` 全绿、macOS 实机验收（倒计时浮层表演、修仙页各面板交互、破境与探索战斗弹窗）、ADR-0094 旧档迁移实机验证、CHANGELOG 中英条目随版本定稿（`just release-notes` 可取到条目），以及合入 master 后 sync-to-gitee 同步。当前自动化证据已具备，实机验收与发版保持未勾选。2026-11-24：实时任务的吐纳已下线——任务槽只留伐木/采石/打工，修为只由闭关/修习支付，旧档在途吐纳在读档时清空（设计记录见 `docs/0103` §9.1）。

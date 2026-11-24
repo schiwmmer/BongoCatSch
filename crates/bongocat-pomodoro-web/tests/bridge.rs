@@ -250,7 +250,7 @@ fn the_page_cannot_credit_keyboard_or_mouse_input() {
     );
 }
 
-/// The four real-time cultivation ops reach the state machine through the same
+/// The real-time cultivation ops reach the state machine through the same
 /// buffer the page writes, and the snapshot carries what they started.
 ///
 /// Driven through the exported boundary rather than through `parse_command`
@@ -260,20 +260,26 @@ fn the_page_cannot_credit_keyboard_or_mouse_input() {
 #[test]
 fn the_page_can_start_and_stop_the_real_time_tasks() {
     let now = 1_800_000_000.0;
-    // 灵木林 asks for 伐木 10 (`docs/0103` §5.2), so the save working it is a
-    // level-ten one rather than the fresh default.
+    // 伐木 20 works the forest's second depth (`docs/0105`), so the save that
+    // starts a forest task is a level-twenty one rather than the fresh default.
     assert_eq!(
+        // `trade_curve_rev` is stamped to this build's curve so the gate
+        // migration (`migrate_trade_curve`) leaves the hand where the fixture
+        // put it; without it an old save would be lifted to the gate it had
+        // already earned on the ten-level curve.
         boot_with(
-            r#"{"schema_version":1,"cultivation":{"woodcut_level":10}}"#,
+            r#"{"schema_version":1,"cultivation":{"trade_curve_rev":3,"woodcut_level":20}}"#,
             now
         ),
         1
     );
 
-    // A gathering task carries the site and the tier the page picked.
+    // A gathering task carries the site, and no depth at all: the kernel reads
+    // the depth off the hand, so the page has nothing to pick and nothing to
+    // send.
     assert_eq!(
         send(
-            r#"{"op":"cult_start_task","kind":"woodcut","site":"forest","tier":"spirit"}"#,
+            r#"{"op":"cult_start_task","kind":"woodcut","site":"forest"}"#,
             now
         ),
         COMMAND_APPLIED
@@ -283,6 +289,10 @@ fn the_page_can_start_and_stop_the_real_time_tasks() {
         task.is_object(),
         "the task under way is on the snapshot: {task}"
     );
+    assert_eq!(
+        task["tier"], "Spirit",
+        "the snapshot carries the depth the hand reached: {task}"
+    );
 
     assert_eq!(send(r#"{"op":"cult_stop_task"}"#, now), COMMAND_APPLIED);
     assert!(
@@ -290,18 +300,27 @@ fn the_page_can_start_and_stop_the_real_time_tasks() {
         "stopping clears the slot"
     );
 
-    // A breath takes no site or tier, and the same op has to accept it.
+    // 吐纳 is retired (`docs/0103` §4): the bridge no longer reads the kind at
+    // all, so a page that still asks for it is refused as an unknown command
+    // rather than quietly starting a task no surface offers.
     assert_eq!(
         send(r#"{"op":"cult_start_task","kind":"meditate"}"#, now),
-        COMMAND_APPLIED
+        COMMAND_UNKNOWN
     );
     assert!(
-        snapshot_json(now)["cultivation"]["task"].is_object(),
-        "a site-less 吐纳 still starts"
+        snapshot_json(now)["cultivation"]["task"].is_null(),
+        "a refused start leaves the slot empty"
     );
 
     // 闭关 is not a task and does not take the slot, so it is its own pair of
-    // ops — and it starts beside the breath that is still running.
+    // ops — and it starts beside a task that is running.
+    assert_eq!(
+        send(
+            r#"{"op":"cult_start_task","kind":"woodcut","site":"forest"}"#,
+            now
+        ),
+        COMMAND_APPLIED
+    );
     assert_eq!(
         send(r#"{"op":"cult_start_seclusion"}"#, now),
         COMMAND_APPLIED

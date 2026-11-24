@@ -91,34 +91,35 @@ const SITES = {
 
 // 实时任务的叫法。快照里 `task.kind` 是内核枚举名（首字母大写），
 // 而发给内核的 op 值是小写（`cultivation.task.*` 的 wire 名），两者别混。
+// 吐纳已下线（`docs/0103` §4），快照里不再有它。
 const TASK_KINDS = {
-  Meditate: '吐纳',
   Woodcut: '伐木',
   Stonecut: '采石',
   Work: '打工',
 };
 
-// 采集点阶，快照显示用（键为内核枚举名）。
-const GATHER_TIERS = {
-  Common: '凡',
-  Spirit: '灵',
-  Divine: '神',
-  Chaos: '混沌',
+// 深度只用罗马数字标号；倍率本身读快照 `depth_base_permille` / `rules`
+// （`docs/0106`），页面不再写死 ×1.0 / ×1.5 / ×2.0 / ×3.0。
+const GATHER_TIER_NUMERALS = {
+  Common: 'Ⅰ',
+  Spirit: 'Ⅱ',
+  Divine: 'Ⅲ',
+  Chaos: 'Ⅳ',
 };
 
-// 采集点阶选项，发 op 用（键为 wire 小写名，与 `parse_command` 一致）。
-const TIER_CHOICES = [
-  ['common', '凡'],
-  ['spirit', '灵'],
-  ['divine', '神'],
-  ['chaos', '混沌'],
-];
+// 同一个采集点越走越深的名字：森林那条线是凡木林→混沌神木，山是凡石山→星辰矿脉。
+const GATHER_PLACES = {
+  Forest: { Common: '凡木林', Spirit: '灵木林', Divine: '神木林', Chaos: '混沌神木' },
+  Mountain: { Common: '凡石山', Spirit: '铁矿山', Divine: '寒铁窟', Chaos: '星辰矿脉' },
+};
+
+// 当前深度、倍率与门等级都读快照（`resources.*.depth` / `.depth_base_permille`
+// 与 `rules.gather_depths`），页面不再自己推（`docs/0106`）。
 
 const SECLUSION = {
   title: '闭关',
   start: '开始闭关',
   stop: '结束闭关',
-  hint: '25 分钟一次，不占任务槽',
 };
 
 const BUILDINGS = [
@@ -174,7 +175,6 @@ const REFUSALS = {
   ProvingOut: '人不在家',
   RegionLocked: '该区域尚未开启：先提升境界',
   TaskRunning: '已有任务进行中，先停掉再开始',
-  TierLocked: '采集点还没解锁：先提升采集等级',
   SeclusionRunning: '正在闭关，先坐完这一回',
   BattleRunning: '已有一场战斗在进行，先等它打完',
   BreakthroughCooling: '破境尚在调息，稍后再来',
@@ -184,6 +184,36 @@ const REFUSALS = {
   Drained: '今日次数已用完',
   Top: '已经到顶',
 };
+
+// 资源与采集经验：一万以下给完整数字并加千位符（9,999），再大用 K（12.3K），
+// 百万以上用 M（1.23M）。与内核 `quantity_number`（`bongocat-i18n`）同一把尺子：
+// 进位在单位自己的小数位里做，所以 999,999 读作 1M 而不是 1000K。
+const QUANTITY_UNITS = [
+  [1e12, 'T', 2],
+  [1e9, 'B', 2],
+  [1e6, 'M', 2],
+  [1e3, 'K', 1],
+];
+
+function quantity(value) {
+  const raw = Math.round(Number(value) || 0);
+  const sign = raw < 0 ? '-' : '';
+  const magnitude = Math.abs(raw);
+  if (!isFinite(magnitude)) return '0';
+  if (magnitude < 10000) return `${sign}${num(magnitude)}`;
+  for (const [scale, suffix, places] of QUANTITY_UNITS) {
+    const factor = 10 ** places;
+    const scaled = Math.round((magnitude * factor) / scale);
+    if (scaled >= factor && scaled < 10000 * factor) {
+      const whole = Math.floor(scaled / factor);
+      const fraction = String(scaled % factor)
+        .padStart(places, '0')
+        .replace(/0+$/, '');
+      return `${sign}${whole}${fraction ? `.${fraction}` : ''}${suffix}`;
+    }
+  }
+  return `${sign}${Math.floor(magnitude / 1e12)}T`;
+}
 
 /// 千分位。小程序部分机型没有 Intl，自己拼更稳。
 function num(value) {
@@ -296,8 +326,8 @@ module.exports = {
   SITES,
   SLOTS,
   TASK_KINDS,
-  GATHER_TIERS,
-  TIER_CHOICES,
+  GATHER_TIER_NUMERALS,
+  GATHER_PLACES,
   SECLUSION,
   attributeText,
   bonusLine,
@@ -306,6 +336,7 @@ module.exports = {
   gradeText,
   herbText,
   num,
+  quantity,
   rarityText,
   realmText,
   refusalText,

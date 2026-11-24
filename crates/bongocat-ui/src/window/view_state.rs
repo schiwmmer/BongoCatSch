@@ -450,7 +450,6 @@ impl SettingsView {
             cultivation_ladder_open: false,
             cultivation_explore_hours: 8,
             cultivation_explore_region: None,
-            cultivation_task_tier: bongocat_pomodoro::GatherTier::Common,
             cultivation_daily_seen_day: None,
             // No fight is being replayed when the window opens, and none is
             // waiting on the worker either.
@@ -1014,7 +1013,14 @@ mod tests {
     fn a_running_task_reads_its_tick_off_the_wall_clock() {
         let mut domain = bongocat_pomodoro::Cultivation::default();
         domain
-            .start_task(bongocat_pomodoro::TaskKind::Meditate, None, None, 1_000, 8)
+            .start_task(
+                bongocat_pomodoro::TaskKind::Woodcut,
+                Some(bongocat_pomodoro::GatherSite::Forest),
+                None,
+                None,
+                1_000,
+                8,
+            )
             .expect("a fresh cultivator starts a task");
         let cultivation = domain.view();
         let key = cultivation_progress_key(&cultivation, None, 1_000_000)

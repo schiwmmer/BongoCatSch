@@ -101,7 +101,7 @@ fn a_fresh_cultivator_starts_at_the_first_layer_of_the_first_realm() {
 
 #[test]
 fn a_finished_session_settles_a_whole_sit() {
-    // A session is a 闭关: 250 ticks of the 吐纳 curve at the sit's bonus, plus
+    // A session is a 闭关: 250 ticks of the growth curve at the sit's bonus, plus
     // the sit's one 试炼 chance. It no longer escalates by session of the day.
     let mut cultivation = Cultivation::default();
     let expected = sit_growth(meditate_tick_growth(0, 1_000), SECLUSION_TICKS);
@@ -1898,10 +1898,9 @@ fn a_job_starts_a_four_second_work_task() {
 fn a_running_gathering_task_closes_the_job_board() {
     let mut cultivation = Cultivation::default();
     cultivation
-        .start_gathering_task(
+        .start_task(
             TaskKind::Woodcut,
             Some(GatherSite::Forest),
-            GatherTier::Common,
             None,
             None,
             1_000,
@@ -1928,10 +1927,9 @@ fn a_running_gathering_task_closes_the_job_board() {
 fn a_running_task_closes_the_road_and_the_expedition() {
     let mut cultivation = Cultivation::default();
     cultivation
-        .start_gathering_task(
+        .start_task(
             TaskKind::Woodcut,
             Some(GatherSite::Forest),
-            GatherTier::Common,
             None,
             None,
             1_000,
@@ -1974,7 +1972,14 @@ fn an_outing_closes_the_task_slot() {
         .explore(1_000, ExplorationHours::Four)
         .expect("the walk sets out");
     assert_eq!(
-        cultivation.start_task(TaskKind::Woodcut, Some(GatherSite::Forest), None, 1_100, 6),
+        cultivation.start_task(
+            TaskKind::Woodcut,
+            Some(GatherSite::Forest),
+            None,
+            None,
+            1_100,
+            6
+        ),
         Err(Refusal::TrialOut),
         "a walk out closes the task slot"
     );
@@ -1983,7 +1988,14 @@ fn an_outing_closes_the_task_slot() {
         .start_expedition(GatherSite::Forest, ExplorationHours::Four, 2_000)
         .expect("the expedition sets out");
     assert_eq!(
-        cultivation.start_task(TaskKind::Woodcut, Some(GatherSite::Forest), None, 2_100, 6),
+        cultivation.start_task(
+            TaskKind::Woodcut,
+            Some(GatherSite::Forest),
+            None,
+            None,
+            2_100,
+            6
+        ),
         Err(Refusal::ExpeditionOut),
         "an expedition out closes the task slot"
     );
@@ -1996,7 +2008,14 @@ fn an_outing_closes_the_task_slot() {
         ..CultivationDocument::default()
     });
     assert_eq!(
-        cultivation.start_task(TaskKind::Woodcut, Some(GatherSite::Forest), None, 3_100, 6),
+        cultivation.start_task(
+            TaskKind::Woodcut,
+            Some(GatherSite::Forest),
+            None,
+            None,
+            3_100,
+            6
+        ),
         Err(Refusal::Working),
         "a legacy hour-job closes the task slot"
     );
@@ -4682,7 +4701,7 @@ fn a_one_click_planting_skips_the_pill_in_the_satchel() {
     );
 }
 
-/// The 吐纳 ladder, read off the hand-authored realm table (`docs/0104` §5.1).
+/// The growth ladder, read off the hand-authored realm table (`docs/0104` §5.1).
 ///
 /// The old linear `2 × (1 + 0.75·index)` could not land every realm inside the
 /// days range its 门槛 holds (`docs/0104` D6), so the table is the spec: 炼气

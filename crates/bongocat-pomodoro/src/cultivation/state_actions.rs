@@ -316,10 +316,15 @@ impl Cultivation {
 
     /// The resource economy as the settings page reads it.
     pub(super) fn resources_view(&self) -> ResourcesView {
-        let trade = |level: u8, xp: u32| TradeView {
-            level,
-            xp,
-            xp_to_next: skill_xp_total(level.saturating_add(1)),
+        let trade = |level: u8, xp: u32| {
+            let depth = crate::cultivation::GatherTier::for_level(level);
+            TradeView {
+                level,
+                xp,
+                xp_to_next: skill_xp_total(level.saturating_add(1)),
+                depth,
+                depth_base_permille: depth.base_permille(),
+            }
         };
         let building = |building: Building, level: u8| BuildingView {
             level,

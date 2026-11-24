@@ -18,6 +18,12 @@
     </view>
   </view>
 
+  <view class="today-delta" wx:if="{{header}}">{{header.todayDelta}}</view>
+
+  <view class="notices" wx:if="{{notices.length}}">
+    <view wx:for="{{notices}}" wx:key="key" class="notice {{item.tone}}">{{item.text}}</view>
+  </view>
+
   <view class="seg">
     <view
       wx:for="{{sections}}"

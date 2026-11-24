@@ -8,6 +8,7 @@ const SECTIONS = [
   { key: 'workshop', label: '洞府' },
   { key: 'garden', label: '灵草园' },
   { key: 'market', label: '集市' },
+  { key: 'record', label: '记录' },
 ];
 
 Page({
@@ -19,7 +20,8 @@ Page({
     loading: true,
     error: '',
     busy: false,
-    taskTier: 'common',
+    notices: [],
+    showAll: false,
   },
 
   onLoad(query) {
@@ -68,7 +70,7 @@ Page({
         view = V.tower(c);
         break;
       case 'workshop':
-        view = V.workshop(c, this.data.taskTier);
+        view = V.workshop(c);
         break;
       case 'garden':
         view = V.garden(c);
@@ -76,11 +78,20 @@ Page({
       case 'market':
         view = V.market(c);
         break;
+      case 'record':
+        view = V.record(c);
+        break;
       default:
         view = V.outing(c);
         break;
     }
-    this.setData({ loading: false, error: '', view, header: V.header(snapshot) });
+    this.setData({
+      loading: false,
+      error: '',
+      view,
+      header: V.header(snapshot),
+      notices: V.notices(c),
+    });
   },
 
   /// 实时进度条：每秒只回画两条宽度，不重渲染整页（整页是 30 秒一次的 `full`）。
@@ -124,8 +135,27 @@ Page({
   onSection(event) {
     const section = event.currentTarget.dataset.section;
     if (!section || section === this.data.section) return;
-    this.setData({ section });
+    this.setData({ section, showAll: false });
     this.render();
+  },
+
+  /// 回放展开/收起。分「上一次闯塔」与事件列表两组，按组名 + 行号定位，
+  /// 不整页重渲染：回合表已经在数据里，改一个布尔就够。
+  onReplay(event) {
+    const group = event.currentTarget.dataset.group;
+    const index = Number(event.currentTarget.dataset.index);
+    if (group === 'lastTrial') {
+      if (!this.data.view.lastTrial) return;
+      this.setData({ 'view.lastTrial.open': !this.data.view.lastTrial.open });
+      return;
+    }
+    const row = (this.data.view[group] || [])[index];
+    if (!row) return;
+    this.setData({ [`view.${group}[${index}].open`]: !row.open });
+  },
+
+  onShowAll() {
+    this.setData({ showAll: !this.data.showAll });
   },
 
   onAction(event) {
@@ -138,28 +168,12 @@ Page({
           .then(() => this.render())
           .catch((error) => this.setData({ loading: false, error: error.message }));
         return;
-      case 'task-tier':
-        this.setData({ taskTier: data.tier });
-        this.render();
-        return;
-      case 'cult-meditate':
-        this.send({ op: 'cult_start_task', kind: 'meditate' });
-        return;
+      // 吐纳已下线（`docs/0103` §4）：`cult-meditate` 不再有命令。
       case 'cult-woodcut':
-        this.send({
-          op: 'cult_start_task',
-          kind: 'woodcut',
-          site: 'forest',
-          tier: this.data.taskTier,
-        });
+        this.send({ op: 'cult_start_task', kind: 'woodcut', site: 'forest' });
         return;
       case 'cult-stonecut':
-        this.send({
-          op: 'cult_start_task',
-          kind: 'stonecut',
-          site: 'mountain',
-          tier: this.data.taskTier,
-        });
+        this.send({ op: 'cult_start_task', kind: 'stonecut', site: 'mountain' });
         return;
       case 'cult-stop-task':
         this.send({ op: 'cult_stop_task' }, '已停止');
@@ -215,6 +229,12 @@ Page({
         return;
       case 'harvest':
         this.send({ op: 'harvest_plot', plot: Number(data.plot) }, '已收获');
+        return;
+      case 'harvest-all':
+        this.send({ op: 'harvest_all_ready' }, '已收获');
+        return;
+      case 'plant-all':
+        this.send({ op: 'plant_all_by_grade' }, '已种下');
         return;
       case 'dig':
         wx.showModal({

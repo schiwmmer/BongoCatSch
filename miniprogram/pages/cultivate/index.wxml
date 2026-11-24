@@ -18,6 +18,12 @@
     </view>
   </view>
 
+  <view class="today-delta" wx:if="{{header}}">{{header.todayDelta}}</view>
+
+  <view class="notices" wx:if="{{notices.length}}">
+    <view wx:for="{{notices}}" wx:key="key" class="notice {{item.tone}}">{{item.text}}</view>
+  </view>
+
   <scroll-view class="seg scroll" scroll-x enable-flex>
     <view
       wx:for="{{sections}}"
@@ -50,7 +56,7 @@
       <view class="row">
         <view class="row-main">
           <view class="row-title">探索 · {{view.regionName}}</view>
-          <view class="row-sub">当前层 {{view.regionLevel}}/10 · 层满 {{view.regionPercent}}% · 越深越强，材料越好</view>
+          <view class="row-sub">当前层 {{view.regionLevel}}/{{view.regionLevels}} · 层满 {{view.regionPercent}}% · 越深越强，材料越好</view>
           <view class="bar">
             <view class="bar-fill" style="width:{{view.regionPercent}}%"></view>
           </view>
@@ -65,7 +71,7 @@
           data-hours="{{item.value}}"
           bindtap="onAction"
           disabled="{{!view.explorationReady}}"
-        >{{item.value}} 小时</button>
+        >{{item.label}}</button>
       </view>
       <view wx:if="{{view.cooldownText}}" class="hint">{{view.cooldownText}}</view>
 
@@ -86,8 +92,8 @@
 
     <view class="card">
       <view class="card-head">
-        <text class="card-title">区域 · 五城十层</text>
-        <text class="card-hint">每区十层，层越深战越强</text>
+        <text class="card-title">区域 · {{view.regionCount}} 区 {{view.regionLevels}} 层</text>
+        <text class="card-hint">每区 {{view.regionLevels}} 层，层越深战越强</text>
       </view>
       <view
         wx:for="{{view.regions}}"
@@ -100,7 +106,7 @@
             <text wx:if="{{item.current}}" class="chip jade">当前</text>
           </view>
           <view class="row-sub">
-            已过 {{item.cleared}}/10 层{{item.current ? ' · 第 ' + item.level + ' 层探索中' : ''}}
+            已过 {{item.cleared}}/{{view.regionLevels}} 层{{item.current ? ' · 第 ' + item.level + ' 层探索中' : ''}}
           </view>
           <view class="bar">
             <view class="bar-fill thin" style="width:{{item.percent}}%"></view>
@@ -164,6 +170,20 @@
         </view>
       </view>
       <view wx:if="{{view.blockedText}}" class="hint">{{view.blockedText}}</view>
+      <view wx:if="{{view.lastTrial}}" class="row">
+        <view class="row-main">
+          <view class="row-sub">{{view.lastTrial.text}}</view>
+          <block wx:if="{{view.lastTrial.replay}}">
+            <view class="replay-toggle" data-group="lastTrial" data-index="0" bindtap="onReplay">
+              {{view.lastTrial.open ? '收起回放' : view.lastTrial.replay.label}}
+            </view>
+            <view wx:if="{{view.lastTrial.open}}" class="rounds">
+              <view wx:for="{{view.lastTrial.replay.rows}}" wx:key="*this" class="round">{{item}}</view>
+            </view>
+          </block>
+        </view>
+      </view>
+      <view wx:if="{{view.sweepResult}}" class="hint accent">{{view.sweepResult}}</view>
     </view>
 
     <view class="card">
@@ -239,27 +259,18 @@
           >{{view.task.stopText}}</button>
         </view>
       </view>
-      <view wx:if="{{view.collectNotice}}" class="row">
-        <view class="row-main">
-          <view class="row-title">最近采集</view>
-          <view class="row-sub">{{view.collectNotice}}</view>
-        </view>
-      </view>
       <view class="row">
         <view class="row-main">
-          <view class="row-title">采集点阶</view>
-          <view class="row-sub">越深产出越高；伐木去森林，采石去山</view>
+          <view class="row-title">采集深度</view>
+          <view class="row-sub">{{view.task.depthHint}}</view>
         </view>
       </view>
-      <view class="seg">
-        <view
-          wx:for="{{view.task.tiers}}"
+      <view class="chips">
+        <text
+          wx:for="{{view.task.depths}}"
           wx:key="key"
-          class="seg-item {{item.active ? 'active' : ''}}"
-          data-act="task-tier"
-          data-tier="{{item.key}}"
-          bindtap="onAction"
-        >{{item.label}}</view>
+          class="chip muted"
+        >{{item.label}}</text>
       </view>
       <view class="btn-row">
         <button
@@ -365,6 +376,10 @@
       <view class="bar">
         <view class="bar-fill gold" style="width:{{view.percent}}%"></view>
       </view>
+      <view class="btn-row">
+        <button class="btn small jade" data-act="harvest-all" bindtap="onAction" disabled="{{!view.canHarvestAll}}">一键收获</button>
+        <button class="btn small" data-act="plant-all" bindtap="onAction" disabled="{{!view.canPlantAll}}">一键种植</button>
+      </view>
       <view wx:for="{{view.plots}}" wx:key="key" class="row">
         <view class="row-main">
           <view class="row-title">{{item.title}}</view>
@@ -408,7 +423,7 @@
             <text class="chip muted">{{item.tierText}}</text>
             <text class="chip gold">{{item.grade}}</text>
           </view>
-          <view class="row-sub">持有 {{item.count}} 份 · 单份卖 {{item.sellPrice}} 灵石</view>
+          <view class="row-sub">持有 {{item.count}} 份 · 单份卖 {{item.sellPrice}} 灵石 · {{item.oddsText}}</view>
         </view>
         <view class="row-actions">
           <button
@@ -462,6 +477,65 @@
         </view>
       </view>
       <view wx:if="{{view.empty}}" class="empty">货架是空的。</view>
+    </view>
+  </block>
+
+  <!-- ================= 记录 ================= -->
+  <block wx:elif="{{section === 'record'}}">
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">行踪</text>
+        <text class="card-hint">{{view.statusText}}</text>
+      </view>
+      <view wx:if="{{!view.atHome}}" class="row">
+        <view class="row-main">
+          <view class="row-sub">{{view.earlyHint}}</view>
+        </view>
+        <view class="row-actions">
+          <button class="btn small danger" data-act="return-early" bindtap="onAction" disabled="{{view.returning}}">{{view.earlyTitle}}</button>
+        </view>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">最近事件</text>
+        <text class="card-hint">{{view.count}} 件</text>
+      </view>
+
+      <view wx:for="{{view.visible}}" wx:key="key" class="row">
+        <view class="row-main">
+          <view class="row-sub">{{item.at}} {{item.text}}</view>
+          <block wx:if="{{item.replay}}">
+            <view class="replay-toggle" data-group="visible" data-index="{{index}}" bindtap="onReplay">
+              {{item.open ? '收起回放' : item.replay.label}}
+            </view>
+            <view wx:if="{{item.open}}" class="rounds">
+              <view wx:for="{{item.replay.rows}}" wx:key="*this" class="round">{{item}}</view>
+            </view>
+          </block>
+        </view>
+      </view>
+      <view wx:if="{{view.empty}}" class="empty">还没有动静。完成番茄钟、外出探索，都记在这里。</view>
+
+      <block wx:if="{{view.rest.length}}">
+        <view class="show-all" bindtap="onShowAll">{{showAll ? '收起' : '查看全部 ' + view.count + ' 件事'}}</view>
+        <block wx:if="{{showAll}}">
+          <view wx:for="{{view.rest}}" wx:key="key" class="row">
+            <view class="row-main">
+              <view class="row-sub">{{item.at}} {{item.text}}</view>
+              <block wx:if="{{item.replay}}">
+                <view class="replay-toggle" data-group="rest" data-index="{{index}}" bindtap="onReplay">
+                  {{item.open ? '收起回放' : item.replay.label}}
+                </view>
+                <view wx:if="{{item.open}}" class="rounds">
+                  <view wx:for="{{item.replay.rows}}" wx:key="*this" class="round">{{item}}</view>
+                </view>
+              </block>
+            </view>
+          </view>
+        </block>
+      </block>
     </view>
   </block>
 </view>

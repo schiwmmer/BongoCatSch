@@ -824,12 +824,25 @@
       "mountain": "Mountain·Stonecut",
       "mine": "Mine·Both"
     },
+    "gather": {
+      "forest": {
+        "common": "Young Grove",
+        "spirit": "Old Grove",
+        "divine": "Ancient Grove",
+        "chaos": "Primordial Grove"
+      },
+      "mountain": {
+        "common": "Stone Hill",
+        "spirit": "Iron Hill",
+        "divine": "Cold-Iron Hollow",
+        "chaos": "Starfall Lode"
+      }
+    },
     "tier": {
-      "common": "Common",
-      "spirit": "Spirit",
-      "divine": "Divine",
-      "chaos": "Chaos",
-      "refuse_locked": "This gathering point is locked: raise the matching gathering level first."
+      "common": "Ⅰ",
+      "spirit": "Ⅱ",
+      "divine": "Ⅲ",
+      "chaos": "Ⅳ"
     },
     "seclusion": {
       "title": "Seclusion",
@@ -956,15 +969,15 @@
       }
     },
     "task": {
-      "meditate": "Breath Cycling",
       "woodcut": "Woodcutting",
       "stonecut": "Quarrying",
       "work": "Odd Jobs",
       "title": "Live task",
       "idle": "No task under way",
       "stop": "Stop",
-      "current_gather": "Running: %{kind} · %{site} %{tier} · %{ticks} ticks done · %{seconds}s per tick",
+      "current_gather": "Running: %{kind} · %{site} · %{depth} · %{ticks} ticks done · %{seconds}s per tick",
       "current_plain": "Running: %{kind} · %{ticks} ticks done · %{seconds}s per tick",
+      "depth_hint": "The point deepens with your level: Woodcutting and Quarrying walk you deeper at 20, 50 and 80.",
       "refuse_running": "A task is already running — stop it first."
     },
     "explore": {

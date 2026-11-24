@@ -7,14 +7,17 @@
 //! `{ kind, site/grade, start_unix, ticks_done, tick_seconds }`, it occupies the
 //! one task slot, and [`Cultivation::advance_task`] folds the elapsed seconds
 //! into whole ticks, paying each one through [`Cultivation::settle_task_tick`].
-//! The reward numbers are the §5 formulas per kind: gathering pays
-//! [`collect_tick`] (S2), 吐纳 pays [`meditate_tick_growth`] and banks a 试炼
-//! chance and a drop every tenth tick (S3), and 打工 pays the §5.3 wage each
-//! tick and rolls its 积分 every [`JOB_POINT_EVERY_TICKS`] (S4).
+//! Three kinds are startable. Gathering pays [`collect_tick`] (S2) and 打工
+//! pays the §5.3 wage each tick and rolls its 积分 every
+//! [`JOB_POINT_EVERY_TICKS`] (S4). 吐纳 was retired on 2026-11-24 (`docs/0103`
+//! §4): the slot is for gathering and working, and the growth curve 吐纳 used
+//! ([`meditate_tick_growth`]) is now paid only by a sit — a 闭关 or a 修习
+//! session. A save written while 吐纳 was still offered has its task cleared on
+//! the way in (`document::parse_document`).
 //!
 //! 闭关 is the one thing here that is *not* a task: [`SeclusionRun`] runs
-//! beside a task rather than in the slot (`docs/0103` §4), on the same tick
-//! tempo as 吐纳, and settles its whole run at once with
+//! beside a task rather than in the slot (`docs/0103` §4), on the same six
+//! second tempo the retired breath used, and settles its whole run at once with
 //! [`SECLUSION_BONUS_PERMILLE`]. It is advanced on the same tick as a task, so a
 //! cultivator can gather or work while the sit runs.
 //!
@@ -51,10 +54,10 @@ pub const TASK_ONLINE_GRACE_SECONDS: i64 = 60;
 /// twelve-hour night inside the 仓库's capacity band (`docs/0104` §4.6).
 pub const OFFLINE_EFFICIENCY_PERMILLE: u64 = 500;
 
-/// Growth one 吐纳 tick pays at the first realm, before the 功法 multiplier.
+/// Growth one sit tick pays at the first realm, before the 功法 multiplier.
 pub const TASK_BASE_GROWTH: u32 = GROWTH_PER_REALM[0];
 
-/// Growth one 吐纳 tick pays at each realm, before the 功法 multiplier.
+/// Growth one sit tick pays at each realm, before the 功法 multiplier.
 ///
 /// `docs/0104` §5.1 replaces the old linear ladder (`2 × (1 + 0.75·realm)`:
 /// 2 → 16) with a hand-authored table, 2 → 230. The table is solved from the
@@ -70,13 +73,6 @@ pub const TASK_BASE_GROWTH: u32 = GROWTH_PER_REALM[0];
 /// the last entry rather than nothing.
 pub const GROWTH_PER_REALM: [u32; 10] = [2, 3, 6, 8, 15, 35, 55, 88, 142, 230];
 
-/// How many 吐纳 ticks bank one 试炼 chance.
-///
-/// Ten ticks — a minute at the 6-second tempo — is the training's own faucet
-/// (§5.4), paced so a sitting buys a fight every few minutes rather than every
-/// breath. The bank is capped at [`TRIAL_CHANCES_CAP`].
-pub const TASK_CHANCE_EVERY_TICKS: u64 = 10;
-
 /// The length of one 伐木 or 采石 tick, in seconds.
 ///
 /// `docs/0103` §4: eight seconds, the middle of the four tempos — slower than a
@@ -84,7 +80,8 @@ pub const TASK_CHANCE_EVERY_TICKS: u64 = 10;
 /// tempo, and carried on the task so a save written mid-tick keeps its rhythm.
 pub const GATHER_TICK_SECONDS: u32 = 8;
 
-/// The length of one 闭关 tick, in seconds: the same tempo as 吐纳.
+/// The length of one 闭关 tick, in seconds: the same six seconds the retired
+/// 吐纳 used.
 pub const SECLUSION_TICK_SECONDS: u32 = 6;
 
 /// How many ticks a full 闭关 runs: 25 minutes at [`SECLUSION_TICK_SECONDS`].
@@ -93,7 +90,7 @@ pub const SECLUSION_TICKS: u64 = 250;
 /// The bonus a settled 闭关 pays on top of its ticks, in parts per thousand.
 ///
 /// Ten percent: the sit keeps the pomodoro's ritual, and its output is the
-/// 吐纳 curve's own rather than a second formula (§5.1).
+/// growth curve's own rather than a second formula (§5.1).
 pub const SECLUSION_BONUS_PERMILLE: u32 = 1_100;
 
 /// 灵石 one 打工 tick pays before the grade multiplier, in whole stones.
@@ -122,12 +119,10 @@ pub const WORK_TICK_SECONDS: u32 = 4;
 /// just paid, so a threshold crossed in two advances is rolled once.
 pub const JOB_POINT_EVERY_TICKS: u64 = 60;
 
-/// The four tasks S1 models. 闭关 is deliberately absent here: it is a
-/// [`SeclusionRun`], not a task, and does not occupy the slot.
+/// The three real-time tasks S1 models. 闭关 is deliberately absent here: it is
+/// a [`SeclusionRun`], not a task, and does not occupy the slot.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum TaskKind {
-    /// 吐纳: growth, the 修习 half of the ladder.
-    Meditate,
     /// 伐木: the forest's resources and 伐木 xp.
     Woodcut,
     /// 采石: the mountain's resources and 采石 xp.
@@ -140,7 +135,6 @@ impl TaskKind {
     /// The catalog key naming this kind.
     pub const fn key(self) -> &'static str {
         match self {
-            Self::Meditate => "cultivation.task.meditate",
             Self::Woodcut => "cultivation.task.woodcut",
             Self::Stonecut => "cultivation.task.stonecut",
             Self::Work => "cultivation.task.work",
@@ -148,7 +142,7 @@ impl TaskKind {
     }
 }
 
-/// The growth one 吐纳 tick pays, in whole points.
+/// The growth one sit tick pays, in whole points.
 ///
 /// `docs/0104` §5.1: `round(GROWTH_PER_REALM[realm] × growth_permille / 1000)`.
 /// The 功法 multiplier is capped at the same [`GROWTH_MULTIPLIER_CAP_PERMILLE`]
@@ -179,14 +173,16 @@ pub fn sit_growth(per_tick: u32, due: u64) -> u32 {
 /// One task under way: what it is, where, and how far the clock has carried it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ActiveTask {
-    /// Which of the four tasks this is.
+    /// Which of the three tasks this is.
     pub kind: TaskKind,
-    /// The site a gathering task works; `None` for 吐纳 and 打工.
+    /// The site a gathering task works; `None` for 打工.
     #[serde(default)]
     pub site: Option<GatherSite>,
-    /// The tier of the gathering point a gathering task works. `Common` for
-    /// every save written before S2 and for the non-gathering kinds, which is
-    /// what keeps an old save's task loading unchanged.
+    /// The depth of the gathering point a gathering task works, written from the
+    /// hand's trade level at every tick (`docs/0105`) — a 伐木 or 采石 task never
+    /// chooses it. `Common` for the non-gathering kinds and for saves written
+    /// before the field existed, which is what keeps an old save's task loading
+    /// unchanged.
     #[serde(default)]
     pub tier: GatherTier,
     /// The grade a 打工 task was taken at, as an index into
@@ -250,9 +246,8 @@ impl ActiveTask {
 
 /// How far a whole-tick clock has run, in permille (`0..=1000`).
 ///
-/// One function for every surface that draws this bar: the 吐纳/采集/打工 task
-/// bar, a battle's round bar, and the finished-rounds half of the whole-fight
-/// bar. Each of those used to carry its own copy of the arithmetic in the page
+/// One function for every surface that draws this bar: the 采集/打工 task bar,
+/// a battle's round bar, and the finished-rounds half of the whole-fight bar. Each of those used to carry its own copy of the arithmetic in the page
 /// (`web/cultivate.js`, `miniprogram/utils/views.js`) and a copy that drifts is
 /// a bar that lies. The wasm bridge exports [`tick_progress_permille`] as
 /// `web_task_progress`, so a page asks the kernel rather than re-deriving it.
@@ -277,7 +272,7 @@ pub fn tick_progress_permille(start_unix: i64, tick_seconds: u32, now_ms: i64) -
     (elapsed.saturating_mul(1000).min(tick.saturating_mul(1000)) / tick).min(1000) as u32
 }
 
-/// One 闭关 run: a 25-minute sit that pays like [`SECLUSION_TICKS`] 吐纳 ticks
+/// One 闭关 run: a 25-minute sit that pays like [`SECLUSION_TICKS`] growth ticks
 /// with [`SECLUSION_BONUS_PERMILLE`] on top.
 ///
 /// Deliberately not an [`ActiveTask`]: 闭关 does not occupy the one task slot
@@ -295,43 +290,21 @@ pub struct SeclusionRun {
 }
 
 impl Cultivation {
-    /// Start a task at the ordinary tier. Refuses while another is running: the
-    /// slot is one, and the refusal is recorded so a surface can say "already
-    /// working" rather than silently dropping the click.
+    /// Start one of the three real-time tasks: 伐木, 采石 or 打工. Refuses while
+    /// another is running: the slot is one, and the refusal is recorded so a
+    /// surface can say "already working" rather than silently dropping the
+    /// click.
     ///
-    /// This is S1's entry point, kept with its signature so every pre-S2 call
-    /// site still compiles: a task started here works [`GatherTier::Common`],
-    /// which is what those call sites mean. A gathering task at a deeper tier
-    /// goes through [`Self::start_gathering_task`].
+    /// The gathering depth is **not** a parameter (`docs/0105`): a 伐木 or 采石
+    /// task works the deepest point its trade level has reached
+    /// ([`GatherTier::for_level`]), so the caller names the kind, the site, and —
+    /// for a 打工 — the grade and the trade it was taken at. Nothing here is
+    /// refused for being too deep, because a depth the hand cannot reach is one
+    /// it will never be asked to work.
     pub fn start_task(
         &mut self,
         kind: TaskKind,
         site: Option<GatherSite>,
-        grade: Option<u8>,
-        now_unix: i64,
-        tick_seconds: u32,
-    ) -> Result<ActiveTask, Refusal> {
-        self.start_gathering_task(
-            kind,
-            site,
-            GatherTier::Common,
-            grade,
-            None,
-            now_unix,
-            tick_seconds,
-        )
-    }
-
-    /// Start a task at a gathering tier. The tier rides the task so a tick
-    /// settles the yield of the point the cultivator actually chose, it is
-    /// refused on the same one-slot rule as every other task, and a gathering
-    /// point whose unlock level the cultivator has not reached is refused
-    /// rather than silently worked at the ordinary tier.
-    pub fn start_gathering_task(
-        &mut self,
-        kind: TaskKind,
-        site: Option<GatherSite>,
-        tier: GatherTier,
         grade: Option<u8>,
         job_kind: Option<JobKind>,
         now_unix: i64,
@@ -364,34 +337,13 @@ impl Cultivation {
             self.note_refusal(Refusal::TaskRunning);
             return Err(Refusal::TaskRunning);
         }
-        // A gathering point is a *place*, and a deeper place asks for a deeper
-        // hand (`docs/0103` §5.2): a cultivator below the tier's unlock level is
-        // refused rather than quietly working a point they have not reached.
-        // Only the two gathering kinds carry a trade level to measure — 吐纳 and
-        // 打工 take a tier because every task shape has one, and theirs is
-        // always 凡, which nothing is gated on.
-        //
-        // A hand that has not started the trade (level 0) is read as level one
-        // here, the same reading `raw_find_tick` gives it when it pays a tick:
-        // the §5.2 table's shallowest point asks for level one, and level zero
-        // is the bare base rather than a rung below the ladder. Without that, a
-        // fresh save could not gather at all.
-        let trade_level = match kind {
-            TaskKind::Woodcut => self.document.woodcut_level,
-            TaskKind::Stonecut => self.document.stonecut_level,
-            TaskKind::Meditate | TaskKind::Work => 1,
-        };
-        if tier.unlock_level() > trade_level.max(1) {
-            self.note_refusal(Refusal::TierLocked);
-            return Err(Refusal::TierLocked);
-        }
         // A zero-second tick would settle an unbounded number of rounds in one
         // advance; a task with no tempo is a caller bug, not a save to migrate.
         assert!(tick_seconds > 0, "a task needs a tick longer than zero");
         let task = ActiveTask {
             kind,
             site,
-            tier,
+            tier: self.gather_tier(kind),
             grade,
             job_kind,
             start_unix: now_unix,
@@ -403,22 +355,34 @@ impl Cultivation {
         Ok(task)
     }
 
+    /// The depth a gather of `kind` works at the hand's current trade level.
+    ///
+    /// The one reading of the depth rule, shared by a start, a settled tick and
+    /// the page's own label: 打工 has no site, so its depth is the ordinary one
+    /// and nothing multiplies it.
+    pub fn gather_tier(&self, kind: TaskKind) -> GatherTier {
+        match kind {
+            TaskKind::Woodcut => GatherTier::for_level(self.document.woodcut_level),
+            TaskKind::Stonecut => GatherTier::for_level(self.document.stonecut_level),
+            TaskKind::Work => GatherTier::Common,
+        }
+    }
+
     /// Start the 打工 task an offer names.
     ///
     /// The offer's grade and trade ride the task so a tick prices its 灵石 and
     /// rolls its 积分 off the same numbers the board printed, and the slot rule
-    /// is [`Self::start_gathering_task`]'s: a cultivator already at a task is
-    /// refused rather than silently switched. [`WORK_TICK_SECONDS`] is the §5.3
-    /// tempo, fixed here so every 打工 task keeps the board's own rhythm.
+    /// is [`Self::start_task`]'s: a cultivator already at a task is refused
+    /// rather than silently switched. [`WORK_TICK_SECONDS`] is the §5.3 tempo,
+    /// fixed here so every 打工 task keeps the board's own rhythm.
     pub fn start_work_task(
         &mut self,
         offer: super::super::JobOffer,
         now_unix: i64,
     ) -> Result<(), Refusal> {
-        self.start_gathering_task(
+        self.start_task(
             TaskKind::Work,
             None,
-            GatherTier::Common,
             Some(offer.grade.index() as u8),
             Some(offer.kind),
             now_unix,
@@ -498,12 +462,11 @@ impl Cultivation {
     /// re-derived the payment each time. A relaunch after twelve hours owes
     /// 10,800 ticks of 打工 — twenty thousand clones to pay one absence.
     ///
-    /// 吐纳 and 打工 pay a constant amount per tick, so they are banked as one
-    /// segment and only their *thresholds* are visited one by one: 吐纳 banks
-    /// its 试炼 chance and drop every tenth tick (`TASK_CHANCE_EVERY_TICKS`),
-    /// 打工 rolls its 积分 every sixtieth (`JOB_POINT_EVERY_TICKS`). Visiting
-    /// those boundaries in order keeps the rng sequence — and therefore every
-    /// roll — identical to the tick-by-tick path.
+    /// 打工 pays a constant amount per tick, so it is banked as one segment and
+    /// only its *thresholds* are visited one by one: the wage every tick and one
+    /// 积分 roll every sixtieth (`JOB_POINT_EVERY_TICKS`). Visiting those
+    /// boundaries in order keeps the rng sequence — and therefore every roll —
+    /// identical to the tick-by-tick path.
     ///
     /// 采集 stays tick by tick, deliberately: its yield is read off the trade
     /// level, and that level climbs *inside* the window as the xp lands, so the
@@ -515,21 +478,6 @@ impl Cultivation {
         let start = task.ticks_done;
         let end = start.saturating_add(due);
         match task.kind {
-            TaskKind::Meditate => {
-                let growth = u64::from(self.meditate_growth()).saturating_mul(due);
-                let growth = growth.min(u64::from(u32::MAX)) as u32;
-                self.document.growth = self.document.growth.saturating_add(growth);
-                self.note_peak_level();
-                let mut threshold = (start / TASK_CHANCE_EVERY_TICKS + 1) * TASK_CHANCE_EVERY_TICKS;
-                while threshold <= end {
-                    self.bank_proving_chance();
-                    if let Some(drop) = self.roll_drop(now_unix) {
-                        self.last_drop = Some(drop);
-                    }
-                    threshold += TASK_CHANCE_EVERY_TICKS;
-                }
-                task.ticks_done = end;
-            }
             TaskKind::Woodcut | TaskKind::Stonecut => {
                 for _ in 0..due {
                     task.ticks_done = task.ticks_done.saturating_add(1);
@@ -712,7 +660,7 @@ impl Cultivation {
     /// Settle one finished 修习 session as a whole 闭关.
     ///
     /// A 番茄钟 session and a 闭关 are the same sit (`docs/0103` §4, §5.1): the
-    /// session pays [`SECLUSION_TICKS`] 吐纳 ticks with [`SECLUSION_BONUS_PERMILLE`]
+    /// session pays [`SECLUSION_TICKS`] growth ticks with [`SECLUSION_BONUS_PERMILLE`]
     /// on top and the sit's one 试炼 chance, and nothing of the old per-session
     /// growth formula. The session's other work is unchanged — the absence
     /// clock, the day's bookkeeping, the 功法 it trains, its 灵石 and its roll —
@@ -737,7 +685,7 @@ impl Cultivation {
         }
     }
 
-    /// The growth one 吐纳 tick pays at the cultivator's own realm and 功法.
+    /// The growth one sit tick pays at the cultivator's own realm and 功法.
     fn meditate_growth(&self) -> u32 {
         meditate_tick_growth(
             self.realm().index() as u32,
@@ -746,41 +694,28 @@ impl Cultivation {
     }
 
     /// Pay one finished tick. Gathering runs the §5.2 per-tick formula through
-    /// [`collect_tick`] and banks it the same way a session does; 吐纳 runs the
-    /// §5.1 formula and banks its 试炼 chance and drop every tenth tick; 打工
-    /// runs the §5.3 wage and rolls its 积分 every [`JOB_POINT_EVERY_TICKS`].
+    /// [`collect_tick`] and banks it the same way a session does; 打工 runs the
+    /// §5.3 wage and rolls its 积分 every [`JOB_POINT_EVERY_TICKS`].
     pub fn settle_task_tick(&mut self, task: &mut ActiveTask, now_unix: i64) {
         match task.kind {
-            TaskKind::Meditate => {
-                let growth = self.meditate_growth();
-                self.document.growth = self.document.growth.saturating_add(growth);
-                self.note_peak_level();
-                // Every tenth tick is the training's faucet: one 试炼 chance,
-                // and one drop roll. `ticks_done` is read off the tick just paid
-                // rather than a counter beside it, so a tick settled twice can
-                // never bank the threshold twice.
-                if task.ticks_done > 0 && task.ticks_done.is_multiple_of(TASK_CHANCE_EVERY_TICKS) {
-                    self.bank_proving_chance();
-                    // A hit is recorded the way a session's find is: the roll
-                    // already wrote its event, and the notice is replaced only
-                    // when there is a find to show — a miss must not wipe the
-                    // last thing the cultivator actually found.
-                    if let Some(drop) = self.roll_drop(now_unix) {
-                        self.last_drop = Some(drop);
-                    }
-                }
-            }
             TaskKind::Woodcut | TaskKind::Stonecut => {
                 let site = task.site.expect("a gathering task names its site");
+                // The depth follows the hand, not the click (`docs/0105`): the
+                // tick pays at the deepest point the trade level has reached,
+                // and the field is rewritten after the payout so a level earned
+                // *on this tick* is the one a surface draws, without a stop and
+                // a restart to notice it.
+                let tier = self.gather_tier(task.kind);
                 let yield_ = collect_tick(
                     site,
-                    task.tier,
+                    tier,
                     self.document.woodcut_level,
                     self.document.stonecut_level,
                     self.document.workshop_level,
                     self.document.dojo_level,
                 );
                 self.bank_collection(site, yield_);
+                task.tier = self.gather_tier(task.kind);
             }
             TaskKind::Work => {
                 // The grade is the offer's index into the job table; a task
@@ -810,14 +745,14 @@ impl Cultivation {
 mod tests {
     use super::*;
     use crate::JobOffer;
-    use crate::cultivation::resources::{BASE_COMMON_YIELD, resource_cap};
+    use crate::cultivation::resources::{BASE_COMMON_YIELD, resource_cap, skill_xp_total};
 
     const TICK: u32 = 6;
 
     fn start(kind: TaskKind, site: Option<GatherSite>, grade: Option<u8>, now: i64) -> Cultivation {
         let mut cultivation = Cultivation::default();
         cultivation
-            .start_task(kind, site, grade, now, TICK)
+            .start_task(kind, site, grade, None, now, TICK)
             .expect("a fresh cultivator starts a task");
         cultivation
     }
@@ -837,31 +772,34 @@ mod tests {
 
     #[test]
     fn one_tick_pays_once_and_a_repeat_at_the_same_instant_is_a_no_op() {
-        let mut cultivation = start(TaskKind::Meditate, None, None, 1_000);
-        assert_eq!(cultivation.document().growth, 0);
+        let mut cultivation = start(TaskKind::Woodcut, Some(GatherSite::Forest), None, 1_000);
+        assert_eq!(cultivation.document().resources.get(Resource::Wood), 0);
         assert_eq!(cultivation.advance_task(1_000 + i64::from(TICK)), 1);
-        let paid = cultivation.document().growth;
-        assert!(paid > 0, "a tick pays growth");
+        let paid = cultivation.document().resources.get(Resource::Wood);
+        assert!(paid > 0, "a tick pays wood");
         assert_eq!(cultivation.task().expect("still running").ticks_done, 1);
         // The same instant again: the clock has already been aligned, so the
         // gap is under one tick and nothing is paid twice.
         assert_eq!(cultivation.advance_task(1_000 + i64::from(TICK)), 0);
-        assert_eq!(cultivation.document().growth, paid);
+        assert_eq!(cultivation.document().resources.get(Resource::Wood), paid);
     }
 
     #[test]
     fn a_half_tick_is_dropped_and_the_next_whole_tick_pays() {
-        let mut cultivation = start(TaskKind::Meditate, None, None, 1_000);
+        let mut cultivation = start(TaskKind::Woodcut, Some(GatherSite::Forest), None, 1_000);
         // 1.5 ticks: one is paid, the half is not.
         assert_eq!(cultivation.advance_task(1_000 + i64::from(TICK) + 3), 1);
-        let after_one = cultivation.document().growth;
+        let after_one = cultivation.document().resources.get(Resource::Wood);
         assert_eq!(cultivation.task().expect("running").ticks_done, 1);
         // The half tick is still pending, so 3 seconds later the second tick
         // lands — the dropped part was only ever the fraction past the second.
         assert_eq!(cultivation.advance_task(1_000 + i64::from(TICK) + 3), 0);
-        assert_eq!(cultivation.document().growth, after_one);
+        assert_eq!(
+            cultivation.document().resources.get(Resource::Wood),
+            after_one
+        );
         assert_eq!(cultivation.advance_task(1_000 + 2 * i64::from(TICK) + 3), 1);
-        assert!(cultivation.document().growth > after_one);
+        assert!(cultivation.document().resources.get(Resource::Wood) > after_one);
     }
 
     #[test]
@@ -869,7 +807,7 @@ mod tests {
         // The action bar is the part of the current tick that has passed. It is
         // read in milliseconds, so a quarter of the way in is exactly 250 and
         // the bar climbs continuously instead of stepping once a second.
-        let cultivation = start(TaskKind::Meditate, None, None, 1_000);
+        let cultivation = start(TaskKind::Woodcut, Some(GatherSite::Forest), None, 1_000);
         let task = cultivation.task().expect("running");
         let start = 1_000_000;
         let tick = i64::from(TICK) * 1000;
@@ -896,7 +834,7 @@ mod tests {
         // The domain settles whole ticks before a surface reads, so a gap past
         // one tick is a stale clock rather than a second tick earned: the bar
         // stops at full instead of restarting.
-        let cultivation = start(TaskKind::Meditate, None, None, 1_000);
+        let cultivation = start(TaskKind::Woodcut, Some(GatherSite::Forest), None, 1_000);
         let task = cultivation.task().expect("running");
         assert_eq!(
             task.progress_permille(1_000_000 + 5 * i64::from(TICK) * 1000),
@@ -908,7 +846,7 @@ mod tests {
 
     #[test]
     fn an_absence_longer_than_the_cap_settles_the_cap_and_forgets_the_rest() {
-        let mut cultivation = start(TaskKind::Meditate, None, None, 0);
+        let mut cultivation = start(TaskKind::Work, None, Some(0), 0);
         let tick = i64::from(TICK);
         // Twelve hours of ticks, at the offline half (`docs/0104` §2.5).
         let expected =
@@ -920,16 +858,17 @@ mod tests {
             "twelve hours of ticks at half"
         );
         assert_eq!(cultivation.task().expect("running").ticks_done, expected);
-        let paid = cultivation.document().growth;
+        let paid = cultivation.document().stones;
+        assert_eq!(paid, expected as u32, "the wage is one stone a tick");
         // The excess past the cap is dropped, not carried: the same instant
-        // again pays nothing, and the growth did not double.
+        // again pays nothing, and the wage did not double.
         assert_eq!(cultivation.advance_task(20 * 60 * 60), 0);
-        assert_eq!(cultivation.document().growth, paid);
+        assert_eq!(cultivation.document().stones, paid);
     }
 
     #[test]
     fn a_cap_sized_absence_pays_exactly_that_many_ticks_at_half() {
-        let mut cultivation = start(TaskKind::Meditate, None, None, 0);
+        let mut cultivation = start(TaskKind::Work, None, Some(0), 0);
         let tick = i64::from(TICK);
         let whole = (TASK_OFFLINE_CAP_SECONDS / tick) as u64;
         assert_eq!(
@@ -944,7 +883,7 @@ mod tests {
     /// paid; a gap of a minute is an absence and half of it is.
     #[test]
     fn the_online_grace_is_a_minute_and_half_beyond_it() {
-        let mut cultivation = start(TaskKind::Meditate, None, None, 0);
+        let mut cultivation = start(TaskKind::Work, None, Some(0), 0);
         assert_eq!(cultivation.advance_task(54), 9, "54 秒 = 9 回合，全额");
         // Sixty more seconds owe ten ticks; the absence pays five.
         assert_eq!(cultivation.advance_task(114), 5, "60 秒 = 10 回合，半额");
@@ -952,9 +891,9 @@ mod tests {
 
     #[test]
     fn starting_while_a_task_runs_is_refused_and_the_running_task_is_untouched() {
-        let mut cultivation = start(TaskKind::Meditate, None, None, 1_000);
+        let mut cultivation = start(TaskKind::Woodcut, Some(GatherSite::Forest), None, 1_000);
         let running = cultivation.task().expect("running");
-        let refused = cultivation.start_task(TaskKind::Work, None, Some(0), 2_000, 4);
+        let refused = cultivation.start_task(TaskKind::Work, None, Some(0), None, 2_000, 4);
         assert_eq!(refused, Err(Refusal::TaskRunning));
         assert_eq!(cultivation.last_refusal, Some(Refusal::TaskRunning));
         assert_eq!(
@@ -966,7 +905,7 @@ mod tests {
 
     #[test]
     fn stopping_pays_the_finished_ticks_and_clears_the_slot() {
-        let mut cultivation = start(TaskKind::Meditate, None, None, 1_000);
+        let mut cultivation = start(TaskKind::Woodcut, Some(GatherSite::Forest), None, 1_000);
         assert_eq!(cultivation.stop_task(1_000 + 3 * i64::from(TICK)), Some(3));
         assert!(cultivation.task().is_none());
         assert_eq!(cultivation.stop_task(1_000 + 4 * i64::from(TICK)), None);
@@ -1188,18 +1127,17 @@ mod tests {
     }
 
     #[test]
-    fn a_gathering_task_settles_its_tier_per_tick() {
-        // 灵木林 asks for 伐木 20 (`docs/0104` §4.2), so the hand working it is
-        // a level-twenty one.
+    fn a_gathering_task_works_the_deepest_point_its_hand_has_reached() {
+        // 伐木 20 reaches the second depth (`docs/0105`), so the task started
+        // with no depth at all works the deeper point by itself.
         let mut cultivation = Cultivation::new(CultivationDocument {
             woodcut_level: 20,
             ..CultivationDocument::default()
         });
         cultivation
-            .start_gathering_task(
+            .start_task(
                 TaskKind::Woodcut,
                 Some(GatherSite::Forest),
-                GatherTier::Spirit,
                 None,
                 None,
                 0,
@@ -1209,122 +1147,61 @@ mod tests {
         assert_eq!(
             cultivation.task().expect("running").tier,
             GatherTier::Spirit,
-            "the tier rides the task"
+            "a start takes the hand's own depth"
         );
         assert_eq!(cultivation.advance_task(i64::from(TICK)), 1);
         // L20 灵木林: 2 × 1.38 × 1.5 = 4.14 → 4.
         assert_eq!(cultivation.document().resources.wood, 4);
     }
 
-    /// A gathering point is a place with an unlock level (`docs/0103` §5.2), so
-    /// a cultivator below it is refused rather than silently working a poorer
-    /// point: 伐木 1 级进不了灵木林，10 级进得去，30 级进得了混沌神木。
+    /// A depth is not a choice, so nothing can be refused for being too deep:
+    /// the shallowest point is where a fresh hand works, and the level it earns
+    /// is the only thing that moves it down a layer — mid-run, without a
+    /// restart.
     #[test]
-    fn a_tier_above_the_trade_level_is_refused() {
-        let start_at = |woodcut_level: u8, stonecut_level: u8| {
-            Cultivation::new(CultivationDocument {
-                woodcut_level,
-                stonecut_level,
-                ..CultivationDocument::default()
-            })
-        };
-        let mut cultivation = start_at(1, 1);
-        assert_eq!(
-            cultivation.start_gathering_task(
+    fn a_gathering_task_deepens_when_the_trade_level_does() {
+        // 伐木 19 sits one tick short of the second depth: the tick that banks
+        // its xp climbs to 20, and the next tick pays there.
+        let mut cultivation = Cultivation::new(CultivationDocument {
+            woodcut_level: 19,
+            woodcut_xp: skill_xp_total(20) - 50,
+            ..CultivationDocument::default()
+        });
+        cultivation
+            .start_task(
                 TaskKind::Woodcut,
                 Some(GatherSite::Forest),
-                GatherTier::Spirit,
-                None,
-                None,
-                0,
-                TICK,
-            ),
-            Err(Refusal::TierLocked),
-            "伐木 1 级进不了灵木林"
-        );
-        assert_eq!(
-            cultivation.last_refusal,
-            Some(Refusal::TierLocked),
-            "the refusal is recorded so the page can say why"
-        );
-        assert_eq!(
-            cultivation.last_refusal.map(Refusal::key),
-            Some("cultivation.tier.refuse_locked")
-        );
-        // The gate is per trade: a 伐木 1 级 hand is still refused the mountain's
-        // deeper point, and the refusal leaves the slot free.
-        assert_eq!(
-            cultivation.start_gathering_task(
-                TaskKind::Stonecut,
-                Some(GatherSite::Mountain),
-                GatherTier::Divine,
-                None,
-                None,
-                0,
-                TICK,
-            ),
-            Err(Refusal::TierLocked),
-            "采石 1 级也进不了寒铁窟"
-        );
-        assert!(
-            cultivation.task().is_none(),
-            "a refused click starts nothing"
-        );
-
-        // 20 级进得了灵木林，80 级进得了混沌神木（`docs/0104` §4.2）。
-        let mut trained = start_at(20, 20);
-        trained
-            .start_gathering_task(
-                TaskKind::Woodcut,
-                Some(GatherSite::Forest),
-                GatherTier::Spirit,
                 None,
                 None,
                 0,
                 TICK,
             )
-            .expect("伐木 20 级进得了灵木林");
-        let mut deepest = start_at(80, 80);
-        deepest
-            .start_gathering_task(
-                TaskKind::Woodcut,
-                Some(GatherSite::Forest),
-                GatherTier::Chaos,
-                None,
-                None,
-                0,
-                TICK,
-            )
-            .expect("伐木 80 级进得了混沌神木");
-
-        // 凡点永远开着：新存档（0 级）也能开始第一趟采集，否则没有上手路径。
-        let mut fresh = Cultivation::default();
-        fresh
-            .start_gathering_task(
-                TaskKind::Woodcut,
-                Some(GatherSite::Forest),
-                GatherTier::Common,
-                None,
-                None,
-                0,
-                TICK,
-            )
-            .expect("新存档进得了凡木林");
-    }
-
-    #[test]
-    fn a_task_started_the_s1_way_works_the_common_tier() {
-        let mut cultivation = start(TaskKind::Woodcut, Some(GatherSite::Forest), None, 0);
+            .expect("新存档进得了最浅的一层");
         assert_eq!(
             cultivation.task().expect("running").tier,
-            GatherTier::Common,
-            "S1's entry point defaults to the ordinary tier"
+            GatherTier::Common
         );
         assert_eq!(cultivation.advance_task(i64::from(TICK)), 1);
         assert_eq!(
             cultivation.document().resources.wood,
             2,
-            "L1 凡木林 pays the bare base"
+            "L19 凡木林 pays the bare base"
+        );
+        assert_eq!(
+            cultivation.document().woodcut_level,
+            20,
+            "the tick trains 20"
+        );
+        assert_eq!(
+            cultivation.task().expect("running").tier,
+            GatherTier::Spirit,
+            "the running task follows the level it just earned"
+        );
+        assert_eq!(cultivation.advance_task(2 * i64::from(TICK)), 1);
+        assert_eq!(
+            cultivation.document().resources.wood,
+            6,
+            "the next tick pays at 灵木林: 2 then 4"
         );
     }
 
@@ -1358,15 +1235,6 @@ mod tests {
         assert_eq!(task.grade, None);
     }
 
-    /// A cultivator standing in the given realm, with the default (×1.000)
-    /// 功法 multiplier, so a tick's growth is the realm's own table row.
-    fn at_realm(index: u8) -> Cultivation {
-        Cultivation::new(CultivationDocument {
-            realm: index,
-            ..CultivationDocument::default()
-        })
-    }
-
     #[test]
     fn every_realm_pays_its_formula_growth_per_tick() {
         // `docs/0104` §5.1's per-tick table, read at a bare ×1.000 multiplier.
@@ -1394,75 +1262,6 @@ mod tests {
                 expected
             );
         }
-    }
-
-    #[test]
-    fn a_meditate_task_pays_its_own_realm_growth() {
-        let mut cultivation = at_realm(2); // 金丹
-        let before = cultivation.document().growth;
-        cultivation
-            .start_task(TaskKind::Meditate, None, None, 0, TICK)
-            .expect("the task starts");
-        assert_eq!(cultivation.advance_task(i64::from(TICK)), 1);
-        assert_eq!(
-            cultivation.document().growth,
-            before + 6,
-            "金丹 pays 6 a tick"
-        );
-    }
-
-    #[test]
-    fn meditate_banks_one_chance_every_tenth_tick() {
-        let mut cultivation = start(TaskKind::Meditate, None, None, 0);
-        let now = run_ticks(&mut cultivation, 9, 0);
-        assert_eq!(cultivation.document().proving_tokens, 0);
-        assert_eq!(cultivation.advance_task(now + i64::from(TICK)), 1);
-        assert_eq!(cultivation.document().proving_tokens, 1);
-        // The same instant again does not cross the threshold twice.
-        assert_eq!(cultivation.advance_task(now + i64::from(TICK)), 0);
-        assert_eq!(cultivation.document().proving_tokens, 1);
-        let now = run_ticks(&mut cultivation, 10, now + i64::from(TICK));
-        assert_eq!(cultivation.advance_task(now), 0);
-        assert_eq!(cultivation.document().proving_tokens, 2);
-    }
-
-    #[test]
-    fn a_threshold_crossed_in_two_advances_banks_once() {
-        let mut cultivation = start(TaskKind::Meditate, None, None, 0);
-        let tick = i64::from(TICK);
-        assert_eq!(cultivation.advance_task(9 * tick + 3), 9);
-        assert_eq!(cultivation.document().proving_tokens, 0);
-        // The tenth tick lands 3 seconds later; the threshold is crossed once.
-        assert_eq!(cultivation.advance_task(10 * tick + 3), 1);
-        assert_eq!(cultivation.document().proving_tokens, 1);
-    }
-
-    #[test]
-    fn meditate_chances_stop_at_the_cap() {
-        let mut cultivation = start(TaskKind::Meditate, None, None, 0);
-        // A hundred ticks is ten thresholds; the bank cannot pass ten.
-        run_ticks(&mut cultivation, 100, 0);
-        assert_eq!(
-            cultivation.document().proving_tokens,
-            TRIAL_CHANCES_CAP,
-            "ten at most"
-        );
-        run_ticks(&mut cultivation, 10, 600);
-        assert_eq!(cultivation.document().proving_tokens, TRIAL_CHANCES_CAP);
-    }
-
-    #[test]
-    fn every_tenth_meditate_tick_rolls_the_drop_path() {
-        let mut cultivation = start(TaskKind::Meditate, None, None, 0);
-        run_ticks(&mut cultivation, 9, 0);
-        assert_eq!(
-            cultivation.roll_sequence, 0,
-            "no drop is rolled before the tenth tick"
-        );
-        run_ticks(&mut cultivation, 1, 54);
-        assert_eq!(cultivation.roll_sequence, 1, "the tenth tick rolls once");
-        run_ticks(&mut cultivation, 10, 60);
-        assert_eq!(cultivation.roll_sequence, 2, "the twentieth rolls again");
     }
 
     #[test]
@@ -1513,7 +1312,14 @@ mod tests {
     fn a_seclusion_runs_beside_a_gathering_task_without_touching_it() {
         let mut cultivation = Cultivation::default();
         cultivation
-            .start_task(TaskKind::Woodcut, Some(GatherSite::Forest), None, 0, TICK)
+            .start_task(
+                TaskKind::Woodcut,
+                Some(GatherSite::Forest),
+                None,
+                None,
+                0,
+                TICK,
+            )
             .expect("the task starts");
         cultivation.start_seclusion(0).expect("the sit starts");
         let now = run_ticks(&mut cultivation, 10, 0);
@@ -1561,36 +1367,43 @@ mod tests {
     }
 
     #[test]
-    fn a_session_settles_beside_a_meditate_task_without_touching_it() {
+    fn a_session_settles_beside_a_gathering_task_without_touching_it() {
         // A 修习 session is a whole 闭关, and it does not occupy the task slot:
         // the two run on the same clock and each pays its own ticks, so a
-        // session neither swallows nor double-counts the task's growth.
+        // session neither swallows nor double-counts the task's own output.
         let mut cultivation = Cultivation::default();
         cultivation
-            .start_task(TaskKind::Meditate, None, None, 0, TICK)
+            .start_task(
+                TaskKind::Woodcut,
+                Some(GatherSite::Forest),
+                None,
+                None,
+                0,
+                TICK,
+            )
             .expect("the task starts");
         run_ticks(&mut cultivation, 10, 0);
-        let task_growth = cultivation.document().growth;
-        assert_eq!(task_growth, 20, "10 × 2 at 炼气");
-        assert_eq!(
-            cultivation.document().proving_tokens,
-            1,
-            "the tenth tick banked one"
-        );
+        let wood = cultivation.document().resources.get(Resource::Wood);
+        assert_eq!(wood, 20, "10 × 2 at 炼气");
 
         let reward =
             cultivation.settle_sit_session(i64::from(TICK) * 10, CalendarDay::from_day_number(1));
         assert_eq!(reward.growth, 550, "250 × 2 × 1.1");
-        assert_eq!(cultivation.document().growth, task_growth + 550);
+        assert_eq!(cultivation.document().growth, 550);
         assert_eq!(
             cultivation.document().proving_tokens,
-            2,
-            "the sit banked its own one"
+            1,
+            "the sit banked its one chance"
         );
         // The task is untouched and still running.
         let task = cultivation.task().expect("the task is still running");
-        assert_eq!(task.kind, TaskKind::Meditate);
+        assert_eq!(task.kind, TaskKind::Woodcut);
         assert_eq!(task.ticks_done, 10);
+        assert_eq!(
+            cultivation.document().resources.get(Resource::Wood),
+            wood,
+            "the session paid no wood"
+        );
     }
 
     /// The one arithmetic the three surfaces share. `web/cultivate.js` and
@@ -1639,7 +1452,6 @@ mod tests {
         let paid = due * OFFLINE_EFFICIENCY_PERMILLE / 1_000;
         let now_after = now + i64::from(TICK) * due as i64;
         let cases = [
-            (TaskKind::Meditate, None, None),
             (TaskKind::Woodcut, Some(GatherSite::Forest), None),
             (TaskKind::Work, None, Some(0_u8)),
         ];

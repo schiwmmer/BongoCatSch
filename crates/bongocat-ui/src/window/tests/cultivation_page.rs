@@ -2848,34 +2848,33 @@ fn the_resources_panel_is_packed_and_still_works(cx: &mut TestAppContext) {
     );
 }
 
-/// The real-time task row starts a task and stops the one under way.
+/// The real-time task row starts a task, and carries no depth at all.
 ///
 /// The click has to reach the worker: a button that paints and publishes
-/// nothing is the failure this page had once already. The tier the click
-/// carries is the chip the user lit, not the row's default — the same
-/// "one choice, spent by the button" rule the walk's lengths follow.
+/// nothing is the failure this page had once already. It carries the kind and
+/// its site and nothing else — the depth is the domain's reading of the hand
+/// (`docs/0105`), so the row offers no picker to light and the command has no
+/// field to fill (`docs/0105` §depth).
 #[gpui_kit::test]
-fn starting_a_task_carries_the_tier_that_was_picked(cx: &mut TestAppContext) {
+fn starting_a_task_carries_the_kind_and_no_depth(cx: &mut TestAppContext) {
     let (pomodoro, sink) = PomodoroClient::with_sink();
     let (_view, visual) = cultivation_page_with(cx, pomodoro);
     visual.update(|window, cx| window.render_frame(cx));
     for start in [
-        "cultivation-task-start-meditate",
         "cultivation-task-start-woodcut",
         "cultivation-task-start-stonecut",
     ] {
         assert!(painted(visual, start), "the task row offers {start}");
     }
-    scroll_until_visible(visual, "cultivation-task-tier-Spirit");
-    visual.update(|window, cx| {
-        window.render_frame(cx);
-        window.click("cultivation-task-tier-Spirit", cx);
-    });
     assert!(
-        published(&sink).is_empty(),
-        "picking a tier asks for nothing"
+        !painted(visual, "cultivation-task-start-meditate"),
+        "吐纳 is retired and the row no longer offers it"
     );
-    scroll_until_visible(visual, "cultivation-task-start-woodcut");
+    assert!(
+        !painted(visual, "cultivation-task-tier-Common"),
+        "there is no depth picker to light"
+    );
+    scroll_until_visible(visual, "cultivation-task-depth-hint");
     visual.update(|window, cx| {
         window.render_frame(cx);
         window.click("cultivation-task-start-woodcut", cx);
@@ -2887,12 +2886,11 @@ fn starting_a_task_carries_the_tier_that_was_picked(cx: &mut TestAppContext) {
             [PomodoroCommand::CultStartTask {
                 kind: bongocat_pomodoro::TaskKind::Woodcut,
                 site: Some(bongocat_pomodoro::GatherSite::Forest),
-                tier: Some(bongocat_pomodoro::GatherTier::Spirit),
                 grade: None,
                 job_kind: None,
             }]
         ),
-        "the click starts the task at the picked tier: {commands:?}"
+        "the click starts the task and names no depth: {commands:?}"
     );
 }
 
@@ -2908,15 +2906,14 @@ fn a_task_under_way_reads_as_running_and_stops(cx: &mut TestAppContext) {
     let mut cultivation = Cultivation::new(CultivationDocument {
         growth: threshold_for(120),
         realm: 1,
-        // 混沌神石 asks for 采石 80 (`docs/0104` §4.2).
+        // 采石 80 works the mountain's deepest point (`docs/0105`).
         stonecut_level: 80,
         ..CultivationDocument::default()
     });
     cultivation
-        .start_gathering_task(
+        .start_task(
             bongocat_pomodoro::TaskKind::Stonecut,
             Some(bongocat_pomodoro::GatherSite::Mountain),
-            bongocat_pomodoro::GatherTier::Divine,
             None,
             None,
             0,

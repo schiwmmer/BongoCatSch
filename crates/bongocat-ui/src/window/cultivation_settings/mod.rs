@@ -13,7 +13,7 @@
 //! in every one of the eight catalogs.
 
 use super::*;
-use bongocat_i18n::{compact_number, format_text, group_thousands, text};
+use bongocat_i18n::{compact_number, format_text, group_thousands, quantity_number, text};
 use bongocat_pomodoro::{
     ActiveTask, AptitudeHerb, ArtGrade, ArtKind, ArtOutcome, ArtOwnership, ArtView, Attribute,
     Attributes, BonusFind, Building, BuildingView, Cost, CultivationView, DailyKind, Derived,
@@ -23,7 +23,7 @@ use bongocat_pomodoro::{
     ResourceBag, ResourcesView, SaleKind, SeedGrade, SeedView, ShopOffer, ShopOfferView,
     StrikeEffect, TRIAL_ATTEMPTS_PER_DAY, TaskKind, TradeView, TrialBlocked, art_bonus_at,
     art_payout_at, blueprint, grow_seconds_at, harvest_points, herb_tier,
-    mastered_art_bonus_payout, mastered_art_payout, plant_permille, star_multiplier_permille,
+    mastered_art_bonus_payout, mastered_art_payout, star_multiplier_permille,
 };
 
 use gpui_kit::component::Sizable as _;
@@ -222,13 +222,7 @@ pub(super) fn content(
         .child(panel_anchor(
             13,
             &panel_bounds,
-            resources::resources_panel(
-                &view,
-                &cultivation,
-                view.read(cx).cultivation_task_tier,
-                locale,
-                tokens,
-            ),
+            resources::resources_panel(&view, &cultivation, locale, tokens),
         ))
         .child(panel_anchor(
             14,
@@ -906,7 +900,11 @@ fn resource_bag_text(locale: &str, bag: &ResourceBag) -> String {
     for resource in Resource::ALL {
         let count = bag.get(resource);
         if count > 0 {
-            parts.push(format!("{}×{count}", text(locale, resource.key())));
+            parts.push(format!(
+                "{}×{}",
+                text(locale, resource.key()),
+                quantity_number(u64::from(count))
+            ));
         }
     }
     parts.join(" · ")

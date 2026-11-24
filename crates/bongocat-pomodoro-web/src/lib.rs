@@ -34,8 +34,8 @@
 use std::{cell::RefCell, time::Duration};
 
 use bongocat_pomodoro::{
-    AptitudeHerb, Attribute, Building, EquipSlot, ExplorationHours, GatherSite, GatherTier,
-    JobKind, PomodoroCommand, PomodoroState, SeedGrade, SessionMode, TaskKind,
+    AptitudeHerb, Attribute, Building, EquipSlot, ExplorationHours, GatherSite, JobKind,
+    PomodoroCommand, PomodoroState, SeedGrade, SessionMode, TaskKind,
 };
 use serde_json::Value;
 
@@ -422,17 +422,18 @@ fn parse_command(value: &Value) -> Option<PomodoroCommand> {
             times: u8::try_from(u32_value(value, "times")?).ok()?,
         },
         "select_session_mode" => PomodoroCommand::SelectSessionMode { mode: mode(value)? },
-        // The four real-time cultivation ops (`docs/0103` §4): the `cult-`
-        // prefix keeps them one family on the wire, the way `select_session_mode`
+        // The real-time cultivation ops (`docs/0103` §4): the `cult-` prefix
+        // keeps them one family on the wire, the way `select_session_mode`
         // already names the mode that arms a finished pomodoro. The task's tempo
-        // is chosen in `apply`, so the page sends the kind and nothing else
-        // about the rhythm; `site`/`tier`/`grade`/`job_kind` are all optional
-        // because 吐纳 takes none of them and a page that has not picked a tier
-        // yet must still be able to start a breath.
+        // is chosen in `apply` and its gathering depth is read off the hand
+        // (`docs/0105`), so the page sends only the kind and the site; `site`,
+        // `grade` and `job_kind` are optional because 打工 takes no site and 伐木
+        // and 采石 name one. 吐纳 is retired and the bridge no longer reads it:
+        // an old page that still sends `kind: "meditate"` is refused as an
+        // unknown command rather than starting a task no surface offers.
         "cult_start_task" => PomodoroCommand::CultStartTask {
             kind: task_kind(value)?,
             site: optional_site(value)?,
-            tier: optional_tier(value)?,
             grade: optional_u8(value, "grade"),
             job_kind: optional_job_kind(value),
         },
@@ -541,10 +542,12 @@ fn hours(value: &Value) -> Option<ExplorationHours> {
     })
 }
 
-/// Which of the four real-time tasks a `cult_start_task` asks for.
+/// Which of the three startable real-time tasks a `cult_start_task` asks for.
+///
+/// 吐纳 is retired (`docs/0103` §4): its kind is deliberately absent, so a page
+/// that still names it gets an unknown command instead of a silent start.
 fn task_kind(value: &Value) -> Option<TaskKind> {
     Some(match value.get("kind")?.as_str()? {
-        "meditate" => TaskKind::Meditate,
         "woodcut" => TaskKind::Woodcut,
         "stonecut" => TaskKind::Stonecut,
         "work" => TaskKind::Work,
@@ -555,10 +558,10 @@ fn task_kind(value: &Value) -> Option<TaskKind> {
 /// The site a gathering task works, when the op names one.
 ///
 /// The outer `Option` is whether the op is well-formed at all; the inner one is
-/// whether it named a site. Both halves matter: 吐纳 and 打工 take no site, so
-/// an absent `site` has to be accepted, while a `site` the bridge cannot read is
-/// a command the page got wrong and is refused rather than silently started as a
-/// site-less 伐木.
+/// whether it named a site. Both halves matter: 打工 takes no site, so an absent
+/// `site` has to be accepted, while a `site` the bridge cannot read is a command
+/// the page got wrong and is refused rather than silently started as a site-less
+/// 伐木.
 fn optional_site(value: &Value) -> Option<Option<GatherSite>> {
     let Some(raw) = value.get("site") else {
         return Some(None);
@@ -571,27 +574,6 @@ fn optional_site(value: &Value) -> Option<Option<GatherSite>> {
         "forest" => GatherSite::Forest,
         "mountain" => GatherSite::Mountain,
         "mine" => GatherSite::Mine,
-        _ => return None,
-    }))
-}
-
-/// The tier a gathering task works, when the op names one. Absent is 凡, which
-/// is what `apply` falls back to — the tier a fresh save can work. An
-/// unreadable tier is refused rather than dropped, for the same reason
-/// [`optional_site`] refuses one.
-fn optional_tier(value: &Value) -> Option<Option<GatherTier>> {
-    let Some(raw) = value.get("tier") else {
-        return Some(None);
-    };
-    let tier = match raw {
-        Value::Null => return Some(None),
-        raw => raw.as_str()?,
-    };
-    Some(Some(match tier {
-        "common" => GatherTier::Common,
-        "spirit" => GatherTier::Spirit,
-        "divine" => GatherTier::Divine,
-        "chaos" => GatherTier::Chaos,
         _ => return None,
     }))
 }

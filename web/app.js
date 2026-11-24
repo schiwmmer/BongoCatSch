@@ -13,10 +13,12 @@ import {
   verifyCode,
 } from './cloud.js';
 import {
+  quantity,
   railCounts,
   renderCultivation,
   handleCultivationAction,
   CULTIVATION_TABS,
+  noticeStrip,
 } from './cultivate.js';
 
 const REALMS = {
@@ -63,9 +65,6 @@ const app = {
   tab: 'focus',
   editingTask: null,
   calCursor: null,
-  // 修仙页的采集点阶。纯页面默认值：每次「开始」才随命令发给内核，内核仍会
-  // 按采集等级自己门禁一次（`docs/0103` §4）。
-  cultTier: 'common',
   clockBase: 0,
   clockAt: 0,
   busy: false,
@@ -362,7 +361,7 @@ function calendarMarkup() {
 function sessionModeMarkup(snapshot) {
   const current = snapshot?.cultivation?.session_mode;
   const bag = snapshot?.cultivation?.resources?.bag ?? {};
-  const purse = RESOURCES.map(([key, label]) => `${label} ${bag[key] ?? 0}`).join(' · ');
+  const purse = RESOURCES.map(([key, label]) => `${label} ${quantity(bag[key] ?? 0)}`).join(' · ');
   return `
     <div class="card" style="margin-bottom:16px">
       <div class="card-head">
@@ -513,20 +512,17 @@ function render() {
     stage.innerHTML = focusPage();
     return;
   }
-  stage.innerHTML = renderCultivation(app.tab, app.snapshot, cultivationCtx());
+  // 通知条贴着页头，切 tab 不重算：它讲的是「上一次动作的结果」，与当前 tab 无关。
+  const notices = noticeStrip(app.snapshot.cultivation);
+  stage.innerHTML = notices + renderCultivation(app.tab, app.snapshot, cultivationCtx());
 }
 
-// 修仙页的渲染/动作共用一份上下文：命令通道 + 页面上暂存的采集点阶。
-// `setTier` 顺手重画一次，好让选中的那一阶立刻亮起来。
+// 修仙页的渲染/动作共用一份上下文：命令通道 + 实时任务的读数。
+// 采集深度不在这里暂存：它由内核按采集等级推导，页面只显示。
 function cultivationCtx() {
   return {
     send,
     toast,
-    tier: app.cultTier,
-    setTier: (tier) => {
-      app.cultTier = tier;
-      render();
-    },
     // 两条实时条的读数：统一问内核，页面不留第二份数学。
     live: () => kernelLive(app.snapshot?.cultivation),
   };

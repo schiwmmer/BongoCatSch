@@ -23,7 +23,7 @@ use bongocat_platform::{
     ModelSourcePickerError, ModelSourcePickerOutcome, pick_model_cover, pick_model_folder,
     validate_model_folder,
 };
-use bongocat_pomodoro::{GatherTier, PomodoroClient, PomodoroCommand};
+use bongocat_pomodoro::{PomodoroClient, PomodoroCommand};
 use gpui_kit::component::{
     ActiveTheme, Disableable, Icon, IndexPath, Root, Theme, ThemeMode, ThemeStyled, WindowExt,
     button::{Button, ButtonVariant, ButtonVariants},
@@ -420,13 +420,6 @@ pub struct SettingsView {
     /// walked, so a page that has never picked one shows that road rather than a
     /// region of its own invention.
     pub(crate) cultivation_explore_region: Option<usize>,
-    /// The tier the next 伐木 or 采石 task works, picked once on the 实时任务
-    /// row and spent by whichever of the two is clicked.
-    ///
-    /// A page preference rather than a record: the domain is told the tier with
-    /// every start, so the page only has to remember which chip is lit. 凡 is
-    /// the tier a fresh save can work, which is why it is where the page starts.
-    pub(crate) cultivation_task_tier: GatherTier,
     /// Whether the realm ladder is unfolded under the realm line.
     ///
     /// Closed by default: the page is one scrolling column, and the ten-realm

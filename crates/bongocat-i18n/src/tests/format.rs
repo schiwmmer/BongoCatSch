@@ -83,7 +83,24 @@ fn thousands_group_into_threes() {
     assert_eq!(group_thousands(123_456_789), "123,456,789");
 }
 
+/// A purse count or a banked experience figure keeps its exact digits, comma
+/// grouped, until ten thousand; past that it is read in K and then in M.
+#[test]
+fn a_quantity_is_exact_until_ten_thousand_then_shortened() {
+    assert_eq!(quantity_number(0), "0");
+    assert_eq!(quantity_number(999), "999");
+    assert_eq!(quantity_number(1_000), "1,000");
+    assert_eq!(quantity_number(9_999), "9,999");
+    assert_eq!(quantity_number(10_000), "10K");
+    assert_eq!(quantity_number(12_345), "12.3K");
+    assert_eq!(quantity_number(54_683), "54.7K");
+    assert_eq!(quantity_number(999_999), "1M");
+    assert_eq!(quantity_number(1_234_567), "1.23M");
+    assert_eq!(quantity_number(6_019_200), "6.02M");
+}
+
 /// The unit is chosen after the rounding, not before it: a figure that rounds
+/// up to four digits reads as the next unit rather than as `1000K`./// The unit is chosen after the rounding, not before it: a figure that rounds
 /// up to four digits reads as the next unit rather than as `1000K`.
 #[test]
 fn a_count_that_rounds_up_moves_to_the_next_unit() {

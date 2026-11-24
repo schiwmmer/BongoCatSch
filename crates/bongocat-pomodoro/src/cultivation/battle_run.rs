@@ -1294,7 +1294,7 @@ impl Cultivation {
                             && stack.tier == reward.tier
                             && stack.grade == reward.grade
                     })
-                    .map(seed_view)
+                    .map(|stack| seed_view(stack, self.document.garden_rank))
             }),
             gear: found.gear.as_ref().map(|item| self.item_view(item)),
             art: found.art_name(),

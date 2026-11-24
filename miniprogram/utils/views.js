@@ -12,8 +12,15 @@ const SET_EFFECTS = {
   weaken: '蛊蚀',
 };
 
-// 一次闭关的回合数，内核常量 `SECLUSION_TICKS`。快照没带这个总数，先按它写死。
-const SECLUSION_TICKS = 250;
+// 闭关回合、时长与采集深度倍率都读快照 `rules`（内核 `SECLUSION_TICKS`、
+// `SECLUSION_TICK_SECONDS` 与 `GatherTier` 表），页面不再写死 250 / ×1.0（`docs/0106`）。
+function depthMultiplier(c, tier) {
+  const row = ((c.rules && c.rules.gather_depths) || []).find((entry) => entry.tier === tier);
+  return ((row ? row.base_permille : 0) / 1000).toFixed(1);
+}
+function depthTag(c, tier) {
+  return `${L.GATHER_TIER_NUMERALS[tier] || tier} · ×${depthMultiplier(c, tier)}`;
+}
 const JOB_GRADE_NAMES = ['黄阶', '玄阶', '地阶', '天阶', '星阶'];
 const BATTLE_KINDS = { Trial: '锁妖塔之战', Proving: '试炼之战', Breakthrough: '破境之战' };
 // 采集点的叫法，与 App 的 `cultivation.site.*` 逐字一致。`L.SITES` 是任务行用的
@@ -25,8 +32,10 @@ function taskText(c) {
   const task = c.task;
   if (task) {
     const name = L.TASK_KINDS[task.kind] || task.kind || '任务';
-    const site = task.site ? L.SITES[task.site] || task.site : '';
-    const tier = task.tier && task.tier !== 'Common' ? L.GATHER_TIERS[task.tier] || '' : '';
+    const site = task.site
+      ? (L.GATHER_PLACES[task.site] || {})[task.tier] || L.SITES[task.site] || task.site
+      : '';
+    const tier = task.tier ? depthTag(c, task.tier) : '';
     const place = [site, tier].filter(Boolean).join(' · ');
     const grade = task.grade != null ? JOB_GRADE_NAMES[task.grade] || '' : '';
     const detail = place || grade;
@@ -34,7 +43,7 @@ function taskText(c) {
     return detail ? `${name} · ${detail} · 已进行 ${ticks}` : `${name} · 已进行 ${ticks}`;
   }
   if (c.seclusion) {
-    return `闭关 · 回合 ${L.num(c.seclusion.ticks_done)}/${SECLUSION_TICKS}`;
+    return `闭关 · 回合 ${L.num(c.seclusion.ticks_done)}/${L.num((c.rules && c.rules.seclusion_ticks) || 0)}`;
   }
   const battle = c.battle;
   if (battle) {
@@ -51,7 +60,7 @@ function collectText(collect) {
   const site = COLLECT_SITES[collect.site] || collect.site;
   const bagText = (bag) =>
     L.RESOURCES.filter(([key]) => ((bag && bag[key]) || 0) > 0)
-      .map(([key, label]) => `${label}×${L.num(bag[key])}`)
+      .map(([key, label]) => `${label}×${L.quantity(bag[key])}`)
       .join(' · ');
   const lost = collect.lost && Object.values(collect.lost).some((n) => n > 0);
   const gained = bagText(lost ? collect.lost : collect.gained) || '空手而归';
@@ -63,6 +72,360 @@ function collectText(collect) {
 
 /* ---------- 通用 ---------- */
 
+const REALM_ORDER = Object.keys(L.REALMS);
+const BUILDING_NAMES = { Workshop: '工坊', Warehouse: '仓库', Smithy: '铁匠铺', Dojo: '道场' };
+const MARROW_SOURCES = { Combat: '战斗', Fortune: '机缘', Shop: '集市' };
+const WALK_OUTCOMES = {
+  Nothing: '一无所获。',
+  Seed: '寻得仙草',
+  Gear: '寻得装备',
+  Art: '寻得功法',
+  Stones: '寻得灵石',
+  Victory: '遭遇战胜利，小有斩获。',
+  Defeat: '遭遇战败北，幸而未失。',
+};
+const WALK_HINTS = {
+  walk_hint_slow: '进度非常缓慢',
+  walk_hint_slow_alt: '举步维艰',
+  walk_hint_slow_alt2: '收效甚微',
+  walk_hint_uneven: '稍有波折',
+  walk_hint_uneven_alt: '小有阻碍',
+  walk_hint_uneven_alt2: '略显坎坷',
+  walk_hint_steady: '稳步推进',
+  walk_hint_steady_alt: '循序渐进',
+  walk_hint_steady_alt2: '扎实前行',
+  walk_hint_fast: '突飞猛进',
+  walk_hint_fast_alt: '一日千里',
+  walk_hint_fast_alt2: '势如破竹',
+};
+
+function bagTextOf(bag) {
+  return L.RESOURCES.filter(([key]) => ((bag && bag[key]) || 0) > 0)
+    .map(([key, label]) => `${label}×${L.quantity(bag[key])}`)
+    .join(' · ');
+}
+
+function seedText(name, attribute, tier, grade) {
+  const gradeLabel = L.gradeText(grade);
+  if (name) return `${name} · ${tier} 阶 · ${gradeLabel}`;
+  return `${L.attributeText(attribute)}种子 · ${tier} 阶 · ${gradeLabel}`;
+}
+
+function herbSeedText(herb, tier, grade) {
+  return `${L.herbText(herb)}种子 · ${tier} 阶 · ${L.gradeText(grade)}`;
+}
+
+function hintText(key) {
+  if (!key) return '';
+  return WALK_HINTS[String(key).split('.').pop()] || '';
+}
+
+function foundSegments(art, gear, seed) {
+  const parts = [];
+  if (art) parts.push(`功法「${art}」`);
+  if (gear) parts.push(`装备「${gear}」`);
+  if (seed) parts.push(`仙草「${seed}」`);
+  return parts;
+}
+
+function saleName(what) {
+  if (!what) return '东西';
+  if (typeof what === 'string') return what === 'Plot' ? '灵田' : '东西';
+  if (what.Equipment) return what.Equipment.name || '装备';
+  if (what.Seed) {
+    return seedText(what.Seed.name, what.Seed.attribute, what.Seed.tier, what.Seed.grade);
+  }
+  if (what.Art) return what.Art.name || '功法';
+  if ('Plot' in what) return '灵田';
+  if (what.Herb) return L.herbText(what.Herb.herb);
+  return '东西';
+}
+
+function bonusFindText(find) {
+  if (!find) return '';
+  if (find.Equipment) return find.Equipment.name || '装备';
+  if (find.Seed) return seedText(null, find.Seed.attribute, find.Seed.tier, find.Seed.grade);
+  if (find.Art) return find.Art;
+  if (find.Herb) return L.herbText(find.Herb.herb);
+  if (find.Stones != null) return `${L.num(find.Stones)} 灵石`;
+  return '';
+}
+
+function walkLine(body) {
+  const parts = [`外出探索：${WALK_OUTCOMES[body.outcome] || body.outcome || ''}`];
+  parts.push(...foundSegments(body.art, body.gear, body.seed));
+  if (body.stones != null) parts.push(`灵石「${L.num(body.stones)}」`);
+  if (body.gain > 0) parts.push(`探索 +${(body.gain / 10).toFixed(1)}%`);
+  const hint = hintText(body.hint);
+  if (hint) parts.push(hint);
+  return parts.join(' · ');
+}
+
+function trialLine(body) {
+  const parts = [body.won ? `第 ${body.floor} 层通关。` : `第 ${body.floor} 层未过。`];
+  if (body.won) {
+    parts.push(...foundSegments(body.art, body.gear, body.seed));
+    if (body.stones != null) parts.push(`灵石「${L.num(body.stones)}」`);
+  }
+  return parts.join(' · ');
+}
+
+function sweepLine(body) {
+  const from = body.from_floor || 0;
+  const to = from + Math.max(0, (body.floors || 0) - 1);
+  const parts = [`横扫第 ${from}~${to} 层`];
+  if (body.seeds > 0) parts.push(`仙草 ×${body.seeds}`);
+  if (body.gear > 0) parts.push(`装备 ×${body.gear}`);
+  if (body.arts > 0) parts.push(`功法 ×${body.arts}`);
+  if (body.stones > 0) parts.push(`灵石「${L.num(body.stones)}」`);
+  return parts.join(' · ');
+}
+
+/// 一条事件，按 App `records.rs` 的 `event_line` 同一套模板读出来（`docs/0106`）。
+/// 结构化字段在这里翻成人话；不认识的变体给空串，不把 JSON 摊给用户。
+function eventLine(detail) {
+  if (!detail) return '';
+  if (typeof detail === 'string') return detail === 'Harvest' ? '仙草园收成了一株。' : '';
+  const tag = Object.keys(detail)[0];
+  const body = detail[tag] || {};
+  switch (tag) {
+    case 'Session':
+      return `完成修炼，成长 +${L.num(body.growth)}`;
+    case 'SessionGather': {
+      const parts = [`采集完一个番茄钟：${COLLECT_SITES[body.site] || body.site} 得 ${bagTextOf(body.gained) || '空手而归'}`];
+      if (body.woodcut_xp > 0) parts.push(`经验 +${L.num(body.woodcut_xp)}`);
+      if (body.stonecut_xp > 0) parts.push(`经验 +${L.num(body.stonecut_xp)}`);
+      return parts.join('，');
+    }
+    case 'Expedition': {
+      const parts = [`外出采集归来：${COLLECT_SITES[body.site] || body.site} ${body.hours} 小时，得 ${bagTextOf(body.gained) || '空手而归'}`];
+      if (body.woodcut_xp > 0) parts.push(`经验 +${L.num(body.woodcut_xp)}`);
+      if (body.stonecut_xp > 0) parts.push(`经验 +${L.num(body.stonecut_xp)}`);
+      return parts.join('，');
+    }
+    case 'Found': {
+      const parts = ['番茄钟掉落'];
+      parts.push(...foundSegments(null, body.gear, body.seed));
+      return parts.join(' · ');
+    }
+    case 'Work': {
+      let text = `打工 ${body.hours} 小时，得 ${L.num(body.stones)} 灵石，达成率 ${Math.floor((body.success_rate || 0) / 10)}%`;
+      if (body.gain) text += `，额外 +${L.num(body.gain[1])} ${L.DERIVED_NAMES[body.gain[0]] || body.gain[0]}`;
+      return text;
+    }
+    case 'Absence':
+      return `${body.days} 天未修炼，成长值 -${L.num(body.charged)}`;
+    case 'Walk':
+      return walkLine(body);
+    case 'RegionCleared': {
+      const region = L.REGIONS[body.region] ? L.REGIONS[body.region][1] : `第 ${body.region + 1} 区`;
+      return `首次探明 ${region} · 灵石 +${L.num(body.stones)} · ${body.gear || ''}`;
+    }
+    case 'Aptitude': {
+      const line = `${L.herbText(body.herb)} · 潜质 +${((body.gained_tenths || 0) / 10).toFixed(1)} → ${((body.value_tenths || 0) / 10).toFixed(1)}`;
+      return body.marrow > 0 ? `${line}（耗洗髓丹 ${body.marrow}）` : line;
+    }
+    case 'MarrowFound':
+      return `得洗髓丹 ×1（${MARROW_SOURCES[body.source] || body.source}）`;
+    case 'Training': {
+      const text = {
+        Failed: `修习《${body.name}》未成，进度仍在`,
+        Progressed: `修习《${body.name}》有所精进`,
+        RankedUp: `《${body.name}》突破至第 ${body.rank} 阶`,
+        Mastered: `《${body.name}》已至圆满`,
+      }[body.outcome];
+      return text || `修习《${body.name}》`;
+    }
+    case 'TrainBody':
+      return `练功有成，属性点 +${L.num(body.points)}`;
+    case 'Breakthrough': {
+      const parts = [];
+      if (body.won) {
+        parts.push(body.stage != null ? `破境成功，晋入${L.realmText(REALM_ORDER[body.stage])}。` : '闯关成功，晋入新境界！');
+        parts.push(...foundSegments(body.art, body.gear, body.seed));
+      } else {
+        parts.push('闯关未成，尚需砥砺。');
+      }
+      if (body.stones != null) parts.push(`灵石「${L.num(body.stones)}」`);
+      return parts.join(' · ');
+    }
+    case 'Trial':
+      return trialLine(body);
+    case 'TrialSweep':
+      return sweepLine(body);
+    case 'Proving': {
+      if (!body.won) return '试炼落败，未有所获。';
+      const parts = ['试炼获胜。'];
+      parts.push(...foundSegments(body.art, body.gear, body.seed));
+      if (body.stones != null) parts.push(`灵石「${L.num(body.stones)}」`);
+      if (body.progress != null) parts.push(`试炼 +${(body.progress / 10).toFixed(1)}%`);
+      return parts.join(' · ');
+    }
+    case 'Bought':
+      return body.stones > 0
+        ? `花 ${L.num(body.stones)} 灵石购入 ${saleName(body.what)}`
+        : `购入 ${saleName(body.what)}`;
+    case 'Sold':
+      return `售出 ${saleName(body.what)}，得 ${L.num(body.stones)} 灵石`;
+    case 'Harvest':
+      return '仙草园收成了一株。';
+    case 'Harvested': {
+      let line = body.herb
+        ? `仙草园收成 ${herbSeedText(body.herb, body.tier, body.grade)}（潜质灵草）`
+        : `仙草园收成 ${seedText(body.name, body.attribute, body.tier, body.grade)}，${L.attributeText(body.attribute)} +${L.num(body.points)}`;
+      if (body.xp > 0) line += ` · 造化 +${L.num(body.xp)}`;
+      if (body.seed) line += ` · 收获返得 ${body.seed}`;
+      return line;
+    }
+    case 'Withered': {
+      const seed = body.herb
+        ? herbSeedText(body.herb, body.tier, body.grade)
+        : seedText(body.name, body.attribute, body.tier, body.grade);
+      return `${seed} 未能成活（${((body.permille || 0) / 10).toFixed(0)}%）· 造化 +${L.num(body.xp)}`;
+    }
+    case 'GardenRank':
+      return `仙草园晋至 ${body.rank} 阶（花 ${L.num(body.stones)} 灵石）`;
+    case 'Daily': {
+      const key = body.kind === 'Ambush'
+        ? (body.won ? '晨间遇袭，击退来犯' : '晨间遇袭，不敌而退，所幸未失')
+        : body.kind === 'Gift'
+          ? '晨起有得'
+          : '晨间无事，拾得零碎';
+      const parts = [key];
+      parts.push(...foundSegments(body.art, body.gear, body.seed));
+      if (body.stones != null) parts.push(`灵石「${L.num(body.stones)}」`);
+      return parts.join(' · ');
+    }
+    case 'Star': {
+      const stars = '★'.repeat(body.star || 0);
+      const tribute = bagTextOf(body.cost && body.cost.resources) || '无';
+      return body.success
+        ? `${body.name} 升星成功，${stars}（花 ${L.num(body.cost && body.cost.stones)} 灵石、${tribute}）`
+        : `${body.name} 升星失败，降至 ${body.star} 星（花 ${L.num(body.cost && body.cost.stones)} 灵石、${tribute}）`;
+    }
+    case 'BuildingUpgrade': {
+      const tribute = bagTextOf(body.cost && body.cost.resources) || '无';
+      return `${BUILDING_NAMES[body.building] || body.building} 升至 ${body.level} 级（花 ${L.num(body.cost && body.cost.stones)} 灵石、${tribute}）`;
+    }
+    case 'Bonus':
+      return `意外之财：${bonusFindText(body.find)}`;
+    case 'EquipmentLost':
+      return `战败掉落装备「${body.name}」`;
+    default:
+      return '';
+  }
+}
+
+function replayRounds(duel) {
+  if (!duel || !Array.isArray(duel.rounds) || !duel.rounds.length) return null;
+  return {
+    label: `回放（${duel.rounds.length} 回合 · ${duel.won ? '胜' : '负'}）`,
+    rows: duel.rounds.map((round) => {
+      const art = round.art ? ` · ${round.art}` : '';
+      const blow = round.dodged ? '被闪避' : `-${L.num(round.damage)}`;
+      const effect = round.effect
+        ? ` · ${typeof round.effect === 'string' ? round.effect : Object.keys(round.effect)[0]}`
+        : '';
+      return `${round.index}. ${round.attacker}${art} ${blow}${effect} · 剩 ${L.num(round.target_health)}`;
+    }),
+  };
+}
+
+/// 通知：最近一次动作的结果，与 App `notices()` 同一组 key。
+function notices(c) {
+  const lines = [];
+  if (!c) return lines;
+  if (c.last_absence) {
+    lines.push({ key: 'absence', tone: 'danger', text: `${c.last_absence.days} 天未修炼，成长值 -${L.num(c.last_absence.charged)}` });
+  }
+  if (c.last_drop) {
+    const tag = Object.keys(c.last_drop)[0];
+    const body = c.last_drop[tag] || {};
+    const text = {
+      Equipment: `获得装备 ${body.name || '装备'}`,
+      Seed: `获得种子 ${seedText(null, body.attribute, body.tier, body.grade)}`,
+      Art: `千分之一：获得功法《${body.name}》`,
+      Herb: `千分之一：获得 ${L.herbText(body.herb)}`,
+      Stones: `千分之一：获得 ${L.num(c.last_drop[tag])} 灵石`,
+    }[tag];
+    if (text) lines.push({ key: 'drop', tone: 'accent', text });
+  }
+  if (c.last_seed_return) {
+    const seed = c.last_seed_return;
+    lines.push({
+      key: 'seed-return',
+      tone: 'accent',
+      text: `收获返得 ${seedText(seed.name, seed.attribute, seed.tier, seed.grade)}`,
+    });
+  }
+  if (c.last_star) {
+    const star = c.last_star;
+    const name = star.name || '武器';
+    lines.push({
+      key: 'star',
+      tone: star.success ? 'accent' : 'danger',
+      text: star.success ? `升星成功：${name} 升至 ${star.to} 星` : `升星失败：${name} 降至 ${star.to} 星`,
+    });
+  }
+  if (c.last_collect) {
+    lines.push({ key: 'collect', tone: 'accent', text: collectText(c.last_collect) });
+  }
+  if (c.last_building) {
+    const building = c.last_building;
+    lines.push({
+      key: 'building',
+      tone: 'accent',
+      text: `${BUILDING_NAMES[building.building] || building.building} 升至 ${building.to} 级`,
+    });
+  }
+  return lines;
+}
+
+/// 记录页：行踪 + 最近 5 件事 + 全部事件。每条带时间戳，战斗事件带回放。
+function record(c) {
+  const events = c.events || [];
+  const trip = c.outing_return_seconds || 0;
+  const hours = Math.floor(trip / 3600);
+  const minutes = Math.max(Math.floor((trip % 3600) / 60), hours === 0 ? 1 : 0);
+  const statusText = c.at_home
+    ? '在家'
+    : c.walk_early || c.work_early
+      ? `返程中：尚需 ${L.until(c.work ? c.work.ends_unix : c.exploration_ready_at)}到家`
+      : c.work
+        ? `外出：在打工（${JOB_GRADE_NAMES[c.work.grade] || ''}·${c.work.hours} 小时），剩余 ${L.until(c.work.ends_unix)}返回`
+        : c.exploration_ready_at
+          ? `外出：正在探索，剩余 ${L.until(c.exploration_ready_at)}返回`
+          : '外出';
+  const rows = events.map((event, index) => {
+    const detail = event.detail || {};
+    const duel =
+      (detail.Walk && detail.Walk.duel) ||
+      (detail.Trial && detail.Trial.duel) ||
+      (detail.Proving && detail.Proving.duel) ||
+      (detail.Breakthrough && detail.Breakthrough.duel) ||
+      (detail.Daily && detail.Daily.duel);
+    return {
+      key: `${event.at_unix}-${index}`,
+      at: L.when(event.at_unix),
+      text: eventLine(detail) || '（这一条没有可读的记述）',
+      replay: replayRounds(duel),
+      open: false,
+    };
+  });
+  return {
+    statusText,
+    atHome: !!c.at_home,
+    returning: !!(c.walk_early || c.work_early),
+    earlyTitle: c.walk_early || c.work_early ? '返程中' : '提前返回',
+    earlyHint: `提前返回没有任何奖励：本次外出作废，返程要走上 ${hours} 小时 ${minutes} 分。`,
+    visible: rows.slice(0, 5),
+    rest: rows.slice(5),
+    count: events.length,
+    empty: events.length === 0,
+  };
+}
+
+
 function header(snapshot) {
   const c = (snapshot && snapshot.cultivation) || {};
   return {
@@ -71,7 +434,16 @@ function header(snapshot) {
     stones: L.num(c.stones),
     total: String(snapshot ? snapshot.total_pomodoros || 0 : 0),
     atHome: !!c.at_home,
+    todayDelta: todayDeltaText(c),
   };
+}
+
+/// 今日境界/战力增量，与 App「今日境界 ±N 级 · 战力 ±M」同一读法。
+function todayDeltaText(c) {
+  const level = c.today_level_delta || 0;
+  const power = c.today_power_delta || 0;
+  const signed = (value) => `${value >= 0 ? '+' : ''}${L.num(value)}`;
+  return `今日境界 ${signed(level)} 级 · 战力 ${signed(power)}`;
 }
 
 function bar(ratio) {
@@ -221,7 +593,7 @@ function pomodoro(snapshot, calendar, cursor, remaining) {
     })),
     // 采集按钮下面的存货：伐木/采石能把哪个袋子填多少，看的就是这一行。
     purse: L.RESOURCES.map(
-      ([key, label]) => `${label} ${L.num((snapshot.cultivation?.resources?.bag || {})[key] || 0)}`,
+      ([key, label]) => `${label} ${L.quantity((snapshot.cultivation?.resources?.bag || {})[key] || 0)}`,
     ).join(' · '),
   };
 }
@@ -280,10 +652,16 @@ function outing(c) {
       : `人在外面，${c.outing_return_seconds ? `${L.duration(c.outing_return_seconds)}后回来` : '归期未定'}`,
     regionName: region[1],
     regionLevel: c.explore_level || 1,
+    regionLevels: (c.rules && c.rules.region_levels) || 0,
+    regionCount: (c.rules && c.rules.region_count) || 0,
     regionPercent: (regionProgress / 10).toFixed(1),
     explorationReady: !!c.exploration_ready,
     cooldownText: c.exploration_ready_at ? `探索冷却，还需 ${L.until(c.exploration_ready_at)}` : '',
-    hours: [4, 8, 12].map((value) => ({ value, primary: value === 8 })),
+    hours: ((c.rules && c.rules.explore_hours) || []).map((row, index) => ({
+      value: row.hours,
+      primary: index === 1,
+      label: `${row.hours} 小时 · ×${(row.multiplier_permille / 1000).toFixed(1)}`,
+    })),
     earlyReturn: !!(c.walk_early || c.work_early),
     found: chips,
     regions,
@@ -342,6 +720,13 @@ function tower(c) {
     canProve: (c.proving_tokens || 0) > 0 && !!c.at_home,
     provingBlocked: c.proving_blocked ? L.refusalText(c.proving_blocked) : '',
     provingChips,
+    lastTrial: c.last_trial
+      ? {
+          text: `上次闯塔：第 ${c.last_trial.floor} 层${c.last_trial.duel && c.last_trial.duel.won ? '通关' : '未过'}`,
+          replay: replayRounds(c.last_trial.duel),
+        }
+      : null,
+    sweepResult: c.last_trial_sweep ? sweepLine(c.last_trial_sweep) : '',
     record: (c.duel_record || [])
       .slice(-8)
       .reverse()
@@ -357,7 +742,7 @@ function tower(c) {
 
 /* ---------- 修仙 · 洞府 ---------- */
 
-function workshop(c, tier) {
+function workshop(c) {
   const resources = c.resources || {};
   const bag = resources.bag || {};
   const cap = resources.cap || 0;
@@ -391,12 +776,21 @@ function workshop(c, tier) {
       key,
       label,
       level: (skill && skill.level) || 0,
-      xpText: `${L.num(xp)}/${L.num(need)}`,
+      xpText: `${L.quantity(xp)}/${L.quantity(need)}`,
       percent: bar(need ? xp / need : 0),
     };
   });
   const running = !!c.task;
-  const selectedTier = tier || 'common';
+  const seclusionMinutes = Math.max(1, Math.round(((c.rules && c.rules.seclusion_seconds) || 0) / 60));
+  // 两个行业各爬各的等级，林子和山各站在自己的深度上。页面只读这份读数，
+  // 没有可点的阶：深度由内核按等级推导，玩家不用选（`docs/0105`）。
+  // 当前深度由 `resources.*.depth` 给，倍率读 `rules.gather_depths`。
+  const depthOf = (site, trade) =>
+    `${L.GATHER_PLACES[site][(trade && trade.depth) || 'Common']} ${depthTag(c, (trade && trade.depth) || 'Common')}`;
+  const gates = ((c.rules && c.rules.gather_depths) || [])
+    .filter((row) => (row.unlock_level || 0) > 1)
+    .map((row) => row.unlock_level)
+    .join('、');
   const live = liveProgress(c, Date.now());
   const task = {
     running,
@@ -412,9 +806,13 @@ function workshop(c, tier) {
     battleBar: live.battle != null,
     taskPercent: bar((live.task || 0) / 1000),
     battlePercent: bar((live.battle || 0) / 1000),
-    tiers: L.TIER_CHOICES.map(([key, label]) => ({ key, label, active: key === selectedTier })),
+    depths: [
+      { key: 'woodcut', label: `伐木 ${depthOf('Forest', resources.woodcut)}` },
+      { key: 'stonecut', label: `采石 ${depthOf('Mountain', resources.stonecut)}` },
+    ],
+    depthHint: `随采集等级自动加深：升到 ${gates || '—'} 级就自己走到更深处`,
+    // 吐纳已下线（`docs/0103` §4）：任务卡只给采集的开始钮。
     starts: [
-      { act: 'cult-meditate', label: L.TASK_KINDS.Meditate, disabled: running },
       { act: 'cult-woodcut', label: L.TASK_KINDS.Woodcut, disabled: running },
       { act: 'cult-stonecut', label: L.TASK_KINDS.Stonecut, disabled: running },
     ],
@@ -422,26 +820,25 @@ function workshop(c, tier) {
   const seclusion = c.seclusion
     ? {
         running: true,
-        text: `${L.SECLUSION.title}进行中 · ${L.num(c.seclusion.ticks_done)}/${SECLUSION_TICKS} 回合`,
-        hint: L.SECLUSION.hint,
+        text: `${L.SECLUSION.title}进行中 · ${L.num(c.seclusion.ticks_done)}/${L.num((c.rules && c.rules.seclusion_ticks) || 0)} 回合`,
+        hint: `${seclusionMinutes} 分钟一次，不占任务槽`,
         startText: L.SECLUSION.start,
         stopText: L.SECLUSION.stop,
       }
     : {
         running: false,
         text: L.SECLUSION.title,
-        hint: L.SECLUSION.hint,
+        hint: `${seclusionMinutes} 分钟一次，不占任务槽`,
         startText: L.SECLUSION.start,
         stopText: L.SECLUSION.stop,
       };
   return {
-    cap: L.num(cap),
-    bag: L.RESOURCES.map(([key, label]) => ({ key, label, value: L.num(bag[key] || 0) })),
+    cap: L.quantity(cap),
+    bag: L.RESOURCES.map(([key, label]) => ({ key, label, value: L.quantity(bag[key] || 0) })),
     skills,
     buildings,
     task,
     seclusion,
-    collectNotice: c.last_collect ? collectText(c.last_collect) : '',
   };
 }
 
@@ -481,6 +878,7 @@ function garden(c) {
       grade: L.gradeText(seed.grade),
       count: seed.count,
       sellPrice: L.num(seed.sell_price),
+      oddsText: `成活率 ${((seed.plant_permille || 0) / 10).toFixed(0)}%`,
       herb,
       attribute: seed.attribute,
       tier: seed.tier,
@@ -499,6 +897,8 @@ function garden(c) {
     canBuyPlot: !!c.next_plot_price,
     upgradeText: c.garden_upgrade_cost ? `升园阶 ${L.num(c.garden_upgrade_cost)} 灵石` : '园阶已到顶',
     canUpgrade: !!c.garden_upgrade_cost,
+    canHarvestAll: (c.plots || []).some((plot) => plot.crop && !plot.crop.withered && plot.crop.ready_at_unix <= now),
+    canPlantAll: (c.seeds || []).length > 0 && (c.plots || []).some((plot) => !plot.crop),
     seeds,
   };
 }
@@ -731,8 +1131,10 @@ module.exports = {
   liveProgress,
   market,
   me,
+  notices,
   outing,
   pomodoro,
+  record,
   statusSection,
   todayCount,
   tower,

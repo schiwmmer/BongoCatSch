@@ -20,7 +20,6 @@ use super::*;
 pub(super) fn resources_panel(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
-    tier: GatherTier,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
@@ -32,7 +31,7 @@ pub(super) fn resources_panel(
         .gap_1()
         .child(section_title(locale, "cultivation.resources.title", tokens))
         .child(trades_line(resources, locale))
-        .child(task_row(view, cultivation, tier, locale, tokens))
+        .child(task_row(view, cultivation, locale, tokens))
         .child(seclusion_row(view, cultivation, locale, tokens))
         .child(bag_row(resources, locale))
         .child(building_grid(view, resources, locale, tokens))
@@ -50,7 +49,6 @@ pub(super) fn resources_panel(
 fn task_row(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
-    tier: GatherTier,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
@@ -74,7 +72,7 @@ fn task_row(
         ),
     };
     panel
-        .child(task_start_row(view, cultivation, tier, locale, tokens))
+        .child(task_start_row(view, cultivation, locale, tokens))
         .test_support()
 }
 
@@ -90,6 +88,18 @@ fn task_row(
 /// and says nothing in between, so the part of the tick already spent is read
 /// off the task's own `start_unix` and the wall clock, the way the page's
 /// countdowns are.
+/// A depth as the page prints it: the numeral, then the multiplier the domain's
+/// own ladder pays. The multiplier is computed from `base_permille` rather than
+/// stored in the catalog, so changing the ladder changes the label on every
+/// surface (`docs/0106`).
+fn depth_label(locale: &str, tier: bongocat_pomodoro::GatherTier) -> String {
+    format!(
+        "{} · ×{:.1}",
+        text(locale, tier.key()),
+        tier.base_permille() as f32 / 1_000.0
+    )
+}
+
 fn task_status_line(
     task: &ActiveTask,
     now_ms: i64,
@@ -100,13 +110,17 @@ fn task_status_line(
     let ticks = task.ticks_done.to_string();
     let seconds = task.tick_seconds.to_string();
     let line = match task.site {
+        // The place's own name carries the fiction — 灵木林 is a different
+        // forest, not a different word for wood — and the depth label under it
+        // carries the number (`docs/0105`): "Ⅱ · ×1.5", never a second rarity
+        // ladder spelled 凡/灵/神/混沌.
         Some(site) => format_text(
             locale,
             "cultivation.task.current_gather",
             &[
                 ("kind", kind),
-                ("site", text(locale, site.key()).to_string()),
-                ("tier", text(locale, task.tier.key()).to_string()),
+                ("site", text(locale, task.tier.site_key(site)).to_string()),
+                ("depth", depth_label(locale, task.tier)),
                 ("ticks", ticks),
                 ("seconds", seconds),
             ],
@@ -150,14 +164,20 @@ fn task_stop_button(view: &Entity<SettingsView>, locale: &str) -> impl IntoEleme
         })
 }
 
-/// The three tasks a click can start, at the tier the chips name.
+/// The three tasks a click can start, and where the two gathering ones work.
 ///
-/// The tier is chosen once for both gathering tasks: the real choice is "how
-/// deep", not a per-button decision. 伐木 works the forest and 采石 the
-/// mountain, so the site is the kind's own rather than a second picker — a
-/// 伐木 task in the mountain is a task the design does not define. The 矿洞's
-/// dual-skill point has no [`TaskKind`] of its own yet, so it is not offered
-/// here.
+/// There is **no** depth picker (`docs/0105`): a 伐木 or 采石 task works the
+/// deepest point its trade has reached, so the only thing left to say is where
+/// that is — "凡木林 Ⅰ · ×1.0" beside the button — and the domain moves it as
+/// the hand climbs. A picker here only ever offered the strictly worse option
+/// (every deeper point pays more at the same tempo), which is a decision with
+/// one right answer, i.e. not a decision. The two trades climb separately, so
+/// the forest and the mountain each carry their own depth.
+///
+/// 伐木 works the forest and 采石 the mountain, so the site is the kind's own
+/// rather than a second picker — a 伐木 task in the mountain is a task the
+/// design does not define. The 矿洞's dual-skill point has no [`TaskKind`] of
+/// its own yet, so it is not offered here.
 ///
 /// A task already running disables the three: the slot is one, and a second
 /// start would only be refused. The running task's own stop button is the way
@@ -165,43 +185,15 @@ fn task_stop_button(view: &Entity<SettingsView>, locale: &str) -> impl IntoEleme
 fn task_start_row(
     view: &Entity<SettingsView>,
     cultivation: &CultivationView,
-    tier: GatherTier,
     locale: &str,
     tokens: Tokens,
 ) -> impl IntoElement {
     let running = cultivation.task.is_some();
-    let chips = GatherTier::ALL.into_iter().map(|choice| {
-        let selected = choice == tier;
-        let mut chip = div()
-            .id(format!("cultivation-task-tier-{choice:?}"))
-            .px_2()
-            .py_1()
-            .rounded_md()
-            .text_xs()
-            .child(text(locale, choice.key()))
-            .on_click({
-                let view = view.clone();
-                move |_, _, cx| {
-                    view.update(cx, |view, cx| {
-                        view.cultivation_task_tier = choice;
-                        cx.notify();
-                    });
-                }
-            })
-            .test_support();
-        if selected {
-            chip = chip
-                .bg(tokens.overlay)
-                .text_color(tokens.accent)
-                .font_semibold();
-        } else {
-            chip = chip.text_color(tokens.muted);
-        }
-        chip
-    });
+    let forest_tier = GatherTier::for_level(cultivation.resources.woodcut.level);
+    let mountain_tier = GatherTier::for_level(cultivation.resources.stonecut.level);
     // One builder for the three starts, so the command each click publishes is
     // spelled once: the kind names the task, the site is the kind's own, and
-    // the tier is the chip the user lit.
+    // the depth is the domain's reading of the hand rather than a chip.
     let start_button = |kind: TaskKind, site: Option<GatherSite>, id: &'static str| {
         let mut button = Button::new(id)
             .ghost()
@@ -215,7 +207,6 @@ fn task_start_row(
                     let _ = view.pomodoro.try_publish(PomodoroCommand::CultStartTask {
                         kind,
                         site,
-                        tier: Some(tier),
                         grade: None,
                         // None of the three starts here is a 打工: the board
                         // takes those, and the trade a job was taken at is
@@ -230,29 +221,49 @@ fn task_start_row(
         });
         button
     };
+    // Where a gathering button works: the place's own name and the depth label
+    // under it, so "the forest gets deeper" is something the page says rather
+    // than something the user has to infer from a number in a tooltip.
+    let depth = |tier: GatherTier, site: GatherSite| {
+        div().text_xs().text_color(tokens.muted).child(format!(
+            "{} {}",
+            text(locale, tier.site_key(site)),
+            depth_label(locale, tier)
+        ))
+    };
     div()
         .id("cultivation-task-starts")
         .flex()
-        .flex_row()
-        .flex_wrap()
-        .items_center()
+        .flex_col()
         .gap_1()
-        .children(chips)
-        .child(start_button(
-            TaskKind::Meditate,
-            None,
-            "cultivation-task-start-meditate",
-        ))
-        .child(start_button(
-            TaskKind::Woodcut,
-            Some(GatherSite::Forest),
-            "cultivation-task-start-woodcut",
-        ))
-        .child(start_button(
-            TaskKind::Stonecut,
-            Some(GatherSite::Mountain),
-            "cultivation-task-start-stonecut",
-        ))
+        .child(
+            div()
+                .id("cultivation-task-depth-hint")
+                .text_xs()
+                .text_color(tokens.muted)
+                .child(text(locale, "cultivation.task.depth_hint"))
+                .test_support(),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .items_center()
+                .gap_1()
+                .child(start_button(
+                    TaskKind::Woodcut,
+                    Some(GatherSite::Forest),
+                    "cultivation-task-start-woodcut",
+                ))
+                .child(depth(forest_tier, GatherSite::Forest))
+                .child(start_button(
+                    TaskKind::Stonecut,
+                    Some(GatherSite::Mountain),
+                    "cultivation-task-start-stonecut",
+                ))
+                .child(depth(mountain_tier, GatherSite::Mountain)),
+        )
         .test_support()
 }
 
@@ -354,8 +365,8 @@ fn bag_row(resources: &ResourcesView, locale: &str) -> impl IntoElement {
             "cultivation.resources.bag_entry",
             &[
                 ("resource", text(locale, resource.key()).to_string()),
-                ("count", count.to_string()),
-                ("cap", resources.cap.to_string()),
+                ("count", quantity_number(u64::from(count))),
+                ("cap", quantity_number(u64::from(resources.cap))),
             ],
         ));
     }
@@ -374,8 +385,8 @@ fn trades_line(resources: &ResourcesView, locale: &str) -> impl IntoElement {
             &[
                 ("skill", text(locale, skill.key()).to_string()),
                 ("level", trade.level.to_string()),
-                ("xp", trade.xp.to_string()),
-                ("next", trade.xp_to_next.to_string()),
+                ("xp", quantity_number(u64::from(trade.xp))),
+                ("next", quantity_number(u64::from(trade.xp_to_next))),
             ],
         )
     };
@@ -566,4 +577,17 @@ fn cost_line(locale: &str, cost: &Cost) -> String {
             ("tribute", resource_bag_text(locale, &cost.resources)),
         ],
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bongocat_pomodoro::GatherTier;
+
+    #[test]
+    fn depth_labels_compute_the_multiplier_from_the_domain() {
+        assert_eq!(depth_label("zh-CN", GatherTier::Common), "Ⅰ · ×1.0");
+        assert_eq!(depth_label("zh-CN", GatherTier::Spirit), "Ⅱ · ×1.5");
+        assert_eq!(depth_label("zh-CN", GatherTier::Chaos), "Ⅳ · ×3.0");
+    }
 }

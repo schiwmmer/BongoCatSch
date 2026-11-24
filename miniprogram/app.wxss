@@ -666,3 +666,73 @@ page {
 .sync-dot.busy {
   color: #2f7d6e;
 }
+
+/* ---------- 通知条与事件回放（docs/0106） ----------
+   通知是「上一次动作的结果」，贴在页头，切分区不消失；颜色只分好坏。
+   回放是同一份回合表的文字版，展开在事件行下面，与 App 的逐回合读数同字段。 */
+
+.today-delta {
+  font-size: 22rpx;
+  color: #8b8578;
+  padding: 8rpx 28rpx 0;
+}
+
+.notices {
+  padding: 12rpx 24rpx 0;
+}
+
+.notice {
+  margin-bottom: 8rpx;
+  padding: 14rpx 20rpx;
+  border-radius: 12rpx;
+  border: 1rpx solid #e6e1d6;
+  background: #fffdf8;
+  color: #6f695d;
+  font-size: 24rpx;
+  line-height: 1.45;
+}
+
+.notice.accent {
+  border-color: #cfe6dc;
+  background: #eef7f2;
+  color: #2f7d6e;
+}
+
+.notice.danger {
+  border-color: #f0c9be;
+  background: #fdf0ec;
+  color: #b4553f;
+}
+
+.hint.accent {
+  color: #2f7d6e;
+}
+
+.replay-toggle,
+.show-all {
+  display: inline-block;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #8b8578;
+}
+
+.show-all {
+  display: block;
+  text-align: center;
+  padding: 16rpx 0;
+}
+
+.rounds {
+  margin-top: 8rpx;
+  padding: 14rpx 18rpx;
+  border-radius: 12rpx;
+  border: 1rpx solid #eee8dc;
+  background: #faf7f0;
+}
+
+.round {
+  font-size: 22rpx;
+  line-height: 1.7;
+  color: #6f695d;
+  font-family: Menlo, monospace;
+}

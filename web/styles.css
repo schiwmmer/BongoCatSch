@@ -739,3 +739,49 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 }
 
 .region-row .row-sub { padding-right: 0; }
+
+/* ---------- 通知条与事件回放（docs/0106） ----------
+   通知讲「上一次动作的结果」，贴在页头，切 tab 不消失；颜色只用来分好坏，
+   不用来做装饰。回放是同一份回合表的文字版，展开在事件行下面。 */
+
+.notices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.notice {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.notice.accent { border-color: var(--jade-soft); background: var(--jade-soft); color: var(--jade); }
+.notice.danger { border-color: #f0c6c3; background: var(--accent-soft); color: var(--accent); }
+
+.replay { margin-top: 4px; }
+.replay > summary,
+.show-all > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ink-3);
+  list-style: none;
+}
+.replay > summary:hover,
+.show-all > summary:hover { color: var(--ink-2); }
+.rounds {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card-alt);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font: 12px/1.5 var(--mono);
+  color: var(--ink-2);
+}
+.round-index { color: var(--ink-3); }
+.show-all { margin-top: 10px; }

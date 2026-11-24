@@ -98,7 +98,7 @@ pub use events::{
 };
 pub use explore::{
     BREAKTHROUGH_COOLDOWN_SECONDS, ExpeditionInProgress, ExplorationHours, ExplorationOutcome,
-    Region, VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkInProgress, WalkRecord,
+    LEVELS_PER_REGION, Region, VICTORY_SEED_PERMILLE, WALK_RECORD_CAP, WalkInProgress, WalkRecord,
 };
 pub use garden::{
     CropRecord, FREE_PLOT_COUNT, MAX_GARDEN_RANK, MAX_PLOT_COUNT, MAX_SEED_TIER, PlotRecord,
@@ -139,10 +139,10 @@ pub use state::{
     JOB_POINT_EVERY_TICKS, JobView, LostGear, PlannedBattle, PlantOutcome, PlotView,
     PowerBreakdown, ProvingApply, ProvingBlocked, RegionView, ResourcesView,
     SECLUSION_BONUS_PERMILLE, SECLUSION_TICK_SECONDS, SECLUSION_TICKS, SeclusionRun, SeedReward,
-    SeedView, SessionReward, StarOutcome, TASK_BASE_GROWTH, TASK_CHANCE_EVERY_TICKS,
-    TASK_JOB_BASE_STONES, TASK_OFFLINE_CAP_SECONDS, TaskKind, TradeView, TrainingView, TrialApply,
-    TrialBlocked, TrialOutcome, TrialSweepOutcome, WORK_TICK_SECONDS, WorkPaid,
-    battle_total_progress_permille, meditate_tick_growth, sit_growth, tick_progress_permille,
+    SeedView, SessionReward, StarOutcome, TASK_BASE_GROWTH, TASK_JOB_BASE_STONES,
+    TASK_OFFLINE_CAP_SECONDS, TaskKind, TradeView, TrainingView, TrialApply, TrialBlocked,
+    TrialOutcome, TrialSweepOutcome, WORK_TICK_SECONDS, WorkPaid, battle_total_progress_permille,
+    meditate_tick_growth, sit_growth, tick_progress_permille,
 };
 pub use trade::{TradeRefusal, session_earnings};
 pub use trial::{
@@ -224,11 +224,6 @@ pub enum Refusal {
     /// A battle was asked for that the ladder cannot offer: the realm is not at
     /// its last layer, or the ladder has no next realm.
     BattleUnavailable,
-    /// A gathering task was started at a tier whose unlock level the
-    /// cultivator's trade has not reached: a deeper point is a deeper hand, so
-    /// the click is answered rather than quietly worked at a poorer rate
-    /// (`docs/0103` §5.2).
-    TierLocked,
 }
 
 impl Refusal {
@@ -251,7 +246,6 @@ impl Refusal {
             Self::BattleRunning => "cultivation.battle.refuse_running",
             Self::BreakthroughCooling => "cultivation.breakthrough.refuse_cooling",
             Self::BattleUnavailable => "cultivation.battle.refuse_unavailable",
-            Self::TierLocked => "cultivation.tier.refuse_locked",
             Self::Working => "cultivation.jobs.refuse_working",
             Self::JobGone => "cultivation.jobs.refuse_gone",
         }
